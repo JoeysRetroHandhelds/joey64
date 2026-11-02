@@ -70,6 +70,7 @@ std::condition_variable g_pauseCv;
 std::atomic<int> g_buttons{0};
 std::atomic<int> g_analog[2][2] = {};
 unsigned g_lastW = 0, g_lastH = 0;
+int g_statRuns = 0, g_statPresents = 0, g_statDupes = 0; // emulation thread only
 
 template <typename T> bool sym(T& fn, const char* name) {
     fn = reinterpret_cast<T>(dlsym(core.handle, name));
@@ -151,10 +152,12 @@ bool environment(unsigned cmd, void* data) {
 }
 
 void video_refresh(const void* data, unsigned w, unsigned h, size_t) {
-    if (!data) return;                       // dupe frame: keep previous
+    if (!data) { ++g_statDupes; return; }     // dupe frame: keep previous
     g_lastW = w; g_lastH = h;
-    if (data == RETRO_HW_FRAME_BUFFER_VALID)
+    if (data == RETRO_HW_FRAME_BUFFER_VALID) {
         g_egl.present(w, h, g_hw.bottom_left_origin);
+        ++g_statPresents;
+    }
     // Software frames are not expected from mupen64plus-next with a HW context.
 }
 
@@ -182,6 +185,19 @@ void applySurfaceIfChanged() {
     g_egl.attachWindow(g_pendingWindow);
 }
 
+// Logs emulated frames/s (retro_run calls), presented and duped frames every 5 s.
+void logStats() {
+    using clock = std::chrono::steady_clock;
+    static clock::time_point start = clock::now();
+    ++g_statRuns;
+    double secs = std::chrono::duration<double>(clock::now() - start).count();
+    if (secs < 5.0) return;
+    LOGI("stats: %.1f emu fps, %.1f presented, %.1f dupes (%ux%u)", g_statRuns / secs,
+         g_statPresents / secs, g_statDupes / secs, g_lastW, g_lastH);
+    g_statRuns = g_statPresents = g_statDupes = 0;
+    start = clock::now();
+}
+
 void runLoop() {
     g_egl.makeCurrent();
     while (g_running) {
@@ -194,6 +210,7 @@ void runLoop() {
         if (!g_egl.hasWindow()) { std::this_thread::sleep_for(std::chrono::milliseconds(16)); continue; }
         glBindFramebuffer(GL_FRAMEBUFFER, g_egl.fbo());
         core.run();   // pacing comes from vsync + blocking audio writes (M4 refines)
+        logStats();
     }
     if (g_hw.context_destroy) g_hw.context_destroy();
     core.unload_game();

@@ -12,6 +12,9 @@ object NativeBridge {
     /** Load a ROM. Must be called after setSurface so the HW context exists. */
     external fun loadGame(romPath: String): Boolean
 
+    /** Before loadGame: true = Vulkan (parallel-RDP/RSP), false = GLES3 (GLideN64). */
+    external fun setRenderer(vulkan: Boolean)
+
     external fun setSurface(surface: Surface?)
     external fun start()
     external fun pause(paused: Boolean)

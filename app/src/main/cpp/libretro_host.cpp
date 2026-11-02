@@ -1,5 +1,5 @@
 // Minimal libretro frontend: dlopen the core, answer environment calls,
-// provide a GLES3 HW render context, and run retro_run on a dedicated thread.
+// provide a GLES3 or Vulkan HW render context, and run retro_run on a dedicated thread.
 #include <jni.h>
 #include <dlfcn.h>
 #include <android/log.h>
@@ -17,6 +17,7 @@
 
 #include "libretro.h"   // from libretro-common, see README
 #include "egl_context.h"
+#include "vk_context.h"
 #include "audio_out.h"
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "n64host", __VA_ARGS__)
@@ -44,19 +45,21 @@ struct Core {
 std::string g_systemDir, g_saveDir;
 retro_hw_render_callback g_hw{};
 bool g_hwRequested = false;
+// Renderer chosen before loadGame: Vulkan = parallel-RDP/RSP, otherwise GLES3 = GLideN64.
+bool g_vulkan = false;
+const retro_hw_render_context_negotiation_interface_vulkan* g_negotiation = nullptr;
 retro_system_av_info g_av{};
 
 // Core options. Defaults from the core, overrides here.
 // M3's profile DB will fill g_optionOverrides per ROM hash + GPU.
 std::unordered_map<std::string, std::string> g_options;
 std::unordered_map<std::string, std::string> g_optionOverrides = {
-    {"mupen64plus-rdp-plugin", "gliden64"},   // M2 switches to "parallel" when Vulkan lands
-    {"mupen64plus-rsp-plugin", "hle"},
     {"mupen64plus-cpucore", "dynamic_recompiler"},
 };
 std::atomic<bool> g_optionsDirty{true};
 
 EglContext g_egl;
+VkContext g_vk;
 AudioOut g_audio;
 std::mutex g_surfaceMutex;
 ANativeWindow* g_pendingWindow = nullptr;
@@ -104,20 +107,45 @@ bool environment(unsigned cmd, void* data) {
     case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT:
         return *static_cast<retro_pixel_format*>(data) == RETRO_PIXEL_FORMAT_XRGB8888;
     case RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER:
-        *static_cast<unsigned*>(data) = RETRO_HW_CONTEXT_OPENGLES3; return true;
+        *static_cast<unsigned*>(data) = g_vulkan ? RETRO_HW_CONTEXT_VULKAN : RETRO_HW_CONTEXT_OPENGLES3;
+        return true;
     case RETRO_ENVIRONMENT_SET_HW_RENDER: {
         auto* hw = static_cast<retro_hw_render_callback*>(data);
+        if (hw->context_type == RETRO_HW_CONTEXT_VULKAN) {
+            if (!g_vulkan) return false;
+            g_hw = *hw; g_hwRequested = true;
+            return true;
+        }
+        if (g_vulkan) return false;
         if (hw->context_type != RETRO_HW_CONTEXT_OPENGLES3 &&
             hw->context_type != RETRO_HW_CONTEXT_OPENGLES2 &&
             hw->context_type != RETRO_HW_CONTEXT_OPENGLES_VERSION) {
             LOGI("core requested unsupported HW context %d", hw->context_type);
-            return false; // Vulkan → M2
+            return false;
         }
         hw->get_current_framebuffer = hw_get_current_framebuffer;
         hw->get_proc_address = hw_get_proc_address;
         g_hw = *hw; g_hwRequested = true;
         return true;
     }
+    case RETRO_ENVIRONMENT_GET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_SUPPORT: {
+        // v1 only: the core creates the device via create_device; we create the instance.
+        auto* n = static_cast<retro_hw_render_context_negotiation_interface*>(data);
+        if (n->interface_type != RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN) return false;
+        n->interface_version = 1;
+        return true;
+    }
+    case RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE: {
+        auto* n = static_cast<const retro_hw_render_context_negotiation_interface*>(data);
+        if (n->interface_type != RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN) return false;
+        g_negotiation = reinterpret_cast<const retro_hw_render_context_negotiation_interface_vulkan*>(n);
+        return true;
+    }
+    case RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE:
+        if (!g_vulkan) return false;
+        *static_cast<const retro_hw_render_interface**>(data) =
+            reinterpret_cast<const retro_hw_render_interface*>(g_vk.iface());
+        return true;
     case RETRO_ENVIRONMENT_GET_VARIABLE: {
         auto* v = static_cast<retro_variable*>(data);
         auto it = g_optionOverrides.find(v->key);
@@ -152,6 +180,12 @@ bool environment(unsigned cmd, void* data) {
 }
 
 void video_refresh(const void* data, unsigned w, unsigned h, size_t) {
+    if (g_vulkan) {
+        if (!data) ++g_statDupes;
+        else { g_lastW = w; g_lastH = h; ++g_statPresents; }
+        g_vk.videoRefresh(data, w, h);
+        return;
+    }
     if (!data) { ++g_statDupes; return; }     // dupe frame: keep previous
     g_lastW = w; g_lastH = h;
     if (data == RETRO_HW_FRAME_BUFFER_VALID) {
@@ -182,7 +216,8 @@ int16_t input_state(unsigned port, unsigned device, unsigned index, unsigned id)
 void applySurfaceIfChanged() {
     if (!g_surfaceChanged.exchange(false)) return;
     std::lock_guard<std::mutex> lk(g_surfaceMutex);
-    g_egl.attachWindow(g_pendingWindow);
+    if (g_vulkan) g_vk.attachWindow(g_pendingWindow);
+    else g_egl.attachWindow(g_pendingWindow);
 }
 
 // Logs emulated frames/s (retro_run calls), presented and duped frames every 5 s.
@@ -199,7 +234,7 @@ void logStats() {
 }
 
 void runLoop() {
-    g_egl.makeCurrent();
+    if (!g_vulkan) g_egl.makeCurrent();
     while (g_running) {
         {
             std::unique_lock<std::mutex> lk(g_pauseMutex);
@@ -207,16 +242,25 @@ void runLoop() {
         }
         if (!g_running) break;
         applySurfaceIfChanged();
-        if (!g_egl.hasWindow()) { std::this_thread::sleep_for(std::chrono::milliseconds(16)); continue; }
-        glBindFramebuffer(GL_FRAMEBUFFER, g_egl.fbo());
-        core.run();   // pacing comes from vsync + blocking audio writes (M4 refines)
+        bool hasWindow = g_vulkan ? g_vk.hasWindow() : g_egl.hasWindow();
+        if (!hasWindow) { std::this_thread::sleep_for(std::chrono::milliseconds(16)); continue; }
+        // pacing comes from vsync + blocking audio writes (M4 refines)
+        if (g_vulkan) {
+            if (!g_vk.beginFrame()) continue;   // swapchain recreated, try again
+            core.run();
+            g_vk.endFrame();
+        } else {
+            glBindFramebuffer(GL_FRAMEBUFFER, g_egl.fbo());
+            core.run();
+        }
         logStats();
     }
     if (g_hw.context_destroy) g_hw.context_destroy();
     core.unload_game();
     core.deinit();
     g_audio.close();
-    g_egl.destroy();
+    if (g_vulkan) g_vk.destroy();
+    else g_egl.destroy();
 }
 
 } // namespace
@@ -270,9 +314,18 @@ JNIEXPORT void JNICALL JNI(setSurface)(JNIEnv* env, jobject, jobject surface) {
 
 // Note: loadGame runs on the UI thread and makes the context current there;
 // start() hands the context to the emulation thread.
+JNIEXPORT void JNICALL JNI(setRenderer)(JNIEnv*, jobject, jboolean vulkan) {
+    g_vulkan = vulkan;
+    g_optionOverrides["mupen64plus-rdp-plugin"] = vulkan ? "parallel" : "gliden64";
+    g_optionOverrides["mupen64plus-rsp-plugin"] = vulkan ? "parallel" : "hle";
+    g_optionsDirty = true;
+}
+
 JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom) {
-    if (!g_egl.init()) return JNI_FALSE;
-    applySurfaceIfChanged();
+    if (!g_vulkan) {
+        if (!g_egl.init()) return JNI_FALSE;
+        applySurfaceIfChanged();
+    }
 
     const char* p = env->GetStringUTFChars(rom, nullptr);
     FILE* f = fopen(p, "rb");
@@ -288,11 +341,21 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom) {
     LOGI("game loaded: %ux%u max, %.2f fps, %.0f Hz", g_av.geometry.max_width, g_av.geometry.max_height,
          g_av.timing.fps, g_av.timing.sample_rate);
 
-    g_egl.ensureFbo(g_av.geometry.max_width, g_av.geometry.max_height);
-    if (g_hwRequested && g_hw.context_reset) g_hw.context_reset();
+    if (g_vulkan) {
+        if (!g_hwRequested || g_hw.context_type != RETRO_HW_CONTEXT_VULKAN) {
+            LOGE("core did not request a Vulkan context"); return JNI_FALSE;
+        }
+        if (!g_vk.init(g_negotiation)) return JNI_FALSE;
+        applySurfaceIfChanged();
+        if (g_hw.context_reset) g_hw.context_reset();
+    } else {
+        g_egl.ensureFbo(g_av.geometry.max_width, g_av.geometry.max_height);
+        if (g_hwRequested && g_hw.context_reset) g_hw.context_reset();
+    }
     g_audio.open((int)(g_av.timing.sample_rate + 0.5));
 
-    eglMakeCurrent(eglGetCurrentDisplay(), EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT); // release for run thread
+    if (!g_vulkan) // release for run thread
+        eglMakeCurrent(eglGetCurrentDisplay(), EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     return JNI_TRUE;
 }
 

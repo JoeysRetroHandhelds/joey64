@@ -32,6 +32,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         val sys = File(filesDir, "system").apply { mkdirs() }
         val saves = File(filesDir, "saves").apply { mkdirs() }
 
+        // Dev switch until M3 picks per game/GPU: am start ... --es renderer parallel
+        // GLideN64 is the default: Adreno 740 driver 676.53 fails to compile a parallel-RDP shader.
+        NativeBridge.setRenderer(intent?.getStringExtra("renderer") == "parallel")
         if (!NativeBridge.loadCore(coreFile.absolutePath, sys.absolutePath, saves.absolutePath)) {
             Log.e(TAG, "Core failed to load: $coreFile"); finish()
         }

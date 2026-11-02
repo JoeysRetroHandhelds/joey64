@@ -15,6 +15,9 @@ object NativeBridge {
     /** Before loadGame: true = Vulkan (parallel-RDP/RSP), false = GLES3 (GLideN64). */
     external fun setRenderer(vulkan: Boolean)
 
+    /** Before loadGame: load a custom Vulkan driver (Turnip) via libadrenotools. Dirs end with '/'. */
+    external fun setVulkanDriver(driverDir: String, libName: String, hookDir: String, tmpDir: String)
+
     external fun setSurface(surface: Surface?)
     external fun start()
     external fun pause(paused: Boolean)

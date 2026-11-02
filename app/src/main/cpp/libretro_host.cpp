@@ -71,6 +71,8 @@ std::mutex g_pauseMutex;
 std::condition_variable g_pauseCv;
 
 std::atomic<int> g_buttons{0};
+std::atomic<int> g_tapped{0}; // presses not yet seen by a poll, so sub-frame taps still register
+int g_polledButtons = 0;      // emulation thread only
 std::atomic<int> g_analog[2][2] = {};
 unsigned g_lastW = 0, g_lastH = 0;
 int g_statRuns = 0, g_statPresents = 0, g_statDupes = 0; // emulation thread only
@@ -172,6 +174,10 @@ bool environment(unsigned cmd, void* data) {
         g_av.geometry = *static_cast<const retro_game_geometry*>(data); return true;
     case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO:
         g_av = *static_cast<const retro_system_av_info*>(data); return true;
+    case RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS:
+        for (auto* d = static_cast<const retro_input_descriptor*>(data); d->description; ++d)
+            if (d->port == 0) LOGI("input: dev %u idx %u id %u = %s", d->device, d->index, d->id, d->description);
+        return true;
     case RETRO_ENVIRONMENT_GET_INPUT_BITMASKS:
         return true;
     default:
@@ -197,12 +203,12 @@ void video_refresh(const void* data, unsigned w, unsigned h, size_t) {
 
 void audio_sample(int16_t l, int16_t r) { int16_t s[2] = {l, r}; g_audio.write(s, 1); }
 size_t audio_batch(const int16_t* d, size_t frames) { g_audio.write(d, frames); return frames; }
-void input_poll() {}
+void input_poll() { g_polledButtons = g_buttons.load() | g_tapped.exchange(0); }
 
 int16_t input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
     if (port != 0) return 0;
     if (device == RETRO_DEVICE_JOYPAD) {
-        int mask = g_buttons.load();
+        int mask = g_polledButtons;
         if (id == RETRO_DEVICE_ID_JOYPAD_MASK) return (int16_t)mask;
         return (mask >> id) & 1;
     }
@@ -314,6 +320,11 @@ JNIEXPORT void JNICALL JNI(setSurface)(JNIEnv* env, jobject, jobject surface) {
 
 // Note: loadGame runs on the UI thread and makes the context current there;
 // start() hands the context to the emulation thread.
+JNIEXPORT void JNICALL JNI(setVulkanDriver)(JNIEnv* env, jobject, jstring dir, jstring name, jstring hooks, jstring tmp) {
+    auto str = [env](jstring s) { const char* c = env->GetStringUTFChars(s, nullptr); std::string r = c; env->ReleaseStringUTFChars(s, c); return r; };
+    VkContext::setCustomDriver(str(dir).c_str(), str(name).c_str(), str(hooks).c_str(), str(tmp).c_str());
+}
+
 JNIEXPORT void JNICALL JNI(setRenderer)(JNIEnv*, jobject, jboolean vulkan) {
     g_vulkan = vulkan;
     g_optionOverrides["mupen64plus-rdp-plugin"] = vulkan ? "parallel" : "gliden64";
@@ -378,7 +389,9 @@ JNIEXPORT void JNICALL JNI(stop)(JNIEnv*, jobject) {
     if (g_thread.joinable()) g_thread.join();
 }
 
-JNIEXPORT void JNICALL JNI(setButtons)(JNIEnv*, jobject, jint mask) { g_buttons = mask; }
+JNIEXPORT void JNICALL JNI(setButtons)(JNIEnv*, jobject, jint mask) {
+    g_tapped |= mask & ~g_buttons.exchange(mask);
+}
 
 JNIEXPORT void JNICALL JNI(setAnalog)(JNIEnv*, jobject, jint i, jint x, jint y) {
     if (i < 0 || i > 1) return;

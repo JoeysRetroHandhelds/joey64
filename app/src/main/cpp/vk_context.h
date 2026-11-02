@@ -1,5 +1,6 @@
 #pragma once
 #define VK_USE_PLATFORM_ANDROID_KHR
+#define VK_NO_PROTOTYPES // all calls go through pointers from the loaded driver (system or Turnip)
 #include <vulkan/vulkan.h>
 #include <android/native_window.h>
 #include <mutex>
@@ -14,6 +15,11 @@
 // the acquired swapchain image. All calls except setWindow happen on the emulation thread.
 class VkContext {
 public:
+    // Optional custom driver (e.g. Turnip) loaded through libadrenotools. Call before init.
+    // Dirs end with '/'. Falls back to the system driver if loading fails.
+    static void setCustomDriver(const char* driverDir, const char* libName, const char* hookDir,
+                                const char* tmpDir);
+
     // Device + queue. negotiation may be null (frontend picks the device).
     bool init(const retro_hw_render_context_negotiation_interface_vulkan* negotiation);
     void attachWindow(ANativeWindow* win); // nullptr detaches (swapchain + surface destroyed)
@@ -43,6 +49,9 @@ private:
     static void unlockQueue(void*);
     static void setSignalSemaphore(void*, VkSemaphore);
 
+    bool loadLibrary();
+    void* lib_ = nullptr;
+    PFN_vkGetInstanceProcAddr gipa_ = nullptr;
     retro_hw_render_interface_vulkan iface_{};
     const retro_hw_render_context_negotiation_interface_vulkan* negotiation_ = nullptr;
 

@@ -5,6 +5,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.InputDevice
+import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
@@ -32,12 +35,30 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         val sys = File(filesDir, "system").apply { mkdirs() }
         val saves = File(filesDir, "saves").apply { mkdirs() }
 
-        // Dev switch until M3 picks per game/GPU: am start ... --es renderer parallel
-        // GLideN64 is the default: Adreno 740 driver 676.53 fails to compile a parallel-RDP shader.
-        NativeBridge.setRenderer(intent?.getStringExtra("renderer") == "parallel")
+        // Until M3 picks per game/GPU: parallel-RDP when a custom driver (Turnip) is installed,
+        // since the stock Adreno 740 driver (676.53) fails to compile a parallel-RDP shader;
+        // otherwise GLideN64. Override with: am start ... --es renderer parallel|gliden64
+        val customDriver = setupCustomDriver()
+        val renderer = intent?.getStringExtra("renderer") ?: if (customDriver) "parallel" else "gliden64"
+        NativeBridge.setRenderer(renderer == "parallel")
         if (!NativeBridge.loadCore(coreFile.absolutePath, sys.absolutePath, saves.absolutePath)) {
             Log.e(TAG, "Core failed to load: $coreFile"); finish()
         }
+    }
+
+    /**
+     * Dev: a custom Vulkan driver dropped into <external files>/drivers/ (e.g. Turnip's
+     * libvulkan_freedreno.so) is copied to internal storage, where it can be dlopen'd, and used
+     * for the Vulkan renderer. M3 picks drivers per GPU.
+     */
+    private fun setupCustomDriver(): Boolean {
+        val src = getExternalFilesDir("drivers")?.listFiles { f -> f.name.endsWith(".so") }?.firstOrNull() ?: return false
+        val dir = File(filesDir, "gpu_driver").apply { mkdirs() }
+        val dst = File(dir, src.name)
+        if (!dst.exists() || dst.length() != src.length() || dst.lastModified() < src.lastModified()) src.copyTo(dst, true)
+        val tmp = File(cacheDir, "gpu_tmp").apply { mkdirs() }
+        NativeBridge.setVulkanDriver("${dir.absolutePath}/", src.name, "${applicationInfo.nativeLibraryDir}/", "${tmp.absolutePath}/")
+        return true
     }
 
     /** ROM comes from a VIEW intent, else a fixed dev path. M5 replaces this with a game list. */
@@ -82,6 +103,66 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
                 or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                 or View.SYSTEM_UI_FLAG_LAYOUT_STABLE)
         }
+    }
+
+    // ---- Gamepad → RetroPad (port 0) ---------------------------------------------------------
+    // Positional mapping for any Android gamepad (verified on the AYN Thor "Odin Controller").
+    // Android's BUTTON_A/B/X/Y are bottom/right/top/left. With mupen64plus-next defaults that gives
+    // bottom = N64 A, left = N64 B, L2 = Z, right stick = C buttons. M5 adds per-device profiles.
+    private var keyMask = 0
+    private var hatMask = 0
+    private var triggerMask = 0
+
+    private fun retroId(keyCode: Int): Int = when (keyCode) {
+        KeyEvent.KEYCODE_BUTTON_A -> 0          // RETRO_DEVICE_ID_JOYPAD_B  → N64 A
+        KeyEvent.KEYCODE_BUTTON_Y -> 1          // RETRO_DEVICE_ID_JOYPAD_Y  → N64 B
+        KeyEvent.KEYCODE_BUTTON_SELECT -> 2
+        KeyEvent.KEYCODE_BUTTON_START -> 3
+        KeyEvent.KEYCODE_DPAD_UP -> 4
+        KeyEvent.KEYCODE_DPAD_DOWN -> 5
+        KeyEvent.KEYCODE_DPAD_LEFT -> 6
+        KeyEvent.KEYCODE_DPAD_RIGHT -> 7
+        KeyEvent.KEYCODE_BUTTON_B -> 8          // RETRO_DEVICE_ID_JOYPAD_A
+        KeyEvent.KEYCODE_BUTTON_X -> 9          // RETRO_DEVICE_ID_JOYPAD_X
+        KeyEvent.KEYCODE_BUTTON_L1 -> 10
+        KeyEvent.KEYCODE_BUTTON_R1 -> 11
+        KeyEvent.KEYCODE_BUTTON_L2 -> 12        // → Z
+        KeyEvent.KEYCODE_BUTTON_R2 -> 13
+        KeyEvent.KEYCODE_BUTTON_THUMBL -> 14
+        KeyEvent.KEYCODE_BUTTON_THUMBR -> 15
+        else -> -1
+    }
+
+    private fun pushButtons() = NativeBridge.setButtons(keyMask or hatMask or triggerMask)
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val id = retroId(event.keyCode)
+        if (id < 0) return super.dispatchKeyEvent(event)
+        when (event.action) {
+            KeyEvent.ACTION_DOWN -> keyMask = keyMask or (1 shl id)
+            KeyEvent.ACTION_UP -> keyMask = keyMask and (1 shl id).inv()
+        }
+        pushButtons()
+        return true
+    }
+
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        if (event.source and InputDevice.SOURCE_JOYSTICK != InputDevice.SOURCE_JOYSTICK ||
+            event.action != MotionEvent.ACTION_MOVE) return super.dispatchGenericMotionEvent(event)
+        fun axis(a: Int) = (event.getAxisValue(a).coerceIn(-1f, 1f) * 32767).toInt()
+        NativeBridge.setAnalog(0, axis(MotionEvent.AXIS_X), axis(MotionEvent.AXIS_Y))
+        NativeBridge.setAnalog(1, axis(MotionEvent.AXIS_Z), axis(MotionEvent.AXIS_RZ))
+
+        val hx = event.getAxisValue(MotionEvent.AXIS_HAT_X)
+        val hy = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
+        hatMask = (if (hy < -0.5f) 1 shl 4 else 0) or (if (hy > 0.5f) 1 shl 5 else 0) or
+            (if (hx < -0.5f) 1 shl 6 else 0) or (if (hx > 0.5f) 1 shl 7 else 0)
+        // Analog triggers (Thor reports both keys and BRAKE/GAS axes).
+        val lt = maxOf(event.getAxisValue(MotionEvent.AXIS_LTRIGGER), event.getAxisValue(MotionEvent.AXIS_BRAKE))
+        val rt = maxOf(event.getAxisValue(MotionEvent.AXIS_RTRIGGER), event.getAxisValue(MotionEvent.AXIS_GAS))
+        triggerMask = (if (lt > 0.5f) 1 shl 12 else 0) or (if (rt > 0.5f) 1 shl 13 else 0)
+        pushButtons()
+        return true
     }
 
     override fun onPause() { super.onPause(); NativeBridge.pause(true) }

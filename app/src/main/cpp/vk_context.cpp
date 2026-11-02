@@ -2,10 +2,19 @@
 #include <android/log.h>
 #include <algorithm>
 #include <cstring>
+#include <dlfcn.h>
+#include <string>
+#include <adrenotools/driver.h>
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "n64host", __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "n64host", __VA_ARGS__)
 
 namespace {
+#define VK_FUNCS(X) X(vkAcquireNextImageKHR) X(vkAllocateCommandBuffers) X(vkBeginCommandBuffer) X(vkCmdBlitImage) X(vkCmdClearColorImage) X(vkCmdPipelineBarrier) X(vkCreateAndroidSurfaceKHR) X(vkCreateCommandPool) X(vkCreateDevice) X(vkCreateFence) X(vkCreateSemaphore) X(vkCreateSwapchainKHR) X(vkDestroyCommandPool) X(vkDestroyDevice) X(vkDestroyFence) X(vkDestroyInstance) X(vkDestroySemaphore) X(vkDestroySurfaceKHR) X(vkDestroySwapchainKHR) X(vkDeviceWaitIdle) X(vkEndCommandBuffer) X(vkEnumerateDeviceExtensionProperties) X(vkEnumeratePhysicalDevices) X(vkFreeCommandBuffers) X(vkGetDeviceQueue) X(vkGetPhysicalDeviceFeatures2) X(vkGetPhysicalDeviceProperties) X(vkGetPhysicalDeviceQueueFamilyProperties) X(vkGetPhysicalDeviceSurfaceCapabilitiesKHR) X(vkGetPhysicalDeviceSurfaceFormatsKHR) X(vkGetPhysicalDeviceSurfaceSupportKHR) X(vkGetSwapchainImagesKHR) X(vkQueuePresentKHR) X(vkQueueSubmit) X(vkResetCommandBuffer) X(vkResetFences) X(vkWaitForFences) X(vkGetDeviceProcAddr)
+#define VK_DECLARE(f) PFN_##f f = nullptr;
+VK_FUNCS(VK_DECLARE)
+PFN_vkCreateInstance vkCreateInstance = nullptr;
+
+std::string g_driverDir, g_driverName, g_hookDir, g_tmpDir;
 bool hasExt(const std::vector<VkExtensionProperties>& exts, const char* name) {
     for (auto& e : exts) if (!strcmp(e.extensionName, name)) return true;
     return false;
@@ -26,8 +35,29 @@ void imageBarrier(VkCommandBuffer cmd, VkImage image, const VkImageSubresourceRa
 const VkImageSubresourceRange kColorRange{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 } // namespace
 
+void VkContext::setCustomDriver(const char* driverDir, const char* libName, const char* hookDir,
+                                const char* tmpDir) {
+    g_driverDir = driverDir; g_driverName = libName; g_hookDir = hookDir; g_tmpDir = tmpDir;
+}
+
+bool VkContext::loadLibrary() {
+    if (!g_driverName.empty()) {
+        lib_ = adrenotools_open_libvulkan(RTLD_NOW, ADRENOTOOLS_DRIVER_CUSTOM, g_tmpDir.c_str(), g_hookDir.c_str(),
+                                          g_driverDir.c_str(), g_driverName.c_str(), nullptr, nullptr);
+        if (lib_) LOGI("vulkan: loaded custom driver %s%s", g_driverDir.c_str(), g_driverName.c_str());
+        else LOGE("vulkan: custom driver %s failed, using system driver", g_driverName.c_str());
+    }
+    if (!lib_) lib_ = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
+    if (!lib_) { LOGE("cannot load libvulkan.so"); return false; }
+    gipa_ = reinterpret_cast<PFN_vkGetInstanceProcAddr>(dlsym(lib_, "vkGetInstanceProcAddr"));
+    if (!gipa_) { LOGE("no vkGetInstanceProcAddr"); return false; }
+    vkCreateInstance = reinterpret_cast<PFN_vkCreateInstance>(gipa_(VK_NULL_HANDLE, "vkCreateInstance"));
+    return vkCreateInstance != nullptr;
+}
+
 bool VkContext::init(const retro_hw_render_context_negotiation_interface_vulkan* negotiation) {
     negotiation_ = negotiation;
+    if (!loadLibrary()) return false;
 
     VkApplicationInfo defaultApp{VK_STRUCTURE_TYPE_APPLICATION_INFO};
     defaultApp.pApplicationName = "N64 Handheld";
@@ -42,13 +72,16 @@ bool VkContext::init(const retro_hw_render_context_negotiation_interface_vulkan*
     ici.enabledExtensionCount = 2;
     ici.ppEnabledExtensionNames = instExts;
     if (vkCreateInstance(&ici, nullptr, &instance_) != VK_SUCCESS) { LOGE("vkCreateInstance failed"); return false; }
+#define VK_LOAD(f) f = reinterpret_cast<PFN_##f>(gipa_(instance_, #f));
+    VK_FUNCS(VK_LOAD)
+#undef VK_LOAD
 
     // Let the core create the device (Granite knows which extensions/features parallel-RDP wants).
     if (negotiation_ && negotiation_->create_device) {
         retro_vulkan_context ctx{};
         const char* devExts[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
         VkPhysicalDeviceFeatures noFeatures{}; // Granite dereferences this, so never pass null
-        if (negotiation_->create_device(&ctx, instance_, VK_NULL_HANDLE, VK_NULL_HANDLE, vkGetInstanceProcAddr,
+        if (negotiation_->create_device(&ctx, instance_, VK_NULL_HANDLE, VK_NULL_HANDLE, gipa_,
                                         devExts, 1, nullptr, 0, &noFeatures)) {
             gpu_ = ctx.gpu; device_ = ctx.device; queue_ = ctx.queue; queueFamily_ = ctx.queue_family_index;
             LOGI("vulkan: device created by core");
@@ -123,7 +156,7 @@ bool VkContext::init(const retro_hw_render_context_negotiation_interface_vulkan*
     iface_.gpu = gpu_;
     iface_.device = device_;
     iface_.get_device_proc_addr = vkGetDeviceProcAddr;
-    iface_.get_instance_proc_addr = vkGetInstanceProcAddr;
+    iface_.get_instance_proc_addr = gipa_;
     iface_.queue = queue_;
     iface_.queue_index = queueFamily_;
     iface_.set_image = setImage;
@@ -359,6 +392,8 @@ void VkContext::destroy() {
     if (negotiation_ && negotiation_->destroy_device && !ownDevice_) negotiation_->destroy_device();
     if (device_) vkDestroyDevice(device_, nullptr); // owned by the frontend either way
     vkDestroyInstance(instance_, nullptr);
+    if (lib_) dlclose(lib_);
+    lib_ = nullptr;
     surface_ = VK_NULL_HANDLE; pool_ = VK_NULL_HANDLE; device_ = VK_NULL_HANDLE; instance_ = VK_NULL_HANDLE;
 }
 

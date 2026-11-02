@@ -6,7 +6,7 @@ plugins {
 android {
     namespace = "com.joeysretro.n64"
     compileSdk = 34
-    ndkVersion = "26.3.11579264"
+    ndkVersion = "27.3.13750724"
 
     defaultConfig {
         applicationId = "com.joeysretro.n64"

@@ -62,6 +62,9 @@ retro_system_av_info g_av{};
 std::unordered_map<std::string, std::string> g_options;
 std::unordered_map<std::string, std::string> g_optionOverrides = {
     {"mupen64plus-cpucore", "dynamic_recompiler"},
+    // The core defaults this to True on GLES; standalone GLideN64 defaults to off. Legacy blending
+    // drops blend modes the shader blender handles, e.g. Mario Tennis's player select disappears.
+    {"mupen64plus-EnableLegacyBlending", "False"},
 };
 std::atomic<bool> g_optionsDirty{true};
 

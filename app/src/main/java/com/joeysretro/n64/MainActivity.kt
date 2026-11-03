@@ -8,6 +8,7 @@ import android.content.IntentFilter
 import android.content.pm.ApplicationInfo
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -45,6 +46,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         root.addView(fastForwardButton(), FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END
         ).apply { setMargins(0, (16 * dp).toInt(), (16 * dp).toInt(), 0) })
+        root.addView(fpsCounter(), FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.START
+        ).apply { setMargins((16 * dp).toInt(), (16 * dp).toInt(), 0, 0) })
         setContentView(root)
         registerDebugStick()
 
@@ -69,6 +73,36 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         intent?.getStringExtra("cheats")?.split(';')?.filter { it.isNotBlank() }?.forEach { NativeBridge.addCheat(it) }
         if (!NativeBridge.loadCore(coreFile.absolutePath, sys.absolutePath, saves.absolutePath)) {
             Log.e(TAG, "Core failed to load: $coreFile"); finish()
+        }
+    }
+
+    // ---- FPS counter ----------------------------------------------------------------------------
+    // Top-left: new frames presented per second, sampled twice a second.
+    private val fpsHandler = Handler(Looper.getMainLooper())
+    private var fpsView: TextView? = null
+    private var fpsLastFrames = 0
+    private var fpsLastTime = 0L
+
+    private fun fpsCounter(): TextView {
+        val dp = resources.displayMetrics.density
+        return TextView(this).apply {
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setShadowLayer(3 * dp, 0f, 0f, Color.BLACK)
+            isFocusable = false
+            fpsView = this
+        }
+    }
+
+    private val fpsTick = object : Runnable {
+        override fun run() {
+            val now = SystemClock.elapsedRealtime()
+            val frames = NativeBridge.framesShown()
+            if (fpsLastTime != 0L && now > fpsLastTime)
+                fpsView?.text = "%.0f fps".format((frames - fpsLastFrames) * 1000.0 / (now - fpsLastTime))
+            fpsLastFrames = frames
+            fpsLastTime = now
+            fpsHandler.postDelayed(this, 500)
         }
     }
 
@@ -230,8 +264,17 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         return true
     }
 
-    override fun onPause() { super.onPause(); NativeBridge.pause(true) }
-    override fun onResume() { super.onResume(); NativeBridge.pause(false) }
+    override fun onPause() {
+        super.onPause()
+        NativeBridge.pause(true)
+        fpsHandler.removeCallbacks(fpsTick)
+    }
+    override fun onResume() {
+        super.onResume()
+        NativeBridge.pause(false)
+        fpsLastTime = 0L
+        fpsHandler.post(fpsTick)
+    }
     override fun onDestroy() {
         debugStick?.let { unregisterReceiver(it) }
         debugDump?.let { unregisterReceiver(it) }

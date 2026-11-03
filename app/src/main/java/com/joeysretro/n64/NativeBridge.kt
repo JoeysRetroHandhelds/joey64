@@ -32,6 +32,9 @@ object NativeBridge {
     /** Debug: write RDRAM (as the core stores it) to path after the current frame. */
     external fun dumpRam(path: String)
 
+    /** New frames presented since start (wraps); the FPS counter samples it. */
+    external fun framesShown(): Int
+
     /** Fast-forward: no vsync, audio muted, capped at 4x. */
     external fun setFastForward(on: Boolean)
 

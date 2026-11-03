@@ -95,6 +95,7 @@ std::atomic<int> g_analog[2][2] = {};
 unsigned g_lastW = 0, g_lastH = 0;
 int g_statRuns = 0, g_statPresents = 0, g_statDupes = 0; // emulation thread only
 double g_statRunMs = 0, g_statWaitMs = 0;                 // time in retro_run / beginFrame
+std::atomic<uint32_t> g_framesShown{0};                   // new frames presented, for the FPS counter
 
 template <typename T> bool sym(T& fn, const char* name) {
     fn = reinterpret_cast<T>(dlsym(core.handle, name));
@@ -207,7 +208,7 @@ bool environment(unsigned cmd, void* data) {
 void video_refresh(const void* data, unsigned w, unsigned h, size_t) {
     if (g_vulkan) {
         if (!data) ++g_statDupes;
-        else { g_lastW = w; g_lastH = h; ++g_statPresents; }
+        else { g_lastW = w; g_lastH = h; ++g_statPresents; ++g_framesShown; }
         g_vk.videoRefresh(data, w, h);
         return;
     }
@@ -216,6 +217,7 @@ void video_refresh(const void* data, unsigned w, unsigned h, size_t) {
     if (data == RETRO_HW_FRAME_BUFFER_VALID) {
         g_egl.present(w, h, g_hw.bottom_left_origin);
         ++g_statPresents;
+        ++g_framesShown;
     }
     // Software frames are not expected from mupen64plus-next with a HW context.
 }
@@ -573,6 +575,10 @@ JNIEXPORT void JNICALL JNI(dumpRam)(JNIEnv* env, jobject, jstring path) {
 
 JNIEXPORT void JNICALL JNI(setFastForward)(JNIEnv*, jobject, jboolean on) {
     g_fastForward = on;
+}
+
+JNIEXPORT jint JNICALL JNI(framesShown)(JNIEnv*, jobject) {
+    return (jint)g_framesShown.load();
 }
 
 JNIEXPORT void JNICALL JNI(stop)(JNIEnv*, jobject) {

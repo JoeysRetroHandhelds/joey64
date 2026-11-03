@@ -124,8 +124,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     /** ROM comes from a VIEW intent, else a fixed dev path. M5 replaces this with a game list. */
     private fun resolveRom(): String? {
         intent?.data?.let { uri -> return copyToCache(uri) }
-        val dev = File(getExternalFilesDir(null), "test.z64")
-        return dev.takeIf { it.exists() }?.absolutePath
+        // Some Android 11 devices (Retroid Pocket Flip) block adb from Android/data: there, copy the
+        // ROM into internal storage with run-as instead.
+        return listOf(File(getExternalFilesDir(null), "test.z64"), File(filesDir, "test.z64"))
+            .firstOrNull { it.exists() }?.absolutePath
     }
 
     private fun copyToCache(uri: Uri): String {

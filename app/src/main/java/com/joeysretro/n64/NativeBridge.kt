@@ -23,6 +23,12 @@ object NativeBridge {
     external fun pause(paused: Boolean)
     external fun stop()
 
+    /** Before loadGame: override a core option (M3's profile DB will call this). */
+    external fun setOption(key: String, value: String)
+
+    /** Fast-forward: no vsync, audio muted, capped at 4x. */
+    external fun setFastForward(on: Boolean)
+
     /** RETRO_DEVICE_ID_JOYPAD_* bitmask for port 0 (M1 fills this from gamepad events). */
     external fun setButtons(mask: Int)
 

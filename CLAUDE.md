@@ -24,7 +24,11 @@ mupen64plus-next libretro core from a Kotlin app with a C++ libretro frontend.
 - Logs: `adb logcat -s n64host core Granite`
 - Custom Vulkan driver (dev): push e.g. Turnip's `libvulkan_freedreno.so` to `/sdcard/Android/data/com.joeysretro.n64/files/drivers/`; the app copies it to internal storage and loads it. From Git Bash set `MSYS_NO_PATHCONV=1` or adb paths get mangled
 - Renderer: parallel-RDP when a custom driver is installed, else GLideN64; override with `--es renderer parallel|gliden64` on `am start`
-- Controls: positional mapping of any Android gamepad in MainActivity (bottom = N64 A, left = N64 B, L2 = Z, right stick = C). Presses shorter than a frame are latched until the core polls
+- Controls: positional mapping of any Android gamepad in MainActivity (bottom = N64 A, left = N64 B, L2 = Z, right stick = C). Presses shorter than a frame are held for 4 polls (Snap ignores 1-frame presses). R3 or the on-screen button toggles fast-forward (4x cap, audio muted, ~60 fps shown, async parallel-RDP while on)
+- Dev core options: `--es opts "key=value,key=value"` on `am start`
+- Save RAM: `files/saves/<fnv64 of ROM>.srm`, written atomically every 120 frames when changed, on pause and on exit
+- Debug builds: `adb shell am broadcast -a com.joeysretro.n64.STICK --ei x 0 --ei y 32767 --ei ms 200` moves the stick (`--ei stick 1` = C stick)
+- Never set `MSYS_NO_PATHCONV=1` for `./gradlew`: the native build silently does nothing
 
 ## Conventions
 - Core options are overridden in `g_optionOverrides` (libretro_host.cpp); M3 replaces this with the profile DB.
@@ -34,6 +38,7 @@ mupen64plus-next libretro core from a Kotlin app with a C++ libretro frontend.
 
 ## Known issues
 - parallel-RDP on AYN Thor with the stock Adreno 740 driver (676.53): black screen, the compiler fails on a parallel-RDP compute shader. Fixed by Turnip ("Turnip Gen8 V38", Mesa 26.99.99 / Vulkan 1.4.363): renders correctly at 60 fps.
+- Synchronous parallel-RDP (needed for CPU framebuffer reads, e.g. Snap photos) costs ~10 ms/frame in Snap on the Thor (async: ~2–4 ms; GLideN64: 2.5 ms). Per-game sync setting belongs in M3.
 - AAudio low-latency path is denied on the Thor (output has no RAW flag).
 
 ## Roadmap

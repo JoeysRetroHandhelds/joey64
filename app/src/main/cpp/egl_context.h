@@ -10,6 +10,7 @@ public:
     bool init();                              // display + context + pbuffer, no window yet
     bool attachWindow(ANativeWindow* win);    // nullptr detaches
     bool makeCurrent();
+    void setSwapInterval(int interval);       // 1 = vsync, 0 = unthrottled (fast-forward)
     void ensureFbo(int w, int h);             // (re)create FBO at core's max size
     GLuint fbo() const { return fbo_; }
     void present(int srcW, int srcH, bool bottomLeftOrigin);
@@ -24,4 +25,5 @@ private:
     EGLSurface pbuffer_ = EGL_NO_SURFACE;
     GLuint fbo_ = 0, color_ = 0, depth_ = 0;
     int fboW_ = 0, fboH_ = 0;
+    int swapInterval_ = 1;
 };

@@ -9,7 +9,7 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "n64host", __VA_ARGS__)
 
 namespace {
-#define VK_FUNCS(X) X(vkAcquireNextImageKHR) X(vkAllocateCommandBuffers) X(vkBeginCommandBuffer) X(vkCmdBlitImage) X(vkCmdClearColorImage) X(vkCmdPipelineBarrier) X(vkCreateAndroidSurfaceKHR) X(vkCreateCommandPool) X(vkCreateDevice) X(vkCreateFence) X(vkCreateSemaphore) X(vkCreateSwapchainKHR) X(vkDestroyCommandPool) X(vkDestroyDevice) X(vkDestroyFence) X(vkDestroyInstance) X(vkDestroySemaphore) X(vkDestroySurfaceKHR) X(vkDestroySwapchainKHR) X(vkDeviceWaitIdle) X(vkEndCommandBuffer) X(vkEnumerateDeviceExtensionProperties) X(vkEnumeratePhysicalDevices) X(vkFreeCommandBuffers) X(vkGetDeviceQueue) X(vkGetPhysicalDeviceFeatures2) X(vkGetPhysicalDeviceProperties) X(vkGetPhysicalDeviceQueueFamilyProperties) X(vkGetPhysicalDeviceSurfaceCapabilitiesKHR) X(vkGetPhysicalDeviceSurfaceFormatsKHR) X(vkGetPhysicalDeviceSurfaceSupportKHR) X(vkGetSwapchainImagesKHR) X(vkQueuePresentKHR) X(vkQueueSubmit) X(vkResetCommandBuffer) X(vkResetFences) X(vkWaitForFences) X(vkGetDeviceProcAddr)
+#define VK_FUNCS(X) X(vkAcquireNextImageKHR) X(vkAllocateCommandBuffers) X(vkBeginCommandBuffer) X(vkCmdBlitImage) X(vkCmdClearColorImage) X(vkCmdPipelineBarrier) X(vkCreateAndroidSurfaceKHR) X(vkCreateCommandPool) X(vkCreateDevice) X(vkCreateFence) X(vkCreateSemaphore) X(vkCreateSwapchainKHR) X(vkDestroyCommandPool) X(vkDestroyDevice) X(vkDestroyFence) X(vkDestroyInstance) X(vkDestroySemaphore) X(vkDestroySurfaceKHR) X(vkDestroySwapchainKHR) X(vkDeviceWaitIdle) X(vkEndCommandBuffer) X(vkEnumerateDeviceExtensionProperties) X(vkEnumeratePhysicalDevices) X(vkFreeCommandBuffers) X(vkGetDeviceQueue) X(vkGetPhysicalDeviceFeatures2) X(vkGetPhysicalDeviceProperties) X(vkGetPhysicalDeviceQueueFamilyProperties) X(vkGetPhysicalDeviceSurfaceCapabilitiesKHR) X(vkGetPhysicalDeviceSurfaceFormatsKHR) X(vkGetPhysicalDeviceSurfacePresentModesKHR) X(vkGetPhysicalDeviceSurfaceSupportKHR) X(vkGetSwapchainImagesKHR) X(vkQueuePresentKHR) X(vkQueueSubmit) X(vkResetCommandBuffer) X(vkResetFences) X(vkWaitForFences) X(vkGetDeviceProcAddr)
 #define VK_DECLARE(f) PFN_##f f = nullptr;
 VK_FUNCS(VK_DECLARE)
 PFN_vkCreateInstance vkCreateInstance = nullptr;
@@ -148,6 +148,12 @@ bool VkContext::init(const retro_hw_render_context_negotiation_interface_vulkan*
     pci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     pci.queueFamilyIndex = queueFamily_;
     vkCreateCommandPool(device_, &pci, nullptr, &pool_);
+    VkCommandBufferAllocateInfo ai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+    ai.commandPool = pool_; ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY; ai.commandBufferCount = kSyncFrames;
+    vkAllocateCommandBuffers(device_, &ai, frameCmds_);
+    VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+    fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+    for (auto& f : frameFences_) vkCreateFence(device_, &fci, nullptr, &f);
 
     iface_.interface_type = RETRO_HW_RENDER_INTERFACE_VULKAN;
     iface_.interface_version = RETRO_HW_RENDER_INTERFACE_VULKAN_VERSION;
@@ -228,7 +234,17 @@ bool VkContext::createSwapchain() {
     ci.preTransform = (caps.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)
                           ? VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR : caps.currentTransform;
     ci.compositeAlpha = alpha;
-    ci.presentMode = VK_PRESENT_MODE_FIFO_KHR; // vsync; M4 adds Swappy / mailbox options
+    // FIFO = vsync (M4 adds Swappy). Unthrottled (fast-forward) prefers mailbox, then immediate.
+    ci.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    if (wantUnthrottled_) {
+        uint32_t mn = 0;
+        vkGetPhysicalDeviceSurfacePresentModesKHR(gpu_, surface_, &mn, nullptr);
+        std::vector<VkPresentModeKHR> modes(mn);
+        vkGetPhysicalDeviceSurfacePresentModesKHR(gpu_, surface_, &mn, modes.data());
+        for (auto want : {VK_PRESENT_MODE_MAILBOX_KHR, VK_PRESENT_MODE_IMMEDIATE_KHR})
+            if (std::find(modes.begin(), modes.end(), want) != modes.end()) { ci.presentMode = want; break; }
+    }
+    unthrottled_ = wantUnthrottled_;
     ci.clipped = VK_TRUE;
     if (vkCreateSwapchainKHR(device_, &ci, nullptr, &swapchain_) != VK_SUCCESS) {
         LOGE("vkCreateSwapchainKHR failed"); swapchain_ = VK_NULL_HANDLE; return false;
@@ -239,39 +255,37 @@ bool VkContext::createSwapchain() {
     images_.resize(n);
     vkGetSwapchainImagesKHR(device_, swapchain_, &n, images_.data());
 
-    cmds_.resize(n);
-    VkCommandBufferAllocateInfo ai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-    ai.commandPool = pool_; ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY; ai.commandBufferCount = n;
-    vkAllocateCommandBuffers(device_, &ai, cmds_.data());
-
-    VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-    fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
     VkSemaphoreCreateInfo sci{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-    fences_.resize(n); renderDone_.resize(n); acquireSems_.resize(n + 1);
-    for (uint32_t i = 0; i < n; ++i) {
-        vkCreateFence(device_, &fci, nullptr, &fences_[i]);
-        vkCreateSemaphore(device_, &sci, nullptr, &renderDone_[i]);
-    }
+    renderDone_.resize(n); acquireSems_.resize(n + 1);
+    for (auto& s : renderDone_) vkCreateSemaphore(device_, &sci, nullptr, &s);
     for (auto& s : acquireSems_) vkCreateSemaphore(device_, &sci, nullptr, &s);
     acquireSlot_ = 0;
-    LOGI("vulkan: swapchain %ux%u, %u images, format %d", extent_.width, extent_.height, n, fmt.format);
+    LOGI("vulkan: swapchain %ux%u, %u images, format %d, present mode %d", extent_.width, extent_.height,
+         n, fmt.format, ci.presentMode);
     return true;
 }
 
 void VkContext::destroySwapchain() {
     if (!swapchain_) return;
-    for (auto f : fences_) vkDestroyFence(device_, f, nullptr);
     for (auto s : renderDone_) vkDestroySemaphore(device_, s, nullptr);
     for (auto s : acquireSems_) vkDestroySemaphore(device_, s, nullptr);
-    if (!cmds_.empty()) vkFreeCommandBuffers(device_, pool_, (uint32_t)cmds_.size(), cmds_.data());
-    fences_.clear(); renderDone_.clear(); acquireSems_.clear(); cmds_.clear(); images_.clear();
+    renderDone_.clear(); acquireSems_.clear(); images_.clear();
     vkDestroySwapchainKHR(device_, swapchain_, nullptr);
     swapchain_ = VK_NULL_HANDLE;
     acquired_ = false;
 }
 
-bool VkContext::beginFrame() {
+bool VkContext::beginFrame(bool show) {
     if (!swapchain_) return false;
+    if (wantUnthrottled_ != unthrottled_) { vkDeviceWaitIdle(device_); destroySwapchain(); createSwapchain(); }
+    skip_ = !show;
+    if (skip_) { // run the core's work without touching the swapchain
+        sync_ = (sync_ + 1) % kSyncFrames;
+        vkWaitForFences(device_, 1, &frameFences_[sync_], VK_TRUE, UINT64_MAX);
+        acquired_ = true;
+        presented_ = false;
+        return true;
+    }
     currentAcquire_ = acquireSems_[acquireSlot_];
     acquireSlot_ = (acquireSlot_ + 1) % (uint32_t)acquireSems_.size();
     VkResult r = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX, currentAcquire_, VK_NULL_HANDLE, &index_);
@@ -280,7 +294,8 @@ bool VkContext::beginFrame() {
         return false;
     }
     if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) { LOGE("vkAcquireNextImageKHR: %d", r); return false; }
-    vkWaitForFences(device_, 1, &fences_[index_], VK_TRUE, UINT64_MAX);
+    sync_ = (sync_ + 1) % kSyncFrames;
+    vkWaitForFences(device_, 1, &frameFences_[sync_], VK_TRUE, UINT64_MAX);
     acquired_ = true;
     presented_ = false;
     return true;
@@ -298,9 +313,10 @@ void VkContext::endFrame() {
 }
 
 void VkContext::present(bool newImage) {
-    VkCommandBuffer cmd = cmds_[index_];
+    if (skip_) { submitSkipped(newImage); return; }
+    VkCommandBuffer cmd = frameCmds_[sync_];
     VkImage dst = images_[index_];
-    vkResetFences(device_, 1, &fences_[index_]);
+    vkResetFences(device_, 1, &frameFences_[sync_]);
     vkResetCommandBuffer(cmd, 0);
     VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -371,7 +387,7 @@ void VkContext::present(bool newImage) {
     VkResult r;
     {
         std::lock_guard<std::mutex> lk(queueMutex_);
-        vkQueueSubmit(queue_, 1, &si, fences_[index_]);
+        vkQueueSubmit(queue_, 1, &si, frameFences_[sync_]);
         r = vkQueuePresentKHR(queue_, &pi);
     }
     waitSems_.clear(); coreCmds_.clear(); signalSem_ = VK_NULL_HANDLE;
@@ -383,12 +399,36 @@ void VkContext::present(bool newImage) {
     }
 }
 
+// Skipped frame: submit only what the core handed over (so its semaphores are consumed and the
+// sync index's fence signals), with no blit or present.
+void VkContext::submitSkipped(bool newImage) {
+    vkResetFences(device_, 1, &frameFences_[sync_]);
+    std::vector<VkSemaphore> waits;
+    std::vector<VkCommandBuffer> cmds;
+    if (newImage) {
+        cmds = coreCmds_;
+        if (coreCmds_.empty()) waits = waitSems_;
+    }
+    std::vector<VkPipelineStageFlags> stages(waits.size(), VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+    VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    si.waitSemaphoreCount = (uint32_t)waits.size(); si.pWaitSemaphores = waits.data(); si.pWaitDstStageMask = stages.data();
+    si.commandBufferCount = (uint32_t)cmds.size(); si.pCommandBuffers = cmds.data();
+    si.signalSemaphoreCount = signalSem_ ? 1 : 0; si.pSignalSemaphores = &signalSem_;
+    {
+        std::lock_guard<std::mutex> lk(queueMutex_);
+        vkQueueSubmit(queue_, 1, &si, frameFences_[sync_]);
+    }
+    waitSems_.clear(); coreCmds_.clear(); signalSem_ = VK_NULL_HANDLE;
+    presented_ = true;
+}
+
 void VkContext::destroy() {
     if (!instance_) return;
     if (device_) vkDeviceWaitIdle(device_);
     destroySwapchain();
     if (surface_) vkDestroySurfaceKHR(instance_, surface_, nullptr);
-    if (pool_) vkDestroyCommandPool(device_, pool_, nullptr);
+    for (auto& f : frameFences_) if (f) { vkDestroyFence(device_, f, nullptr); f = VK_NULL_HANDLE; }
+    if (pool_) vkDestroyCommandPool(device_, pool_, nullptr); // frees frameCmds_
     if (negotiation_ && negotiation_->destroy_device && !ownDevice_) negotiation_->destroy_device();
     if (device_) vkDestroyDevice(device_, nullptr); // owned by the frontend either way
     vkDestroyInstance(instance_, nullptr);
@@ -406,19 +446,15 @@ void VkContext::setImage(void* h, const retro_vulkan_image* img, uint32_t n, con
     self->waitSems_.assign(sems, sems + n);
     self->srcQueueFamily_ = fam;
 }
-uint32_t VkContext::getSyncIndex(void* h) { return static_cast<VkContext*>(h)->index_; }
-uint32_t VkContext::getSyncIndexMask(void* h) {
-    size_t n = static_cast<VkContext*>(h)->images_.size();
-    return n ? (1u << n) - 1 : 1u;
-}
+uint32_t VkContext::getSyncIndex(void* h) { return static_cast<VkContext*>(h)->sync_; }
+uint32_t VkContext::getSyncIndexMask(void*) { return (1u << kSyncFrames) - 1; }
 void VkContext::setCommandBuffers(void* h, uint32_t n, const VkCommandBuffer* cmds) {
     auto* self = static_cast<VkContext*>(h);
     self->coreCmds_.assign(cmds, cmds + n);
 }
 void VkContext::waitSyncIndex(void* h) {
     auto* self = static_cast<VkContext*>(h);
-    if (self->fences_.empty()) return;
-    vkWaitForFences(self->device_, 1, &self->fences_[self->index_], VK_TRUE, UINT64_MAX);
+    vkWaitForFences(self->device_, 1, &self->frameFences_[self->sync_], VK_TRUE, UINT64_MAX);
 }
 void VkContext::lockQueue(void* h) { static_cast<VkContext*>(h)->queueMutex_.lock(); }
 void VkContext::unlockQueue(void* h) { static_cast<VkContext*>(h)->queueMutex_.unlock(); }

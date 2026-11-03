@@ -8,6 +8,9 @@
 #include <condition_variable>
 #include <cstdio>
 #include <cstdarg>
+#include <cstring>
+#include <unistd.h>
+#include <sched.h>
 #include <GLES3/gl3.h>
 #include <mutex>
 #include <string>
@@ -40,6 +43,8 @@ struct Core {
     bool (*load_game)(const retro_game_info*);
     void (*unload_game)();
     void (*run)();
+    void* (*get_memory_data)(unsigned);
+    size_t (*get_memory_size)(unsigned);
 } core;
 
 std::string g_systemDir, g_saveDir;
@@ -69,6 +74,9 @@ std::thread g_thread;
 std::atomic<bool> g_running{false}, g_paused{false};
 std::mutex g_pauseMutex;
 std::condition_variable g_pauseCv;
+// Fast-forward: vsync off, audio dropped, emulation capped at kFastForwardSpeed x normal.
+std::atomic<bool> g_fastForward{false};
+constexpr int kFastForwardSpeed = 4;
 
 std::atomic<int> g_buttons{0};
 std::atomic<int> g_tapped{0}; // presses not yet seen by a poll, so sub-frame taps still register
@@ -76,6 +84,7 @@ int g_polledButtons = 0;      // emulation thread only
 std::atomic<int> g_analog[2][2] = {};
 unsigned g_lastW = 0, g_lastH = 0;
 int g_statRuns = 0, g_statPresents = 0, g_statDupes = 0; // emulation thread only
+double g_statRunMs = 0, g_statWaitMs = 0;                 // time in retro_run / beginFrame
 
 template <typename T> bool sym(T& fn, const char* name) {
     fn = reinterpret_cast<T>(dlsym(core.handle, name));
@@ -201,9 +210,26 @@ void video_refresh(const void* data, unsigned w, unsigned h, size_t) {
     // Software frames are not expected from mupen64plus-next with a HW context.
 }
 
-void audio_sample(int16_t l, int16_t r) { int16_t s[2] = {l, r}; g_audio.write(s, 1); }
-size_t audio_batch(const int16_t* d, size_t frames) { g_audio.write(d, frames); return frames; }
-void input_poll() { g_polledButtons = g_buttons.load() | g_tapped.exchange(0); }
+void audio_sample(int16_t l, int16_t r) {
+    if (g_fastForward) return;
+    int16_t s[2] = {l, r}; g_audio.write(s, 1);
+}
+size_t audio_batch(const int16_t* d, size_t frames) {
+    if (!g_fastForward) g_audio.write(d, frames); // blocking write would throttle fast-forward
+    return frames;
+}
+// Taps are held for kMinPressPolls polls: some games (Pokemon Snap's tutorial) ignore a press
+// that is visible for a single frame.
+constexpr int kMinPressPolls = 4;
+int g_tapHold[16] = {};
+void input_poll() {
+    int taps = g_tapped.exchange(0), held = 0;
+    for (int i = 0; i < 16; ++i) {
+        if (taps & (1 << i)) g_tapHold[i] = kMinPressPolls;
+        if (g_tapHold[i] > 0) { --g_tapHold[i]; held |= 1 << i; }
+    }
+    g_polledButtons = g_buttons.load() | held;
+}
 
 int16_t input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
     if (port != 0) return 0;
@@ -233,15 +259,82 @@ void logStats() {
     ++g_statRuns;
     double secs = std::chrono::duration<double>(clock::now() - start).count();
     if (secs < 5.0) return;
-    LOGI("stats: %.1f emu fps, %.1f presented, %.1f dupes (%ux%u)", g_statRuns / secs,
-         g_statPresents / secs, g_statDupes / secs, g_lastW, g_lastH);
+    LOGI("stats: %.1f emu fps, %.1f presented, %.1f dupes (%ux%u), run %.2f ms, wait %.2f ms",
+         g_statRuns / secs, g_statPresents / secs, g_statDupes / secs, g_lastW, g_lastH,
+         g_statRunMs / g_statRuns, g_statWaitMs / g_statRuns);
     g_statRuns = g_statPresents = g_statDupes = 0;
+    g_statRunMs = g_statWaitMs = 0;
     start = clock::now();
 }
 
+// ---- save RAM ---------------------------------------------------------------
+// The core keeps EEPROM/SRAM/FlashRAM/Controller Pak in RETRO_MEMORY_SAVE_RAM; persisting it is
+// the frontend's job. One .srm per ROM (named by content hash), written atomically when it
+// changes: checked every ~2 s, on pause (Android may kill us after onPause) and on exit.
+std::string g_savePath;
+std::vector<uint8_t> g_lastSave;
+
+void loadSave() {
+    auto* mem = static_cast<uint8_t*>(core.get_memory_data(RETRO_MEMORY_SAVE_RAM));
+    size_t size = core.get_memory_size(RETRO_MEMORY_SAVE_RAM);
+    if (!mem || !size) { LOGI("save: core exposes no save RAM"); return; }
+    if (FILE* f = fopen(g_savePath.c_str(), "rb")) {
+        size_t n = fread(mem, 1, size, f);
+        fclose(f);
+        LOGI("save: loaded %zu/%zu bytes from %s", n, size, g_savePath.c_str());
+    } else {
+        LOGI("save: none yet (%s, %zu bytes)", g_savePath.c_str(), size);
+    }
+    g_lastSave.assign(mem, mem + size);
+}
+
+void flushSave() {
+    auto* mem = static_cast<uint8_t*>(core.get_memory_data(RETRO_MEMORY_SAVE_RAM));
+    size_t size = core.get_memory_size(RETRO_MEMORY_SAVE_RAM);
+    if (!mem || !size || g_savePath.empty()) return;
+    if (g_lastSave.size() == size && !memcmp(g_lastSave.data(), mem, size)) return;
+    std::string tmp = g_savePath + ".tmp";
+    FILE* f = fopen(tmp.c_str(), "wb");
+    if (!f) { LOGE("save: cannot write %s", tmp.c_str()); return; }
+    bool ok = fwrite(mem, 1, size, f) == size;
+    ok = (fflush(f) == 0) && ok;
+    ok = (fsync(fileno(f)) == 0) && ok;
+    fclose(f);
+    if (!ok || rename(tmp.c_str(), g_savePath.c_str()) != 0) { LOGE("save: write failed"); return; }
+    g_lastSave.assign(mem, mem + size);
+    LOGI("save: wrote %zu bytes", size);
+}
+
+// Keep the emulation thread on the big cores (capacity within 80% of the fastest): left to the
+// scheduler it starts on little cores and only migrates as load builds. M4 adds thermal fallback.
+void pinToBigCores() {
+    int cap[CPU_SETSIZE] = {}, maxCap = 0, n = 0;
+    for (; n < CPU_SETSIZE; ++n) {
+        char path[96];
+        snprintf(path, sizeof path, "/sys/devices/system/cpu/cpu%d/cpu_capacity", n);
+        FILE* f = fopen(path, "r");
+        if (!f) break;
+        if (fscanf(f, "%d", &cap[n]) != 1) cap[n] = 0;
+        fclose(f);
+        if (cap[n] > maxCap) maxCap = cap[n];
+    }
+    if (!maxCap) return;
+    cpu_set_t set; CPU_ZERO(&set);
+    std::string cores;
+    for (int i = 0; i < n; ++i)
+        if (cap[i] * 10 >= maxCap * 8) { CPU_SET(i, &set); cores += std::to_string(i) + " "; }
+    int r = sched_setaffinity(0, sizeof set, &set);
+    LOGI("emu thread pinned to cpus %s(%s)", cores.c_str(), r == 0 ? "ok" : strerror(errno));
+}
+
 void runLoop() {
+    pinToBigCores();
+    int framesSinceSaveCheck = 0;
+    bool ffApplied = false;
+    auto ffNext = std::chrono::steady_clock::now(), ffLastShown = ffNext;
     if (!g_vulkan) g_egl.makeCurrent();
     while (g_running) {
+        if (g_paused) flushSave();
         {
             std::unique_lock<std::mutex> lk(g_pauseMutex);
             g_pauseCv.wait(lk, [] { return !g_paused || !g_running; });
@@ -250,17 +343,53 @@ void runLoop() {
         applySurfaceIfChanged();
         bool hasWindow = g_vulkan ? g_vk.hasWindow() : g_egl.hasWindow();
         if (!hasWindow) { std::this_thread::sleep_for(std::chrono::milliseconds(16)); continue; }
-        // pacing comes from vsync + blocking audio writes (M4 refines)
+        // pacing comes from vsync + blocking audio writes (M4 refines); fast-forward swaps
+        // both for a sleep that caps the speed
+        bool ff = g_fastForward;
+        if (ff != ffApplied) {
+            ffApplied = ff;
+            if (g_vulkan) g_vk.setUnthrottled(ff);
+            else g_egl.setSwapInterval(ff ? 0 : 1);
+            // Synchronous parallel-RDP makes the CPU wait for the GPU at every RDP sync, which caps
+            // fast-forward near 1.7x on the Thor; async reaches 4x. CPU reads of the framebuffer
+            // (Pokemon Snap's photos) can be stale while async, so it's on only while fast-forwarding.
+            if (g_vulkan) {
+                g_optionOverrides["mupen64plus-parallel-rdp-synchronous"] = ff ? "False" : "True";
+                g_optionsDirty = true;
+            }
+            ffNext = std::chrono::steady_clock::now();
+        }
+        if (ff) {
+            ffNext += std::chrono::microseconds((long long)(1e6 / (g_av.timing.fps * kFastForwardSpeed)));
+            auto now = std::chrono::steady_clock::now();
+            if (ffNext > now) std::this_thread::sleep_until(ffNext);
+            else if (now - ffNext > std::chrono::milliseconds(100)) ffNext = now; // don't sprint to catch up
+        }
+        // Fast-forward shows at most ~60 frames a second so presenting doesn't cap the speed.
+        bool show = true;
+        if (ff) {
+            auto now = std::chrono::steady_clock::now();
+            show = now - ffLastShown >= std::chrono::microseconds(16000);
+            if (show) ffLastShown = now;
+        }
         if (g_vulkan) {
-            if (!g_vk.beginFrame()) continue;   // swapchain recreated, try again
+            auto t0 = std::chrono::steady_clock::now();
+            if (!g_vk.beginFrame(show)) continue;   // swapchain recreated, try again
+            auto t1 = std::chrono::steady_clock::now();
             core.run();
             g_vk.endFrame();
+            g_statWaitMs += std::chrono::duration<double, std::milli>(t1 - t0).count();
+            g_statRunMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t1).count();
         } else {
+            auto t0 = std::chrono::steady_clock::now();
             glBindFramebuffer(GL_FRAMEBUFFER, g_egl.fbo());
-            core.run();
+            core.run(); // includes the swap, so the vsync wait lands here
+            g_statRunMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
         }
         logStats();
+        if (++framesSinceSaveCheck >= 120) { framesSinceSaveCheck = 0; flushSave(); }
     }
+    flushSave();
     if (g_hw.context_destroy) g_hw.context_destroy();
     core.unload_game();
     core.deinit();
@@ -298,7 +427,9 @@ JNIEXPORT jboolean JNICALL JNI(loadCore)(JNIEnv* env, jobject, jstring path, jst
         && sym(core.set_controller_port_device, "retro_set_controller_port_device")
         && sym(core.load_game, "retro_load_game")
         && sym(core.unload_game, "retro_unload_game")
-        && sym(core.run, "retro_run");
+        && sym(core.run, "retro_run")
+        && sym(core.get_memory_data, "retro_get_memory_data")
+        && sym(core.get_memory_size, "retro_get_memory_size");
     if (!ok) return JNI_FALSE;
 
     core.set_environment(environment);
@@ -348,6 +479,13 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom) {
     if (!ok) { LOGE("retro_load_game failed"); return JNI_FALSE; }
 
     core.set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
+
+    uint64_t hash = 1469598103934665603ull; // FNV-1a of the ROM: stable save name per game
+    for (uint8_t b : buf) hash = (hash ^ b) * 1099511628211ull;
+    char name[32];
+    snprintf(name, sizeof name, "/%016llx.srm", (unsigned long long)hash);
+    g_savePath = g_saveDir + name;
+    loadSave();
     core.get_system_av_info(&g_av);
     LOGI("game loaded: %ux%u max, %.2f fps, %.0f Hz", g_av.geometry.max_width, g_av.geometry.max_height,
          g_av.timing.fps, g_av.timing.sample_rate);
@@ -380,6 +518,20 @@ JNIEXPORT void JNICALL JNI(pause)(JNIEnv*, jobject, jboolean p) {
     g_paused = p;
     g_audio.setPaused(p);
     g_pauseCv.notify_all();
+}
+
+JNIEXPORT void JNICALL JNI(setOption)(JNIEnv* env, jobject, jstring key, jstring value) {
+    const char* k = env->GetStringUTFChars(key, nullptr);
+    const char* v = env->GetStringUTFChars(value, nullptr);
+    g_optionOverrides[k] = v;
+    g_optionsDirty = true;
+    LOGI("option override: %s = %s", k, v);
+    env->ReleaseStringUTFChars(key, k);
+    env->ReleaseStringUTFChars(value, v);
+}
+
+JNIEXPORT void JNICALL JNI(setFastForward)(JNIEnv*, jobject, jboolean on) {
+    g_fastForward = on;
 }
 
 JNIEXPORT void JNICALL JNI(stop)(JNIEnv*, jobject) {

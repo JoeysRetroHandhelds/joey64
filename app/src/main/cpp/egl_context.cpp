@@ -33,9 +33,15 @@ bool EglContext::attachWindow(ANativeWindow* win) {
     if (win) {
         window_ = eglCreateWindowSurface(display_, config_, win, nullptr);
         if (window_ == EGL_NO_SURFACE) { LOGE("window surface failed"); return false; }
-        eglSwapInterval(display_, 1); // vsync; M4 replaces with Swappy
     }
-    return makeCurrent();
+    if (!makeCurrent()) return false;
+    if (win) eglSwapInterval(display_, swapInterval_); // vsync; M4 replaces with Swappy
+    return true;
+}
+
+void EglContext::setSwapInterval(int interval) {
+    swapInterval_ = interval;
+    if (window_ != EGL_NO_SURFACE) eglSwapInterval(display_, interval);
 }
 
 bool EglContext::makeCurrent() {

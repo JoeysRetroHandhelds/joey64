@@ -1,6 +1,13 @@
 package com.joeysretro.n64
 
 import android.app.Activity
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.ApplicationInfo
+import android.os.Handler
+import android.os.Looper
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -14,6 +21,11 @@ import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
+import android.view.Gravity
+import android.widget.FrameLayout
+import android.widget.TextView
 import java.io.File
 
 class MainActivity : Activity(), SurfaceHolder.Callback {
@@ -27,7 +39,14 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
             WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         val view = SurfaceView(this)
         view.holder.addCallback(this)
-        setContentView(view)
+        val root = FrameLayout(this)
+        root.addView(view)
+        val dp = resources.displayMetrics.density
+        root.addView(fastForwardButton(), FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END
+        ).apply { setMargins(0, (16 * dp).toInt(), (16 * dp).toInt(), 0) })
+        setContentView(root)
+        registerDebugStick()
 
         val coreFile = File(applicationInfo.nativeLibraryDir, "libmupen64plus_next_libretro_android.so")
             .takeIf { it.exists() }
@@ -41,9 +60,48 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         val customDriver = setupCustomDriver()
         val renderer = intent?.getStringExtra("renderer") ?: if (customDriver) "parallel" else "gliden64"
         NativeBridge.setRenderer(renderer == "parallel")
+        // Dev: --es opts "mupen64plus-parallel-rdp-synchronous=False,key=value"
+        intent?.getStringExtra("opts")?.split(',')?.forEach { kv ->
+            val (k, v) = kv.split('=', limit = 2).takeIf { it.size == 2 } ?: return@forEach
+            NativeBridge.setOption(k.trim(), v.trim())
+        }
         if (!NativeBridge.loadCore(coreFile.absolutePath, sys.absolutePath, saves.absolutePath)) {
             Log.e(TAG, "Core failed to load: $coreFile"); finish()
         }
+    }
+
+    // ---- Fast-forward -------------------------------------------------------------------------
+    // On-screen toggle (top-right, in the 4:3 letterbox) or R3. Runs up to 4x with audio muted.
+    private var fastForward = false
+    private var ffButton: TextView? = null
+
+    private fun fastForwardButton(): TextView {
+        val dp = resources.displayMetrics.density
+        return TextView(this).apply {
+            text = "▶▶"
+            textSize = 22f
+            setTextColor(Color.WHITE)
+            setPadding((18 * dp).toInt(), (10 * dp).toInt(), (18 * dp).toInt(), (10 * dp).toInt())
+            isFocusable = false
+            setOnClickListener { toggleFastForward() }
+            ffButton = this
+            updateFastForwardButton()
+        }
+    }
+
+    private fun toggleFastForward() {
+        fastForward = !fastForward
+        NativeBridge.setFastForward(fastForward)
+        updateFastForwardButton()
+    }
+
+    private fun updateFastForwardButton() {
+        val b = ffButton ?: return
+        b.background = GradientDrawable().apply {
+            cornerRadius = 14 * resources.displayMetrics.density
+            setColor(if (fastForward) 0xCCE0A030.toInt() else 0x55FFFFFF)
+        }
+        b.alpha = if (fastForward) 1f else 0.6f
     }
 
     /**
@@ -129,13 +187,16 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         KeyEvent.KEYCODE_BUTTON_L2 -> 12        // → Z
         KeyEvent.KEYCODE_BUTTON_R2 -> 13
         KeyEvent.KEYCODE_BUTTON_THUMBL -> 14
-        KeyEvent.KEYCODE_BUTTON_THUMBR -> 15
         else -> -1
     }
 
     private fun pushButtons() = NativeBridge.setButtons(keyMask or hatMask or triggerMask)
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.keyCode == KeyEvent.KEYCODE_BUTTON_THUMBR) { // R3: not an N64 input, so fast-forward
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) toggleFastForward()
+            return true
+        }
         val id = retroId(event.keyCode)
         if (id < 0) return super.dispatchKeyEvent(event)
         when (event.action) {
@@ -167,7 +228,33 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
 
     override fun onPause() { super.onPause(); NativeBridge.pause(true) }
     override fun onResume() { super.onResume(); NativeBridge.pause(false) }
-    override fun onDestroy() { NativeBridge.stop(); super.onDestroy() }
+    override fun onDestroy() {
+        debugStick?.let { unregisterReceiver(it) }
+        NativeBridge.stop(); super.onDestroy()
+    }
+
+    /**
+     * Debug builds only: lets adb move the analog sticks, which `input keyevent` cannot, for
+     * scripted testing. Example (left stick down for 200 ms):
+     *   adb shell am broadcast -a com.joeysretro.n64.STICK --ei x 0 --ei y 32767 --ei ms 200
+     * --ei stick 1 targets the right stick (C buttons).
+     */
+    private var debugStick: BroadcastReceiver? = null
+
+    private fun registerDebugStick() {
+        if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return
+        val handler = Handler(Looper.getMainLooper())
+        debugStick = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, i: Intent) {
+                val stick = i.getIntExtra("stick", 0)
+                NativeBridge.setAnalog(stick, i.getIntExtra("x", 0), i.getIntExtra("y", 0))
+                handler.postDelayed({ NativeBridge.setAnalog(stick, 0, 0) }, i.getIntExtra("ms", 150).toLong())
+            }
+        }
+        val filter = IntentFilter("com.joeysretro.n64.STICK")
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(debugStick, filter, Context.RECEIVER_EXPORTED)
+        else registerReceiver(debugStick, filter)
+    }
 
     companion object { const val TAG = "N64Handheld" }
 }

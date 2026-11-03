@@ -27,9 +27,12 @@ public:
 
     // Around retro_run: acquire a swapchain image (= sync index) and present it afterwards.
     // endFrame re-presents the last image if the core produced no new one.
-    bool beginFrame();
+    // show = false (fast-forward frame skip): the core's work is submitted but nothing is presented.
+    bool beginFrame(bool show = true);
     void endFrame();
     void videoRefresh(const void* data, unsigned w, unsigned h); // from retro_video_refresh
+    // Fast-forward: present without vsync. Applied (swapchain rebuilt) at the next beginFrame.
+    void setUnthrottled(bool on) { wantUnthrottled_ = on; }
 
     const retro_hw_render_interface_vulkan* iface() const { return &iface_; }
     void destroy();
@@ -38,6 +41,7 @@ private:
     bool createSwapchain();
     void destroySwapchain();
     void present(bool newImage);
+    void submitSkipped(bool newImage);
 
     // retro_hw_render_interface_vulkan callbacks (handle = this)
     static void setImage(void*, const retro_vulkan_image*, uint32_t, const VkSemaphore*, uint32_t);
@@ -69,16 +73,22 @@ private:
     VkSwapchainKHR swapchain_ = VK_NULL_HANDLE;
     VkExtent2D extent_{};
     std::vector<VkImage> images_;
-    // Per swapchain image: command buffer, fence, render-done semaphore.
-    std::vector<VkCommandBuffer> cmds_;
-    std::vector<VkFence> fences_;
+    // Frames in flight = the core's sync indices. Fixed for the device's lifetime, since the core
+    // sizes per-frame resources from the mask: swapchain rebuilds (fast-forward switches to
+    // mailbox, which can return a different image count) must not change it.
+    static constexpr uint32_t kSyncFrames = 3;
+    VkCommandBuffer frameCmds_[kSyncFrames] = {};
+    VkFence frameFences_[kSyncFrames] = {};
+    uint32_t sync_ = 0;
+    // Per swapchain image: render-done semaphore (waited on by present).
     std::vector<VkSemaphore> renderDone_;
     // Acquire semaphores rotate independently of the image index.
     std::vector<VkSemaphore> acquireSems_;
     uint32_t acquireSlot_ = 0;
     VkSemaphore currentAcquire_ = VK_NULL_HANDLE;
     uint32_t index_ = 0;
-    bool acquired_ = false, presented_ = false;
+    bool acquired_ = false, presented_ = false, skip_ = false;
+    bool wantUnthrottled_ = false, unthrottled_ = false;
 
     // State handed over by the core for the next video_refresh.
     retro_vulkan_image image_{};

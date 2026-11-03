@@ -8,7 +8,44 @@
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "n64host", __VA_ARGS__)
 
+namespace {
+int64_t nowNs() {
+    timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000000000LL + ts.tv_nsec;
+}
+}
+
 bool AudioOut::open(int srcRate) {
+    std::lock_guard<std::mutex> lk(streamMutex_);
+    srcRate_ = srcRate;
+    paused_ = false;
+    lost_ = false;
+    retryNs_ = 0;
+    return openStream();
+}
+
+void AudioOut::onError(AAudioStream*, void* user, aaudio_result_t error) {
+    LOGE("audio: stream error %d (%s)", error, AAudio_convertResultToText(error));
+    if (error == AAUDIO_ERROR_DISCONNECTED) static_cast<AudioOut*>(user)->lost_ = true;
+}
+
+void AudioOut::reopenIfLost() {
+    if (!lost_ && !retryNs_) return;
+    if (retryNs_ && nowNs() < retryNs_) return;
+    std::lock_guard<std::mutex> lk(streamMutex_);
+    lost_ = false;
+    if (stream_) { AAudioStream_requestStop(stream_); AAudioStream_close(stream_); stream_ = nullptr; }
+    if (openStream()) {
+        retryNs_ = 0;
+        LOGI("audio: reopened after the output device changed");
+        if (paused_) AAudioStream_requestPause(stream_);
+    } else {
+        retryNs_ = nowNs() + 1000000000LL;
+    }
+}
+
+bool AudioOut::openStream() {
+    const int srcRate = srcRate_;
     AAudioStreamBuilder* b = nullptr;
     AAudio_createStreamBuilder(&b);
     // No sample rate set: AAudio picks the device's native rate.
@@ -16,6 +53,7 @@ bool AudioOut::open(int srcRate) {
     AAudioStreamBuilder_setFormat(b, AAUDIO_FORMAT_PCM_FLOAT);
     AAudioStreamBuilder_setPerformanceMode(b, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
     AAudioStreamBuilder_setDataCallback(b, &AudioOut::cb, this);
+    AAudioStreamBuilder_setErrorCallback(b, &AudioOut::onError, this);
     aaudio_result_t res = AAudioStreamBuilder_openStream(b, &stream_);
     AAudioStreamBuilder_delete(b);
     if (res != AAUDIO_OK) { LOGE("AAudio open failed: %d", res); stream_ = nullptr; return false; }
@@ -42,6 +80,8 @@ bool AudioOut::open(int srcRate) {
 }
 
 void AudioOut::close() {
+    std::lock_guard<std::mutex> lk(streamMutex_);
+    retryNs_ = 0;
     if (!stream_) return;
     AAudioStream_requestStop(stream_);
     AAudioStream_close(stream_);
@@ -49,11 +89,14 @@ void AudioOut::close() {
 }
 
 void AudioOut::setPaused(bool p) {
+    std::lock_guard<std::mutex> lk(streamMutex_);
+    paused_ = p;
     if (!stream_) return;
     p ? AAudioStream_requestPause(stream_) : AAudioStream_requestStart(stream_);
 }
 
 void AudioOut::waitForRoom() {
+    reopenIfLost();
     if (!stream_) return;
     // Waits only above target + one frame of audio: where vsync paces the frames (fill near the
     // target via rate control), audio then never delays a frame past its vsync.
@@ -118,7 +161,7 @@ bool AudioOut::push(float s) {
     size_t next = (w + 1) % cap_;
     int spins = 0;
     while (next == r_.load(std::memory_order_acquire)) { // full: wait for consumer
-        if (++spins > 2000) return false;                // ~give up, avoid deadlock on pause
+        if (lost_ || ++spins > 2000) return false;       // ~give up, avoid deadlock on pause
         std::this_thread::sleep_for(std::chrono::microseconds(250));
     }
     ring_[w] = s;

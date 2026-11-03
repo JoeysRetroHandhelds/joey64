@@ -2,6 +2,7 @@
 #include <aaudio/AAudio.h>
 #include <atomic>
 #include <cstdint>
+#include <mutex>
 #include <vector>
 
 // AAudio low-latency output fed by a lock-free SPSC ring buffer of interleaved stereo float
@@ -17,6 +18,7 @@ public:
     void setPaused(bool p);
     // Audio sync, called before each emulated frame: blocks until the ring holds at most the target
     // plus one frame, so the wait lands before the frame polls input rather than in the middle of it.
+    // Also reopens the stream when the output device went away (see onError).
     void waitForRoom();
     // Device-side output latency in ms (AAudio timestamps: frames written but not yet played),
     // -1 if unknown. AAudio's buffer starts at 2 bursts and grows a burst per xrun.
@@ -29,6 +31,18 @@ public:
 private:
     static constexpr int kTargetMs = 20, kMaxTargetMs = 150;
     static aaudio_data_callback_result_t cb(AAudioStream*, void* user, void* data, int32_t frames);
+    // A headset or Bluetooth device coming or going, or another route change, disconnects the
+    // stream: its callbacks stop, so the ring would fill and every write stall. The error callback
+    // only flags it (a stream can't be closed from its own callbacks); the emulation thread reopens
+    // on the default device at the next frame, and retries once a second if that fails.
+    static void onError(AAudioStream*, void* user, aaudio_result_t error);
+    bool openStream();
+    void reopenIfLost();
+    std::mutex streamMutex_;  // stream_ lifetime vs setPaused (UI thread)
+    std::atomic<bool> lost_{false};
+    bool paused_ = false;
+    int srcRate_ = 0;
+    int64_t retryNs_ = 0;     // when to try opening again after a failed reopen (0 = not failed)
     AAudioStream* stream_ = nullptr;
     std::vector<float> ring_;
     size_t cap_ = 0; // in samples
@@ -41,8 +55,8 @@ private:
     double fillSum_ = 0; int fillCount_ = 0;
     double baseStep_ = 1.0;  // nominal source frames per output frame
     double drcI_ = 0;        // integral part of the rate correction
-    int frames_ = 0;
-    int xruns_ = 0;          // AAudio xrun count at the last check         // waitForRoom calls since open (startup frames don't adapt the target)
+    int frames_ = 0;         // waitForRoom calls since open (startup frames don't adapt the target)
+    int xruns_ = 0;          // AAudio xrun count at the last check
     double step_ = 1.0;      // source frames per output frame
     double pos_ = 0.0;       // position between prev_ and the next source frame
     int16_t prev_[2] = {0, 0};

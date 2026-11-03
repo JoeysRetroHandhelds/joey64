@@ -46,7 +46,7 @@ Focus now: performance, compatibility and latency; menus come after.
 ### Current focus: performance, compatibility, latency (revisit as they come up)
 - [ ] Crash recovery: a core crash (e.g. SM64 Last Impact) shouldn't take the app down; keep saves safe, show an error
 - [ ] Core emulation fixes for what M6 finds (Last Impact ERET error, Banjo-Tooie music, OoT pause freezes); decide how to track upstream (`gliden64-update` merge pending)
-- [ ] 50 Hz (PAL) games on 120 Hz panels (needed: RetroAchievements sets like Conker use PAL): no 50/100 Hz or VRR modes on our devices, so use timed pacing to show frames in a fixed 2,2,3,2,3 refresh pattern (5 frames per 12 refreshes, 17/25 ms). Optional frame blending later. Not 60 Hz mode (17/33 ms) or running at 60 fps
+- [ ] 50 Hz (PAL) games on 120 Hz panels (PAL-only games and RetroAchievements sets that only support PAL): no 50/100 Hz or VRR modes on our devices, so use timed pacing to show frames in a fixed 2,2,3,2,3 refresh pattern (5 frames per 12 refreshes, 17/25 ms). Optional frame blending later. Not 60 Hz mode (17/33 ms) or running at 60 fps
 - [ ] Optional overclock / 60 fps patches for 20-30 fps games (GoldenEye, Perfect Dark, Banjo), per game
 - [ ] Analog stick range and calibration per device (N64 stick range vs modern sticks)
 - [ ] Battery and heat: measure power use, thermal fallback (M4)

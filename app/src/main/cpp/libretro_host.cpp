@@ -12,6 +12,7 @@
 #include <cstring>
 #include <unistd.h>
 #include <sched.h>
+#include <dirent.h>
 #include <GLES3/gl3.h>
 #include <mutex>
 #include <string>
@@ -343,8 +344,44 @@ void pinToBigCores() {
     LOGI("emu thread pinned to cpus %s(%s)", cores.c_str(), r == 0 ? "ok" : strerror(errno));
 }
 
+// Then the emulation thread gets the last big core to itself and the threads that inherited its
+// big-core mask (parallel-RDP's worker, threads created later) the other big cores. Mario Tennis on
+// the Flip (2 big cores): 59.7 vs 57.2 fps in a match. Rescanned now and then for new threads.
+// N64_PIN_SPLIT=0 in the environment turns it off.
+void splitBigCores() {
+    static cpu_set_t big, rest, one;
+    static bool init = false;
+    if (!init) {
+        CPU_ZERO(&big);
+        if (sched_getaffinity(0, sizeof big, &big) || CPU_COUNT(&big) < 2) return;
+        int last = -1;
+        for (int i = 0; i < CPU_SETSIZE; ++i) if (CPU_ISSET(i, &big)) last = i;
+        rest = big; CPU_CLR(last, &rest);
+        CPU_ZERO(&one); CPU_SET(last, &one);
+        sched_setaffinity(0, sizeof one, &one);
+        LOGI("emu thread on cpu %d alone", last);
+        init = true;
+    }
+    pid_t self = gettid();
+    std::string moved;
+    if (DIR* d = opendir("/proc/self/task")) {
+        while (dirent* e = readdir(d)) {
+            pid_t tid = atoi(e->d_name);
+            if (tid <= 0 || tid == self) continue;
+            cpu_set_t s; CPU_ZERO(&s);
+            if (sched_getaffinity(tid, sizeof s, &s) == 0 && (CPU_EQUAL(&s, &big) || CPU_EQUAL(&s, &one)) &&
+                sched_setaffinity(tid, sizeof rest, &rest) == 0) moved += std::to_string(tid) + " ";
+        }
+        closedir(d);
+    }
+    if (!moved.empty()) LOGI("threads moved off the emu thread's core: %s", moved.c_str());
+}
+
 void runLoop() {
     pinToBigCores();
+    const char* noSplit = getenv("N64_PIN_SPLIT");
+    const bool split = !(noSplit && *noSplit == '0');
+    int splitIn = 300; // frames: the core's threads exist by then
     int framesSinceSaveCheck = 0;
     bool ffApplied = false;
     auto ffNext = std::chrono::steady_clock::now(), ffLastShown = ffNext;
@@ -415,6 +452,7 @@ void runLoop() {
             }
         }
         if (++framesSinceSaveCheck >= 120) { framesSinceSaveCheck = 0; flushSave(); }
+        if (split && --splitIn == 0) { splitBigCores(); splitIn = 600; }
     }
     flushSave();
     if (g_hw.context_destroy) g_hw.context_destroy();

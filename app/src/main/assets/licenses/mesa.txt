@@ -1,4 +1,4 @@
-Mesa 3D (Turnip, libvulkan_freedreno.so "Turnip Gen8 V38" by StevenMXZ; Mesa's Panfrost compiler in malisx2): https://mesa3d.org
+Mesa 3D (Turnip, libvulkan_freedreno.so "Turnip Gen8 V38" by StevenMXZ): https://mesa3d.org
 
 License and Copyright
 =====================

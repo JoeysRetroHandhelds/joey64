@@ -151,11 +151,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     // Until M3's profile DB:
     //  - Adreno 6xx-8xx: bundled Turnip. The stock Adreno 740 driver (676.53) fails to compile a
     //    parallel-RDP shader; Turnip renders it at 60 fps.
-    //  - Mali: the system driver (Mali-G52 runs parallel-RDP at full speed on it; the bundled
-    //    malisx2 measured ~14% slower). malisx2 only when the system driver has no Vulkan 1.1 GPU.
+    //  - Mali: the system driver (Mali-G52 runs parallel-RDP at full speed on it). malisx2
+    //    (bmdhacks' Mali driver) isn't bundled: on the G52 it measured ~14% slower than stock, and
+    //    no device we have lacks a Vulkan 1.1 system driver. It can still be dropped in (below).
     //  - parallel-RDP when the driver in use is known good (a custom one, or stock Mali), else GLideN64.
     // A driver dropped into <external files>/drivers/ (or files/drivers/) overrides the choice.
-    // Dev: --es driver system|turnip|malisx2
+    // Dev: --es driver system|turnip
 
     private class VkGpu(val vendor: Int, val major: Int, val minor: Int, val name: String) {
         val vulkan11 get() = major > 1 || (major == 1 && minor >= 1)
@@ -176,10 +177,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         val lib = devDriver() ?: when (intent?.getStringExtra("driver")) {
             "system" -> null
             "turnip" -> bundledDriver(TURNIP)
-            "malisx2" -> bundledDriver(MALISX2)
             else -> when {
                 system != null && system.adreno && TURNIP_GPUS.containsMatchIn(system.name) -> bundledDriver(TURNIP)
-                (system?.mali ?: File("/dev/mali0").exists()) && system?.vulkan11 != true -> bundledDriver(MALISX2)
                 else -> null
             }
         }
@@ -387,9 +386,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
 
     companion object {
         const val TAG = "N64Handheld"
-        // Bundled in assets/drivers/ (see assets/licenses/): Turnip (Mesa freedreno) and malisx2.
+        // Bundled in assets/drivers/ (see assets/licenses/): Turnip (Mesa freedreno).
         const val TURNIP = "libvulkan_freedreno.so"
-        const val MALISX2 = "libvulkan_malisx2.so"
         val TURNIP_GPUS = Regex("""Adreno \(TM\) [678]\d\d""")
     }
 }

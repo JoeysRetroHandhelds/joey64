@@ -50,6 +50,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
             FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.START
         ).apply { setMargins((16 * dp).toInt(), (16 * dp).toInt(), 0, 0) })
         setContentView(root)
+        // Android batches joystick moves (sticks, hat D-pads, analog triggers) to the next frame:
+        // Odin 2 Portal 10 ms -> 0.5 ms from event to dispatch. Requested on the decor view because
+        // only the focused-view chain counts and nothing here takes focus. No effect on Android 11.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
+            window.decorView.requestUnbufferedDispatch(InputDevice.SOURCE_CLASS_JOYSTICK)
         registerDebugStick()
 
         val coreFile = File(applicationInfo.nativeLibraryDir, "libmupen64plus_next_libretro_android.so")

@@ -4,8 +4,9 @@ Standalone Android N64 emulator built on the **mupen64plus-next** libretro core,
 focused on handheld devices (Retroid, Odin, AYN, Anbernic).
 
 ## Status
-Skeleton. Boots a libretro core and runs its frame loop on a native thread.
-Video uses an OpenGL ES 3 hardware context (GLideN64 path). Not yet built or tested on device.
+Runs games on real handhelds (Retroid Pocket 3.5 Flip, Odin 2 Portal, Retroid Pocket Duo, Odin 3)
+with parallel-RDP on Vulkan (bundled Turnip on Adreno) or GLideN64. No menus yet: games are started
+over adb (see CLAUDE.md).
 
 ## Layout
 ```
@@ -29,10 +30,15 @@ into `app/src/main/cpp/`.
 The core is GPLv2+, so this app ships as GPL. Keep ares-derived code under its ISC notice.
 
 ## Roadmap
+Focus now: performance, compatibility and latency; menus come after.
+
 - [x] M0 – Host core, load ROM, GLES video, AAudio, run loop
-- [ ] M1 – Input: gamepad mapping → RETRO_DEVICE_JOYPAD/ANALOG
-- [ ] M2 – Vulkan HW context (RETRO_HW_CONTEXT_VULKAN) for parallel-RDP
-- [ ] M3 – Per-game / per-GPU profile DB (ROM hash + GPU vendor/driver → renderer + core options)
-- [ ] M4 – Frame pacing: Swappy, audio/video sync modes, big-core pinning, thermal fallback
-- [ ] M5 – Handheld frontend: device detection, controller profiles, controller-only UI
-- [ ] M6 – Test harness: n64-systemtest results, Pokémon Snap photo check
+- [x] M1 – Input: positional gamepad mapping, analog sticks, fast-forward (unbatched input on Android 11 still open)
+- [x] M2 – Vulkan HW context for parallel-RDP, Turnip/system driver pick per GPU
+- [ ] M3 – Per-game / per-GPU profile DB (ROM hash + GPU vendor/driver → renderer + core options); a few rules are hard-coded so far
+- [~] M4 – Frame pacing: big-core pinning, audio sync, low-latency audio, timed pacing on 120 Hz (opt-in) done; speed cap when audio doesn't pace (New Tetris runs 2x on 120 Hz), thermal fallback open
+- [ ] M5 – Handheld frontend: game list, settings, controller profiles, controller-only UI
+- [ ] M6 – Test harness: compatibility runs across a ROM library per device (scripted, first pass done), n64-systemtest results, Pokémon Snap photo check
+- [ ] Paks: Controller Pak works (player 1, saved in the .srm). Rumble Pak (vibrate device/controller; pick memory or rumble per game), Transfer Pak (Game Boy ROM + save for Pokémon Stadium 1/2), paks for players 2-4
+- [ ] Save states, then run-ahead (removes games' built-in input lag)
+- [ ] Performance on weak devices: parallel-RDP command-ring syscalls, NEON RSP vector path

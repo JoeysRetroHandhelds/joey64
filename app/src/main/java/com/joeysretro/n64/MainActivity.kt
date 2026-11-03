@@ -71,6 +71,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         // Driver and renderer by GPU (setupGpu). Override with: am start ... --es renderer parallel|gliden64
         val renderer = setupGpu()
         NativeBridge.setRenderer(renderer == "parallel")
+        // parallel-RDP synchronous by default on Adreno: async there gives black screens (Yoshi's Story,
+        // Resident Evil 2, Cruis'n USA) or halts (New Tetris), and sync costs ~1-2 ms a frame (Odin 3, Duo).
+        // On Mali (Flip) sync can cost a third of the frame rate, so async plus kSyncRdpGames. --es opts wins.
+        if ("Adreno" in gpuName) NativeBridge.setOption("mupen64plus-parallel-rdp-synchronous", "True")
         // Dev: --es opts "mupen64plus-parallel-rdp-synchronous=False,key=value"
         intent?.getStringExtra("opts")?.split(',')?.forEach { kv ->
             val (k, v) = kv.split('=', limit = 2).takeIf { it.size == 2 } ?: return@forEach

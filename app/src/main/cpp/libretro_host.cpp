@@ -66,7 +66,6 @@ retro_system_av_info g_av{};
 // M3's profile DB will fill g_optionOverrides per ROM hash + GPU.
 std::unordered_map<std::string, std::string> g_options;
 std::unordered_map<std::string, std::string> g_optionOverrides = {
-    {"mupen64plus-cpucore", "dynamic_recompiler"},
     // The core defaults this to True on GLES; standalone GLideN64 defaults to off. Legacy blending
     // drops blend modes the shader blender handles, e.g. Mario Tennis's player select disappears.
     {"mupen64plus-EnableLegacyBlending", "False"},
@@ -631,7 +630,8 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
     FILE* f = fopen(p, "rb");
     std::vector<uint8_t> buf;
     if (f) { fseek(f, 0, SEEK_END); buf.resize(ftell(f)); fseek(f, 0, SEEK_SET); fread(buf.data(), 1, buf.size(), f); fclose(f); }
-    // Games whose CPU reads the framebuffer, which async parallel-RDP can serve stale: Pokemon Snap
+    // Sync by default on Adreno (MainActivity). Elsewhere, games that break with async parallel-RDP (their
+    // CPU reads the framebuffer, which async can serve stale): Pokemon Snap
     // (photo checks), The New Tetris (async: halts on a "secret cheat, power off" screen after ~10 s),
     // Resident Evil 2 and Cruis'n USA (async: black screen). An explicit option override (--es opts) wins.
     static const char* const kSyncRdpGames[] = {"NPF", "NRI", "NRE", "NCU"};
@@ -642,7 +642,15 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
                                  [&](const char* g) { return id.compare(0, 3, g) == 0; });
     g_optionOverrides["mupen64plus-parallel-rdp-synchronous"] = g_rdpSync ? "True" : "False";
     g_optionsDirty = true;
-    LOGI("game id %s, parallel-RDP %s", id.c_str(), g_rdpSync ? "synchronous" : "async");
+    // CPU core: the dynamic recompiler, except games it crashes. Sin and Punishment (the English patch):
+    // jumps to a bogus address right after boot; fine on the cached interpreter. --es opts wins.
+    static const char* const kInterpreterGames[] = {"NGU"};
+    if (!g_optionOverrides.count("mupen64plus-cpucore"))
+        g_optionOverrides["mupen64plus-cpucore"] =
+            std::any_of(std::begin(kInterpreterGames), std::end(kInterpreterGames),
+                        [&](const char* g) { return id.compare(0, 3, g) == 0; }) ? "cached_interpreter" : "dynamic_recompiler";
+    LOGI("game id %s, parallel-RDP %s, %s", id.c_str(), g_rdpSync ? "synchronous" : "async",
+         g_optionOverrides["mupen64plus-cpucore"].c_str());
     retro_game_info info{ p, buf.data(), buf.size(), nullptr };
     bool ok = !buf.empty() && core.load_game(&info);
     env->ReleaseStringUTFChars(rom, p);

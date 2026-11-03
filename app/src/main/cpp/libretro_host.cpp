@@ -106,6 +106,14 @@ int g_statRuns = 0, g_statPresents = 0, g_statDupes = 0; // emulation thread onl
 double g_statRunMs = 0, g_statWaitMs = 0;                 // time in retro_run / beginFrame
 double g_statAudioWaitMs = 0;                             // audio sync before each frame
 std::atomic<uint32_t> g_framesShown{0};                   // new frames presented, for the FPS counter
+// Rumble Pak, player 1: the core switches each motor on/off; the UI thread polls this every frame
+// and drives the controller's (or the device's) vibrator.
+std::atomic<uint16_t> g_rumbleWeak{0}, g_rumbleStrong{0};
+bool setRumble(unsigned port, retro_rumble_effect effect, uint16_t strength) {
+    if (port != 0) return false;
+    (effect == RETRO_RUMBLE_STRONG ? g_rumbleStrong : g_rumbleWeak) = strength;
+    return true;
+}
 
 template <typename T> bool sym(T& fn, const char* name) {
     fn = reinterpret_cast<T>(dlsym(core.handle, name));
@@ -186,6 +194,8 @@ bool environment(unsigned cmd, void* data) {
         v->value = d != g_options.end() ? d->second.c_str() : nullptr;
         return v->value != nullptr;
     }
+    case RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE:
+        static_cast<retro_rumble_interface*>(data)->set_rumble_state = setRumble; return true;
     case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
         *static_cast<bool*>(data) = g_optionsDirty.exchange(false); return true;
     case RETRO_ENVIRONMENT_SET_VARIABLES: {
@@ -432,7 +442,7 @@ void runLoop() {
     int splitIn = 300; // frames: the core's threads exist by then
     int framesSinceSaveCheck = 0;
     bool ffApplied = false;
-    auto ffNext = std::chrono::steady_clock::now(), ffLastShown = ffNext;
+    auto ffNext = std::chrono::steady_clock::now(), ffLastShown = ffNext, capNext = ffNext;
     if (!g_vulkan) g_egl.makeCurrent();
     while (g_running) {
         if (g_paused) flushSave();
@@ -476,6 +486,13 @@ void runLoop() {
             auto t0 = std::chrono::steady_clock::now();
             g_audio.waitForRoom();
             g_statAudioWaitMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            // Speed cap. Audio sync and vsync normally pace, but a game that stops producing audio
+            // (New Tetris) ran at the panel rate on 120 Hz: 2x. 2% slack keeps it out of the way
+            // of audio pacing and rate control.
+            auto now = std::chrono::steady_clock::now();
+            capNext += std::chrono::microseconds((long long)(1e6 / (g_av.timing.fps * 1.02)));
+            if (capNext > now) std::this_thread::sleep_until(capNext);
+            else if (now - capNext > std::chrono::milliseconds(50)) capNext = now; // behind: don't sprint
         }
         if (g_vulkan) {
             auto t0 = std::chrono::steady_clock::now();
@@ -615,8 +632,9 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
     std::vector<uint8_t> buf;
     if (f) { fseek(f, 0, SEEK_END); buf.resize(ftell(f)); fseek(f, 0, SEEK_SET); fread(buf.data(), 1, buf.size(), f); fclose(f); }
     // Games whose CPU reads the framebuffer, which async parallel-RDP can serve stale: Pokemon Snap
-    // (photo checks). An explicit option override (--es opts) wins.
-    static const char* const kSyncRdpGames[] = {"NPF"};
+    // (photo checks), The New Tetris (async: halts on a "secret cheat, power off" screen after ~10 s).
+    // An explicit option override (--es opts) wins.
+    static const char* const kSyncRdpGames[] = {"NPF", "NRI"};
     std::string id = romGameId(buf);
     auto syncOpt = g_optionOverrides.find("mupen64plus-parallel-rdp-synchronous");
     if (syncOpt != g_optionOverrides.end()) g_rdpSync = syncOpt->second == "True";
@@ -711,6 +729,10 @@ JNIEXPORT void JNICALL JNI(dumpRam)(JNIEnv* env, jobject, jstring path) {
 
 JNIEXPORT void JNICALL JNI(setFastForward)(JNIEnv*, jobject, jboolean on) {
     g_fastForward = on;
+}
+
+JNIEXPORT jint JNICALL JNI(rumble)(JNIEnv*, jobject) {
+    return (jint)std::max(g_rumbleWeak.load(), g_rumbleStrong.load());
 }
 
 JNIEXPORT jint JNICALL JNI(framesShown)(JNIEnv*, jobject) {

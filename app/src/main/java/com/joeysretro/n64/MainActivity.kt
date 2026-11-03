@@ -9,6 +9,10 @@ import android.content.pm.ApplicationInfo
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.view.Choreographer
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.os.Build
@@ -111,6 +115,44 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
             fpsLastFrames = frames
             fpsLastTime = now
             fpsHandler.postDelayed(this, 500)
+        }
+    }
+
+    // ---- Rumble Pak ---------------------------------------------------------------------------
+    // The core switches the pak's motor on and off; polled every frame. Vibrates the gamepad last
+    // used if it has a motor, else the device (handhelds have one built in).
+    private var padDeviceId = -1
+    private var rumbling = false
+    private var rumbleVibrator: Vibrator? = null
+
+    private fun vibrator(): Vibrator? {
+        val pad = InputDevice.getDevice(padDeviceId)
+        val padVib = if (Build.VERSION.SDK_INT >= 31) pad?.vibratorManager?.defaultVibrator
+            else @Suppress("DEPRECATION") pad?.vibrator
+        if (padVib?.hasVibrator() == true) return padVib
+        val sys = if (Build.VERSION.SDK_INT >= 31)
+            (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
+            else @Suppress("DEPRECATION") getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        return sys.takeIf { it.hasVibrator() }
+    }
+
+    private fun setRumbling(on: Boolean) {
+        if (on == rumbling) return
+        rumbling = on
+        if (on) {
+            rumbleVibrator = vibrator()
+            // Long one-shot, cancelled when the game switches the motor off.
+            rumbleVibrator?.vibrate(VibrationEffect.createOneShot(10_000, VibrationEffect.DEFAULT_AMPLITUDE))
+        } else {
+            rumbleVibrator?.cancel()
+            rumbleVibrator = null
+        }
+    }
+
+    private val rumbleTick = object : Choreographer.FrameCallback {
+        override fun doFrame(frameTimeNanos: Long) {
+            setRumbling(NativeBridge.rumble() > 0)
+            Choreographer.getInstance().postFrameCallback(this)
         }
     }
 
@@ -338,6 +380,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         }
         val id = retroId(event.keyCode)
         if (id < 0) return super.dispatchKeyEvent(event)
+        padDeviceId = event.deviceId
         when (event.action) {
             KeyEvent.ACTION_DOWN -> keyMask = keyMask or (1 shl id)
             KeyEvent.ACTION_UP -> keyMask = keyMask and (1 shl id).inv()
@@ -349,6 +392,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
         if (event.source and InputDevice.SOURCE_JOYSTICK != InputDevice.SOURCE_JOYSTICK ||
             event.action != MotionEvent.ACTION_MOVE) return super.dispatchGenericMotionEvent(event)
+        padDeviceId = event.deviceId
         fun axis(a: Int) = (event.getAxisValue(a).coerceIn(-1f, 1f) * 32767).toInt()
         NativeBridge.setAnalog(0, axis(MotionEvent.AXIS_X), axis(MotionEvent.AXIS_Y))
         NativeBridge.setAnalog(1, axis(MotionEvent.AXIS_Z), axis(MotionEvent.AXIS_RZ))
@@ -369,12 +413,15 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         super.onPause()
         NativeBridge.pause(true)
         fpsHandler.removeCallbacks(fpsTick)
+        Choreographer.getInstance().removeFrameCallback(rumbleTick)
+        setRumbling(false)
     }
     override fun onResume() {
         super.onResume()
         NativeBridge.pause(false)
         fpsLastTime = 0L
         fpsHandler.post(fpsTick)
+        Choreographer.getInstance().postFrameCallback(rumbleTick)
     }
     override fun onDestroy() {
         debugStick?.let { unregisterReceiver(it) }

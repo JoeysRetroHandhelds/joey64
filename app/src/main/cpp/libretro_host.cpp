@@ -45,6 +45,8 @@ struct Core {
     void (*run)();
     void* (*get_memory_data)(unsigned);
     size_t (*get_memory_size)(unsigned);
+    void (*cheat_reset)();
+    void (*cheat_set)(unsigned, bool, const char*);
 } core;
 
 std::string g_systemDir, g_saveDir;
@@ -76,6 +78,11 @@ std::mutex g_pauseMutex;
 std::condition_variable g_pauseCv;
 // Fast-forward: vsync off, audio dropped, emulation capped at kFastForwardSpeed x normal.
 std::atomic<bool> g_fastForward{false};
+// GameShark codes applied after load_game (M3: per-game compatibility fixes from the profile DB).
+std::vector<std::string> g_cheats;
+// Debug: RDRAM dump requested from the UI thread, written by the emulation thread between frames.
+std::mutex g_dumpMutex;
+std::string g_dumpPath;
 constexpr int kFastForwardSpeed = 4;
 
 std::atomic<int> g_buttons{0};
@@ -387,6 +394,18 @@ void runLoop() {
             g_statRunMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
         }
         logStats();
+        {
+            std::lock_guard<std::mutex> lk(g_dumpMutex);
+            if (!g_dumpPath.empty()) {
+                auto* mem = static_cast<const uint8_t*>(core.get_memory_data(RETRO_MEMORY_SYSTEM_RAM));
+                size_t size = core.get_memory_size(RETRO_MEMORY_SYSTEM_RAM);
+                if (FILE* f = mem ? fopen(g_dumpPath.c_str(), "wb") : nullptr) {
+                    fwrite(mem, 1, size, f); fclose(f);
+                    LOGI("dump: wrote %zu bytes of RDRAM to %s", size, g_dumpPath.c_str());
+                }
+                g_dumpPath.clear();
+            }
+        }
         if (++framesSinceSaveCheck >= 120) { framesSinceSaveCheck = 0; flushSave(); }
     }
     flushSave();
@@ -429,7 +448,9 @@ JNIEXPORT jboolean JNICALL JNI(loadCore)(JNIEnv* env, jobject, jstring path, jst
         && sym(core.unload_game, "retro_unload_game")
         && sym(core.run, "retro_run")
         && sym(core.get_memory_data, "retro_get_memory_data")
-        && sym(core.get_memory_size, "retro_get_memory_size");
+        && sym(core.get_memory_size, "retro_get_memory_size")
+        && sym(core.cheat_reset, "retro_cheat_reset")
+        && sym(core.cheat_set, "retro_cheat_set");
     if (!ok) return JNI_FALSE;
 
     core.set_environment(environment);
@@ -479,6 +500,11 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom) {
     if (!ok) { LOGE("retro_load_game failed"); return JNI_FALSE; }
 
     core.set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
+    core.cheat_reset();
+    for (size_t i = 0; i < g_cheats.size(); ++i) {
+        core.cheat_set((unsigned)i, true, g_cheats[i].c_str());
+        LOGI("cheat %zu: %s", i, g_cheats[i].c_str());
+    }
 
     uint64_t hash = 1469598103934665603ull; // FNV-1a of the ROM: stable save name per game
     for (uint8_t b : buf) hash = (hash ^ b) * 1099511628211ull;
@@ -528,6 +554,18 @@ JNIEXPORT void JNICALL JNI(setOption)(JNIEnv* env, jobject, jstring key, jstring
     LOGI("option override: %s = %s", k, v);
     env->ReleaseStringUTFChars(key, k);
     env->ReleaseStringUTFChars(value, v);
+}
+
+JNIEXPORT void JNICALL JNI(addCheat)(JNIEnv* env, jobject, jstring code) {
+    const char* c = env->GetStringUTFChars(code, nullptr);
+    g_cheats.emplace_back(c);
+    env->ReleaseStringUTFChars(code, c);
+}
+
+JNIEXPORT void JNICALL JNI(dumpRam)(JNIEnv* env, jobject, jstring path) {
+    const char* p = env->GetStringUTFChars(path, nullptr);
+    { std::lock_guard<std::mutex> lk(g_dumpMutex); g_dumpPath = p; }
+    env->ReleaseStringUTFChars(path, p);
 }
 
 JNIEXPORT void JNICALL JNI(setFastForward)(JNIEnv*, jobject, jboolean on) {

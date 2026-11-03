@@ -65,6 +65,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
             val (k, v) = kv.split('=', limit = 2).takeIf { it.size == 2 } ?: return@forEach
             NativeBridge.setOption(k.trim(), v.trim())
         }
+        // Dev: --es cheats "D11E3184 2881,811E3184 2001;<next cheat>"
+        intent?.getStringExtra("cheats")?.split(';')?.filter { it.isNotBlank() }?.forEach { NativeBridge.addCheat(it) }
         if (!NativeBridge.loadCore(coreFile.absolutePath, sys.absolutePath, saves.absolutePath)) {
             Log.e(TAG, "Core failed to load: $coreFile"); finish()
         }
@@ -230,6 +232,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     override fun onResume() { super.onResume(); NativeBridge.pause(false) }
     override fun onDestroy() {
         debugStick?.let { unregisterReceiver(it) }
+        debugDump?.let { unregisterReceiver(it) }
         NativeBridge.stop(); super.onDestroy()
     }
 
@@ -240,6 +243,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
      * --ei stick 1 targets the right stick (C buttons).
      */
     private var debugStick: BroadcastReceiver? = null
+    private var debugDump: BroadcastReceiver? = null
 
     private fun registerDebugStick() {
         if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return
@@ -251,9 +255,18 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
                 handler.postDelayed({ NativeBridge.setAnalog(stick, 0, 0) }, i.getIntExtra("ms", 150).toLong())
             }
         }
-        val filter = IntentFilter("com.joeysretro.n64.STICK")
-        if (Build.VERSION.SDK_INT >= 33) registerReceiver(debugStick, filter, Context.RECEIVER_EXPORTED)
-        else registerReceiver(debugStick, filter)
+        // adb shell am broadcast -a com.joeysretro.n64.DUMP --es name snap1  -> files/dumps/snap1.bin
+        debugDump = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, i: Intent) {
+                val dir = File(getExternalFilesDir(null), "dumps").apply { mkdirs() }
+                NativeBridge.dumpRam(File(dir, "${i.getStringExtra("name") ?: "ram"}.bin").absolutePath)
+            }
+        }
+        for ((receiver, action) in listOf(debugStick to "com.joeysretro.n64.STICK", debugDump to "com.joeysretro.n64.DUMP")) {
+            val filter = IntentFilter(action)
+            if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
+            else registerReceiver(receiver, filter)
+        }
     }
 
     companion object { const val TAG = "N64Handheld" }

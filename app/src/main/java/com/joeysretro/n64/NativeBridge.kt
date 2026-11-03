@@ -26,6 +26,12 @@ object NativeBridge {
     /** Before loadGame: override a core option (M3's profile DB will call this). */
     external fun setOption(key: String, value: String)
 
+    /** Before loadGame: GameShark code ("ADDRESS VALUE" pairs, any separator), applied at load. */
+    external fun addCheat(code: String)
+
+    /** Debug: write RDRAM (as the core stores it) to path after the current frame. */
+    external fun dumpRam(path: String)
+
     /** Fast-forward: no vsync, audio muted, capped at 4x. */
     external fun setFastForward(on: Boolean)
 

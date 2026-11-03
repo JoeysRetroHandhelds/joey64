@@ -16,6 +16,9 @@ mupen64plus-next libretro core from a Kotlin app with a C++ libretro frontend.
 - `app/src/main/cpp/third_party/libadrenotools/` – BSD-2, copied from dolphin's checkout; loads custom Vulkan drivers (Turnip). Its hook libs ship in the APK and are found via nativeLibraryDir
 - `app/src/main/cpp/audio_out.*` – AAudio float at device rate + linear resampler + SPSC ring (blocking write = audio sync)
 - `app/src/main/jniLibs/arm64-v8a/` – drop `libmupen64plus_next_libretro_android.so` here (not committed)
+- Core source: `C:\GithubProjects\mupen64plus-libretro-nx` (private repo JoeysRetroHandhelds/n64-core, branch `handheld`; `upstream` = libretro/mupen64plus-libretro-nx). Build (Git Bash, NDK 27.3):
+  `ndk-build.cmd -C libretro/jni APP_ABI=arm64-v8a GLES3=1 STRINGS=<ndk>/toolchains/llvm/prebuilt/windows-x86_64/bin/llvm-strings.exe AWK=awk TR=tr -j16`.
+  On a clean tree the asm_defines rule fails under cmd.exe: run `llvm-strings <obj of asm_defines.c> | tr -d '' | awk -v dest_dir=libretro/obj/local/arm64-v8a/asm_defines/ -f mupen64plus-core/tools/gen_asm_defines.awk` and rerun. Output `libretro/libs/arm64-v8a/libretro.so` → copy to jniLibs under the name above
 
 ## Build / run
 - Android Studio or `./gradlew assembleDebug` (needs JDK 17+, e.g. Android Studio's `jbr` as JAVA_HOME)
@@ -25,7 +28,8 @@ mupen64plus-next libretro core from a Kotlin app with a C++ libretro frontend.
 - Custom Vulkan driver (dev): push e.g. Turnip's `libvulkan_freedreno.so` to `/sdcard/Android/data/com.joeysretro.n64/files/drivers/`; the app copies it to internal storage and loads it. From Git Bash set `MSYS_NO_PATHCONV=1` or adb paths get mangled
 - Renderer: parallel-RDP when a custom driver is installed, else GLideN64; override with `--es renderer parallel|gliden64` on `am start`
 - Controls: positional mapping of any Android gamepad in MainActivity (bottom = N64 A, left = N64 B, L2 = Z, right stick = C). Presses shorter than a frame are held for 4 polls (Snap ignores 1-frame presses). R3 or the on-screen button toggles fast-forward (4x cap, audio muted, ~60 fps shown, async parallel-RDP while on)
-- Dev core options: `--es opts "key=value,key=value"` on `am start`
+- Dev core options: `--es opts "key=value,key=value"` on `am start`; GameShark codes: `--es cheats '<code>;<code>'` (quote the whole `am start` for `adb shell`, or the device shell splits at spaces)
+- Debug builds: `adb shell am broadcast -a com.joeysretro.n64.DUMP --es name x` writes RDRAM to `files/dumps/x.bin`
 - Save RAM: `files/saves/<fnv64 of ROM>.srm`, written atomically every 120 frames when changed, on pause and on exit
 - Debug builds: `adb shell am broadcast -a com.joeysretro.n64.STICK --ei x 0 --ei y 32767 --ei ms 200` moves the stick (`--ei stick 1` = C stick)
 - Never set `MSYS_NO_PATHCONV=1` for `./gradlew`: the native build silently does nothing

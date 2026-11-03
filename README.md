@@ -48,12 +48,16 @@ Focus now: performance, compatibility and latency; menus come after.
 - [ ] Core emulation fixes for what M6 finds (Last Impact ERET error, Banjo-Tooie music, OoT pause freezes); decide how to track upstream (`gliden64-update` merge pending)
 - [ ] 50 Hz (PAL) games on 120 Hz panels (PAL-only games and RetroAchievements sets that only support PAL): no 50/100 Hz or VRR modes on our devices, so use timed pacing to show frames in a fixed 2,2,3,2,3 refresh pattern (5 frames per 12 refreshes, 17/25 ms). Optional frame blending later. Not 60 Hz mode (17/33 ms) or running at 60 fps
 - [ ] Optional overclock / 60 fps patches for 20-30 fps games (GoldenEye, Perfect Dark, Banjo), per game
-- [ ] Analog stick range and calibration per device (N64 stick range vs modern sticks)
+- [ ] Analog stick range and calibration per device (real N64 sticks don't reach as far as modern sticks, so movement feels too sensitive unless scaled)
 - [ ] Battery and heat: measure power use, thermal fallback (M4)
+- [ ] Timing accuracy: no emulator matches N64 timing exactly (ares is closest), so scenes that slowed down on hardware run faster and a few games built around that slowdown misbehave. Compare game speed against ares on known cases, tune per game (CountPerOp) in the profile DB
+- [ ] Games that need the accurate path: custom microcodes (Factor 5: Rogue Squadron, Battle for Naboo, Indiana Jones) and framebuffer effects (Snap photos, blur/motion effects) break on GLideN64; the profile DB should keep them on parallel-RDP + LLE RSP, or warn on weak devices that fall back
 
 ### Later
 - [ ] RetroAchievements (reuse the mupen64plus-ae fork's work; note it's GPLv3)
 - [ ] Display options: widescreen hacks, integer scaling, filters/CRT shaders, GLideN64 texture packs
 - [ ] Multiplayer: controllers 2-4 with their own mapping (netplay likely out of scope)
 - [ ] Release: signed builds, where to publish, updates, GPL source obligations, bundled driver license notices
-- [ ] Small: load zipped ROMs directly, 64DD, Duo second screen for stats or menus
+- [ ] 64DD (disk add-on, mostly Japan-only games): ares supports it, mupen64plus partly; check what the core does, disk saves
+- [ ] Rare accessories, mostly not emulated anywhere: Voice Recognition Unit (Hey You, Pikachu!; could use the device mic), Bio Sensor (Tetris 64), Densha de Go controller, N64 Mouse (Mario Artist), Capture Cassette, Randnet online service. Also Game Boy Camera through the Transfer Pak. Low priority: a handful of games
+- [ ] Small: load zipped ROMs directly, Duo second screen for stats or menus

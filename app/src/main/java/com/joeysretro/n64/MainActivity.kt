@@ -58,11 +58,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         val sys = File(filesDir, "system").apply { mkdirs() }
         val saves = File(filesDir, "saves").apply { mkdirs() }
 
-        // Until M3 picks per game/GPU: parallel-RDP when a custom driver (Turnip) is installed,
-        // since the stock Adreno 740 driver (676.53) fails to compile a parallel-RDP shader;
-        // otherwise GLideN64. Override with: am start ... --es renderer parallel|gliden64
-        val customDriver = setupCustomDriver()
-        val renderer = intent?.getStringExtra("renderer") ?: if (customDriver) "parallel" else "gliden64"
+        // Driver and renderer by GPU (setupGpu). Override with: am start ... --es renderer parallel|gliden64
+        val renderer = setupGpu()
         NativeBridge.setRenderer(renderer == "parallel")
         // Dev: --es opts "mupen64plus-parallel-rdp-synchronous=False,key=value"
         intent?.getStringExtra("opts")?.split(',')?.forEach { kv ->
@@ -145,21 +142,83 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         b.alpha = if (fastForward) 1f else 0.6f
     }
 
-    /**
-     * Dev: a custom Vulkan driver dropped into <external files>/drivers/ (e.g. Turnip's
-     * libvulkan_freedreno.so) is copied to internal storage, where it can be dlopen'd, and used
-     * for the Vulkan renderer. M3 picks drivers per GPU.
-     */
-    private fun setupCustomDriver(): Boolean {
+    // ---- GPU driver + renderer ------------------------------------------------------------------
+    // Until M3's profile DB:
+    //  - Adreno 6xx-8xx: bundled Turnip. The stock Adreno 740 driver (676.53) fails to compile a
+    //    parallel-RDP shader; Turnip renders it at 60 fps.
+    //  - Mali: the system driver (Mali-G52 runs parallel-RDP at full speed on it; the bundled
+    //    malisx2 measured ~14% slower). malisx2 only when the system driver has no Vulkan 1.1 GPU.
+    //  - parallel-RDP when the driver in use is known good (a custom one, or stock Mali), else GLideN64.
+    // A driver dropped into <external files>/drivers/ (or files/drivers/) overrides the choice.
+    // Dev: --es driver system|turnip|malisx2
+
+    private class VkGpu(val vendor: Int, val major: Int, val minor: Int, val name: String) {
+        val vulkan11 get() = major > 1 || (major == 1 && minor >= 1)
+        val adreno get() = vendor == 0x5143
+        val mali get() = vendor == 0x13B5
+        override fun toString() = "$name (Vulkan $major.$minor)"
+    }
+
+    private fun parseGpu(s: String): VkGpu? {
+        val p = s.split('|', limit = 3).takeIf { it.size == 3 } ?: return null
+        val v = p[1].split('.').mapNotNull { it.toIntOrNull() }.takeIf { it.size == 2 } ?: return null
+        return VkGpu(p[0].toIntOrNull() ?: return null, v[0], v[1], p[2])
+    }
+
+    /** Picks and installs the Vulkan driver; returns the renderer, "parallel" or "gliden64". */
+    private fun setupGpu(): String {
+        val system = parseGpu(NativeBridge.probeVulkan(false))
+        val lib = devDriver() ?: when (intent?.getStringExtra("driver")) {
+            "system" -> null
+            "turnip" -> bundledDriver(TURNIP)
+            "malisx2" -> bundledDriver(MALISX2)
+            else -> when {
+                system != null && system.adreno && TURNIP_GPUS.containsMatchIn(system.name) -> bundledDriver(TURNIP)
+                (system?.mali ?: File("/dev/mali0").exists()) && system?.vulkan11 != true -> bundledDriver(MALISX2)
+                else -> null
+            }
+        }
+        var custom: VkGpu? = null
+        if (lib != null) {
+            val tmp = File(cacheDir, "gpu_tmp").apply { mkdirs() }
+            NativeBridge.setVulkanDriver("${lib.parent}/", lib.name, "${applicationInfo.nativeLibraryDir}/", "${tmp.absolutePath}/")
+            custom = parseGpu(NativeBridge.probeVulkan(true))
+            if (custom == null) Log.w(TAG, "Driver ${lib.name} has no usable GPU, using the system driver")
+        }
+        val gpu = custom ?: system
+        val parallel = gpu != null && gpu.vulkan11 && (custom != null || gpu.mali)
+        Log.i(TAG, "GPU: ${gpu ?: "no Vulkan"}, driver ${if (custom != null) lib!!.name else "system"}, " +
+            "default renderer ${if (parallel) "parallel" else "gliden64"}")
+        return intent?.getStringExtra("renderer") ?: if (parallel) "parallel" else "gliden64"
+    }
+
+    private val gpuDriverDir get() = File(filesDir, "gpu_driver").apply { mkdirs() }
+
+    /** Dev: the first .so in <external files>/drivers/ or files/drivers/, copied where it can be dlopen'd. */
+    private fun devDriver(): File? {
         // Internal files/drivers too, for devices whose adb can't write Android/data (see resolveRom).
         val src = listOfNotNull(getExternalFilesDir("drivers"), File(filesDir, "drivers"))
-            .firstNotNullOfOrNull { d -> d.listFiles { f -> f.name.endsWith(".so") }?.firstOrNull() } ?: return false
-        val dir = File(filesDir, "gpu_driver").apply { mkdirs() }
-        val dst = File(dir, src.name)
+            .firstNotNullOfOrNull { d -> d.listFiles { f -> f.name.endsWith(".so") }?.firstOrNull() } ?: return null
+        val dst = File(gpuDriverDir, src.name)
         if (!dst.exists() || dst.length() != src.length() || dst.lastModified() < src.lastModified()) src.copyTo(dst, true)
-        val tmp = File(cacheDir, "gpu_tmp").apply { mkdirs() }
-        NativeBridge.setVulkanDriver("${dir.absolutePath}/", src.name, "${applicationInfo.nativeLibraryDir}/", "${tmp.absolutePath}/")
-        return true
+        return dst
+    }
+
+    /** A driver bundled in assets/drivers/, copied out once per app install/update; null if not bundled. */
+    private fun bundledDriver(name: String): File? {
+        val dst = File(gpuDriverDir, name)
+        val stamp = File(gpuDriverDir, "$name.stamp")
+        val version = packageManager.getPackageInfo(packageName, 0).lastUpdateTime.toString()
+        if (dst.exists() && stamp.exists() && stamp.readText() == version) return dst
+        return try {
+            val tmp = File(gpuDriverDir, "$name.part")
+            assets.open("drivers/$name").use { i -> tmp.outputStream().use { i.copyTo(it) } }
+            tmp.renameTo(dst)
+            stamp.writeText(version)
+            dst
+        } catch (e: java.io.IOException) {
+            Log.w(TAG, "Driver $name is not bundled"); null
+        }
     }
 
     /** ROM comes from a VIEW intent, else a fixed dev path. M5 replaces this with a game list. */
@@ -321,5 +380,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         }
     }
 
-    companion object { const val TAG = "N64Handheld" }
+    companion object {
+        const val TAG = "N64Handheld"
+        // Bundled in assets/drivers/ (see assets/licenses/): Turnip (Mesa freedreno) and malisx2.
+        const val TURNIP = "libvulkan_freedreno.so"
+        const val MALISX2 = "libvulkan_malisx2.so"
+        val TURNIP_GPUS = Regex("""Adreno \(TM\) [678]\d\d""")
+    }
 }

@@ -482,6 +482,10 @@ JNIEXPORT void JNICALL JNI(setVulkanDriver)(JNIEnv* env, jobject, jstring dir, j
     VkContext::setCustomDriver(str(dir).c_str(), str(name).c_str(), str(hooks).c_str(), str(tmp).c_str());
 }
 
+JNIEXPORT jstring JNICALL JNI(probeVulkan)(JNIEnv* env, jobject, jboolean custom) {
+    return env->NewStringUTF(VkContext::probe(custom).c_str());
+}
+
 JNIEXPORT void JNICALL JNI(setRenderer)(JNIEnv*, jobject, jboolean vulkan) {
     g_vulkan = vulkan;
     g_optionOverrides["mupen64plus-rdp-plugin"] = vulkan ? "parallel" : "gliden64";

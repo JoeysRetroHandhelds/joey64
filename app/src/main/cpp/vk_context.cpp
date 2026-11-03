@@ -1,6 +1,7 @@
 #include "vk_context.h"
 #include <android/log.h>
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <dlfcn.h>
 #include <string>
@@ -15,6 +16,26 @@ VK_FUNCS(VK_DECLARE)
 PFN_vkCreateInstance vkCreateInstance = nullptr;
 
 std::string g_driverDir, g_driverName, g_hookDir, g_tmpDir;
+// Loaded once per process and never closed (drivers like Turnip don't survive dlclose); shared by
+// probe() and init(). g_customFailed: the custom driver didn't load or has no usable GPU.
+void* g_sysLib = nullptr;
+void* g_customLib = nullptr;
+bool g_customFailed = false;
+
+void* systemLibrary() {
+    if (!g_sysLib) g_sysLib = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
+    return g_sysLib;
+}
+
+void* customLibrary() {
+    if (!g_customLib && !g_customFailed && !g_driverName.empty()) {
+        g_customLib = adrenotools_open_libvulkan(RTLD_NOW, ADRENOTOOLS_DRIVER_CUSTOM, g_tmpDir.c_str(), g_hookDir.c_str(),
+                                                 g_driverDir.c_str(), g_driverName.c_str(), nullptr, nullptr);
+        if (g_customLib) LOGI("vulkan: loaded custom driver %s%s", g_driverDir.c_str(), g_driverName.c_str());
+        else { LOGE("vulkan: custom driver %s failed to load", g_driverName.c_str()); g_customFailed = true; }
+    }
+    return g_customLib;
+}
 bool hasExt(const std::vector<VkExtensionProperties>& exts, const char* name) {
     for (auto& e : exts) if (!strcmp(e.extensionName, name)) return true;
     return false;
@@ -38,16 +59,46 @@ const VkImageSubresourceRange kColorRange{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}
 void VkContext::setCustomDriver(const char* driverDir, const char* libName, const char* hookDir,
                                 const char* tmpDir) {
     g_driverDir = driverDir; g_driverName = libName; g_hookDir = hookDir; g_tmpDir = tmpDir;
+    g_customLib = nullptr; g_customFailed = false;
+}
+
+std::string VkContext::probe(bool custom) {
+    void* lib = custom ? customLibrary() : systemLibrary();
+    if (!lib) return "";
+    auto gipa = reinterpret_cast<PFN_vkGetInstanceProcAddr>(dlsym(lib, "vkGetInstanceProcAddr"));
+    auto create = gipa ? reinterpret_cast<PFN_vkCreateInstance>(gipa(VK_NULL_HANDLE, "vkCreateInstance")) : nullptr;
+    VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
+    app.apiVersion = VK_API_VERSION_1_1;
+    VkInstanceCreateInfo ici{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+    ici.pApplicationInfo = &app;
+    VkInstance inst = VK_NULL_HANDLE;
+    std::string out;
+    if (create && create(&ici, nullptr, &inst) == VK_SUCCESS) {
+        auto enumerate = reinterpret_cast<PFN_vkEnumeratePhysicalDevices>(gipa(inst, "vkEnumeratePhysicalDevices"));
+        auto getProps = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(gipa(inst, "vkGetPhysicalDeviceProperties"));
+        auto destroyInst = reinterpret_cast<PFN_vkDestroyInstance>(gipa(inst, "vkDestroyInstance"));
+        uint32_t n = 1;
+        VkPhysicalDevice gpu = VK_NULL_HANDLE;
+        VkResult r = enumerate(inst, &n, &gpu);
+        if ((r == VK_SUCCESS || r == VK_INCOMPLETE) && n && gpu) {
+            VkPhysicalDeviceProperties props;
+            getProps(gpu, &props);
+            char buf[320];
+            snprintf(buf, sizeof buf, "%u|%u.%u|%s", props.vendorID, VK_VERSION_MAJOR(props.apiVersion),
+                     VK_VERSION_MINOR(props.apiVersion), props.deviceName);
+            out = buf;
+        }
+        destroyInst(inst, nullptr);
+    }
+    if (out.empty() && custom) { g_customFailed = true; g_customLib = nullptr; }
+    LOGI("vulkan probe (%s): %s", custom ? "custom" : "system", out.empty() ? "no usable GPU" : out.c_str());
+    return out;
 }
 
 bool VkContext::loadLibrary() {
-    if (!g_driverName.empty()) {
-        lib_ = adrenotools_open_libvulkan(RTLD_NOW, ADRENOTOOLS_DRIVER_CUSTOM, g_tmpDir.c_str(), g_hookDir.c_str(),
-                                          g_driverDir.c_str(), g_driverName.c_str(), nullptr, nullptr);
-        if (lib_) LOGI("vulkan: loaded custom driver %s%s", g_driverDir.c_str(), g_driverName.c_str());
-        else LOGE("vulkan: custom driver %s failed, using system driver", g_driverName.c_str());
-    }
-    if (!lib_) lib_ = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
+    lib_ = customLibrary();
+    if (!lib_ && !g_driverName.empty()) LOGE("vulkan: custom driver %s unusable, using system driver", g_driverName.c_str());
+    if (!lib_) lib_ = systemLibrary();
     if (!lib_) { LOGE("cannot load libvulkan.so"); return false; }
     gipa_ = reinterpret_cast<PFN_vkGetInstanceProcAddr>(dlsym(lib_, "vkGetInstanceProcAddr"));
     if (!gipa_) { LOGE("no vkGetInstanceProcAddr"); return false; }
@@ -432,8 +483,7 @@ void VkContext::destroy() {
     if (negotiation_ && negotiation_->destroy_device && !ownDevice_) negotiation_->destroy_device();
     if (device_) vkDestroyDevice(device_, nullptr); // owned by the frontend either way
     vkDestroyInstance(instance_, nullptr);
-    if (lib_) dlclose(lib_);
-    lib_ = nullptr;
+    lib_ = nullptr; // stays loaded for the process (see systemLibrary)
     surface_ = VK_NULL_HANDLE; pool_ = VK_NULL_HANDLE; device_ = VK_NULL_HANDLE; instance_ = VK_NULL_HANDLE;
 }
 

@@ -4,6 +4,7 @@
 #include <vulkan/vulkan.h>
 #include <android/native_window.h>
 #include <mutex>
+#include <string>
 #include <vector>
 
 #include "libretro.h"
@@ -19,6 +20,10 @@ public:
     // Dirs end with '/'. Falls back to the system driver if loading fails.
     static void setCustomDriver(const char* driverDir, const char* libName, const char* hookDir,
                                 const char* tmpDir);
+    // Before init: create a throwaway instance with the system or the custom driver and report the
+    // first GPU as "vendorID|apiMajor.minor|deviceName", or "" if there is none (a custom driver
+    // that fails here is skipped by init, which then uses the system driver).
+    static std::string probe(bool custom);
 
     // Device + queue. negotiation may be null (frontend picks the device).
     bool init(const retro_hw_render_context_negotiation_interface_vulkan* negotiation);

@@ -15,8 +15,15 @@ object NativeBridge {
     /** Before loadGame: true = Vulkan (parallel-RDP/RSP), false = GLES3 (GLideN64). */
     external fun setRenderer(vulkan: Boolean)
 
-    /** Before loadGame: load a custom Vulkan driver (Turnip) via libadrenotools. Dirs end with '/'. */
+    /** Before loadGame: load a custom Vulkan driver (Turnip, malisx2) via libadrenotools. Dirs end with '/'; empty libName = none. */
     external fun setVulkanDriver(driverDir: String, libName: String, hookDir: String, tmpDir: String)
+
+    /**
+     * Before loadGame: the first Vulkan GPU of the system driver (custom = false) or of the driver
+     * given to setVulkanDriver, as "vendorID|apiMajor.minor|deviceName"; "" if none is usable.
+     * A custom driver that fails here is skipped and the system driver used.
+     */
+    external fun probeVulkan(custom: Boolean): String
 
     external fun setSurface(surface: Surface?)
     external fun start()

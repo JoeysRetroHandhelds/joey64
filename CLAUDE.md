@@ -14,6 +14,7 @@ mupen64plus-next libretro core from a Kotlin app with a C++ libretro frontend.
 - `app/src/main/cpp/egl_context.*` – EGL/GLES3 context, FBO the core renders into, 4:3 blit
 - `app/src/main/cpp/vk_context.*` – Vulkan frontend for parallel-RDP: instance, swapchain, 4:3 blit of the core's image; the core creates the device via the v1 negotiation interface (creating it ourselves crashes Granite)
 - `app/src/main/cpp/third_party/libadrenotools/` – BSD-2, copied from dolphin's checkout; loads custom Vulkan drivers (Turnip). Its hook libs ship in the APK and are found via nativeLibraryDir
+- `app/src/main/assets/drivers/` – bundled Vulkan drivers (not committed, `*.so`): `libvulkan_freedreno.so` (Turnip Gen8 V38, from `devtools/drivers/`) and `libvulkan_malisx2.so` (built from bmdhacks/malisx2 + the Mesa patches in its `patches/mesa/`). Licenses in `assets/licenses/`. Without them the app runs on the system driver
 - `app/src/main/cpp/audio_out.*` – AAudio float at device rate + linear resampler + SPSC ring (blocking write = audio sync)
 - `app/src/main/jniLibs/arm64-v8a/` – drop `libmupen64plus_next_libretro_android.so` here (not committed)
 - Core source: `C:\GithubProjects\mupen64plus-libretro-nx` (private repo JoeysRetroHandhelds/n64-core, branch `handheld`; `upstream` = libretro/mupen64plus-libretro-nx). Build (Git Bash, NDK 27.3):
@@ -25,8 +26,10 @@ mupen64plus-next libretro core from a Kotlin app with a C++ libretro frontend.
 - arm64-v8a only, minSdk 29, NDK 27.3
 - Dev ROM path: `/sdcard/Android/data/com.joeysretro.n64/files/test.z64`
 - Logs: `adb logcat -s n64host core Granite`
-- Custom Vulkan driver (dev): push e.g. Turnip's `libvulkan_freedreno.so` to `/sdcard/Android/data/com.joeysretro.n64/files/drivers/`; the app copies it to internal storage and loads it. From Git Bash set `MSYS_NO_PATHCONV=1` or adb paths get mangled
-- Renderer: parallel-RDP when a custom driver is installed, else GLideN64; override with `--es renderer parallel|gliden64` on `am start`
+- Driver by GPU (`MainActivity.setupGpu`, logged as `GPU: ...`): bundled Turnip on Adreno 6xx–8xx (verified on Adreno 740), the system driver on Mali (Mali-G52: malisx2 measured ~14% slower than stock), malisx2 only on a Mali without a Vulkan 1.1 system driver. A custom driver that has no usable GPU falls back to the system driver. Override with `--es driver system|turnip|malisx2`
+- Custom Vulkan driver (dev): a `.so` in `/sdcard/Android/data/com.joeysretro.n64/files/drivers/` (or internal `files/drivers/`) overrides the choice; the app copies it to internal storage and loads it. From Git Bash set `MSYS_NO_PATHCONV=1` or adb paths get mangled
+- Renderer: parallel-RDP when the driver in use is a custom one or stock Mali with Vulkan 1.1, else GLideN64; override with `--es renderer parallel|gliden64` on `am start`
+- Dev process env (read by the core): `--es env "PARALLEL_RDP_SMALL_TYPES=0,KEY=value"`
 - Controls: positional mapping of any Android gamepad in MainActivity (bottom = N64 A, left = N64 B, L2 = Z, right stick = C). Presses shorter than a frame are held for 4 polls (Snap ignores 1-frame presses). R3 or the on-screen button toggles fast-forward (4x cap, audio muted, ~60 fps shown, async parallel-RDP while on)
 - Dev core options: `--es opts "key=value,key=value"` on `am start`; GameShark codes: `--es cheats '<code>;<code>'` (quote the whole `am start` for `adb shell`, or the device shell splits at spaces)
 - Debug builds: `adb shell am broadcast -a com.joeysretro.n64.DUMP --es name x` writes RDRAM to `files/dumps/x.bin`

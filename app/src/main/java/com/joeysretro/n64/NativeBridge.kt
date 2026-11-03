@@ -9,8 +9,11 @@ object NativeBridge {
     /** dlopen the core and call retro_init. corePath = absolute path of the core .so. */
     external fun loadCore(corePath: String, systemDir: String, saveDir: String): Boolean
 
-    /** Load a ROM. Must be called after setSurface so the HW context exists. */
-    external fun loadGame(romPath: String): Boolean
+    /**
+     * Load a ROM. Must be called after setSurface so the HW context exists. saveName: the ROM's file
+     * name without extension, as RetroArch names saves; empty = name the save by the ROM's hash.
+     */
+    external fun loadGame(romPath: String, saveName: String): Boolean
 
     /** Before loadGame: true = Vulkan (parallel-RDP/RSP), false = GLES3 (GLideN64). */
     external fun setRenderer(vulkan: Boolean)

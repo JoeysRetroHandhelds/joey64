@@ -24,7 +24,7 @@ mupen64plus-next libretro core from a Kotlin app with a C++ libretro frontend.
 ## Build / run
 - Android Studio or `./gradlew assembleDebug` (needs JDK 17+, e.g. Android Studio's `jbr` as JAVA_HOME)
 - arm64-v8a only, minSdk 29, NDK 27.3
-- Dev ROM path: `/sdcard/Android/data/com.joeysretro.n64/files/test.z64`
+- Dev ROM path: `/sdcard/Android/data/com.joeysretro.n64/files/test.z64`; or put ROMs in `files/roms/` (internal via run-as on the Flip) and start with `--es rom "<file name>"`, which also names the save
 - Logs: `adb logcat -s n64host core Granite`
 - Driver by GPU (`MainActivity.setupGpu`, logged as `GPU: ...`): bundled Turnip on Adreno 6xx–8xx (verified on Adreno 740), the system driver on Mali. malisx2 (bmdhacks/malisx2 + the Mesa patches in its `patches/mesa/`) is not bundled: ~14% slower than stock on the Mali-G52, and no device we have lacks a Vulkan 1.1 driver; it can still be dropped in as a dev driver. A custom driver that has no usable GPU falls back to the system driver. Override with `--es driver system|turnip`
 - Custom Vulkan driver (dev): a `.so` in `/sdcard/Android/data/com.joeysretro.n64/files/drivers/` (or internal `files/drivers/`) overrides the choice; the app copies it to internal storage and loads it. From Git Bash set `MSYS_NO_PATHCONV=1` or adb paths get mangled
@@ -33,7 +33,7 @@ mupen64plus-next libretro core from a Kotlin app with a C++ libretro frontend.
 - Controls: positional mapping of any Android gamepad in MainActivity (bottom = N64 A, left = N64 B, L2 = Z, right stick = C). Presses shorter than a frame are held for 4 polls (Snap ignores 1-frame presses). R3 or the on-screen button toggles fast-forward (4x cap, audio muted, ~60 fps shown, async parallel-RDP while on)
 - Dev core options: `--es opts "key=value,key=value"` on `am start`; GameShark codes: `--es cheats '<code>;<code>'` (quote the whole `am start` for `adb shell`, or the device shell splits at spaces)
 - Debug builds: `adb shell am broadcast -a com.joeysretro.n64.DUMP --es name x` writes RDRAM to `files/dumps/x.bin`
-- Save RAM: `files/saves/<fnv64 of ROM>.srm`, written atomically every 120 frames when changed, on pause and on exit
+- Save RAM: `files/saves/<ROM file name without extension>.srm`, as RetroArch names them (its Mupen64Plus-Next .srm files work as they are; import = copy them in). Written atomically every 120 frames when changed, on pause and on exit. A ROM without a name (the `test.z64` dev path) uses `<fnv64 of ROM>.srm`, which is also read as a fallback when the named save doesn't exist yet
 - Debug builds: `adb shell am broadcast -a com.joeysretro.n64.STICK --ei x 0 --ei y 32767 --ei ms 200` moves the stick (`--ei stick 1` = C stick)
 - Never set `MSYS_NO_PATHCONV=1` for `./gradlew`: the native build silently does nothing
 

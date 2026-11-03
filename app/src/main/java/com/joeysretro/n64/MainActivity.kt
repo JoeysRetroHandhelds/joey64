@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.net.Uri
+import android.provider.OpenableColumns
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -225,14 +226,30 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         }
     }
 
-    /** ROM comes from a VIEW intent, else a fixed dev path. M5 replaces this with a game list. */
-    private fun resolveRom(): String? {
-        intent?.data?.let { uri -> return copyToCache(uri) }
+    /**
+     * The ROM path and its save name (the file name without extension, as RetroArch names saves).
+     * ROM comes from a VIEW intent, else (dev) `--es rom <file>` in roms/, else test.z64, whose save
+     * is named by content hash since different games get pushed there. M5 replaces this with a game list.
+     */
+    private fun resolveRom(): Pair<String, String>? {
+        intent?.data?.let { uri -> return copyToCache(uri) to saveName(displayName(uri) ?: "") }
         // Some Android 11 devices (Retroid Pocket Flip) block adb from Android/data: there, copy the
         // ROM into internal storage with run-as instead.
-        return listOf(File(getExternalFilesDir(null), "test.z64"), File(filesDir, "test.z64"))
-            .firstOrNull { it.exists() }?.absolutePath
+        val dirs = listOfNotNull(getExternalFilesDir(null), filesDir)
+        intent?.getStringExtra("rom")?.let { name ->
+            val rom = dirs.map { File(it, "roms/$name") }.firstOrNull { it.exists() }
+                ?: run { Log.e(TAG, "ROM $name not found in roms/"); return null }
+            return rom.absolutePath to saveName(rom.name)
+        }
+        return dirs.map { File(it, "test.z64") }.firstOrNull { it.exists() }?.let { it.absolutePath to "" }
     }
+
+    private fun saveName(fileName: String) = fileName.substringBeforeLast('.').replace('/', '_')
+
+    private fun displayName(uri: Uri): String? =
+        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        } ?: uri.lastPathSegment?.substringAfterLast('/')
 
     private fun copyToCache(uri: Uri): String {
         val out = File(cacheDir, "current.rom")
@@ -243,8 +260,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     override fun surfaceCreated(holder: SurfaceHolder) {
         NativeBridge.setSurface(holder.surface)
         if (!started) {
-            val rom = resolveRom() ?: run { Log.e(TAG, "No ROM. Push one to ${getExternalFilesDir(null)}/test.z64"); return }
-            if (NativeBridge.loadGame(rom)) { NativeBridge.start(); started = true }
+            val (rom, saveName) = resolveRom() ?: run { Log.e(TAG, "No ROM. Push one to ${getExternalFilesDir(null)}/test.z64"); return }
+            if (NativeBridge.loadGame(rom, saveName)) { NativeBridge.start(); started = true }
         }
     }
 

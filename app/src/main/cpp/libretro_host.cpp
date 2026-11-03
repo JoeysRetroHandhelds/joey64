@@ -314,19 +314,24 @@ void logStats() {
 
 // ---- save RAM ---------------------------------------------------------------
 // The core keeps EEPROM/SRAM/FlashRAM/Controller Pak in RETRO_MEMORY_SAVE_RAM; persisting it is
-// the frontend's job. One .srm per ROM (named by content hash), written atomically when it
-// changes: checked every ~2 s, on pause (Android may kill us after onPause) and on exit.
-std::string g_savePath;
+// the frontend's job. One .srm per ROM, named like RetroArch's (the ROM file name without its
+// extension), so its Mupen64Plus-Next saves work as they are; written atomically when it changes:
+// checked every ~2 s, on pause (Android may kill us after onPause) and on exit. ROMs without a
+// name (the dev path) and saves from before names use the ROM's content hash instead.
+std::string g_savePath, g_saveFallbackPath;
 std::vector<uint8_t> g_lastSave;
 
 void loadSave() {
     auto* mem = static_cast<uint8_t*>(core.get_memory_data(RETRO_MEMORY_SAVE_RAM));
     size_t size = core.get_memory_size(RETRO_MEMORY_SAVE_RAM);
     if (!mem || !size) { LOGI("save: core exposes no save RAM"); return; }
-    if (FILE* f = fopen(g_savePath.c_str(), "rb")) {
+    FILE* f = fopen(g_savePath.c_str(), "rb");
+    const std::string& from = f ? g_savePath : g_saveFallbackPath;
+    if (!f && !g_saveFallbackPath.empty()) f = fopen(g_saveFallbackPath.c_str(), "rb");
+    if (f) {
         size_t n = fread(mem, 1, size, f);
         fclose(f);
-        LOGI("save: loaded %zu/%zu bytes from %s", n, size, g_savePath.c_str());
+        LOGI("save: loaded %zu/%zu bytes from %s", n, size, from.c_str());
     } else {
         LOGI("save: none yet (%s, %zu bytes)", g_savePath.c_str(), size);
     }
@@ -585,7 +590,7 @@ JNIEXPORT void JNICALL JNI(setRenderer)(JNIEnv*, jobject, jboolean vulkan) {
     g_optionsDirty = true;
 }
 
-JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom) {
+JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstring saveName) {
     if (!g_vulkan) {
         if (!g_egl.init()) return JNI_FALSE;
         applySurfaceIfChanged();
@@ -618,11 +623,20 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom) {
         LOGI("cheat %zu: %s", i, g_cheats[i].c_str());
     }
 
-    uint64_t hash = 1469598103934665603ull; // FNV-1a of the ROM: stable save name per game
+    uint64_t hash = 1469598103934665603ull; // FNV-1a of the ROM
     for (uint8_t b : buf) hash = (hash ^ b) * 1099511628211ull;
-    char name[32];
-    snprintf(name, sizeof name, "/%016llx.srm", (unsigned long long)hash);
-    g_savePath = g_saveDir + name;
+    char hashName[32];
+    snprintf(hashName, sizeof hashName, "/%016llx.srm", (unsigned long long)hash);
+    const char* sn = env->GetStringUTFChars(saveName, nullptr);
+    std::string named = sn;
+    env->ReleaseStringUTFChars(saveName, sn);
+    if (named.empty()) {
+        g_savePath = g_saveDir + hashName;
+        g_saveFallbackPath.clear();
+    } else {
+        g_savePath = g_saveDir + "/" + named + ".srm";
+        g_saveFallbackPath = g_saveDir + hashName;
+    }
     loadSave();
     core.get_system_av_info(&g_av);
     LOGI("game loaded: %ux%u max, %.2f fps, %.0f Hz", g_av.geometry.max_width, g_av.geometry.max_height,

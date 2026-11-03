@@ -42,3 +42,18 @@ Focus now: performance, compatibility and latency; menus come after.
 - [ ] Paks: Controller Pak works (player 1, saved in the .srm). Rumble Pak (vibrate device/controller; pick memory or rumble per game), Transfer Pak (Game Boy ROM + save for Pokémon Stadium 1/2), paks for players 2-4
 - [ ] Save states, then run-ahead (removes games' built-in input lag)
 - [ ] Performance on weak devices: parallel-RDP command-ring syscalls, NEON RSP vector path
+
+### Current focus: performance, compatibility, latency (revisit as they come up)
+- [ ] Crash recovery: a core crash (e.g. SM64 Last Impact) shouldn't take the app down; keep saves safe, show an error
+- [ ] Core emulation fixes for what M6 finds (Last Impact ERET error, Banjo-Tooie music, OoT pause freezes); decide how to track upstream (`gliden64-update` merge pending)
+- [ ] 50 Hz (PAL) games on 120 Hz panels: no even cadence; switch display mode or blend frames
+- [ ] Optional overclock / 60 fps patches for 20-30 fps games (GoldenEye, Perfect Dark, Banjo), per game
+- [ ] Analog stick range and calibration per device (N64 stick range vs modern sticks)
+- [ ] Battery and heat: measure power use, thermal fallback (M4)
+
+### Later
+- [ ] RetroAchievements (reuse the mupen64plus-ae fork's work; note it's GPLv3)
+- [ ] Display options: widescreen hacks, integer scaling, filters/CRT shaders, GLideN64 texture packs
+- [ ] Multiplayer: controllers 2-4 with their own mapping (netplay likely out of scope)
+- [ ] Release: signed builds, where to publish, updates, GPL source obligations, bundled driver license notices
+- [ ] Small: load zipped ROMs directly, 64DD, Duo second screen for stats or menus

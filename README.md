@@ -56,7 +56,9 @@ Focus now: performance, compatibility and latency; menus come after.
 ### Later
 - [ ] RetroAchievements (reuse the mupen64plus-ae fork's work; note it's GPLv3)
 - [ ] Display options: widescreen hacks, integer scaling, filters/CRT shaders, GLideN64 texture packs
-- [ ] Multiplayer: controllers 2-4 with their own mapping (netplay likely out of scope)
+- [ ] Local multiplayer: controllers 2-4 with their own mapping, paks per player; one device with several pads
+- [ ] Online multiplayer: netplay between devices (the core has mupen64plus netplay code: lockstep, needs identical settings and ROM; check how it holds up on mobile networks), maybe also LAN/Wi-Fi direct play between two handhelds
+- [ ] Modern homebrew (libdragon/tiny3d games, e.g. lambertjamesd/n64brew2025, N64brew game jam entries): custom RSP microcode, so always parallel-RSP + parallel-RDP (never GLideN64/HLE), save type from the Advanced Homebrew ROM Header, IS-Viewer/USB debug output, SC64/64drive features; build a few jam games as a test set (MIT licensed)
 - [ ] Release: signed builds, where to publish, updates, GPL source obligations, bundled driver license notices
 - [ ] 64DD (disk add-on, mostly Japan-only games): ares supports it, mupen64plus partly; check what the core does, disk saves
 - [ ] Rare accessories, mostly not emulated anywhere: Voice Recognition Unit (Hey You, Pikachu!; could use the device mic), Bio Sensor (Tetris 64), Densha de Go controller, N64 Mouse (Mario Artist), Capture Cassette, Randnet online service. Also Game Boy Camera through the Transfer Pak. Low priority: a handful of games

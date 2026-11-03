@@ -3,7 +3,10 @@
 #define VK_NO_PROTOTYPES // all calls go through pointers from the loaded driver (system or Turnip)
 #include <vulkan/vulkan.h>
 #include <android/native_window.h>
+#include <atomic>
+#include <condition_variable>
 #include <mutex>
+#include <thread>
 #include <string>
 #include <vector>
 
@@ -13,7 +16,8 @@
 // Vulkan frontend for libretro cores that render with RETRO_HW_CONTEXT_VULKAN (parallel-RDP).
 // Owns the instance, surface and swapchain; the device comes from the core's negotiation
 // interface when it offers one. Each frame the core's image is blitted (4:3 letterbox) into
-// the acquired swapchain image. All calls except setWindow happen on the emulation thread.
+// the acquired swapchain image. All calls except setWindow happen on the emulation thread
+// (in presenter mode the swapchain itself is driven by the presenter thread).
 class VkContext {
 public:
     // Optional custom driver (e.g. Turnip) loaded through libadrenotools. Call before init.
@@ -100,7 +104,8 @@ private:
     VkSemaphore currentAcquire_ = VK_NULL_HANDLE;
     uint32_t index_ = 0;
     bool acquired_ = false, presented_ = false, skip_ = false;
-    bool wantUnthrottled_ = false, unthrottled_ = false;
+    std::atomic<bool> wantUnthrottled_{false};
+    bool unthrottled_ = false;
 
     // Display timing: poll time per present ID (ring), sums since the last takeLatency().
     PFN_vkGetPastPresentationTimingGOOGLE getPastTiming_ = nullptr;
@@ -111,6 +116,36 @@ private:
     uint32_t latCount_ = 0;
     uint64_t lastActual_ = 0; uint32_t lastId_ = 0; int uneven_ = 0;
     void collectTiming();
+    std::mutex timingMutex_; // presenter mode: collectTiming runs on the presenter thread
+
+    // EXPERIMENT, presenter mode (dev env N64_PRESENTER=1): the emulation thread blits each frame
+    // into a staging image (one per sync index) and hands its index over; a presenter thread
+    // acquires, copies and presents the newest one, so swapchain waits (~5 ms a frame on the Flip
+    // even with the GPU idle) no longer stall emulation. Audio sync paces emulation instead.
+    bool presenter_ = false;
+    bool acquireFirst_ = false; // N64_PRESENTER=2/3: acquire, then take the newest frame
+    bool lockstep_ = false;     // N64_PRESENTER=3/4: start a frame once the presenter took the last one (4: claim, then acquire)
+    std::thread presThread_;
+    std::mutex presMutex_;
+    std::condition_variable presCv_;
+    bool presStop_ = false;
+    int presLatest_ = -1, presClaimed_ = -1; // staging index handed over / being read
+    int64_t stagingPoll_[kSyncFrames] = {};
+    VkImage staging_[kSyncFrames] = {};
+    VkDeviceMemory stagingMem_[kSyncFrames] = {};
+    VkExtent2D stagingExtent_{};
+    VkFormat format_ = VK_FORMAT_UNDEFINED;
+    VkCommandPool presPool_ = VK_NULL_HANDLE;
+    VkCommandBuffer presCmd_ = VK_NULL_HANDLE;
+    VkFence presFence_ = VK_NULL_HANDLE;
+    bool createStaging();
+    void destroyStaging();
+    void startPresenter();
+    void stopPresenter();
+    void presenterLoop();
+    bool acquireImage(VkSemaphore& sem, uint32_t& index);
+    void presentStaging(int s, int64_t poll, VkSemaphore acquire, uint32_t index);
+    void rebuildSwapchainLocked();
 
     // State handed over by the core for the next video_refresh.
     retro_vulkan_image image_{};

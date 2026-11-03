@@ -3,6 +3,7 @@
 #include <jni.h>
 #include <dlfcn.h>
 #include <android/log.h>
+#include <cstdlib>
 #include <android/native_window_jni.h>
 #include <algorithm>
 #include <atomic>
@@ -25,7 +26,9 @@
 #include "vk_context.h"
 #include "audio_out.h"
 
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "n64host", __VA_ARGS__)
+// Dev env N64_LOG_ERR=1 logs info at error level, for devices whose logd drops everything
+// below error (Retroid Pocket Duo).
+#define LOGI(...) __android_log_print(getenv("N64_LOG_ERR") && *getenv("N64_LOG_ERR") == '1' ? ANDROID_LOG_ERROR : ANDROID_LOG_INFO, "n64host", __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "n64host", __VA_ARGS__)
 
 namespace {

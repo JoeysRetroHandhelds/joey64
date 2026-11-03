@@ -4,6 +4,7 @@
 #include <dlfcn.h>
 #include <android/log.h>
 #include <android/native_window_jni.h>
+#include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <cstdio>
@@ -81,6 +82,9 @@ std::mutex g_pauseMutex;
 std::condition_variable g_pauseCv;
 // Fast-forward: vsync off, audio dropped, emulation capped at kFastForwardSpeed x normal.
 std::atomic<bool> g_fastForward{false};
+// parallel-RDP synchronous mode outside fast-forward. Async by default (sync makes the CPU wait for
+// the GPU at every RDP sync: ~10 ms/frame in Snap on the Thor vs 2-4 ms); per game in loadGame.
+bool g_rdpSync = false;
 // GameShark codes applied after load_game (M3: per-game compatibility fixes from the profile DB).
 std::vector<std::string> g_cheats;
 // Debug: RDRAM dump requested from the UI thread, written by the emulation thread between frames.
@@ -362,11 +366,10 @@ void runLoop() {
             ffApplied = ff;
             if (g_vulkan) g_vk.setUnthrottled(ff);
             else g_egl.setSwapInterval(ff ? 0 : 1);
-            // Synchronous parallel-RDP makes the CPU wait for the GPU at every RDP sync, which caps
-            // fast-forward near 1.7x on the Thor; async reaches 4x. CPU reads of the framebuffer
-            // (Pokemon Snap's photos) can be stale while async, so it's on only while fast-forwarding.
+            // Synchronous parallel-RDP caps fast-forward near 1.7x on the Thor; async reaches 4x.
+            // Games that need sync (g_rdpSync) get it back when fast-forward ends.
             if (g_vulkan) {
-                g_optionOverrides["mupen64plus-parallel-rdp-synchronous"] = ff ? "False" : "True";
+                g_optionOverrides["mupen64plus-parallel-rdp-synchronous"] = (g_rdpSync && !ff) ? "True" : "False";
                 g_optionsDirty = true;
             }
             ffNext = std::chrono::steady_clock::now();
@@ -427,6 +430,21 @@ void runLoop() {
 // ---- JNI -------------------------------------------------------------------
 
 #define JNI(name) Java_com_joeysretro_n64_NativeBridge_##name
+
+// 4-character game code from the cartridge header (0x3B, e.g. "NPFE"), whatever the ROM's byte order.
+std::string romGameId(const std::vector<uint8_t>& rom) {
+    if (rom.size() < 0x40) return "";
+    auto at = [&](size_t i) -> char {
+        switch (rom[0]) {
+            case 0x37: return rom[i ^ 1];   // .v64: 16-bit byte-swapped
+            case 0x40: return rom[i ^ 3];   // .n64: 32-bit little-endian
+            default:   return rom[i];       // .z64: big-endian
+        }
+    };
+    std::string id;
+    for (size_t i = 0x3B; i < 0x3F; ++i) { char c = at(i); id += (c >= 0x20 && c < 0x7F) ? c : '?'; }
+    return id;
+}
 
 extern "C" {
 
@@ -503,6 +521,17 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom) {
     FILE* f = fopen(p, "rb");
     std::vector<uint8_t> buf;
     if (f) { fseek(f, 0, SEEK_END); buf.resize(ftell(f)); fseek(f, 0, SEEK_SET); fread(buf.data(), 1, buf.size(), f); fclose(f); }
+    // Games whose CPU reads the framebuffer, which async parallel-RDP can serve stale: Pokemon Snap
+    // (photo checks). An explicit option override (--es opts) wins.
+    static const char* const kSyncRdpGames[] = {"NPF"};
+    std::string id = romGameId(buf);
+    auto syncOpt = g_optionOverrides.find("mupen64plus-parallel-rdp-synchronous");
+    if (syncOpt != g_optionOverrides.end()) g_rdpSync = syncOpt->second == "True";
+    else g_rdpSync = std::any_of(std::begin(kSyncRdpGames), std::end(kSyncRdpGames),
+                                 [&](const char* g) { return id.compare(0, 3, g) == 0; });
+    g_optionOverrides["mupen64plus-parallel-rdp-synchronous"] = g_rdpSync ? "True" : "False";
+    g_optionsDirty = true;
+    LOGI("game id %s, parallel-RDP %s", id.c_str(), g_rdpSync ? "synchronous" : "async");
     retro_game_info info{ p, buf.data(), buf.size(), nullptr };
     bool ok = !buf.empty() && core.load_game(&info);
     env->ReleaseStringUTFChars(rom, p);

@@ -127,3 +127,115 @@ Checked 2026-11-03 (commit of 2026-10-31). Not N64, but the Android side is matu
   latency but not exclusive (AAudio MMAP path where the device allows it): a cheap test for lower audio latency.
 - Also there: RetroAchievements (rcheevos, hardcore mode), per-game VMU files, texture packs with preloading, a Lua
   scripting API, integer scaling, boxart fetching. Nothing new beyond our roadmap.
+- Second pass (Android app side), more that applies to us:
+  - **Config changes**: flycast's activity declares uiMode/screenLayout, ours didn't, so dark mode switching (also
+    automatic at sunset), docking to a TV or a font/density change recreated the activity and stopped the game.
+    Fixed in our manifest (all config changes handled in place). Also `appCategory="game"`, which Android Game Mode,
+    the game dashboard and OEM handheld performance profiles look for.
+  - **Per-game settings layered over global ones** (config saved per game ID, loaded on boot; hardcore mode then
+    overrides some): the shape our M3 profile DB needs (device defaults < game defaults < user per-game < user global).
+  - **Auto savestate**: saves on exit and loads on start (off by default), states carry a PNG thumbnail for the
+    picker. For us: suspend/resume a game exactly where it was, the handheld "quick resume" feel.
+  - **Rumble**: per-controller vibrator with an amplitude from the game's power value, a strength setting for the
+    built-in motor, and a separate VibratorThread so the emu thread never calls into the vibrator service.
+  - **Hardcore achievements** force the dynarec, stock clock and no widescreen hacks: the rules our
+    RetroAchievements item needs (no cheats, no slow-motion, no state loading).
+  - Pipeline cache, game scanner with boxart fetch, Discord presence, Lua: nothing new for us (parallel-RDP already
+    keeps its own pipeline cache).
+
+## Dolphin Android (GameCube/Wii, GPL-2.0+; checked 2026-11-03, Source/Android + Vulkan backend)
+- **Temporary savestate on process death**: `onSaveInstanceState` (not for config changes) saves a state to a temp
+  file; when Android killed the app in the background and the user comes back, the game resumes from it. We have
+  no savestates yet, so a kill (common when switching to a browser for a guide) loses everything since the last
+  in-game save. Needs: retro_serialize/unserialize in the host (on the emu thread), then this, then a quick-resume
+  slot. High value for a handheld app.
+- **Force max GPU clocks** (Adreno, libadrenotools `adrenotools_set_turbo`, a KGSL power-control property): we
+  bundle the same library. Added as an experiment, `--es env N64_GPU_TURBO=1`, to measure on the Duo/Odin 3
+  (heavy games, frame-time spikes) and against heat/battery.
+- **`preferMinimalPostProcessing`** on the emulation activity: a connected TV switches to its low-latency game mode
+  (HDMI ALLM) for docked handhelds. Added to our manifest.
+- `isGame` in the manifest (we now use `appCategory="game"`, its API 26+ form).
+- Driver install from zip with meta.json (same format as flycast, GpuDriverHelper.kt): same idea as noted there.
+- Input goes to native code in full (key + motion events, plus controller gyro/accelerometer via SensorManager on
+  API 31+, per-device vibrator managers, hotplug on its own HandlerThread). Gyro aiming is a later idea (GoldenEye
+  / Perfect Dark hacks with gyro patches); nothing for latency we don't do already.
+- Swapchain: FIFO with vsync, else IMMEDIATE, then MAILBOX; identity transform preferred. Same as ours (we tried
+  pre-rotation: no gain).
+
+## PPSSPP Android (PSP, GPL-2.0+; checked 2026-11-03, android/ + Vulkan common code)
+- **ADPF performance hint session** (jni/PerformanceHint.cpp, Android 13+): the frame thread reports its CPU time
+  per frame against a half-frame target, so the scheduler stops parking it on slow cores / low clocks between
+  bursts. Directly aimed at frame-time spikes like our match-start dip. Ours: app perf_hint.cpp, experiment
+  `--es env N64_PERF_HINT=1` (Duo/Odin 3; the Flip is Android 11, no API). Measure, then default if it helps.
+- **Audio usage GAME** on the Oboe stream (shared mode, low latency). We used the default (media). Experiment
+  `N64_AUDIO_USAGE_GAME=1`, measured together with exclusive mode.
+- **External display presentation**: the game can render on a second display (HDMI, or a dual-screen handheld's
+  bottom screen like the AYN Thor) through an Android Presentation with its own surface. Roadmap idea: game on the
+  external/second screen, menus or touch controls on the built-in one.
+- Power-save mode receiver (lowers work when battery saver is on), audio focus handling (pause when another app
+  takes audio), `appCategory="game"` + `isGame`, all config changes handled in place (like our new manifest).
+
+## Azahar (3DS, GPL-2.0+; checked 2026-11-03, src/android + renderer_vulkan)
+- **Async presentation**: an optional present thread, so the emulation thread never blocks in acquire/present.
+  For us pacing is vsync + audio on the emu thread, so a present thread only helps where present blocks long
+  (worth a measurement on the Flip, where poll->display is highest). Idea, not started.
+- Disk shader cache, `appCategory="game"`, uiMode in configChanges, a "turbo" key = temporary speed limit (our R3
+  fast-forward). Nothing else new.
+
+## Lemuroid (libretro frontend for Android, GPL-3; also runs Mupen64Plus-Next; checked 2026-11-03, Kotlin side)
+- Closest to what we are (a libretro host). Its **savestate handling** is the practical guide for ours:
+  slots with screenshot previews, an **auto-save state written on exit/background with the SRAM and restored on
+  the next launch**, and two hard-won notes in its code: Mupen64Plus (and PPSSPP) set up state while rendering the
+  first frame, so the auto-save is restored only after the first frame is rendered, and unserialize sometimes
+  fails for no reason, so it retries. States from an incompatible core version are detected and reported.
+- SavesCoherencyEngine: keeps SRAM and states consistent across devices (it syncs saves to cloud storage). A later
+  idea for us (sync saves between the user's handhelds).
+- Radial touch controls, TV (leanback) UI: not for us now.
+
+## hakuX (original Xbox for Android, rfandango, GPL-3; checked 2026-11-03 at commit of 2026-10-31)
+FEX JIT + native kernel + NV2A push buffer to Vulkan, Adreno/Turnip first. The most handheld-focused of the lot:
+- **KGSL draw-context priority for Turnip** (vkdriver.c + tools/native/adrenotools-kgsl-context-priority.patch):
+  Turnip leaves its GPU contexts at the kernel default (8, third of four ringbuffers), below SurfaceFlinger's GPU
+  composition, which then preempts the emulator's GPU work ~100 times a second whenever the screen is composited
+  on the GPU (HW overlays off, or a layer the display hardware can't take). They hook the driver's
+  IOCTL_KGSL_DRAWCTXT_CREATE and set priority 7 (the compositor's ringbuffer, lowest there): measured 4-9 GPU hangs
+  in 6 minutes -> 0, 2 late frames in 6 minutes. We use the same libadrenotools + Turnip. Worth porting as our own
+  hook (their patch is GPL-3, our app GPLv2+, so write it ourselves or decide on the license first); measure late
+  frames on the Duo/Odin 3 with "Disable HW overlays" on.
+- **SGSR upscaling** (Snapdragon Game Super Resolution, Qualcomm's single-pass spatial upscaler tuned for Adreno)
+  and FXAA as presenter options. For us: the final blit of parallel-RDP's image to the screen with SGSR instead of
+  bilinear, sharper for free, most useful where upscaling is capped (Duo at 2x) or on the Flip at 1x.
+- **Emulated vblank locked to the panel's vsync** (vsync.c: a Choreographer thread feeds each vsync time to the
+  emulated GPU's vblank clock), so a frame is ready just before the presenter picks it up and two frames never land
+  in one refresh. Our timed pacing (N64_SWAP_INTERVAL=2) is the same idea from the other side.
+- **60/120 fps game mods** shipped per title (mods/<title id>.<n>, assembly patches, enabled per game from the
+  library). For N64: the community 60 fps codes/patches (e.g. OoT, MK64, Star Fox 64 hacks) as per-game toggles,
+  paired with the CPU overclock of smoother mode.
+- Debug properties for A/B runs on the device (debug.hakux.*: driver, TU_DEBUG flags, present options): like our
+  `--es env`, but changeable without relaunching.
+- Savestates with a versioned schema per device (native/state/*.def + schema/): states survive core updates.
+
+## ARMSX2 (PS2 for Android, PCSX2 fork with its own arm64 JIT, GPL-3; checked 2026-11-03 at commit of 2026-07-11)
+- Mostly PCSX2's core; the Android shell is thin. What carries over is PCSX2's **GameIndex database** idea: a
+  per-game file of fixes (renderer hacks, clamping, speed hacks, patches) keyed by serial and applied
+  automatically, which is what our M3 profile DB is (by ROM hash/game code, per GPU).
+- **Per-game overrides as nullable fields** (GameSpecificSettingsManager: null = use the global value), saved by
+  game key; the simplest shape for user per-game settings over our defaults.
+- Steam Controller over BLE/USB HID, RetroAchievements bridge, Discord, TV/DeX/Chromebook detection for layouts
+  (DeviceProfiles is UI mode detection, not performance profiles).
+- Nothing new for pacing, audio (cubeb) or thread placement on the Android side.
+
+## Eden (Switch, yuzu lineage, GPL-3; checked 2026-11-03, git.eden-emu.dev, src/android)
+- **Foreground service while a game runs** (ForegroundService.kt, type specialUse, with a "tap to resume"
+  notification): Android is far less likely to kill the app in the background. Together with Dolphin's temporary
+  savestate this covers "switched apps, came back, game gone". Cheap for us: a service + notification permission.
+- **ReShade post-processing chain** (native_post_processing.cpp, HAS_RESHADE): a catalog of .fx effects, a chain
+  the user orders, per-uniform values and presets, from the Android UI. Another model for our shader roadmap item
+  next to RetroArch's slang presets.
+- **Per-game Turnip/Freedreno environment** (NativeFreedrenoConfig: TU_DEBUG etc. set before the driver loads,
+  saved per config): matches our profile DB plan (per game + GPU), e.g. a TU_DEBUG flag for a game that needs it.
+- **Driver fetcher**: resolves driver zips from known GitHub release repos (K11MCH1 etc.) and installs them. For
+  us: offer newer Turnip builds in-app instead of only the bundled one (downloads need the user's OK).
+- Lossless Scaling frame generation (user supplies Lossless.dll, Vulkan layer), power/battery state updater,
+  controller navigation hook for the whole UI (controller-only menus, our goal 3), all config changes in place,
+  `appCategory="game"`.

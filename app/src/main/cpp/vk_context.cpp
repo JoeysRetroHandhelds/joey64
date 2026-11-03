@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <dlfcn.h>
 #include <string>
 #include <adrenotools/driver.h>
@@ -14,6 +15,11 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "n64host", __VA_ARGS__)
 
 namespace {
+int64_t monoNs() {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+}
 #define VK_FUNCS(X) X(vkAcquireNextImageKHR) X(vkAllocateCommandBuffers) X(vkBeginCommandBuffer) X(vkCmdBlitImage) X(vkCmdClearColorImage) X(vkCmdPipelineBarrier) X(vkCreateAndroidSurfaceKHR) X(vkCreateCommandPool) X(vkCreateDevice) X(vkCreateFence) X(vkCreateSemaphore) X(vkCreateSwapchainKHR) X(vkDestroyCommandPool) X(vkDestroyDevice) X(vkDestroyFence) X(vkDestroyInstance) X(vkDestroySemaphore) X(vkDestroySurfaceKHR) X(vkDestroySwapchainKHR) X(vkDeviceWaitIdle) X(vkEndCommandBuffer) X(vkEnumerateDeviceExtensionProperties) X(vkEnumeratePhysicalDevices) X(vkFreeCommandBuffers) X(vkGetDeviceQueue) X(vkGetPhysicalDeviceFeatures2) X(vkGetPhysicalDeviceProperties) X(vkGetPhysicalDeviceQueueFamilyProperties) X(vkGetPhysicalDeviceSurfaceCapabilitiesKHR) X(vkGetPhysicalDeviceSurfaceFormatsKHR) X(vkGetPhysicalDeviceSurfacePresentModesKHR) X(vkGetPhysicalDeviceSurfaceSupportKHR) X(vkGetSwapchainImagesKHR) X(vkQueuePresentKHR) X(vkQueueSubmit) X(vkResetCommandBuffer) X(vkResetFences) X(vkWaitForFences) X(vkGetDeviceProcAddr) X(vkCreateImage) X(vkDestroyImage) X(vkGetImageMemoryRequirements) X(vkAllocateMemory) X(vkFreeMemory) X(vkBindImageMemory) X(vkGetPhysicalDeviceMemoryProperties) X(vkQueueWaitIdle)
 #define VK_DECLARE(f) PFN_##f f = nullptr;
 VK_FUNCS(VK_DECLARE)
@@ -384,13 +390,17 @@ void VkContext::updateSwapInterval() {
         // Only whole multiples pace evenly (120 Hz for 60 fps; not 90 Hz, or 120 Hz for PAL's 50).
         uint32_t n = (uint32_t)(ratio + 0.5);
         if (n >= 2 && std::abs(ratio - n) < 0.03 * n) interval = n;
-        // Opt-in for now: presenting twice fills the swapchain queue, which cost 8-16 ms of
-        // poll->display (Duo 22-25 -> 31-39 ms, Portal 18-25 -> 32-41 ms) for even pacing.
+        refreshNs_ = rc.refreshDuration;
+        // Opt-in for now: presenting twice (1) fills the swapchain queue, which cost 8-16 ms of
+        // poll->display (Duo 22-25 -> 31-39 ms, Portal 18-25 -> 32-41 ms) for even pacing. Timed
+        // pacing (2) costs 2-7 ms (Portal, Duo, Odin 3) for nearly the same evenness.
         const char* si = getenv("N64_SWAP_INTERVAL");
-        if (!(si && *si == '1')) interval = 1;
+        swapMode_ = si ? atoi(si) : 0;
+        if (swapMode_ == 2 && !getPastTiming_) swapMode_ = 0; // timed pacing needs display timing
+        if (swapMode_ == 0) interval = 1;
         if (interval != swapInterval_)
-            LOGI("vulkan: refresh %.1f Hz, game %.2f fps: swap interval %u", 1e9 / (double)rc.refreshDuration,
-                 contentHz_, interval);
+            LOGI("vulkan: refresh %.1f Hz, game %.2f fps: swap interval %u%s", 1e9 / (double)rc.refreshDuration,
+                 contentHz_, interval, swapMode_ == 2 ? " (timed)" : "");
     }
     swapInterval_ = interval;
 }
@@ -422,6 +432,7 @@ bool VkContext::beginFrame(bool show) {
         presented_ = false;
         return true;
     }
+    paceFrame();
     currentAcquire_ = acquireSems_[acquireSlot_];
     acquireSlot_ = (acquireSlot_ + 1) % (uint32_t)acquireSems_.size();
     VkResult r = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX, currentAcquire_, VK_NULL_HANDLE, &index_);
@@ -432,6 +443,7 @@ bool VkContext::beginFrame(bool show) {
     if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) { LOGE("vkAcquireNextImageKHR: %d", r); return false; }
     sync_ = (sync_ + 1) % kSyncFrames;
     vkWaitForFences(device_, 1, &frameFences_[sync_], VK_TRUE, UINT64_MAX);
+    if (frameStartNs_ == -1) frameStartNs_ = monoNs();
     acquired_ = true;
     presented_ = false;
     return true;
@@ -443,8 +455,41 @@ void VkContext::videoRefresh(const void* data, unsigned w, unsigned h) {
     else present(false); // dupe: show the last image again
 }
 
+// Timed pacing (swapMode_ 2). Display slots are every swapInterval_-th refresh, on the grid of a
+// past frame's actual display time. Each frame targets the first slot it can make and starts
+// (polls input, runs) just in time for it: frame work so far (decaying peak) plus two refreshes
+// for the compositor and a margin. Present asks for that slot, so every frame shows the same number
+// of refreshes without presenting twice, and the queue stays short.
+void VkContext::paceFrame() {
+    frameStartNs_ = 0;
+    if (swapMode_ != 2 || swapInterval_ < 2 || unthrottled_ || !refreshNs_) return;
+    uint64_t anchor; double extra;
+    {
+        std::lock_guard<std::mutex> lk(timingMutex_);
+        anchor = lastActual_; extra = extraLeadNs_;
+    }
+    int64_t now = monoNs();
+    if (!anchor) { frameStartNs_ = -1; return; } // no display time seen yet
+    uint64_t period = refreshNs_ * swapInterval_;
+    // The compositor needs a present about two refreshes before display (measured on the Portal;
+    // earliestPresentTime can't be used for this: it includes our own queued frames, and feeding
+    // it back made the budget run away). GPU time after the present call isn't in workMaxNs_, so
+    // frames that still miss their slot add lead (extraLeadNs_, up to two refreshes).
+    uint64_t budget = (uint64_t)(std::min(workMaxNs_, (double)period) + extra) + 2 * refreshNs_ + 1000000;
+    uint64_t earliest = (uint64_t)now + budget;
+    uint64_t k = earliest > anchor ? (earliest - anchor + period - 1) / period : 0;
+    uint64_t target = anchor + k * period;
+    if (lastTargetNs_ && target + refreshNs_ / 2 < lastTargetNs_ + period)
+        target = lastTargetNs_ + period; // never two frames in one slot
+    lastTargetNs_ = target;
+    desiredNs_ = target - refreshNs_ / 2; // half a refresh early: the compositor rounds up to the slot
+    struct timespec ts{(time_t)((target - budget) / 1000000000ull), (long)((target - budget) % 1000000000ull)};
+    if ((int64_t)(target - budget) > now) clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, nullptr);
+    frameStartNs_ = -1; // set once the image is acquired: work excludes swapchain waits
+}
+
 void VkContext::endFrame() {
-    bool shown = acquired_ && !skip_ && !presenter_;
+    bool shown = acquired_ && !skip_ && !presenter_ && swapMode_ == 1;
     if (acquired_ && !presented_) present(false); // an acquired image must be presented
     acquired_ = false;
     // Swap interval: present the frame again, so with FIFO each one is shown for swapInterval_
@@ -570,7 +615,12 @@ void VkContext::present(bool newImage) {
     VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
     pi.waitSemaphoreCount = 1; pi.pWaitSemaphores = &renderDone_[index_];
     pi.swapchainCount = 1; pi.pSwapchains = &swapchain_; pi.pImageIndices = &index_;
-    VkPresentTimeGOOGLE when{++presentId_, 0};
+    VkPresentTimeGOOGLE when{++presentId_, desiredNs_};
+    desiredNs_ = 0;
+    if (frameStartNs_ > 0) { // track how long frames take, for the pacing budget
+        workMaxNs_ = std::max((double)(monoNs() - frameStartNs_), workMaxNs_ * 0.995);
+        frameStartNs_ = 0;
+    }
     VkPresentTimesInfoGOOGLE times{VK_STRUCTURE_TYPE_PRESENT_TIMES_INFO_GOOGLE};
     if (getPastTiming_) {
         presentPollNs_[presentId_ % kTimingRing] = pollNs_;
@@ -608,6 +658,13 @@ void VkContext::collectTiming() {
         if (ms <= 0 || ms > 500) continue;
         latSumMs_ += ms; latCount_++;
         latMaxMs_ = std::max(latMaxMs_, ms);
+        if (swapMode_ == 2 && past[i].desiredPresentTime) {
+            // Only misses where the frame itself came too late (earliest possible display past the
+            // target): more lead can't fix slots the compositor skips on its own (Portal).
+            bool late = (int64_t)(past[i].actualPresentTime - past[i].desiredPresentTime) > (int64_t)(refreshNs_ * 3 / 4) &&
+                        (int64_t)(past[i].earliestPresentTime - past[i].desiredPresentTime) > (int64_t)(refreshNs_ * 3 / 4);
+            extraLeadNs_ = late ? std::min(extraLeadNs_ + refreshNs_ / 2.0, 2.0 * refreshNs_) : extraLeadNs_ * 0.995;
+        }
         if (lastActual_ && past[i].presentID == lastId_ + 1) {
             double gap = (int64_t)(past[i].actualPresentTime - lastActual_) / 1e6;
             if (gap < 14.0 || gap > 19.5) ++uneven_;

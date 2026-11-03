@@ -119,6 +119,16 @@ private:
     double contentHz_ = 60.0;
     uint32_t swapInterval_ = 1;
     void updateSwapInterval();
+    // N64_SWAP_INTERVAL: 1 = present each frame swapInterval_ times; 2 = timed pacing: present
+    // once, asking for a display time (VK_GOOGLE_display_timing) on a fixed grid of every
+    // swapInterval_-th refresh, and start each frame just early enough to make its slot.
+    int swapMode_ = 0;
+    uint64_t refreshNs_ = 0;
+    int64_t frameStartNs_ = 0;   // when the current frame's work began (after the pacing sleep)
+    double extraLeadNs_ = 0;     // timed pacing: lead added after missed slots (timingMutex_)
+    double workMaxNs_ = 12e6;    // decaying peak of frame start -> present call
+    uint64_t lastTargetNs_ = 0, desiredNs_ = 0;
+    void paceFrame();
     static constexpr uint32_t kTimingRing = 64;
     int64_t pollNs_ = 0, presentPollNs_[kTimingRing] = {};
     uint32_t presentId_ = 0;

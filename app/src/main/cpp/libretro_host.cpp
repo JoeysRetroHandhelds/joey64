@@ -240,7 +240,21 @@ size_t audio_batch(const int16_t* d, size_t frames) {
 // that is visible for a single frame.
 constexpr int kMinPressPolls = 4;
 int g_tapHold[16] = {};
+// Late input: the core polls at vertical blank, at the end of retro_run, but the game reads the
+// controller during the next retro_run, after the audio and vsync waits. So the buttons are sampled
+// at the game's first read after each poll instead (sticks are always read live). Retroid Flip,
+// input sample to display: menus ~54 -> ~44 ms, Mario Tennis match ~47 -> ~42 ms. Dev: env
+// N64_LATE_INPUT=0 samples at the poll again; poll->display then reads a frame short, since that
+// sample is used by the next frame, not the one presented after it.
+bool g_lateInput = true;
+bool g_pollPending = false;
+void sampleButtons();
 void input_poll() {
+    if (g_lateInput) { g_pollPending = true; return; }
+    sampleButtons();
+}
+
+void sampleButtons() {
     int taps = g_tapped.exchange(0), held = 0;
     for (int i = 0; i < 16; ++i) {
         if (taps & (1 << i)) g_tapHold[i] = kMinPressPolls;
@@ -256,6 +270,7 @@ void input_poll() {
 int16_t input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
     if (port != 0) return 0;
     if (device == RETRO_DEVICE_JOYPAD) {
+        if (g_pollPending) { g_pollPending = false; sampleButtons(); }
         int mask = g_polledButtons;
         if (id == RETRO_DEVICE_ID_JOYPAD_MASK) return (int16_t)mask;
         return (mask >> id) & 1;
@@ -394,6 +409,9 @@ void runLoop() {
     pinToBigCores();
     const char* noSplit = getenv("N64_PIN_SPLIT");
     const bool split = !(noSplit && *noSplit == '0');
+    const char* late = getenv("N64_LATE_INPUT");
+    g_lateInput = !(late && *late == '0');
+    LOGI("late input %s", g_lateInput ? "on" : "off");
     int splitIn = 300; // frames: the core's threads exist by then
     int framesSinceSaveCheck = 0;
     bool ffApplied = false;

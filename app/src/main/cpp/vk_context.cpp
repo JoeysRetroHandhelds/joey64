@@ -491,12 +491,17 @@ void VkContext::collectTiming() {
         if (ms <= 0 || ms > 500) continue;
         latSumMs_ += ms; latCount_++;
         latMaxMs_ = std::max(latMaxMs_, ms);
+        if (lastActual_ && past[i].presentID == lastId_ + 1) {
+            double gap = (int64_t)(past[i].actualPresentTime - lastActual_) / 1e6;
+            if (gap < 14.0 || gap > 19.5) ++uneven_;
+        }
+        lastActual_ = past[i].actualPresentTime; lastId_ = past[i].presentID;
     }
 }
 
-bool VkContext::takeLatency(double& meanMs, double& maxMs) {
+bool VkContext::takeLatency(double& meanMs, double& maxMs, int& uneven) {
     if (!latCount_) return false;
-    meanMs = latSumMs_ / latCount_; maxMs = latMaxMs_;
+    meanMs = latSumMs_ / latCount_; maxMs = latMaxMs_; uneven = uneven_; uneven_ = 0;
     latSumMs_ = latMaxMs_ = 0; latCount_ = 0;
     return true;
 }

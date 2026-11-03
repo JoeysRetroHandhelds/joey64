@@ -282,9 +282,9 @@ void logStats() {
     double secs = std::chrono::duration<double>(clock::now() - start).count();
     if (secs < 5.0) return;
     char lat[64] = "";
-    double latMean, latMax;
-    if (g_vulkan && g_vk.takeLatency(latMean, latMax))
-        snprintf(lat, sizeof lat, ", poll->display %.1f ms (max %.1f)", latMean, latMax);
+    double latMean, latMax; int uneven;
+    if (g_vulkan && g_vk.takeLatency(latMean, latMax, uneven))
+        snprintf(lat, sizeof lat, ", poll->display %.1f ms (max %.1f), %d uneven", latMean, latMax, uneven);
     double fillMs, targetMs; int underruns;
     g_audio.takeStats(!g_fastForward && g_statRuns / secs >= 58.5, fillMs, targetMs, underruns);
     LOGI("stats: %.1f emu fps, %.1f presented, %.1f dupes (%ux%u), run %.2f ms, wait %.2f ms, "

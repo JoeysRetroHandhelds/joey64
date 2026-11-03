@@ -43,7 +43,8 @@ public:
     // takeLatency() returns the mean and max ms from the last poll before a present to that image
     // reaching the display, over the frames reported since the previous call. False if unknown.
     void notePoll(int64_t ns) { pollNs_ = ns; }
-    bool takeLatency(double& meanMs, double& maxMs);
+    // uneven: consecutive frames whose display times were not ~16.7 ms apart (judder).
+    bool takeLatency(double& meanMs, double& maxMs, int& uneven);
 
     const retro_hw_render_interface_vulkan* iface() const { return &iface_; }
     void destroy();
@@ -108,6 +109,7 @@ private:
     uint32_t presentId_ = 0;
     double latSumMs_ = 0, latMaxMs_ = 0;
     uint32_t latCount_ = 0;
+    uint64_t lastActual_ = 0; uint32_t lastId_ = 0; int uneven_ = 0;
     void collectTiming();
 
     // State handed over by the core for the next video_refresh.

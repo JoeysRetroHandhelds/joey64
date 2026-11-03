@@ -23,7 +23,7 @@ bool AudioOut::open(int srcRate) {
     dstRate_ = dstRate;
     baseStep_ = step_ = (double)srcRate / dstRate;
     drcI_ = 0; frames_ = 0;
-    // ~50 ms kept queued (stereo samples); the rest of the ring is slack for slow frames.
+    // ~40 ms kept queued (stereo samples); the rest of the ring is slack for slow frames.
     target_ = (size_t)dstRate * kTargetMs / 1000 * 2;
     pos_ = 0.0; prev_[0] = prev_[1] = 0;
     cap_ = (size_t)dstRate / 5 * 2; // ~200 ms stereo
@@ -49,20 +49,28 @@ void AudioOut::setPaused(bool p) {
 
 void AudioOut::waitForRoom() {
     if (!stream_) return;
-    for (int spins = 0; fill() > target_ && spins < 400; ++spins) // <= ~100 ms, never deadlock
+    // Waits only above target + one frame of audio: where vsync paces the frames (fill near the
+    // target via rate control), audio then never delays a frame past its vsync.
+    size_t ceiling = target_ + (size_t)dstRate_ / 60 * 2;
+    bool waited = false;
+    for (int spins = 0; fill() > ceiling && spins < 400; ++spins) { // <= ~100 ms, never deadlock
         std::this_thread::sleep_for(std::chrono::microseconds(250));
-    // Fill right before the frame: the target when audio paces the frames, below it when vsync does.
+        waited = true;
+    }
+    // Fill right before the frame: target + a frame when audio paces the frames, ~target when vsync does.
     size_t f = fill();
     fillSum_ += f; ++fillCount_;
-    // Dynamic rate control (PI): resample up to 1% faster/slower (17 cents) to hold the fill at the
+    // Dynamic rate control: resample up to 1% faster/slower (17 cents) to hold the fill at the
     // target when vsync, not audio, paces the frames: the clocks differ slightly and frames that
-    // miss a vsync produce no audio (Retroid Flip menus: ~0.8% of frames). Only pulls up: while
-    // audio paces, a fill above target is the sleep's granularity, not a rate error.
+    // miss a vsync produce no audio (Retroid Flip menus: ~0.8% of frames). The integral part only
+    // learns from moderate errors (not slowdowns). While audio paces (it waited), the correction
+    // fades and never pulls the fill down, which would only speed the game up.
     ++frames_;
-    double err = std::max(-1.0, std::min(0.0, ((double)f - (double)target_) / (double)target_));
-    if (err > -0.1) err = 0; // within ~5 ms: the wait loop's own granularity
-    drcI_ = std::max(-0.01, std::min(0.0, drcI_ + 0.00002 * err + (err == 0.0 ? 0.000002 : 0.0)));
-    step_ = baseStep_ * (1.0 + std::max(-0.01, 0.005 * err + drcI_));
+    double err = std::max(-1.0, std::min(1.0, ((double)f - (double)target_) / (double)target_));
+    if (err > -0.1 && err < 0.1) err = 0; // within ~4 ms: the wait loop's own granularity
+    if (waited) { drcI_ *= 0.95; err = std::min(err, 0.0); }
+    else if (err > -0.75 && err < 0.75) drcI_ = std::max(-0.01, std::min(0.01, drcI_ + 0.0001 * err));
+    step_ = baseStep_ * (1.0 + std::max(-0.01, std::min(0.01, 0.005 * err + drcI_)));
 }
 
 void AudioOut::takeStats(bool keepingUp, double& fillMs, double& targetMs, int& underruns) {

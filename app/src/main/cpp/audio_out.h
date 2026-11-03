@@ -15,8 +15,8 @@ public:
     // Called from the emulation thread. Only blocks if the ring is completely full.
     void write(const int16_t* frames, size_t frameCount);
     void setPaused(bool p);
-    // Audio sync, called before each emulated frame: blocks until the ring holds at most
-    // targetMs_, so the wait lands before the frame polls input rather than in the middle of it.
+    // Audio sync, called before each emulated frame: blocks until the ring holds at most the target
+    // plus one frame, so the wait lands before the frame polls input rather than in the middle of it.
     void waitForRoom();
     // Stats since the last call: mean ring fill and target in ms, underrun callbacks. keepingUp =
     // the emulation ran at full speed meanwhile: underruns then raise the target by 10 ms (devices
@@ -24,7 +24,7 @@ public:
     void takeStats(bool keepingUp, double& fillMs, double& targetMs, int& underruns);
 
 private:
-    static constexpr int kTargetMs = 50, kMaxTargetMs = 150;
+    static constexpr int kTargetMs = 40, kMaxTargetMs = 150;
     static aaudio_data_callback_result_t cb(AAudioStream*, void* user, void* data, int32_t frames);
     AAudioStream* stream_ = nullptr;
     std::vector<float> ring_;

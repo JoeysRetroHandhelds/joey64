@@ -1,5 +1,6 @@
 #include "egl_context.h"
 #include <android/log.h>
+#include <initializer_list>
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "n64host", __VA_ARGS__)
 
 bool EglContext::init() {
@@ -14,8 +15,13 @@ bool EglContext::init() {
     EGLint n = 0;
     if (!eglChooseConfig(display_, attrs, &config_, 1, &n) || n == 0) { LOGE("no EGL config"); return false; }
 
-    const EGLint ctxAttrs[] = { EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE };
-    context_ = eglCreateContext(display_, config_, EGL_NO_CONTEXT, ctxAttrs);
+    // Ask for the newest ES 3.x: drivers may hide extensions (framebuffer fetch, dual source
+    // blending) from a plain "3" context, and GLideN64 needs them for N64 coverage emulation.
+    for (EGLint minor : {2, 1, 0}) {
+        const EGLint ctxAttrs[] = { EGL_CONTEXT_MAJOR_VERSION, 3, EGL_CONTEXT_MINOR_VERSION, minor, EGL_NONE };
+        context_ = eglCreateContext(display_, config_, EGL_NO_CONTEXT, ctxAttrs);
+        if (context_ != EGL_NO_CONTEXT) break;
+    }
     if (context_ == EGL_NO_CONTEXT) { LOGE("eglCreateContext failed"); return false; }
 
     // Small pbuffer so the context can be current before a window exists.

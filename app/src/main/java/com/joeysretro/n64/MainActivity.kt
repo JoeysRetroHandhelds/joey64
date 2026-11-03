@@ -71,6 +71,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         }
         // Dev: --es cheats "D11E3184 2881,811E3184 2001;<next cheat>"
         intent?.getStringExtra("cheats")?.split(';')?.filter { it.isNotBlank() }?.forEach { NativeBridge.addCheat(it) }
+        // Dev: --es env "PARALLEL_RDP_UBERSHADER=1,KEY=value" (process environment, read by the core)
+        intent?.getStringExtra("env")?.split(',')?.forEach { kv ->
+            val (k, v) = kv.split('=', limit = 2).takeIf { it.size == 2 } ?: return@forEach
+            android.system.Os.setenv(k.trim(), v.trim(), true)
+        }
         if (!NativeBridge.loadCore(coreFile.absolutePath, sys.absolutePath, saves.absolutePath)) {
             Log.e(TAG, "Core failed to load: $coreFile"); finish()
         }

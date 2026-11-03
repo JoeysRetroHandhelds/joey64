@@ -127,13 +127,28 @@ bool VkContext::init(const retro_hw_render_context_negotiation_interface_vulkan*
     VK_FUNCS(VK_LOAD)
 #undef VK_LOAD
 
+    // Display timing for the latency stats, if the first GPU (the one the core picks) offers it.
+    bool displayTiming = false;
+    {
+        uint32_t n = 1;
+        VkPhysicalDevice first = VK_NULL_HANDLE;
+        VkResult r = vkEnumeratePhysicalDevices(instance_, &n, &first);
+        if ((r == VK_SUCCESS || r == VK_INCOMPLETE) && first) {
+            uint32_t en = 0;
+            vkEnumerateDeviceExtensionProperties(first, nullptr, &en, nullptr);
+            std::vector<VkExtensionProperties> avail(en);
+            vkEnumerateDeviceExtensionProperties(first, nullptr, &en, avail.data());
+            displayTiming = hasExt(avail, VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME);
+        }
+    }
+
     // Let the core create the device (Granite knows which extensions/features parallel-RDP wants).
     if (negotiation_ && negotiation_->create_device) {
         retro_vulkan_context ctx{};
-        const char* devExts[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+        const char* devExts[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME};
         VkPhysicalDeviceFeatures noFeatures{}; // Granite dereferences this, so never pass null
         if (negotiation_->create_device(&ctx, instance_, VK_NULL_HANDLE, VK_NULL_HANDLE, gipa_,
-                                        devExts, 1, nullptr, 0, &noFeatures)) {
+                                        devExts, displayTiming ? 2 : 1, nullptr, 0, &noFeatures)) {
             gpu_ = ctx.gpu; device_ = ctx.device; queue_ = ctx.queue; queueFamily_ = ctx.queue_family_index;
             LOGI("vulkan: device created by core");
         } else {
@@ -164,7 +179,7 @@ bool VkContext::init(const retro_hw_render_context_negotiation_interface_vulkan*
         std::vector<VkExtensionProperties> avail(en);
         vkEnumerateDeviceExtensionProperties(gpu_, nullptr, &en, avail.data());
         std::vector<const char*> exts = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
-        for (const char* e : {"VK_KHR_8bit_storage", "VK_KHR_16bit_storage", "VK_KHR_shader_float16_int8",
+        for (const char* e : {VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME, "VK_KHR_8bit_storage", "VK_KHR_16bit_storage", "VK_KHR_shader_float16_int8",
                               "VK_EXT_external_memory_host", "VK_KHR_driver_properties",
                               "VK_KHR_timeline_semaphore", "VK_KHR_synchronization2"})
             if (hasExt(avail, e)) exts.push_back(e);
@@ -189,6 +204,11 @@ bool VkContext::init(const retro_hw_render_context_negotiation_interface_vulkan*
         vkGetDeviceQueue(device_, queueFamily_, 0, &queue_);
         ownDevice_ = true;
     }
+
+    if (displayTiming)
+        getPastTiming_ = reinterpret_cast<PFN_vkGetPastPresentationTimingGOOGLE>(
+            vkGetDeviceProcAddr(device_, "vkGetPastPresentationTimingGOOGLE"));
+    LOGI("vulkan: display timing %s", getPastTiming_ ? "on" : "unavailable");
 
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(gpu_, &props);
@@ -435,6 +455,13 @@ void VkContext::present(bool newImage) {
     VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
     pi.waitSemaphoreCount = 1; pi.pWaitSemaphores = &renderDone_[index_];
     pi.swapchainCount = 1; pi.pSwapchains = &swapchain_; pi.pImageIndices = &index_;
+    VkPresentTimeGOOGLE when{++presentId_, 0};
+    VkPresentTimesInfoGOOGLE times{VK_STRUCTURE_TYPE_PRESENT_TIMES_INFO_GOOGLE};
+    if (getPastTiming_) {
+        presentPollNs_[presentId_ % kTimingRing] = pollNs_;
+        times.swapchainCount = 1; times.pTimes = &when;
+        pi.pNext = &times;
+    }
     VkResult r;
     {
         std::lock_guard<std::mutex> lk(queueMutex_);
@@ -443,11 +470,35 @@ void VkContext::present(bool newImage) {
     }
     waitSems_.clear(); coreCmds_.clear(); signalSem_ = VK_NULL_HANDLE;
     presented_ = true;
+    collectTiming();
     // SUBOPTIMAL is returned every frame on Android when preTransform != currentTransform
     // (we pick identity on purpose), so only OUT_OF_DATE triggers a rebuild.
     if (r == VK_ERROR_OUT_OF_DATE_KHR) {
         vkDeviceWaitIdle(device_); destroySwapchain(); createSwapchain();
     }
+}
+
+void VkContext::collectTiming() {
+    if (!getPastTiming_ || !swapchain_) return;
+    VkPastPresentationTimingGOOGLE past[8];
+    uint32_t n = 8;
+    if (getPastTiming_(device_, swapchain_, &n, past) < 0) return;
+    for (uint32_t i = 0; i < n; ++i) {
+        if (presentId_ - past[i].presentID >= kTimingRing) continue; // too old for the ring
+        int64_t poll = presentPollNs_[past[i].presentID % kTimingRing];
+        if (!poll || !past[i].actualPresentTime) continue;
+        double ms = ((int64_t)past[i].actualPresentTime - poll) / 1e6;
+        if (ms <= 0 || ms > 500) continue;
+        latSumMs_ += ms; latCount_++;
+        latMaxMs_ = std::max(latMaxMs_, ms);
+    }
+}
+
+bool VkContext::takeLatency(double& meanMs, double& maxMs) {
+    if (!latCount_) return false;
+    meanMs = latSumMs_ / latCount_; maxMs = latMaxMs_;
+    latSumMs_ = latMaxMs_ = 0; latCount_ = 0;
+    return true;
 }
 
 // Skipped frame: submit only what the core handed over (so its semaphores are consumed and the

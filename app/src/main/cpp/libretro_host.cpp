@@ -100,6 +100,7 @@ std::atomic<int> g_analog[2][2] = {};
 unsigned g_lastW = 0, g_lastH = 0;
 int g_statRuns = 0, g_statPresents = 0, g_statDupes = 0; // emulation thread only
 double g_statRunMs = 0, g_statWaitMs = 0;                 // time in retro_run / beginFrame
+double g_statAudioWaitMs = 0;                             // audio sync before each frame
 std::atomic<uint32_t> g_framesShown{0};                   // new frames presented, for the FPS counter
 
 template <typename T> bool sym(T& fn, const char* name) {
@@ -246,6 +247,10 @@ void input_poll() {
         if (g_tapHold[i] > 0) { --g_tapHold[i]; held |= 1 << i; }
     }
     g_polledButtons = g_buttons.load() | held;
+    if (g_vulkan) {
+        timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); // the clock display timing reports in
+        g_vk.notePoll(ts.tv_sec * 1000000000LL + ts.tv_nsec);
+    }
 }
 
 int16_t input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
@@ -276,11 +281,19 @@ void logStats() {
     ++g_statRuns;
     double secs = std::chrono::duration<double>(clock::now() - start).count();
     if (secs < 5.0) return;
-    LOGI("stats: %.1f emu fps, %.1f presented, %.1f dupes (%ux%u), run %.2f ms, wait %.2f ms",
+    char lat[64] = "";
+    double latMean, latMax;
+    if (g_vulkan && g_vk.takeLatency(latMean, latMax))
+        snprintf(lat, sizeof lat, ", poll->display %.1f ms (max %.1f)", latMean, latMax);
+    double fillMs, targetMs; int underruns;
+    g_audio.takeStats(!g_fastForward && g_statRuns / secs >= 58.5, fillMs, targetMs, underruns);
+    LOGI("stats: %.1f emu fps, %.1f presented, %.1f dupes (%ux%u), run %.2f ms, wait %.2f ms, "
+         "audio wait %.2f ms, fill %.0f/%.0f ms, %d underruns%s",
          g_statRuns / secs, g_statPresents / secs, g_statDupes / secs, g_lastW, g_lastH,
-         g_statRunMs / g_statRuns, g_statWaitMs / g_statRuns);
+         g_statRunMs / g_statRuns, g_statWaitMs / g_statRuns, g_statAudioWaitMs / g_statRuns, fillMs,
+         targetMs, underruns, lat);
     g_statRuns = g_statPresents = g_statDupes = 0;
-    g_statRunMs = g_statWaitMs = 0;
+    g_statRunMs = g_statWaitMs = g_statAudioWaitMs = 0;
     start = clock::now();
 }
 
@@ -423,6 +436,11 @@ void runLoop() {
             auto now = std::chrono::steady_clock::now();
             show = now - ffLastShown >= std::chrono::microseconds(16000);
             if (show) ffLastShown = now;
+        }
+        if (!ff) {
+            auto t0 = std::chrono::steady_clock::now();
+            g_audio.waitForRoom();
+            g_statAudioWaitMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
         }
         if (g_vulkan) {
             auto t0 = std::chrono::steady_clock::now();

@@ -39,6 +39,12 @@ public:
     // Fast-forward: present without vsync. Applied (swapchain rebuilt) at the next beginFrame.
     void setUnthrottled(bool on) { wantUnthrottled_ = on; }
 
+    // Latency (VK_GOOGLE_display_timing, when the driver has it): notePoll() at each input poll;
+    // takeLatency() returns the mean and max ms from the last poll before a present to that image
+    // reaching the display, over the frames reported since the previous call. False if unknown.
+    void notePoll(int64_t ns) { pollNs_ = ns; }
+    bool takeLatency(double& meanMs, double& maxMs);
+
     const retro_hw_render_interface_vulkan* iface() const { return &iface_; }
     void destroy();
 
@@ -94,6 +100,15 @@ private:
     uint32_t index_ = 0;
     bool acquired_ = false, presented_ = false, skip_ = false;
     bool wantUnthrottled_ = false, unthrottled_ = false;
+
+    // Display timing: poll time per present ID (ring), sums since the last takeLatency().
+    PFN_vkGetPastPresentationTimingGOOGLE getPastTiming_ = nullptr;
+    static constexpr uint32_t kTimingRing = 64;
+    int64_t pollNs_ = 0, presentPollNs_[kTimingRing] = {};
+    uint32_t presentId_ = 0;
+    double latSumMs_ = 0, latMaxMs_ = 0;
+    uint32_t latCount_ = 0;
+    void collectTiming();
 
     // State handed over by the core for the next video_refresh.
     retro_vulkan_image image_{};

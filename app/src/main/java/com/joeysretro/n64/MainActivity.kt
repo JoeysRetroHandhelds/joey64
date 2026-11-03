@@ -146,7 +146,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
      * for the Vulkan renderer. M3 picks drivers per GPU.
      */
     private fun setupCustomDriver(): Boolean {
-        val src = getExternalFilesDir("drivers")?.listFiles { f -> f.name.endsWith(".so") }?.firstOrNull() ?: return false
+        // Internal files/drivers too, for devices whose adb can't write Android/data (see resolveRom).
+        val src = listOfNotNull(getExternalFilesDir("drivers"), File(filesDir, "drivers"))
+            .firstNotNullOfOrNull { d -> d.listFiles { f -> f.name.endsWith(".so") }?.firstOrNull() } ?: return false
         val dir = File(filesDir, "gpu_driver").apply { mkdirs() }
         val dst = File(dir, src.name)
         if (!dst.exists() || dst.length() != src.length() || dst.lastModified() < src.lastModified()) src.copyTo(dst, true)
@@ -202,16 +204,16 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     }
 
     // ---- Gamepad → RetroPad (port 0) ---------------------------------------------------------
-    // Positional mapping for any Android gamepad (verified on the AYN Thor "Odin Controller").
-    // Android's BUTTON_A/B/X/Y are bottom/right/top/left. With mupen64plus-next defaults that gives
-    // bottom = N64 A, left = N64 B, L2 = Z, right stick = C buttons. M5 adds per-device profiles.
+    // Positional mapping for any Android gamepad. Android's BUTTON_A/B/X/Y are bottom/right/left/top.
+    // With mupen64plus-next defaults that gives bottom = N64 A, left = N64 B, L2 = Z, right stick =
+    // C buttons. M5 adds per-device profiles.
     private var keyMask = 0
     private var hatMask = 0
     private var triggerMask = 0
 
     private fun retroId(keyCode: Int): Int = when (keyCode) {
         KeyEvent.KEYCODE_BUTTON_A -> 0          // RETRO_DEVICE_ID_JOYPAD_B  → N64 A
-        KeyEvent.KEYCODE_BUTTON_Y -> 1          // RETRO_DEVICE_ID_JOYPAD_Y  → N64 B
+        KeyEvent.KEYCODE_BUTTON_X -> 1          // RETRO_DEVICE_ID_JOYPAD_Y  → N64 B
         KeyEvent.KEYCODE_BUTTON_SELECT -> 2
         KeyEvent.KEYCODE_BUTTON_START -> 3
         KeyEvent.KEYCODE_DPAD_UP -> 4
@@ -219,7 +221,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         KeyEvent.KEYCODE_DPAD_LEFT -> 6
         KeyEvent.KEYCODE_DPAD_RIGHT -> 7
         KeyEvent.KEYCODE_BUTTON_B -> 8          // RETRO_DEVICE_ID_JOYPAD_A
-        KeyEvent.KEYCODE_BUTTON_X -> 9          // RETRO_DEVICE_ID_JOYPAD_X
+        KeyEvent.KEYCODE_BUTTON_Y -> 9          // RETRO_DEVICE_ID_JOYPAD_X
         KeyEvent.KEYCODE_BUTTON_L1 -> 10
         KeyEvent.KEYCODE_BUTTON_R1 -> 11
         KeyEvent.KEYCODE_BUTTON_L2 -> 12        // → Z

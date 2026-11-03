@@ -18,6 +18,9 @@ public:
     // Audio sync, called before each emulated frame: blocks until the ring holds at most the target
     // plus one frame, so the wait lands before the frame polls input rather than in the middle of it.
     void waitForRoom();
+    // Device-side output latency in ms (AAudio timestamps: frames written but not yet played),
+    // -1 if unknown. AAudio's buffer starts at 2 bursts and grows a burst per xrun.
+    double outputLatencyMs();
     // Stats since the last call: mean ring fill and target in ms, underrun callbacks. keepingUp =
     // the emulation ran at full speed meanwhile: underruns then raise the target by 10 ms (devices
     // whose frames sometimes miss a vsync need more queued), up to kMaxTargetMs.
@@ -38,7 +41,8 @@ private:
     double fillSum_ = 0; int fillCount_ = 0;
     double baseStep_ = 1.0;  // nominal source frames per output frame
     double drcI_ = 0;        // integral part of the rate correction
-    int frames_ = 0;         // waitForRoom calls since open (startup frames don't adapt the target)
+    int frames_ = 0;
+    int xruns_ = 0;          // AAudio xrun count at the last check         // waitForRoom calls since open (startup frames don't adapt the target)
     double step_ = 1.0;      // source frames per output frame
     double pos_ = 0.0;       // position between prev_ and the next source frame
     int16_t prev_[2] = {0, 0};

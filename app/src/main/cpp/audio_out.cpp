@@ -2,6 +2,7 @@
 #include <android/log.h>
 #include <algorithm>
 #include <cstring>
+#include <ctime>
 #include <thread>
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "n64host", __VA_ARGS__)
 
@@ -29,8 +30,13 @@ bool AudioOut::open(int srcRate) {
     cap_ = (size_t)dstRate / 5 * 2; // ~200 ms stereo
     ring_.assign(cap_, 0);
     r_ = w_ = 0;
-    LOGI("audio: core %d Hz -> device %d Hz, perf mode %d, burst %d", srcRate, dstRate,
-         AAudioStream_getPerformanceMode(stream_), AAudioStream_getFramesPerBurst(stream_));
+    // AAudio defaults the buffer to its whole capacity (8 bursts on the Flip and the Portal: 43 and
+    // 32 ms of extra latency). Start at 2 bursts; takeStats adds a burst per xrun.
+    AAudioStream_setBufferSizeInFrames(stream_, 2 * AAudioStream_getFramesPerBurst(stream_));
+    xruns_ = 0;
+    LOGI("audio: core %d Hz -> device %d Hz, perf mode %d, burst %d, buffer %d of %d", srcRate, dstRate,
+         AAudioStream_getPerformanceMode(stream_), AAudioStream_getFramesPerBurst(stream_),
+         AAudioStream_getBufferSizeInFrames(stream_), AAudioStream_getBufferCapacityInFrames(stream_));
     AAudioStream_requestStart(stream_);
     return true;
 }
@@ -73,7 +79,29 @@ void AudioOut::waitForRoom() {
     step_ = baseStep_ * (1.0 + std::max(-0.01, std::min(0.01, 0.005 * err + drcI_)));
 }
 
+double AudioOut::outputLatencyMs() {
+    if (!stream_) return -1;
+    int64_t pos = 0, ns = 0;
+    if (AAudioStream_getTimestamp(stream_, CLOCK_MONOTONIC, &pos, &ns) != AAUDIO_OK) return -1;
+    timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+    int64_t now = ts.tv_sec * 1000000000LL + ts.tv_nsec;
+    // The frame written now plays after the ones queued ahead of it.
+    int64_t playedNow = pos + (now - ns) * dstRate_ / 1000000000LL;
+    return (AAudioStream_getFramesWritten(stream_) - playedNow) * 1000.0 / dstRate_;
+}
+
 void AudioOut::takeStats(bool keepingUp, double& fillMs, double& targetMs, int& underruns) {
+    if (stream_) {
+        int x = AAudioStream_getXRunCount(stream_);
+        if (x > xruns_) {
+            int32_t size = AAudioStream_getBufferSizeInFrames(stream_) + AAudioStream_getFramesPerBurst(stream_);
+            if (size <= AAudioStream_getBufferCapacityInFrames(stream_)) {
+                AAudioStream_setBufferSizeInFrames(stream_, size);
+                LOGI("audio: %d xruns, buffer now %d frames", x - xruns_, size);
+            }
+            xruns_ = x;
+        }
+    }
     auto ms = [this](double samples) { return samples / 2 * 1000.0 / dstRate_; };
     fillMs = fillCount_ ? ms(fillSum_ / fillCount_) : 0;
     fillSum_ = 0; fillCount_ = 0;

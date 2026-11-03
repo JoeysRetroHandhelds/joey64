@@ -288,10 +288,10 @@ void logStats() {
     double fillMs, targetMs; int underruns;
     g_audio.takeStats(!g_fastForward && g_statRuns / secs >= 58.5, fillMs, targetMs, underruns);
     LOGI("stats: %.1f emu fps, %.1f presented, %.1f dupes (%ux%u), run %.2f ms, wait %.2f ms, "
-         "audio wait %.2f ms, fill %.0f/%.0f ms, %d underruns%s",
+         "audio wait %.2f ms, fill %.0f/%.0f ms, %d underruns, device %.0f ms%s",
          g_statRuns / secs, g_statPresents / secs, g_statDupes / secs, g_lastW, g_lastH,
          g_statRunMs / g_statRuns, g_statWaitMs / g_statRuns, g_statAudioWaitMs / g_statRuns, fillMs,
-         targetMs, underruns, lat);
+         targetMs, underruns, g_audio.outputLatencyMs(), lat);
     g_statRuns = g_statPresents = g_statDupes = 0;
     g_statRunMs = g_statWaitMs = g_statAudioWaitMs = 0;
     start = clock::now();

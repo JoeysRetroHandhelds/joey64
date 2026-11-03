@@ -32,6 +32,7 @@ public:
     // Device + queue. negotiation may be null (frontend picks the device).
     bool init(const retro_hw_render_context_negotiation_interface_vulkan* negotiation);
     void attachWindow(ANativeWindow* win); // nullptr detaches (swapchain + surface destroyed)
+    void resizeSwapchain();                // rebuild at the window's current size
     bool hasWindow() const { return swapchain_ != VK_NULL_HANDLE; }
 
     // Around retro_run: acquire a swapchain image (= sync index) and present it afterwards.
@@ -42,6 +43,8 @@ public:
     void videoRefresh(const void* data, unsigned w, unsigned h); // from retro_video_refresh
     // Fast-forward: present without vsync. Applied (swapchain rebuilt) at the next beginFrame.
     void setUnthrottled(bool on) { wantUnthrottled_ = on; }
+    // The game's frame rate (60, or 50 for PAL), for the swap interval on fast screens.
+    void setContentRate(double fps) { contentHz_ = fps; }
 
     // Latency (VK_GOOGLE_display_timing, when the driver has it): notePoll() at each input poll;
     // takeLatency() returns the mean and max ms from the last poll before a present to that image
@@ -55,6 +58,7 @@ public:
 
 private:
     bool createSwapchain();
+    void startSwapchain(); // createSwapchain plus, in presenter mode, staging images and the thread
     void destroySwapchain();
     void present(bool newImage);
     void submitSkipped(bool newImage);
@@ -109,6 +113,12 @@ private:
 
     // Display timing: poll time per present ID (ring), sums since the last takeLatency().
     PFN_vkGetPastPresentationTimingGOOGLE getPastTiming_ = nullptr;
+    // Swap interval: presents per game frame, so each frame stays up the same number of refreshes
+    // (2 on a 120 Hz screen). Vulkan has no swap interval; like RetroArch, we present the frame again.
+    PFN_vkGetRefreshCycleDurationGOOGLE getRefreshCycle_ = nullptr;
+    double contentHz_ = 60.0;
+    uint32_t swapInterval_ = 1;
+    void updateSwapInterval();
     static constexpr uint32_t kTimingRing = 64;
     int64_t pollNs_ = 0, presentPollNs_[kTimingRing] = {};
     uint32_t presentId_ = 0;

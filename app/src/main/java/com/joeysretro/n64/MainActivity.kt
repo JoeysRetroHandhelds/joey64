@@ -70,7 +70,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         // Dev: --es opts "mupen64plus-parallel-rdp-synchronous=False,key=value"
         intent?.getStringExtra("opts")?.split(',')?.forEach { kv ->
             val (k, v) = kv.split('=', limit = 2).takeIf { it.size == 2 } ?: return@forEach
-            NativeBridge.setOption(k.trim(), v.trim())
+            NativeBridge.setOption(k.trim(), capUpscaling(k.trim(), v.trim()))
         }
         // Dev: --es cheats "D11E3184 2881,811E3184 2001;<next cheat>"
         intent?.getStringExtra("cheats")?.split(';')?.filter { it.isNotBlank() }?.forEach { NativeBridge.addCheat(it) }
@@ -191,10 +191,22 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
             if (custom == null) Log.w(TAG, "Driver ${lib.name} has no usable GPU, using the system driver")
         }
         val gpu = custom ?: system
+        gpuName = gpu?.name ?: ""
         val parallel = gpu != null && gpu.vulkan11 && (custom != null || gpu.mali)
         Log.i(TAG, "GPU: ${gpu ?: "no Vulkan"}, driver ${if (custom != null) lib!!.name else "system"}, " +
             "default renderer ${if (parallel) "parallel" else "gliden64"}")
         return intent?.getStringExtra("renderer") ?: if (parallel) "parallel" else "gliden64"
+    }
+
+    private var gpuName = ""
+
+    // parallel-RDP at 4x on the Adreno 722 (Retroid Pocket Duo) drops most geometry (characters
+    // vanish, the screen flickers between layers) on both Turnip builds tried, and runs at 40-55 fps
+    // anyway; 2x renders correctly at 60. The Adreno 740 is fine at 4x.
+    private fun capUpscaling(key: String, value: String): String {
+        if (key != "mupen64plus-parallel-rdp-upscaling" || value !in setOf("4x", "8x") || "Adreno (TM) 722" !in gpuName) return value
+        Log.w(TAG, "parallel-RDP upscaling $value capped at 2x on $gpuName")
+        return "2x"
     }
 
     private val gpuDriverDir get() = File(filesDir, "gpu_driver").apply { mkdirs() }
@@ -204,7 +216,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         // Internal files/drivers too, for devices whose adb can't write Android/data (see resolveRom).
         val src = listOfNotNull(getExternalFilesDir("drivers"), File(filesDir, "drivers"))
             .firstNotNullOfOrNull { d -> d.listFiles { f -> f.name.endsWith(".so") }?.firstOrNull() } ?: return null
-        val dst = File(gpuDriverDir, src.name)
+        // Own directory: dev drivers usually share the bundled one's file name, and overwriting that
+        // copy kept it in use (its stamp still matched) after the dev driver was removed.
+        val dst = File(File(gpuDriverDir, "dev").apply { mkdirs() }, src.name)
         if (!dst.exists() || dst.length() != src.length() || dst.lastModified() < src.lastModified()) src.copyTo(dst, true)
         return dst
     }
@@ -265,7 +279,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         }
     }
 
-    override fun surfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) {}
+    override fun surfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) = NativeBridge.surfaceResized()
     override fun surfaceDestroyed(holder: SurfaceHolder) = NativeBridge.setSurface(null)
 
     // Immersive: hide status + nav bars so the surface is the whole screen. Re-applied on focus

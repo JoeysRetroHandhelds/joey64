@@ -1,6 +1,7 @@
 #include "vk_context.h"
 #include <android/log.h>
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -211,6 +212,9 @@ bool VkContext::init(const retro_hw_render_context_negotiation_interface_vulkan*
     if (displayTiming)
         getPastTiming_ = reinterpret_cast<PFN_vkGetPastPresentationTimingGOOGLE>(
             vkGetDeviceProcAddr(device_, "vkGetPastPresentationTimingGOOGLE"));
+    if (displayTiming)
+        getRefreshCycle_ = reinterpret_cast<PFN_vkGetRefreshCycleDurationGOOGLE>(
+            vkGetDeviceProcAddr(device_, "vkGetRefreshCycleDurationGOOGLE"));
     LOGI("vulkan: display timing %s", getPastTiming_ ? "on" : "unavailable");
 
     VkPhysicalDeviceProperties props;
@@ -279,10 +283,22 @@ void VkContext::attachWindow(ANativeWindow* win) {
     VkBool32 supported = VK_FALSE;
     vkGetPhysicalDeviceSurfaceSupportKHR(gpu_, queueFamily_, surface_, &supported);
     if (!supported) LOGE("vulkan: queue family %u cannot present", queueFamily_);
+    startSwapchain();
+}
+
+void VkContext::startSwapchain() {
     if (createSwapchain() && presenter_) {
         destroyStaging();
         if (createStaging()) startPresenter();
     }
+}
+
+void VkContext::resizeSwapchain() {
+    if (!surface_) return;
+    stopPresenter();
+    vkDeviceWaitIdle(device_);
+    destroySwapchain();
+    startSwapchain();
 }
 
 bool VkContext::createSwapchain() {
@@ -298,7 +314,10 @@ bool VkContext::createSwapchain() {
         if (f.format == VK_FORMAT_R8G8B8A8_UNORM || f.format == VK_FORMAT_B8G8R8A8_UNORM) { fmt = f; break; }
 
     uint32_t count = std::max(caps.minImageCount + 1, 3u);
+    const char* imgs = getenv("N64_SWAP_IMAGES"); // EXPERIMENT: queue depth vs swap interval latency
+    if (imgs && atoi(imgs) > 0) count = std::max((uint32_t)atoi(imgs), caps.minImageCount);
     if (caps.maxImageCount) count = std::min(count, caps.maxImageCount);
+    LOGI("vulkan: swapchain images: min %u max %u, asking %u", caps.minImageCount, caps.maxImageCount, count);
 
     extent_ = caps.currentExtent;
     if (extent_.width == UINT32_MAX) {
@@ -352,7 +371,28 @@ bool VkContext::createSwapchain() {
     acquireSlot_ = 0;
     LOGI("vulkan: swapchain %ux%u, %u images, format %d, present mode %d", extent_.width, extent_.height,
          n, fmt.format, ci.presentMode);
+    updateSwapInterval();
     return true;
+}
+
+// Re-read now and then: the system can change the refresh rate under us (battery saver, thermal).
+void VkContext::updateSwapInterval() {
+    uint32_t interval = 1;
+    VkRefreshCycleDurationGOOGLE rc{};
+    if (getRefreshCycle_ && swapchain_ && getRefreshCycle_(device_, swapchain_, &rc) == VK_SUCCESS && rc.refreshDuration) {
+        double ratio = 1e9 / (double)rc.refreshDuration / contentHz_;
+        // Only whole multiples pace evenly (120 Hz for 60 fps; not 90 Hz, or 120 Hz for PAL's 50).
+        uint32_t n = (uint32_t)(ratio + 0.5);
+        if (n >= 2 && std::abs(ratio - n) < 0.03 * n) interval = n;
+        // Opt-in for now: presenting twice fills the swapchain queue, which cost 8-16 ms of
+        // poll->display (Duo 22-25 -> 31-39 ms, Portal 18-25 -> 32-41 ms) for even pacing.
+        const char* si = getenv("N64_SWAP_INTERVAL");
+        if (!(si && *si == '1')) interval = 1;
+        if (interval != swapInterval_)
+            LOGI("vulkan: refresh %.1f Hz, game %.2f fps: swap interval %u", 1e9 / (double)rc.refreshDuration,
+                 contentHz_, interval);
+    }
+    swapInterval_ = interval;
 }
 
 void VkContext::destroySwapchain() {
@@ -404,8 +444,20 @@ void VkContext::videoRefresh(const void* data, unsigned w, unsigned h) {
 }
 
 void VkContext::endFrame() {
+    bool shown = acquired_ && !skip_ && !presenter_;
     if (acquired_ && !presented_) present(false); // an acquired image must be presented
     acquired_ = false;
+    // Swap interval: present the frame again, so with FIFO each one is shown for swapInterval_
+    // refreshes and emulation is paced to the game's rate. Not while unthrottled (fast-forward).
+    if (!shown || unthrottled_ || swapInterval_ < 2) return;
+    int64_t poll = pollNs_;
+    pollNs_ = 0; // latency is measured on the frame's first present
+    for (uint32_t k = 1; k < swapInterval_; ++k) {
+        if (!beginFrame(true)) break;
+        present(false);
+        acquired_ = false;
+    }
+    pollNs_ = poll;
 }
 
 void VkContext::present(bool newImage) {
@@ -534,6 +586,7 @@ void VkContext::present(bool newImage) {
     waitSems_.clear(); coreCmds_.clear(); signalSem_ = VK_NULL_HANDLE;
     presented_ = true;
     collectTiming();
+    if ((presentId_ & 127) == 0) updateSwapInterval();
     // SUBOPTIMAL is returned every frame on Android when preTransform != currentTransform
     // (we pick identity on purpose), so only OUT_OF_DATE triggers a rebuild.
     if (r == VK_ERROR_OUT_OF_DATE_KHR) {

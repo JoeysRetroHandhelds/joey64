@@ -79,6 +79,7 @@ AudioOut g_audio;
 std::mutex g_surfaceMutex;
 ANativeWindow* g_pendingWindow = nullptr;
 std::atomic<bool> g_surfaceChanged{false};
+std::atomic<bool> g_surfaceResized{false};
 
 std::thread g_thread;
 std::atomic<bool> g_running{false}, g_paused{false};
@@ -286,10 +287,18 @@ int16_t input_state(unsigned port, unsigned device, unsigned index, unsigned id)
 // ---- run loop --------------------------------------------------------------
 
 void applySurfaceIfChanged() {
-    if (!g_surfaceChanged.exchange(false)) return;
-    std::lock_guard<std::mutex> lk(g_surfaceMutex);
-    if (g_vulkan) g_vk.attachWindow(g_pendingWindow);
-    else g_egl.attachWindow(g_pendingWindow);
+    bool resized = g_surfaceResized.exchange(false);
+    if (g_surfaceChanged.exchange(false)) { // attaching builds the swapchain at the current size
+        std::lock_guard<std::mutex> lk(g_surfaceMutex);
+        if (g_vulkan) g_vk.attachWindow(g_pendingWindow);
+        else g_egl.attachWindow(g_pendingWindow);
+    } else if (resized && g_vulkan) {
+        // Android doesn't report OUT_OF_DATE for a resized window (only SUBOPTIMAL, which we
+        // ignore), so a swapchain built before the system bars were hidden kept their size and
+        // was stretched to the screen (Retroid Pocket Duo: 1920x969 on 1920x1080). EGL follows the
+        // window size by itself.
+        g_vk.resizeSwapchain();
+    }
 }
 
 // Logs emulated frames/s (retro_run calls), presented and duped frames every 5 s.
@@ -575,6 +584,8 @@ JNIEXPORT void JNICALL JNI(setSurface)(JNIEnv* env, jobject, jobject surface) {
     g_surfaceChanged = true;
 }
 
+JNIEXPORT void JNICALL JNI(surfaceResized)(JNIEnv*, jobject) { g_surfaceResized = true; }
+
 // Note: loadGame runs on the UI thread and makes the context current there;
 // start() hands the context to the emulation thread.
 JNIEXPORT void JNICALL JNI(setVulkanDriver)(JNIEnv* env, jobject, jstring dir, jstring name, jstring hooks, jstring tmp) {
@@ -644,6 +655,7 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
     core.get_system_av_info(&g_av);
     LOGI("game loaded: %ux%u max, %.2f fps, %.0f Hz", g_av.geometry.max_width, g_av.geometry.max_height,
          g_av.timing.fps, g_av.timing.sample_rate);
+    g_vk.setContentRate(g_av.timing.fps);
 
     if (g_vulkan) {
         if (!g_hwRequested || g_hw.context_type != RETRO_HW_CONTEXT_VULKAN) {

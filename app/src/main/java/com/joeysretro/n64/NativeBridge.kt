@@ -29,6 +29,8 @@ object NativeBridge {
     external fun probeVulkan(custom: Boolean): String
 
     external fun setSurface(surface: Surface?)
+    /** The surface set by setSurface changed size (e.g. once the system bars are hidden). */
+    external fun surfaceResized()
     external fun start()
     external fun pause(paused: Boolean)
     external fun stop()

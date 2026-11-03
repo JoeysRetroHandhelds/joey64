@@ -24,7 +24,7 @@ bool AudioOut::open(int srcRate) {
     dstRate_ = dstRate;
     baseStep_ = step_ = (double)srcRate / dstRate;
     drcI_ = 0; frames_ = 0;
-    // ~40 ms kept queued (stereo samples); the rest of the ring is slack for slow frames.
+    // ~20 ms kept queued (stereo samples) to start; the rest of the ring is slack for slow frames.
     target_ = (size_t)dstRate * kTargetMs / 1000 * 2;
     pos_ = 0.0; prev_[0] = prev_[1] = 0;
     cap_ = (size_t)dstRate / 5 * 2; // ~200 ms stereo

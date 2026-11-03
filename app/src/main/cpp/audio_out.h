@@ -27,7 +27,7 @@ public:
     void takeStats(bool keepingUp, double& fillMs, double& targetMs, int& underruns);
 
 private:
-    static constexpr int kTargetMs = 40, kMaxTargetMs = 150;
+    static constexpr int kTargetMs = 20, kMaxTargetMs = 150;
     static aaudio_data_callback_result_t cb(AAudioStream*, void* user, void* data, int32_t frames);
     AAudioStream* stream_ = nullptr;
     std::vector<float> ring_;

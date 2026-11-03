@@ -28,7 +28,6 @@ import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.widget.FrameLayout
 import android.widget.TextView
@@ -48,9 +47,6 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         val root = FrameLayout(this)
         root.addView(view)
         val dp = resources.displayMetrics.density
-        root.addView(fastForwardButton(), FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END
-        ).apply { setMargins(0, (16 * dp).toInt(), (16 * dp).toInt(), 0) })
         root.addView(fpsCounter(), FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.START
         ).apply { setMargins((16 * dp).toInt(), (16 * dp).toInt(), 0, 0) })
@@ -161,37 +157,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     }
 
     // ---- Fast-forward -------------------------------------------------------------------------
-    // On-screen toggle (top-right, in the 4:3 letterbox) or R3. Runs up to 4x with audio muted.
+    // R3 toggles it. Runs up to 4x with audio muted.
     private var fastForward = false
-    private var ffButton: TextView? = null
-
-    private fun fastForwardButton(): TextView {
-        val dp = resources.displayMetrics.density
-        return TextView(this).apply {
-            text = "▶▶"
-            textSize = 22f
-            setTextColor(Color.WHITE)
-            setPadding((18 * dp).toInt(), (10 * dp).toInt(), (18 * dp).toInt(), (10 * dp).toInt())
-            isFocusable = false
-            setOnClickListener { toggleFastForward() }
-            ffButton = this
-            updateFastForwardButton()
-        }
-    }
 
     private fun toggleFastForward() {
         fastForward = !fastForward
         NativeBridge.setFastForward(fastForward)
-        updateFastForwardButton()
-    }
-
-    private fun updateFastForwardButton() {
-        val b = ffButton ?: return
-        b.background = GradientDrawable().apply {
-            cornerRadius = 14 * resources.displayMetrics.density
-            setColor(if (fastForward) 0xCCE0A030.toInt() else 0x55FFFFFF)
-        }
-        b.alpha = if (fastForward) 1f else 0.6f
     }
 
     // ---- GPU driver + renderer ------------------------------------------------------------------

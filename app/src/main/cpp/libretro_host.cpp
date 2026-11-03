@@ -632,9 +632,9 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
     std::vector<uint8_t> buf;
     if (f) { fseek(f, 0, SEEK_END); buf.resize(ftell(f)); fseek(f, 0, SEEK_SET); fread(buf.data(), 1, buf.size(), f); fclose(f); }
     // Games whose CPU reads the framebuffer, which async parallel-RDP can serve stale: Pokemon Snap
-    // (photo checks), The New Tetris (async: halts on a "secret cheat, power off" screen after ~10 s).
-    // An explicit option override (--es opts) wins.
-    static const char* const kSyncRdpGames[] = {"NPF", "NRI"};
+    // (photo checks), The New Tetris (async: halts on a "secret cheat, power off" screen after ~10 s),
+    // Resident Evil 2 and Cruis'n USA (async: black screen). An explicit option override (--es opts) wins.
+    static const char* const kSyncRdpGames[] = {"NPF", "NRI", "NRE", "NCU"};
     std::string id = romGameId(buf);
     auto syncOpt = g_optionOverrides.find("mupen64plus-parallel-rdp-synchronous");
     if (syncOpt != g_optionOverrides.end()) g_rdpSync = syncOpt->second == "True";

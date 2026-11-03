@@ -44,7 +44,7 @@ mupen64plus-next libretro core from a Kotlin app with a C++ libretro frontend.
 - parallel-RDP on AYN Thor with the stock Adreno 740 driver (676.53): black screen, the compiler fails on a parallel-RDP compute shader. Fixed by Turnip ("Turnip Gen8 V38", Mesa 26.99.99 / Vulkan 1.4.363): renders correctly at 60 fps.
 - Synchronous parallel-RDP (needed for CPU framebuffer reads, e.g. Snap photos) costs ~10 ms/frame in Snap on the Thor (async: ~2–4 ms; GLideN64: 2.5 ms). Per-game sync setting belongs in M3.
 - AAudio low-latency path is denied on the Thor (output has no RAW flag).
-- Pokémon Snap on GLideN64 needs the source-built core (n64-core `handheld`, commit dc641ea): upstream greys out Oak's Mark because the selection screen's visibility check copies depth-buffer strips, and GLideN64 served its color buffer instead. The same commit fixes glsm hiding all GL extensions on GLES3 builds. Worth upstreaming.
+- Pokémon Snap on GLideN64 needs the source-built core (n64-core `handheld`, commits dc641ea + 535dc2a): upstream greys out Oak's Mark because the selection screen's visibility check copies depth-buffer strips, and GLideN64 served its color buffer instead. The same commit fixes glsm hiding all GL extensions on GLES3 builds. Worth upstreaming.
 
 ## Roadmap
 See README.md (M0–M6). Current milestone: get M0 booting, then M1 input.

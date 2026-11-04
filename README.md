@@ -88,7 +88,7 @@ Focus now: performance, compatibility and latency; menus come after.
 - [ ] Profile where each frame's time goes, both renderers, Flip/Duo/Odin 3: emu thread split (dynarec, RSP, RDP commands, VI/scanout, present), GPU time (`PARALLEL_RDP_BENCH`), simpleperf hot functions; compare game draw rate vs presents vs VI rate, not just fps
 - [ ] Compiler: core and host build at plain -O2 with no LTO, PGO or CPU tuning. Try ThinLTO, PGO from real play (instrumented build, OoT/GoldenEye/SM64/Banjo), `-mcpu` for ARMv8.2 (all our devices)
 - [ ] N64 emulators to mine (cloned in the scratchpad): gopher64, simple64, ares, Project64, cen64, dillonb/n64, Kaizen, RMG, parallel-n64, upstream mupen64plus-core, parallel-rsp, 1964, jgcen64, Daedalus, mupen64plus-ae: RSP and dynarec approaches, RDP/RSP threading, idle-loop skipping, VI/scanout, audio
-- [ ] Other emulators to mine: Dolphin (skip presenting duplicate frames, present thread, build flags), PPSSPP, DuckStation, flycast, Azahar, Eden
+- [ ] Other emulators to mine: Dolphin (skip presenting duplicate frames, present thread, build flags), PPSSPP, DuckStation, PCSX2 and ARMSX2, flycast, Azahar, Eden, Vita3K, Cemu, RPCS3, shadPS4, Ryujinx, xemu, melonDS, MAME, pcsx_rearmed, RetroArch/Lemuroid frontends: JIT and fastmem design, threading (CPU/GPU/present), Vulkan submission and pipeline caching, Android/Adreno specifics (Turnip, hakuX), build flags (LTO/PGO)
 - [ ] Thread placement: big-core pinning for the emu thread and parallel-RDP's workers (CLAUDE.md goal 2), measured per device
 
 ### Later

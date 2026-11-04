@@ -34,8 +34,8 @@
       "name": "mupen64plus-core",
       "repo": "mupen64plus/mupen64plus-core",
       "branch": "master",
-      "seen": "cf00a1d1b413",
-      "why": "libretro's copy in our core forked from here; 'seen' is where they last met (2026-09-05), so the first issue lists what our core lacks"
+      "seen": "dc1411a196b0e35745e9a5661a44e60809fad250",
+      "why": "libretro's copy in our core forked from here. Up to dc1411a read 2026-11-04: the six fixes ported to the core (890dbdb, 2dc3683); FreeBSD/macOS build commits skipped"
     },
     {
       "name": "mupen64plus-libretro-nx",

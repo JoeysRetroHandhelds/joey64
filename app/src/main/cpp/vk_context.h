@@ -109,7 +109,7 @@ private:
     VkSemaphore currentAcquire_ = VK_NULL_HANDLE;
     uint32_t index_ = 0;
     bool acquired_ = false, presented_ = false, skip_ = false;
-    // N64_SKIP_DUPES=1: frames start without a swapchain image; present acquires one only for a new frame
+    // Default (N64_SKIP_DUPES=0 turns it off): frames start without a swapchain image; present acquires one only for a new frame
     // (or repaint_: the last image must go on a new swapchain), so repeat frames aren't presented.
     bool skipDupes_ = false, needAcquire_ = false, repaint_ = true;
     std::atomic<bool> wantUnthrottled_{false};

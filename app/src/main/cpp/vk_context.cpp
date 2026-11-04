@@ -243,7 +243,7 @@ bool VkContext::init(const retro_hw_render_context_negotiation_interface_vulkan*
     acquireFirst_ = pres && (*pres == '2' || *pres == '3');
     lockstep_ = pres && (*pres == '3' || *pres == '4');
     const char* dupes = getenv("N64_SKIP_DUPES");
-    skipDupes_ = dupes && *dupes == '1';
+    skipDupes_ = !(dupes && *dupes == '0');
     if (presenter_) { // command pools are used by one thread at a time
         vkCreateCommandPool(device_, &pci, nullptr, &presPool_);
         ai.commandPool = presPool_; ai.commandBufferCount = 1;

@@ -82,6 +82,15 @@ Focus now: performance, compatibility and latency; menus come after.
 - [ ] Needs Joey: listen to audio (resampler, HLE audio) and try sticks/triggers on a real controller (core `gliden64-update` merged into `handheld` 2026-11-04)
 - [ ] Can't test yet: upstream savestate queue check (the app can't load states); Mali without Vulkan 1.1 (no such device)
 
+### Performance deep dive (2026-11-04: aim for big gains; try ideas from any emulator, measured)
+- [ ] Present only frames that changed. Most games draw 20-30 frames a second but the core presented every VI (60). GLideN64: the libretro core forces swap mode 0; M64Plus FZ/ae uses 2 (on a new frame buffer). Core switch `N64_GLN_SWAP_MODE=1|2` built: Duo, OoT Temple of Time, 213/214 -> 159/159 ms/s (same CPU as ae). Next: compat run with mode 2, FPS counter showing the emulated rate (it reads 20 in OoT), check the opt-in pacing modes, then make it the default
+- [ ] Same for parallel-RDP: `parallel_frame_is_valid()` is always true, so it scans out and presents every VI. Measurement switch `N64_RDP_SKIP_DUP=1` (skips while the VI registers are unchanged; ignores RDP/CPU drawing into the shown buffer, so not shippable as is; smart sync's drawn-page tracking could tell). Our Vulkan side acquires a swapchain image before each frame runs, so a dupe is still presented: acquire only when the core reports a new frame
+- [ ] Profile where each frame's time goes, both renderers, Flip/Duo/Odin 3: emu thread split (dynarec, RSP, RDP commands, VI/scanout, present), GPU time (`PARALLEL_RDP_BENCH`), simpleperf hot functions; compare game draw rate vs presents vs VI rate, not just fps
+- [ ] Compiler: core and host build at plain -O2 with no LTO, PGO or CPU tuning. Try ThinLTO, PGO from real play (instrumented build, OoT/GoldenEye/SM64/Banjo), `-mcpu` for ARMv8.2 (all our devices)
+- [ ] N64 emulators to mine (cloned in the scratchpad): gopher64, simple64, ares, Project64, cen64, dillonb/n64, Kaizen, RMG, parallel-n64, upstream mupen64plus-core, parallel-rsp, 1964, jgcen64, Daedalus, mupen64plus-ae: RSP and dynarec approaches, RDP/RSP threading, idle-loop skipping, VI/scanout, audio
+- [ ] Other emulators to mine: Dolphin (skip presenting duplicate frames, present thread, build flags), PPSSPP, DuckStation, flycast, Azahar, Eden
+- [ ] Thread placement: big-core pinning for the emu thread and parallel-RDP's workers (CLAUDE.md goal 2), measured per device
+
 ### Later
 - [ ] RetroAchievements (reuse the mupen64plus-ae fork's work; note it's GPLv3)
 - [ ] Display options: widescreen hacks, integer scaling, filters/CRT shaders, GLideN64 texture packs

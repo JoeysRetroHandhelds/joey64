@@ -5,6 +5,7 @@ add_library(n64host SHARED
     libretro_host.cpp
     egl_context.cpp
     audio_out.cpp
+    perf_hint.cpp
     vk_context.cpp)
 
 add_subdirectory(third_party/libadrenotools)

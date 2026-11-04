@@ -1,5 +1,7 @@
 // Minimal libretro frontend: dlopen the core, answer environment calls,
 // provide a GLES3 or Vulkan HW render context, and run retro_run on a dedicated thread.
+#include <adrenotools/driver.h>
+#include "perf_hint.h"
 #include <jni.h>
 #include <dlfcn.h>
 #include <android/log.h>
@@ -129,7 +131,7 @@ retro_proc_address_t hw_get_proc_address(const char* name) {
 
 void log_cb(enum retro_log_level level, const char* fmt, ...) {
     va_list ap; va_start(ap, fmt);
-    __android_log_vprint(level >= RETRO_LOG_ERROR ? ANDROID_LOG_ERROR : ANDROID_LOG_INFO, "core", fmt, ap);
+    __android_log_vprint(level >= RETRO_LOG_ERROR || (getenv("N64_LOG_ERR") && *getenv("N64_LOG_ERR") == '1') ? ANDROID_LOG_ERROR : ANDROID_LOG_INFO, "core", fmt, ap);
     va_end(ap);
 }
 
@@ -433,6 +435,14 @@ void splitBigCores() {
 
 void runLoop() {
     pinToBigCores();
+    // EXPERIMENT: Adreno GPU clocks held at max while running (Dolphin's "Force max GPU clocks")
+    const char* turboEnv = getenv("N64_GPU_TURBO");
+    const bool turbo = turboEnv && *turboEnv == '1';
+    if (turbo) { adrenotools_set_turbo(true); LOGI("GPU turbo on"); }
+    // EXPERIMENT: ADPF performance hint session for this thread (Android 13+)
+    const char* hintEnv = getenv("N64_PERF_HINT");
+    const bool useHint = hintEnv && *hintEnv == '1';
+    PerfHint perfHint;
     const char* noSplit = getenv("N64_PIN_SPLIT");
     const bool split = !(noSplit && *noSplit == '0');
     const char* late = getenv("N64_LATE_INPUT");
@@ -521,8 +531,10 @@ void runLoop() {
             }
         }
         if (++framesSinceSaveCheck >= 120) { framesSinceSaveCheck = 0; flushSave(); }
+        if (useHint) perfHint.reportFrame();
         if (split && --splitIn == 0) { splitBigCores(); splitIn = 600; }
     }
+    if (turbo) adrenotools_set_turbo(false);
     flushSave();
     if (g_hw.context_destroy) g_hw.context_destroy();
     core.unload_game();

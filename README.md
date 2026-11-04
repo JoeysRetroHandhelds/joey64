@@ -69,7 +69,7 @@ Focus now: performance, compatibility and latency; menus come after.
 - [ ] Flip menu frame drops (~0.8% of frames miss a vsync, 59.2-59.6 fps), cause unknown
 - [ ] Robustness ideas from pwnedbygary/phobos (via parallel-RDP review): GPU fence waits that time out instead of hanging on a driver lockup, guard against malformed RDP commands freezing the worker
 - [ ] Report upstream: PI DMA bit 0 (Last Impact / Star Road crash in every libretro build), Snap fix already posted
-- [ ] Duo 4x/8x geometry drops with Turnip (capped at 2x): retest with a newer Turnip build (download needs OK)
+- [ ] Duo 4x/8x geometry drops with Turnip (capped at 2x; bundled Gen8 V38 and Turnip-Duo v5.1 both fail): retest with faux123 Turnip v1.2.5 (2026-11-03, the v1.2.3 driver with Adreno 722 fixes: per-pass tile vs direct rendering, a device-lost fix; tested by its author on the Duo and Odin 3). Download needs OK
 - [ ] Timed pacing (`N64_SWAP_INTERVAL=2`) as the default on 120 Hz panels: Duo drops to ~51 fps in matches, one ~47-50 fps window at match start on the Odin 3; decision pending
 - [ ] Odin 3 compat run with the current defaults (exclusive audio, smart sync, scanout change)
 - [ ] Needs Joey: listen to audio (resampler, HLE audio) and try sticks/triggers on a real controller; merge `gliden64-update` into `handheld`

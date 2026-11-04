@@ -28,6 +28,9 @@ object NativeBridge {
      */
     external fun probeVulkan(custom: Boolean): String
 
+    /** Sharp display: whole-number nearest prescale, then linear to the screen. Any time. */
+    external fun setSharp(on: Boolean)
+
     external fun setSurface(surface: Surface?)
     /** The surface set by setSurface changed size (e.g. once the system bars are hidden). */
     external fun surfaceResized()

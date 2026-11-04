@@ -45,6 +45,10 @@ public:
     void setUnthrottled(bool on) { wantUnthrottled_ = on; }
     // The game's frame rate (60, or 50 for PAL), for the swap interval on fast screens.
     void setContentRate(double fps) { contentHz_ = fps; }
+    // Sharp display: scale the core's image up by whole numbers with nearest filtering first, then
+    // linearly to the screen (sharp-bilinear), instead of one linear scale. Pixels keep crisp edges
+    // without the uneven widths of plain nearest. Can be switched while running.
+    void setSharp(bool on) { sharp_ = on; }
 
     // Latency (VK_GOOGLE_display_timing, when the driver has it): notePoll() at each input poll;
     // takeLatency() returns the mean and max ms from the last poll before a present to that image
@@ -159,6 +163,14 @@ private:
     VkDeviceMemory stagingMem_[kSyncFrames] = {};
     VkExtent2D stagingExtent_{};
     VkFormat format_ = VK_FORMAT_UNDEFINED;
+    // Sharp display: the whole-number prescale target, made (or remade) when the size or format changes.
+    std::atomic<bool> sharp_{false};
+    VkImage sharpImage_ = VK_NULL_HANDLE;
+    VkDeviceMemory sharpMem_ = VK_NULL_HANDLE;
+    uint32_t sharpW_ = 0, sharpH_ = 0;
+    VkFormat sharpFormat_ = VK_FORMAT_UNDEFINED;
+    bool ensureSharpImage(uint32_t w, uint32_t h, VkFormat format);
+    void destroySharpImage();
     VkCommandPool presPool_ = VK_NULL_HANDLE;
     VkCommandBuffer presCmd_ = VK_NULL_HANDLE;
     VkFence presFence_ = VK_NULL_HANDLE;

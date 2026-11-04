@@ -65,6 +65,13 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // Resident Evil 2, Cruis'n USA) or halts (New Tetris), and sync costs ~1-2 ms a frame (Odin 3, Duo).
         // On Mali (Flip) sync can cost a third of the frame rate, so async plus kSyncRdpGames. --es opts wins.
         if ("Adreno" in gpuName) NativeBridge.setOption("mupen64plus-parallel-rdp-synchronous", "True")
+        // Sharp display (opt-in; the native look stays the default): the VI's anti-aliasing and bilinear
+        // blur off, and a sharp-bilinear final scale. Dev: --ez sharp true, until the settings screen exists.
+        if (intent?.getBooleanExtra("sharp", false) == true) {
+            NativeBridge.setOption("mupen64plus-parallel-rdp-vi-aa", "False")
+            NativeBridge.setOption("mupen64plus-parallel-rdp-vi-bilinear", "False")
+            NativeBridge.setSharp(true)
+        }
         // Dev: --es opts "mupen64plus-parallel-rdp-synchronous=False,key=value"
         intent?.getStringExtra("opts")?.split(',')?.forEach { kv ->
             val (k, v) = kv.split('=', limit = 2).takeIf { it.size == 2 } ?: return@forEach

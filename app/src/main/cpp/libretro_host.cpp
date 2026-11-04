@@ -682,6 +682,11 @@ JNIEXPORT jstring JNICALL JNI(probeVulkan)(JNIEnv* env, jobject, jboolean custom
     return env->NewStringUTF(VkContext::probe(custom).c_str());
 }
 
+// Sharp display (sharp-bilinear final scale); MainActivity also turns the VI blur filters off.
+JNIEXPORT void JNICALL JNI(setSharp)(JNIEnv*, jobject, jboolean on) {
+    g_vk.setSharp(on);
+}
+
 JNIEXPORT void JNICALL JNI(setRenderer)(JNIEnv*, jobject, jboolean vulkan) {
     g_vulkan = vulkan;
     g_optionOverrides["mupen64plus-rdp-plugin"] = vulkan ? "parallel" : "gliden64";

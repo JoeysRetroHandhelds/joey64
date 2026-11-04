@@ -580,7 +580,31 @@ void VkContext::present(bool newImage) {
         blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         blit.dstOffsets[0] = {x, y, 0};
         blit.dstOffsets[1] = {x + dstW, y + dstH, 1};
-        vkCmdBlitImage(cmd, src, blitLayout, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+        // Sharp display: nearest to the first whole multiple at least the screen size, then a linear step
+        // down (under 2:1, so the 2x2 blit filter sees every pixel). Rounding down instead left OoT's
+        // 640x480 at 1x on the Flip's 752-line screen, a plain linear 1.57x stretch.
+        uint32_t kx = sharp_ ? std::max(1, (dstW + (int32_t)imageW_ - 1) / (int32_t)imageW_) : 1;
+        uint32_t ky = sharp_ ? std::max(1, (dstH + (int32_t)imageH_ - 1) / (int32_t)imageH_) : 1;
+        if ((kx > 1 || ky > 1) && ensureSharpImage(imageW_ * kx, imageH_ * ky, image_.create_info.format)) {
+            VkImageSubresourceRange whole{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            // The previous frame's linear blit may still read it: wait for that before writing.
+            imageBarrier(cmd, sharpImage_, whole, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                         0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+            VkImageBlit up = blit;
+            up.dstOffsets[0] = {0, 0, 0};
+            up.dstOffsets[1] = {(int32_t)sharpW_, (int32_t)sharpH_, 1};
+            vkCmdBlitImage(cmd, src, blitLayout, sharpImage_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &up, VK_FILTER_NEAREST);
+            imageBarrier(cmd, sharpImage_, whole, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                         VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT);
+            VkImageBlit down = blit;
+            down.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            down.srcOffsets[1] = {(int32_t)sharpW_, (int32_t)sharpH_, 1};
+            vkCmdBlitImage(cmd, sharpImage_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                           1, &down, VK_FILTER_LINEAR);
+        } else {
+            vkCmdBlitImage(cmd, src, blitLayout, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+        }
 
         imageBarrier(cmd, src, range, blitLayout, layout, VK_ACCESS_TRANSFER_READ_BIT, 0,
                      VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, toFam, fromFam);
@@ -739,6 +763,7 @@ void VkContext::destroy() {
     stopPresenter();
     if (device_) vkDeviceWaitIdle(device_);
     destroyStaging();
+    destroySharpImage();
     if (presFence_) { vkDestroyFence(device_, presFence_, nullptr); presFence_ = VK_NULL_HANDLE; }
     if (presPool_) { vkDestroyCommandPool(device_, presPool_, nullptr); presPool_ = VK_NULL_HANDLE; }
     destroySwapchain();
@@ -779,6 +804,43 @@ bool VkContext::createStaging() {
     }
     presLatest_ = presClaimed_ = -1;
     return true;
+}
+
+bool VkContext::ensureSharpImage(uint32_t w, uint32_t h, VkFormat format) {
+    if (sharpImage_ && w == sharpW_ && h == sharpH_ && format == sharpFormat_) return true;
+    if (sharpImage_) { // earlier frames may still read the old one (rare: the game changed resolution)
+        std::lock_guard<std::mutex> lk(queueMutex_);
+        vkQueueWaitIdle(queue_);
+    }
+    destroySharpImage();
+    VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    ci.imageType = VK_IMAGE_TYPE_2D; ci.format = format; ci.extent = {w, h, 1};
+    ci.mipLevels = 1; ci.arrayLayers = 1; ci.samples = VK_SAMPLE_COUNT_1_BIT; ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ci.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE; ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (vkCreateImage(device_, &ci, nullptr, &sharpImage_) != VK_SUCCESS) { sharpImage_ = VK_NULL_HANDLE; return false; }
+    VkPhysicalDeviceMemoryProperties mp;
+    vkGetPhysicalDeviceMemoryProperties(gpu_, &mp);
+    VkMemoryRequirements req;
+    vkGetImageMemoryRequirements(device_, sharpImage_, &req);
+    uint32_t type = UINT32_MAX;
+    for (uint32_t t = 0; t < mp.memoryTypeCount && type == UINT32_MAX; ++t)
+        if ((req.memoryTypeBits & (1u << t)) && (mp.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) type = t;
+    VkMemoryAllocateInfo mai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    mai.allocationSize = req.size; mai.memoryTypeIndex = type;
+    if (type == UINT32_MAX || vkAllocateMemory(device_, &mai, nullptr, &sharpMem_) != VK_SUCCESS) {
+        LOGE("vulkan: sharp image memory failed"); destroySharpImage(); return false;
+    }
+    vkBindImageMemory(device_, sharpImage_, sharpMem_, 0);
+    sharpW_ = w; sharpH_ = h; sharpFormat_ = format;
+    LOGI("vulkan: sharp display prescale %ux%u", w, h);
+    return true;
+}
+
+void VkContext::destroySharpImage() {
+    if (sharpImage_) vkDestroyImage(device_, sharpImage_, nullptr);
+    if (sharpMem_) vkFreeMemory(device_, sharpMem_, nullptr);
+    sharpImage_ = VK_NULL_HANDLE; sharpMem_ = VK_NULL_HANDLE; sharpW_ = sharpH_ = 0;
 }
 
 void VkContext::destroyStaging() {

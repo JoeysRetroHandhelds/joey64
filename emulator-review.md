@@ -239,3 +239,33 @@ FEX JIT + native kernel + NV2A push buffer to Vulkan, Adreno/Turnip first. The m
 - Lossless Scaling frame generation (user supplies Lossless.dll, Vulkan layer), power/battery state updater,
   controller navigation hook for the whole UI (controller-only menus, our goal 3), all config changes in place,
   `appCategory="game"`.
+
+## Low-end performance pass (checked 2026-11-03): PCSX-ReARMed, DaedalusX64, ROCKNIX / AmberELEC
+### PCSX-ReARMed (PS1, libretro/pcsx_rearmed, GPL-2; the classic low-end ARM emulator)
+- Our new_dynarec comes from the same Ari64 code, but the two have split far apart (PS1 MIPS I vs our 64-bit
+  R4300, separate arm64 backends, 10k vs 12k lines), so fixes don't port as patches; ideas do.
+- **Compiler thread** (emu_if.c, NDRC_THREAD): when the CPU reaches code that isn't compiled yet, it runs that
+  code in the interpreter while a second thread compiles the block, so compiling never stalls a frame. Per-game
+  off switch for games that break. Our core compiles on the emu thread: `N64_DRC_STATS=1` (core) now measures it.
+  Odin 3: ~100 ms of compiling in the first 5 s after boot, then a few ms per 5 s in-game, worst single block
+  1-2 ms, so harmless there; the Flip numbers decide whether to build it.
+- Compiled-block list saved with savestates (new_dynarec_save_blocks/load_blocks) so a loaded state starts warm.
+- SPU and GPU work on their own threads (options); for us the matching idea is HLE audio off the emu thread,
+  unclear if N64 timing allows it.
+### DaedalusX64 (PSP/Vita/3DS, GPL-2)
+- **OS HLE** (OSHLE/patch*.inl): finds 129 libultra functions in RDRAM by signature and runs native versions:
+  bcopy/bzero/memcpy, 64-bit divide/multiply helpers (`__ll_div`, `__ull_div` ...; software routines on the
+  N64), `guMtx*`, `sinf/cosf/sqrtf`, plus thread, message-queue, interrupt and TLB functions. The pure leaf
+  functions (copies, maths, matrix) are the safer subset; they skip CPU time, so games run with less emulated
+  CPU load but timing shifts (Count advances less). Only worth it if the Flip turns out CPU-bound in such code.
+- Idle-loop skip (branch to self + nop -> jump to the next event): mupen64plus already does this.
+- Per-game hacks are for its own HLE renderer; roms.ini save types we already cover.
+### ROCKNIX / AmberELEC (handheld Linux distros; mupen64plus standalone on RK3326/RK3566 up to SM8650)
+- **GLideN64 "performance" profile** per game: LOD off, legacy blending, inaccurate texture coordinates, no
+  color/depth copy to RDRAM, backgrounds mode 0, no RDRAM dithering, no texrect correction. Our fallback
+  renderer settings for weak GPUs.
+- GLideN64 built with `NEON_OPT` and `CRC_ARMV8` (NEON matrix/vertex code, hardware CRC32 for texture hashes).
+  Our Android arm64 core built neither (HAVE_NEON was only set for armv7); now built in, Flip A/B below.
+- ThreadedVideo=1 for GLideN64 on every chip; RK3326/RK3566 default to Rice at native resolution; per-game
+  choice of big or little CPU cores; per-game option to use simple64's mupen64plus-core fork (run with the cached interpreter); HLE RSP
+  everywhere; whole stack built with -Ofast.

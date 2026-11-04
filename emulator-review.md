@@ -1,17 +1,17 @@
 # What other N64 emulators can teach us (review 2026-11-03)
 
 ## Ranked ideas
-1. **One frame less display lag** (from ares). Our core captures the frame at the VI interrupt, before the game points
+1. **Done (core 502015c, 2026-11-03): scan out at the active picture start; ~16 ms less lag, same speed.** **One frame less display lag** (from ares). Our core captures the frame at the VI interrupt, before the game points
    the display at the frame it just finished, so we likely show every frame ~16 ms late. Move the capture after the
    game's interrupt handler. Measurable with our poll->display stat. Small change, big win.
-2. **Smart parallel-RDP sync** (from gopher64). Run async, remember where the GPU drew, wait only when the game reads
+2. **Done (smart sync, then precise smart sync, default since core 3639398).** **Smart parallel-RDP sync** (from gopher64). Run async, remember where the GPU drew, wait only when the game reads
    there. Async speed with sync correctness: fixes the Flip's sync cost and makes Adreno safe on async. Needs page
    protection for our dynarec (the core's built-in framebuffer hooks are off under the dynarec). Bigger project.
 3. **Per-game "smoother" mode** (Project64 counter factor 1, gopher64 CPU overclock). Mario Kart 64, Turok, Jet Force
    Gemini, SW Racer, Rogue Squadron etc. lag on real hardware; doubling CPU speed smooths them. Only on strong devices.
-4. **Unknown hacks inherit the base game's settings** (from parallel-n64): look up by cartridge ID when the hash is
+4. **Save type part done (core 8e8f5c7); CountPerOp etc. not yet.** **Unknown hacks inherit the base game's settings** (from parallel-n64): look up by cartridge ID when the hash is
    unknown, so hacks get the right save type and timing.
-5. **Port missing upstream mupen64plus fixes**: Game Boy save truncation (with Transfer Pak work), Oct 2026 bounds
+5. **Done (core 890dbdb, 2dc3683).** **Port missing upstream mupen64plus fixes**: Game Boy save truncation (with Transfer Pak work), Oct 2026 bounds
    checks (controller channels, savestates, 64DD sectors, netplay packets).
 6. **Online multiplayer**: reuse the mupen64plus netplay protocol (our core has it) and RMG's netplay server; gopher64
    has P2P netplay as a second reference.
@@ -168,6 +168,7 @@ Checked 2026-11-03 (commit of 2026-10-31). Not N64, but the Android side is matu
 - Input goes to native code in full (key + motion events, plus controller gyro/accelerometer via SensorManager on
   API 31+, per-device vibrator managers, hotplug on its own HandlerThread). Gyro aiming is a later idea (GoldenEye
   / Perfect Dark hacks with gyro patches); nothing for latency we don't do already.
+- **Shader compilation (read 2026-11-04, Source/Core/VideoCommon VideoConfig/ShaderCache):** four modes: Synchronous (specialized shaders compiled when first needed: stutter), SynchronousUberShaders ("exclusive": one big shader for everything, never compiles per-game shaders), AsynchronousUberShaders ("hybrid": the ubershader draws while specialized shaders compile in the background), AsynchronousSkipRendering ("skip drawing": draws needing an uncompiled shader are left out until it is ready). "Compile shaders before starting" (`bWaitForShadersBeforeStarting`): at boot, compiles every pipeline in the saved UID list and waits, with cores - 2 threads, then drops to the play-time count (cores - 3, between 1 and 4). Ours: parallel-RDP already works like hybrid (a generic variant draws correctly while the specialized one compiles on its one pipeline worker thread); `PARALLEL_RDP_UBERSHADER=1` is exclusive, `PARALLEL_RDP_FORCE_SYNC_SHADER=1` is synchronous; neither measured yet. No skip-drawing mode, and none needed. No compile-before-start: the saved Vulkan pipeline cache only makes each compile faster; parallel-n64 `d8fd0cb` adds the saved list (on the port list). GLideN64's "Cache GPU Shaders" is its compile-before-start, on by default, but no cache file exists on our devices. README items added.
 - Swapchain: FIFO with vsync, else IMMEDIATE, then MAILBOX; identity transform preferred. Same as ours (we tried
   pre-rotation: no gain).
 

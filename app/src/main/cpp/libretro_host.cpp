@@ -54,6 +54,7 @@ struct Core {
     size_t (*get_memory_size)(unsigned);
     void (*cheat_reset)();
     void (*cheat_set)(unsigned, bool, const char*);
+    bool (*unserialize)(const void*, size_t);
 } core;
 
 std::string g_systemDir, g_saveDir;
@@ -88,6 +89,9 @@ std::mutex g_pauseMutex;
 std::condition_variable g_pauseCv;
 // Fast-forward: vsync off, audio dropped, emulation capped at kFastForwardSpeed x normal.
 std::atomic<bool> g_fastForward{false};
+// Benchmark (dev env N64_BENCH=1): no speed cap, vsync off, audio dropped, settings unchanged and every frame
+// presented, so the counter shows how fast the game could run: the headroom a full-speed game has.
+bool g_bench = false;
 // parallel-RDP synchronous mode outside fast-forward. Async by default (sync makes the CPU wait for
 // the GPU at every RDP sync: ~10 ms/frame in Snap on the Thor vs 2-4 ms); per game in loadGame.
 bool g_rdpSync = false;
@@ -263,11 +267,11 @@ void video_refresh(const void* data, unsigned w, unsigned h, size_t) {
 }
 
 void audio_sample(int16_t l, int16_t r) {
-    if (g_fastForward) return;
+    if (g_fastForward || g_bench) return;
     int16_t s[2] = {l, r}; g_audio.write(s, 1);
 }
 size_t audio_batch(const int16_t* d, size_t frames) {
-    if (!g_fastForward) g_audio.write(d, frames); // blocking write would throttle fast-forward
+    if (!g_fastForward && !g_bench) g_audio.write(d, frames); // blocking write would throttle fast-forward
     return frames;
 }
 // Taps are held for kMinPressPolls polls: some games (Pokemon Snap's tutorial) ignore a press
@@ -344,7 +348,7 @@ void logStats() {
     if (g_vulkan && g_vk.takeLatency(latMean, latMax, uneven))
         snprintf(lat, sizeof lat, ", poll->display %.1f ms (max %.1f), %d uneven", latMean, latMax, uneven);
     double fillMs, targetMs; int underruns;
-    g_audio.takeStats(!g_fastForward && g_statRuns / secs >= 58.5, fillMs, targetMs, underruns);
+    g_audio.takeStats(!g_fastForward && !g_bench && g_statRuns / secs >= 58.5, fillMs, targetMs, underruns);
     LOGI("stats: %.1f emu fps, %.1f presented, %.1f dupes (%ux%u), run %.2f ms, wait %.2f ms, "
          "audio wait %.2f ms, fill %.0f/%.0f ms, %d underruns, device %.0f ms%s",
          g_statRuns / secs, g_statPresents / secs, g_statDupes / secs, g_lastW, g_lastH,
@@ -470,7 +474,12 @@ void runLoop() {
     LOGI("late input %s", g_lateInput ? "on" : "off");
     int splitIn = 300; // frames: the core's threads exist by then
     int framesSinceSaveCheck = 0;
-    bool ffApplied = false;
+    bool ffApplied = false, benchApplied = false;
+    // Dev (env N64_STATE=<raw save state file>): load it once the core has run a little (mupen64plus-next
+    // can't load before), for repeatable benchmark scenes. RetroArch's RZIP states must be unpacked first.
+    const char* statePath = getenv("N64_STATE");
+    int stateWait = statePath && *statePath ? 30 : -1;
+    g_bench = getenv("N64_BENCH") && atoi(getenv("N64_BENCH")) == 1;
     auto ffNext = std::chrono::steady_clock::now(), ffLastShown = ffNext, capNext = ffNext;
     if (!g_vulkan) g_egl.makeCurrent();
     while (g_running) {
@@ -483,13 +492,19 @@ void runLoop() {
         applySurfaceIfChanged();
         bool hasWindow = g_vulkan ? g_vk.hasWindow() : g_egl.hasWindow();
         if (!hasWindow) { std::this_thread::sleep_for(std::chrono::milliseconds(16)); continue; }
+        if (g_bench && !benchApplied) {
+            benchApplied = true;
+            if (g_vulkan) g_vk.setUnthrottled(true);
+            else g_egl.setSwapInterval(0);
+            LOGI("benchmark mode: uncapped, vsync off, audio dropped");
+        }
         // pacing comes from vsync + blocking audio writes (M4 refines); fast-forward swaps
         // both for a sleep that caps the speed
         bool ff = g_fastForward;
         if (ff != ffApplied) {
             ffApplied = ff;
-            if (g_vulkan) g_vk.setUnthrottled(ff);
-            else g_egl.setSwapInterval(ff ? 0 : 1);
+            if (g_vulkan) g_vk.setUnthrottled(ff || g_bench);
+            else g_egl.setSwapInterval(ff || g_bench ? 0 : 1);
             // Synchronous parallel-RDP caps fast-forward near 1.7x on the Thor; async reaches 4x. Sync
             // (smart sync, by default on Adreno) comes back when fast-forward ends; games that break with
             // async (g_ffKeepSync) keep it throughout.
@@ -523,7 +538,7 @@ void runLoop() {
             show = now - ffLastShown >= std::chrono::microseconds(16000);
             if (show) ffLastShown = now;
         }
-        if (!ff) {
+        if (!ff && !g_bench) {
             auto t0 = std::chrono::steady_clock::now();
             g_audio.waitForRoom();
             g_statAudioWaitMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
@@ -550,6 +565,15 @@ void runLoop() {
             g_statRunMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
         }
         logStats();
+        if (stateWait > 0 && --stateWait == 0) {
+            std::vector<char> s;
+            if (FILE* f = fopen(statePath, "rb")) {
+                fseek(f, 0, SEEK_END); s.resize(ftell(f)); fseek(f, 0, SEEK_SET);
+                s.resize(fread(s.data(), 1, s.size(), f)); fclose(f);
+            }
+            bool ok = !s.empty() && core.unserialize(s.data(), s.size());
+            LOGI("state %s: %s (%zu bytes)", statePath, ok ? "loaded" : "FAILED", s.size());
+        }
         {
             std::lock_guard<std::mutex> lk(g_dumpMutex);
             if (!g_dumpPath.empty()) {
@@ -624,7 +648,8 @@ JNIEXPORT jboolean JNICALL JNI(loadCore)(JNIEnv* env, jobject, jstring path, jst
         && sym(core.get_memory_data, "retro_get_memory_data")
         && sym(core.get_memory_size, "retro_get_memory_size")
         && sym(core.cheat_reset, "retro_cheat_reset")
-        && sym(core.cheat_set, "retro_cheat_set");
+        && sym(core.cheat_set, "retro_cheat_set")
+        && sym(core.unserialize, "retro_unserialize");
     if (!ok) return JNI_FALSE;
 
     core.set_environment(environment);

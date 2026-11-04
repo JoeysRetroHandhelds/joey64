@@ -209,8 +209,8 @@ FEX JIT + native kernel + NV2A push buffer to Vulkan, Adreno/Turnip first. The m
   emulated GPU's vblank clock), so a frame is ready just before the presenter picks it up and two frames never land
   in one refresh. Our timed pacing (N64_SWAP_INTERVAL=2) is the same idea from the other side.
 - **60/120 fps game mods** shipped per title (mods/<title id>.<n>, assembly patches, enabled per game from the
-  library). For N64: the community 60 fps codes/patches (e.g. OoT, MK64, Star Fox 64 hacks) as per-game toggles,
-  paired with the CPU overclock of smoother mode.
+  library). For N64: the community 60 fps codes/patches (e.g. OoT, MK64, Star Fox 64 hacks) as an optional per-game hack (like widescreen,
+  not a fix), with the CPU overclock the patch needs.
 - Debug properties for A/B runs on the device (debug.hakux.*: driver, TU_DEBUG flags, present options): like our
   `--es env`, but changeable without relaunching.
 - Savestates with a versioned schema per device (native/state/*.def + schema/): states survive core updates.

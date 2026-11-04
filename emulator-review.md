@@ -104,7 +104,7 @@ Not on GitHub any more (404, no fork found by search): jgcodes2020/jgcen64, Kaiz
 ## mupen64plus-core upstream (checked which recent fixes our core has, scratchpad/upcheck.py)
 - Have: mempak players 2-4, transfer pak fix, large page sizes for dynarec cache (16 KB-page Android devices), TLB
   crash/halt fixes, dma_pi_write underflow, SSSV fixes, Pokemon Stadium SiDmaDuration, 64DD entries, Wipeout 64.
-- Missing: 902bc60f "Don't truncate Game Boy RAM files on their first write" (2026-10, Transfer Pak saves; data-loss
+- Ported 2026-11-03/04 (core 890dbdb, 2dc3683), was missing: 902bc60f "Don't truncate Game Boy RAM files on their first write" (2026-10, Transfer Pak saves; data-loss
   risk for Pokemon Stadium GB saves) -> port. Also 2026-10 robustness: pif channel bounds (305d57a0), savestate event
   queue (4f71d580), dd sector bounds (cbab344e), netplay packet validation (ba95bab9). Cheap ports.
 

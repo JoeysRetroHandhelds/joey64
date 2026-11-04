@@ -115,12 +115,21 @@ int g_statRuns = 0, g_statPresents = 0, g_statDupes = 0; // emulation thread onl
 double g_statRunMs = 0, g_statWaitMs = 0;                 // time in retro_run / beginFrame
 double g_statAudioWaitMs = 0;                             // audio sync before each frame
 std::atomic<uint32_t> g_framesShown{0};                   // new frames presented, for the FPS counter
-// Rumble Pak, player 1: the core switches each motor on/off; the UI thread polls this every frame
-// and drives the controller's (or the device's) vibrator.
+// Rumble Pak, player 1: the core switches each motor on/off; a UI-side thread waits in waitRumble
+// for the motor to change and drives the controller's (or the device's) vibrator. Polling it from a
+// per-vsync callback instead cost ~60 ms of CPU per second on the Duo (120 Hz, debug build).
 std::atomic<uint16_t> g_rumbleWeak{0}, g_rumbleStrong{0};
+std::mutex g_rumbleMutex;
+std::condition_variable g_rumbleChanged;
 bool setRumble(unsigned port, retro_rumble_effect effect, uint16_t strength) {
     if (port != 0) return false;
+    bool wasOn = std::max(g_rumbleWeak.load(), g_rumbleStrong.load()) > 0;
     (effect == RETRO_RUMBLE_STRONG ? g_rumbleStrong : g_rumbleWeak) = strength;
+    if ((std::max(g_rumbleWeak.load(), g_rumbleStrong.load()) > 0) != wasOn) {
+        LOGI("rumble %s", wasOn ? "off" : "on");
+        { std::lock_guard<std::mutex> lock(g_rumbleMutex); }
+        g_rumbleChanged.notify_all();
+    }
     return true;
 }
 
@@ -776,6 +785,13 @@ JNIEXPORT void JNICALL JNI(setFastForward)(JNIEnv*, jobject, jboolean on) {
 
 JNIEXPORT jint JNICALL JNI(rumble)(JNIEnv*, jobject) {
     return (jint)std::max(g_rumbleWeak.load(), g_rumbleStrong.load());
+}
+
+JNIEXPORT jboolean JNICALL JNI(waitRumble)(JNIEnv*, jobject, jboolean wasOn, jint timeoutMs) {
+    auto isOn = [] { return std::max(g_rumbleWeak.load(), g_rumbleStrong.load()) > 0; };
+    std::unique_lock<std::mutex> lock(g_rumbleMutex);
+    g_rumbleChanged.wait_for(lock, std::chrono::milliseconds(timeoutMs), [&] { return isOn() != (bool)wasOn; });
+    return isOn();
 }
 
 JNIEXPORT jint JNICALL JNI(framesShown)(JNIEnv*, jobject) {

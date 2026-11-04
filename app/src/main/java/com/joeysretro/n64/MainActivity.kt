@@ -12,7 +12,6 @@ import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
-import android.view.Choreographer
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.os.Build
@@ -119,8 +118,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     }
 
     // ---- Rumble Pak ---------------------------------------------------------------------------
-    // The core switches the pak's motor on and off; polled every frame. Vibrates the gamepad last
-    // used if it has a motor, else the device (handhelds have one built in).
+    // The core switches the pak's motor on and off; a background thread waits for each change (a
+    // per-vsync poll cost ~60 ms of CPU a second at 120 Hz). Vibrates the gamepad last used if it
+    // has a motor, else the device (handhelds have one built in).
     private var padDeviceId = -1
     private var rumbling = false
     private var rumbleVibrator: Vibrator? = null
@@ -141,6 +141,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         rumbling = on
         if (on) {
             rumbleVibrator = vibrator()
+            Log.i(TAG, "rumble on: ${rumbleVibrator ?: "no vibrator"}")
             // Long one-shot, cancelled when the game switches the motor off.
             rumbleVibrator?.vibrate(VibrationEffect.createOneShot(10_000, VibrationEffect.DEFAULT_AMPLITUDE))
         } else {
@@ -149,12 +150,15 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         }
     }
 
-    private val rumbleTick = object : Choreographer.FrameCallback {
-        override fun doFrame(frameTimeNanos: Long) {
-            setRumbling(NativeBridge.rumble() > 0)
-            Choreographer.getInstance().postFrameCallback(this)
+    @Volatile private var resumed = false
+    @Volatile private var destroyed = false
+    private val rumbleWatcher = Thread({
+        var on = false
+        while (!destroyed) {
+            val now = NativeBridge.waitRumble(on, 1000)
+            if (now != on) { on = now; runOnUiThread { if (resumed) setRumbling(now) } }
         }
-    }
+    }, "RumbleWatcher").apply { isDaemon = true }
 
     // ---- Fast-forward -------------------------------------------------------------------------
     // R3 toggles it. Runs up to 4x with audio muted.
@@ -390,7 +394,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         super.onPause()
         NativeBridge.pause(true)
         fpsHandler.removeCallbacks(fpsTick)
-        Choreographer.getInstance().removeFrameCallback(rumbleTick)
+        resumed = false
         setRumbling(false)
     }
     override fun onResume() {
@@ -398,11 +402,14 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         NativeBridge.pause(false)
         fpsLastTime = 0L
         fpsHandler.post(fpsTick)
-        Choreographer.getInstance().postFrameCallback(rumbleTick)
+        resumed = true
+        setRumbling(NativeBridge.rumble() > 0)
+        if (!rumbleWatcher.isAlive) rumbleWatcher.start()
     }
     override fun onDestroy() {
         debugStick?.let { unregisterReceiver(it) }
         debugDump?.let { unregisterReceiver(it) }
+        destroyed = true
         NativeBridge.stop(); super.onDestroy()
     }
 

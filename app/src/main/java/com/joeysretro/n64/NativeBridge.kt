@@ -47,8 +47,11 @@ object NativeBridge {
     /** New frames presented since start (wraps); the FPS counter samples it. */
     external fun framesShown(): Int
 
-    /** Player 1 Rumble Pak strength, 0 (off) to 65535; polled every frame. */
+    /** Player 1 Rumble Pak strength, 0 (off) to 65535. */
     external fun rumble(): Int
+
+    /** Blocks until the Rumble Pak motor is no longer [wasOn], or [timeoutMs] passes; returns whether it is on. */
+    external fun waitRumble(wasOn: Boolean, timeoutMs: Int): Boolean
 
     /** Fast-forward: no vsync, audio muted, capped at 4x. */
     external fun setFastForward(on: Boolean)

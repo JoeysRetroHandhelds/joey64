@@ -1,0 +1,48 @@
+{
+  "_comment": "Projects the core (JoeysRetroHandhelds/n64-core) is built from, or that we follow for ideas. devtools/check-upstreams.py lists commits newer than 'seen' (optionally only those touching 'path'). 'seen' = the newest commit we have merged or read. After merging or reading new commits, set 'seen' to the newest one and close that source's issue.",
+  "sources": [
+    {
+      "name": "parallel-RDP in libretro parallel-n64",
+      "repo": "libretro/parallel-n64",
+      "branch": "master",
+      "path": "mupen64plus-video-paraLLEl",
+      "seen": "c50beac611a7f377fe9b34b15255736735b8ca6c",
+      "why": "libretro's reworked parallel-RDP, much newer than the author's public copy; port its speed changes (emulator-review.md)"
+    },
+    {
+      "name": "parallel-RDP (author's public copy)",
+      "repo": "Themaister/parallel-rdp-standalone",
+      "branch": "master",
+      "seen": "388d70f5835b352d841d9d9e5a08c5de01470f41",
+      "why": "the copy in our core (merged on core branch prdp-update, 2026-11-04)"
+    },
+    {
+      "name": "parallel-RSP",
+      "repo": "Themaister/parallel-rsp",
+      "branch": "master",
+      "seen": "9ab776a2ce28899769c4f911403234cac62fc799",
+      "why": "the copy in our core"
+    },
+    {
+      "name": "GLideN64",
+      "repo": "gonetz/GLideN64",
+      "branch": "master",
+      "seen": "a04081ad6a966a9413bea63a55f502e0dc98bb18",
+      "why": "merged into our core 2026-11-02"
+    },
+    {
+      "name": "mupen64plus-core",
+      "repo": "mupen64plus/mupen64plus-core",
+      "branch": "master",
+      "seen": "cf00a1d1b413",
+      "why": "libretro's copy in our core forked from here; 'seen' is where they last met (2026-09-05), so the first issue lists what our core lacks"
+    },
+    {
+      "name": "mupen64plus-libretro-nx",
+      "repo": "libretro/mupen64plus-libretro-nx",
+      "branch": "develop",
+      "seen": "15bada85906593376e8fd697f1b0b3af3a20f512",
+      "why": "the libretro core ours is a fork of"
+    }
+  ]
+}

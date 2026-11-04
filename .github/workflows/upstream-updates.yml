@@ -1,0 +1,24 @@
+# Daily check for new commits in the projects our core is built from (devtools/upstreams.json), above all libretro's
+# parallel-RDP in parallel-n64. One open issue per source, assigned to the repo owner; later days add a comment with
+# only the newest commits. Run it by hand from the Actions tab with "Run workflow".
+name: Upstream updates
+
+on:
+  schedule:
+    - cron: "23 13 * * *" # daily, 13:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check upstream commits
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 devtools/check-upstreams.py --issues || [ $? -eq 1 ] # 1 = new commits found (issues updated)

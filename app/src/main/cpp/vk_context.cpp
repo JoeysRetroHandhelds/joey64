@@ -87,15 +87,26 @@ std::string VkContext::probe(bool custom) {
         auto enumerate = reinterpret_cast<PFN_vkEnumeratePhysicalDevices>(gipa(inst, "vkEnumeratePhysicalDevices"));
         auto getProps = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(gipa(inst, "vkGetPhysicalDeviceProperties"));
         auto destroyInst = reinterpret_cast<PFN_vkDestroyInstance>(gipa(inst, "vkDestroyInstance"));
+        auto getFeatures2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(gipa(inst, "vkGetPhysicalDeviceFeatures2"));
         uint32_t n = 1;
         VkPhysicalDevice gpu = VK_NULL_HANDLE;
         VkResult r = enumerate(inst, &n, &gpu);
         if ((r == VK_SUCCESS || r == VK_INCOMPLETE) && n && gpu) {
             VkPhysicalDeviceProperties props;
             getProps(gpu, &props);
+            // parallel-RDP needs 16-bit storage buffers (storageBuffer16BitAccess); without them its init fails.
+            // The Adreno 610 (Snapdragon 665) has them on neither its Qualcomm driver nor Turnip.
+            int s16 = -1;
+            if (getFeatures2 && props.apiVersion >= VK_API_VERSION_1_1) {
+                VkPhysicalDevice16BitStorageFeatures f16{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES};
+                VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+                f2.pNext = &f16;
+                getFeatures2(gpu, &f2);
+                s16 = f16.storageBuffer16BitAccess ? 1 : 0;
+            }
             char buf[320];
-            snprintf(buf, sizeof buf, "%u|%u.%u|%s", props.vendorID, VK_VERSION_MAJOR(props.apiVersion),
-                     VK_VERSION_MINOR(props.apiVersion), props.deviceName);
+            snprintf(buf, sizeof buf, "%u|%u.%u|%d|%s", props.vendorID, VK_VERSION_MAJOR(props.apiVersion),
+                     VK_VERSION_MINOR(props.apiVersion), s16, props.deviceName);
             out = buf;
         }
         destroyInst(inst, nullptr);

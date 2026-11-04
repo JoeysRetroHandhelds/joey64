@@ -206,7 +206,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     // A driver dropped into <external files>/drivers/ (or files/drivers/) overrides the choice.
     // Dev: --es driver system|turnip
 
-    private class VkGpu(val vendor: Int, val major: Int, val minor: Int, val name: String) {
+    // storage16: 16-bit storage buffers, which parallel-RDP requires (1 yes, 0 no, -1 not asked: before Vulkan 1.1)
+    private class VkGpu(val vendor: Int, val major: Int, val minor: Int, val storage16: Int, val name: String) {
         val vulkan11 get() = major > 1 || (major == 1 && minor >= 1)
         val adreno get() = vendor == 0x5143
         val mali get() = vendor == 0x13B5
@@ -214,9 +215,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     private fun parseGpu(s: String): VkGpu? {
-        val p = s.split('|', limit = 3).takeIf { it.size == 3 } ?: return null
+        val p = s.split('|', limit = 4).takeIf { it.size == 4 } ?: return null
         val v = p[1].split('.').mapNotNull { it.toIntOrNull() }.takeIf { it.size == 2 } ?: return null
-        return VkGpu(p[0].toIntOrNull() ?: return null, v[0], v[1], p[2])
+        return VkGpu(p[0].toIntOrNull() ?: return null, v[0], v[1], p[2].toIntOrNull() ?: -1, p[3])
     }
 
     /** Picks and installs the Vulkan driver; returns the renderer, "parallel" or "gliden64". */
@@ -244,7 +245,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         }
         val gpu = custom ?: system
         gpuName = gpu?.name ?: ""
-        val parallel = gpu != null && gpu.vulkan11 && (custom != null || gpu.mali)
+        // parallel-RDP also needs 16-bit storage buffers: without them it fails to start and the core crashes
+        // (Adreno 610, Snapdragon 665: missing on both drivers, so GLideN64 there)
+        val parallel = gpu != null && gpu.vulkan11 && gpu.storage16 == 1 && (custom != null || gpu.mali)
+        if (gpu != null && gpu.vulkan11 && gpu.storage16 != 1) Log.w(TAG, "GPU ${gpu.name}: no 16-bit storage buffers, parallel-RDP can't run")
         Log.i(TAG, "GPU: ${gpu ?: "no Vulkan"}, driver ${if (custom != null) lib!!.relativeTo(gpuDriverDir).path else "system"}, " +
             "default renderer ${if (parallel) "parallel" else "gliden64"}")
         return intent?.getStringExtra("renderer") ?: if (parallel) "parallel" else "gliden64"

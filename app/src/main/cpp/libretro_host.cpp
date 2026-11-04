@@ -574,6 +574,17 @@ void runLoop() {
             bool ok = !s.empty() && core.unserialize(s.data(), s.size());
             LOGI("state %s: %s (%zu bytes)", statePath, ok ? "loaded" : "FAILED", s.size());
         }
+        // Dev (env N64_HASH_RAM=<n>): logs a hash of RDRAM every n frames after the state loads, to check that two
+        // builds emulate the same thing (benchmark runs are deterministic from a state).
+        static const int hashEvery = getenv("N64_HASH_RAM") ? atoi(getenv("N64_HASH_RAM")) : 0;
+        static int hashFrame = 0;
+        if (hashEvery > 0 && stateWait == 0 && ++hashFrame % hashEvery == 0) {
+            auto* mem = static_cast<const uint32_t*>(core.get_memory_data(RETRO_MEMORY_SYSTEM_RAM));
+            size_t words = core.get_memory_size(RETRO_MEMORY_SYSTEM_RAM) / 4;
+            uint64_t h = 1469598103934665603ull;
+            for (size_t i = 0; mem && i < words; i++) h = (h ^ mem[i]) * 1099511628211ull;
+            LOGI("ramhash %d %016llx", hashFrame, (unsigned long long)h);
+        }
         {
             std::lock_guard<std::mutex> lk(g_dumpMutex);
             if (!g_dumpPath.empty()) {

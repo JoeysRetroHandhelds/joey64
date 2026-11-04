@@ -4,7 +4,9 @@ Reads devtools/drivers/bundled.json. For each driver, the newest release of its 
 is compared with the bundled 'tag' (watch_only entries: with 'seen'). Prints one line per driver and exits 1 when
 any has a newer release, 0 when all are current, 2 when GitHub could not be reached. Standard library only;
 GITHUB_TOKEN is used when set (60 unauthenticated requests an hour is plenty otherwise).
-Usage: python devtools/check-drivers.py [--json]
+--issues (the daily workflow, .github/workflows/driver-updates.yml): opens one issue per new release in
+GITHUB_REPOSITORY, assigned to its owner, unless an issue with that title exists; --dry-run prints them instead.
+Usage: python devtools/check-drivers.py [--json] [--issues [--dry-run]]
 """
 import json
 import os
@@ -14,13 +16,49 @@ import urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
-def releases(repo):
-    req = urllib.request.Request(f"https://api.github.com/repos/{repo}/releases?per_page=30",
+def api(path, data=None):
+    req = urllib.request.Request("https://api.github.com" + path, data=json.dumps(data).encode() if data else None,
                                  headers={"Accept": "application/vnd.github+json", "User-Agent": "n64-handheld-driver-check"})
     if os.environ.get("GITHUB_TOKEN"):
         req.add_header("Authorization", "Bearer " + os.environ["GITHUB_TOKEN"])
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.load(r)
+
+
+def releases(repo):
+    return api(f"/repos/{repo}/releases?per_page=30")
+
+
+def open_issues(results, dry_run):
+    repo = os.environ.get("GITHUB_REPOSITORY", "JoeysRetroHandhelds/n64-handheld")
+    owner = repo.split("/")[0]
+    existing = set()
+    if not dry_run:
+        for page in range(1, 4):
+            batch = api(f"/repos/{repo}/issues?state=all&per_page=100&page={page}")
+            existing |= {i["title"] for i in batch}
+            if len(batch) < 100:
+                break
+    for r in results:
+        if not r.get("new"):
+            continue
+        title = f"Driver update: {r['name']} {r['latest']}"
+        if title in existing:
+            print(f"already reported: {title}")
+            continue
+        body = "\n".join([
+            f"{r['title']} was published {r['published'][:10]} in {r['repo']}.",
+            "",
+            f"We bundle {r['have']}{'' if r['bundled'] else ' (watched only, not bundled)'}.",
+            f"Release: {r['url']}",
+            "",
+            "Before bundling: compat run on the device it is for, then update devtools/drivers/bundled.json.",
+        ])
+        if dry_run:
+            print(f"would open: {title}\n{body}\n")
+        else:
+            api(f"/repos/{repo}/issues", {"title": title, "body": body, "assignees": [owner]})
+            print(f"opened: {title}")
 
 
 def newest(repo, match):
@@ -50,6 +88,8 @@ def main():
         results.append({"name": d["name"], "repo": d["repo"], "have": have, "latest": rel["tag_name"],
                         "title": rel.get("name"), "published": rel.get("published_at"), "url": rel.get("html_url"),
                         "new": is_new, "bundled": bundled})
+    if "--issues" in sys.argv:
+        open_issues(results, "--dry-run" in sys.argv)
     if "--json" in sys.argv:
         print(json.dumps(results, indent=2))
     else:

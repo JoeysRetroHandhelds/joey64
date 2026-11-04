@@ -242,6 +242,8 @@ bool VkContext::init(const retro_hw_render_context_negotiation_interface_vulkan*
     presenter_ = pres && *pres >= '1' && *pres <= '4';
     acquireFirst_ = pres && (*pres == '2' || *pres == '3');
     lockstep_ = pres && (*pres == '3' || *pres == '4');
+    const char* dupes = getenv("N64_SKIP_DUPES");
+    skipDupes_ = dupes && *dupes == '1';
     if (presenter_) { // command pools are used by one thread at a time
         vkCreateCommandPool(device_, &pci, nullptr, &presPool_);
         ai.commandPool = presPool_; ai.commandBufferCount = 1;
@@ -373,6 +375,7 @@ bool VkContext::createSwapchain() {
     for (auto& s : renderDone_) vkCreateSemaphore(device_, &sci, nullptr, &s);
     for (auto& s : acquireSems_) vkCreateSemaphore(device_, &sci, nullptr, &s);
     acquireSlot_ = 0;
+    repaint_ = true; // the last image isn't on the new swapchain yet
     LOGI("vulkan: swapchain %ux%u, %u images, format %d, present mode %d", extent_.width, extent_.height,
          n, fmt.format, ci.presentMode);
     updateSwapInterval();
@@ -431,6 +434,24 @@ bool VkContext::beginFrame(bool show) {
         return true;
     }
     paceFrame();
+    if (skipDupes_) { // acquire once the core reports a new frame (present), so repeats cost nothing
+        sync_ = (sync_ + 1) % kSyncFrames;
+        vkWaitForFences(device_, 1, &frameFences_[sync_], VK_TRUE, UINT64_MAX);
+        if (frameStartNs_ == -1) frameStartNs_ = monoNs(); // the pacing budget includes the run
+        needAcquire_ = true;
+        acquired_ = true;
+        presented_ = false;
+        return true;
+    }
+    if (!acquireImage()) return false;
+    sync_ = (sync_ + 1) % kSyncFrames;
+    vkWaitForFences(device_, 1, &frameFences_[sync_], VK_TRUE, UINT64_MAX);
+    acquired_ = true;
+    presented_ = false;
+    return true;
+}
+
+bool VkContext::acquireImage() {
     currentAcquire_ = acquireSems_[acquireSlot_];
     acquireSlot_ = (acquireSlot_ + 1) % (uint32_t)acquireSems_.size();
     VkResult r = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX, currentAcquire_, VK_NULL_HANDLE, &index_);
@@ -439,11 +460,7 @@ bool VkContext::beginFrame(bool show) {
         return false;
     }
     if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) { LOGE("vkAcquireNextImageKHR: %d", r); return false; }
-    sync_ = (sync_ + 1) % kSyncFrames;
-    vkWaitForFences(device_, 1, &frameFences_[sync_], VK_TRUE, UINT64_MAX);
     if (frameStartNs_ == -1) frameStartNs_ = monoNs();
-    acquired_ = true;
-    presented_ = false;
     return true;
 }
 
@@ -487,9 +504,11 @@ void VkContext::paceFrame() {
 }
 
 void VkContext::endFrame() {
-    bool shown = acquired_ && !skip_ && !presenter_ && swapMode_ == 1;
+    bool begun = acquired_;
     if (acquired_ && !presented_) present(false); // an acquired image must be presented
+    bool shown = begun && !skip_ && !presenter_ && swapMode_ == 1 && !needAcquire_; // not a skipped repeat
     acquired_ = false;
+    needAcquire_ = false;
     // Swap interval: present the frame again, so with FIFO each one is shown for swapInterval_
     // refreshes and emulation is paced to the game's rate. Not while unthrottled (fast-forward).
     if (!shown || unthrottled_ || swapInterval_ < 2) return;
@@ -497,14 +516,24 @@ void VkContext::endFrame() {
     pollNs_ = 0; // latency is measured on the frame's first present
     for (uint32_t k = 1; k < swapInterval_; ++k) {
         if (!beginFrame(true)) break;
+        repaint_ = true; // the repeat is the point here
         present(false);
         acquired_ = false;
+        needAcquire_ = false;
     }
     pollNs_ = poll;
 }
 
 void VkContext::present(bool newImage) {
     if (skip_) { submitSkipped(newImage); return; }
+    if (needAcquire_) {
+        // N64_SKIP_DUPES: a repeat frame leaves the last image up (FIFO keeps showing it); presenting
+        // it again was a blit, a submit and a present per refresh while games draw 20-30 frames a second.
+        if (!newImage && !repaint_) { presented_ = true; return; }
+        if (!acquireImage()) { presented_ = true; return; }
+        needAcquire_ = false;
+    }
+    repaint_ = false;
     VkCommandBuffer cmd = frameCmds_[sync_];
     VkImage dst = presenter_ ? staging_[sync_] : images_[index_];
     VkExtent2D dstExtent = presenter_ ? stagingExtent_ : extent_;
@@ -664,8 +693,11 @@ void VkContext::collectTiming() {
             extraLeadNs_ = late ? std::min(extraLeadNs_ + refreshNs_ / 2.0, 2.0 * refreshNs_) : extraLeadNs_ * 0.995;
         }
         if (lastActual_ && past[i].presentID == lastId_ + 1) {
-            double gap = (int64_t)(past[i].actualPresentTime - lastActual_) / 1e6;
-            if (gap < 14.0 || gap > 19.5) ++uneven_;
+            // Even = the gap is a whole number of game frames (one, or with repeats skipped any number:
+            // OoT's 20 fps is 3), within the tolerance of a 120 Hz refresh either way.
+            double gap = (int64_t)(past[i].actualPresentTime - lastActual_) / 1e6, frame = 1000.0 / contentHz_;
+            double k = skipDupes_ ? std::max(1.0, std::round(gap / frame)) : 1.0;
+            if (gap - k * frame < -2.7 || gap - k * frame > 2.8) ++uneven_;
         }
         lastActual_ = past[i].actualPresentTime; lastId_ = past[i].presentID;
     }

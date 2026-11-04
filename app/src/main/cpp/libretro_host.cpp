@@ -114,7 +114,9 @@ unsigned g_lastW = 0, g_lastH = 0;
 int g_statRuns = 0, g_statPresents = 0, g_statDupes = 0; // emulation thread only
 double g_statRunMs = 0, g_statWaitMs = 0;                 // time in retro_run / beginFrame
 double g_statAudioWaitMs = 0;                             // audio sync before each frame
-std::atomic<uint32_t> g_framesShown{0};                   // new frames presented, for the FPS counter
+// For the counter ("60 FPS | 20 DL/s | 100%"): emulated frames (retro_run calls, the game's speed) and new
+// frames presented (what the game drew: OoT 20 a second once repeats are skipped).
+std::atomic<uint32_t> g_framesRun{0}, g_framesDrawn{0};
 // Rumble Pak, player 1: the core switches each motor on/off; a UI-side thread waits in waitRumble
 // for the motor to change and drives the controller's (or the device's) vibrator. Polling it from a
 // per-vsync callback instead cost ~60 ms of CPU per second on the Duo (120 Hz, debug build).
@@ -246,7 +248,7 @@ bool environment(unsigned cmd, void* data) {
 void video_refresh(const void* data, unsigned w, unsigned h, size_t) {
     if (g_vulkan) {
         if (!data) ++g_statDupes;
-        else { g_lastW = w; g_lastH = h; ++g_statPresents; ++g_framesShown; }
+        else { g_lastW = w; g_lastH = h; ++g_statPresents; ++g_framesDrawn; }
         g_vk.videoRefresh(data, w, h);
         return;
     }
@@ -255,7 +257,7 @@ void video_refresh(const void* data, unsigned w, unsigned h, size_t) {
     if (data == RETRO_HW_FRAME_BUFFER_VALID) {
         g_egl.present(w, h, g_hw.bottom_left_origin);
         ++g_statPresents;
-        ++g_framesShown;
+        ++g_framesDrawn;
     }
     // Software frames are not expected from mupen64plus-next with a HW context.
 }
@@ -334,6 +336,7 @@ void logStats() {
     using clock = std::chrono::steady_clock;
     static clock::time_point start = clock::now();
     ++g_statRuns;
+    ++g_framesRun;
     double secs = std::chrono::duration<double>(clock::now() - start).count();
     if (secs < 5.0) return;
     char lat[64] = "";
@@ -794,8 +797,14 @@ JNIEXPORT jboolean JNICALL JNI(waitRumble)(JNIEnv*, jobject, jboolean wasOn, jin
     return isOn();
 }
 
-JNIEXPORT jint JNICALL JNI(framesShown)(JNIEnv*, jobject) {
-    return (jint)g_framesShown.load();
+JNIEXPORT jint JNICALL JNI(framesRun)(JNIEnv*, jobject) {
+    return (jint)g_framesRun.load();
+}
+JNIEXPORT jint JNICALL JNI(framesDrawn)(JNIEnv*, jobject) {
+    return (jint)g_framesDrawn.load();
+}
+JNIEXPORT jdouble JNICALL JNI(contentFps)(JNIEnv*, jobject) {
+    return g_av.timing.fps;
 }
 
 JNIEXPORT void JNICALL JNI(stop)(JNIEnv*, jobject) {

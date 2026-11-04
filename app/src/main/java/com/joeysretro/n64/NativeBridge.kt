@@ -44,8 +44,12 @@ object NativeBridge {
     /** Debug: write RDRAM (as the core stores it) to path after the current frame. */
     external fun dumpRam(path: String)
 
-    /** New frames presented since start (wraps); the FPS counter samples it. */
-    external fun framesShown(): Int
+    /** Emulated frames since start (wraps); the FPS counter samples it. */
+    external fun framesRun(): Int
+    /** New frames presented since start (wraps): what the game drew, without repeats. */
+    external fun framesDrawn(): Int
+    /** The game's native frame rate (NTSC ~60, PAL 50), for the speed percentage. */
+    external fun contentFps(): Double
 
     /** Player 1 Rumble Pak strength, 0 (off) to 65535. */
     external fun rumble(): Int

@@ -61,6 +61,7 @@ private:
     void startSwapchain(); // createSwapchain plus, in presenter mode, staging images and the thread
     void destroySwapchain();
     void present(bool newImage);
+    bool acquireImage();
     void submitSkipped(bool newImage);
 
     // retro_hw_render_interface_vulkan callbacks (handle = this)
@@ -108,6 +109,9 @@ private:
     VkSemaphore currentAcquire_ = VK_NULL_HANDLE;
     uint32_t index_ = 0;
     bool acquired_ = false, presented_ = false, skip_ = false;
+    // N64_SKIP_DUPES=1: frames start without a swapchain image; present acquires one only for a new frame
+    // (or repaint_: the last image must go on a new swapchain), so repeat frames aren't presented.
+    bool skipDupes_ = false, needAcquire_ = false, repaint_ = true;
     std::atomic<bool> wantUnthrottled_{false};
     bool unthrottled_ = false;
 

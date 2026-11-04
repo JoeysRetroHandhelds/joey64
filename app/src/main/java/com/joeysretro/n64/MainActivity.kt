@@ -87,6 +87,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private val fpsHandler = Handler(Looper.getMainLooper())
     private var fpsView: TextView? = null
     private var fpsLastFrames = 0
+    private var fpsLastDrawn = 0
     private var fpsLastTime = 0L
 
     override fun onAttachedToWindow() {
@@ -105,7 +106,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.START
+            gravity = Gravity.TOP or Gravity.END // top left is for RetroAchievements popups
             x = (16 * dp).toInt(); y = (16 * dp).toInt()
             token = window.decorView.windowToken
             layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
@@ -117,10 +118,18 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private val fpsTick = object : Runnable {
         override fun run() {
             val now = SystemClock.elapsedRealtime()
-            val frames = NativeBridge.framesShown()
-            if (fpsLastTime != 0L && now > fpsLastTime)
-                fpsView?.text = "%.0f fps".format((frames - fpsLastFrames) * 1000.0 / (now - fpsLastTime))
+            val frames = NativeBridge.framesRun()
+            val drawn = NativeBridge.framesDrawn()
+            if (fpsLastTime != 0L && now > fpsLastTime) {
+                // FPS = emulated frames (the game's speed), DL/s = frames the game drew (OoT: 20)
+                val fps = (frames - fpsLastFrames) * 1000.0 / (now - fpsLastTime)
+                val dls = (drawn - fpsLastDrawn) * 1000.0 / (now - fpsLastTime)
+                val target = NativeBridge.contentFps()
+                val speed = if (target > 0) fps * 100 / target else 0.0
+                fpsView?.text = "%.0f FPS | %.0f DL/s | %.0f%% SPEED".format(fps, dls, speed)
+            }
             fpsLastFrames = frames
+            fpsLastDrawn = drawn
             fpsLastTime = now
             fpsHandler.postDelayed(this, 500)
         }

@@ -21,18 +21,17 @@ import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.SurfaceHolder
-import android.view.SurfaceView
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.graphics.Color
 import android.view.Gravity
-import android.widget.FrameLayout
+import android.graphics.PixelFormat
 import android.widget.TextView
 import java.io.File
 
-class MainActivity : Activity(), SurfaceHolder.Callback {
+class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     private var started = false
 
@@ -41,15 +40,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.attributes.layoutInDisplayCutoutMode =
             WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-        val view = SurfaceView(this)
-        view.holder.addCallback(this)
-        val root = FrameLayout(this)
-        root.addView(view)
-        val dp = resources.displayMetrics.density
-        root.addView(fpsCounter(), FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.START
-        ).apply { setMargins((16 * dp).toInt(), (16 * dp).toInt(), 0, 0) })
-        setContentView(root)
+        // Render straight into the activity's window, like RetroArch's NativeActivity, not a SurfaceView:
+        // Qualcomm's frame pacing library (libpenguin, vendor.perf.framepacing) hooks SurfaceView layers of
+        // games and runs a 120 Hz vsync loop in our process (Duo: ~17 ms of CPU a second). The window's
+        // views no longer draw, so the FPS counter is its own panel window (showFpsCounter).
+        window.takeSurface(this)
         // Android batches joystick moves (sticks, hat D-pads, analog triggers) to the next frame:
         // Odin 2 Portal 10 ms -> 0.5 ms from event to dispatch. Requested on the decor view because
         // only the focused-view chain counts and nothing here takes focus. No effect on Android 11.
@@ -94,15 +89,29 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     private var fpsLastFrames = 0
     private var fpsLastTime = 0L
 
-    private fun fpsCounter(): TextView {
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (fpsView != null) return
         val dp = resources.displayMetrics.density
-        return TextView(this).apply {
+        val view = TextView(this).apply {
             textSize = 14f
             setTextColor(Color.WHITE)
             setShadowLayer(3 * dp, 0f, 0f, Color.BLACK)
-            isFocusable = false
-            fpsView = this
         }
+        val lp = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_PANEL,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = (16 * dp).toInt(); y = (16 * dp).toInt()
+            token = window.decorView.windowToken
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+        windowManager.addView(view, lp)
+        fpsView = view
     }
 
     private val fpsTick = object : Runnable {
@@ -304,6 +313,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) = NativeBridge.surfaceResized()
     override fun surfaceDestroyed(holder: SurfaceHolder) = NativeBridge.setSurface(null)
+    override fun surfaceRedrawNeeded(holder: SurfaceHolder) {}
 
     // Immersive: hide status + nav bars so the surface is the whole screen. Re-applied on focus
     // because the system shows the bars again after dialogs / swipes.
@@ -410,6 +420,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         debugStick?.let { unregisterReceiver(it) }
         debugDump?.let { unregisterReceiver(it) }
         destroyed = true
+        fpsView?.let { windowManager.removeView(it) }
         NativeBridge.stop(); super.onDestroy()
     }
 

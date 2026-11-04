@@ -38,9 +38,10 @@ bool EglContext::attachWindow(ANativeWindow* win) {
     }
     if (win) {
         window_ = eglCreateWindowSurface(display_, config_, win, nullptr);
-        if (window_ == EGL_NO_SURFACE) { LOGE("window surface failed"); return false; }
+        if (window_ == EGL_NO_SURFACE) { LOGE("window surface failed: 0x%x", eglGetError()); return false; }
+        LOGE("egl: window surface %dx%d", ANativeWindow_getWidth(win), ANativeWindow_getHeight(win));
     }
-    if (!makeCurrent()) return false;
+    if (!makeCurrent()) { LOGE("egl: makeCurrent failed: 0x%x", eglGetError()); return false; }
     if (win) eglSwapInterval(display_, swapInterval_); // vsync; M4 replaces with Swappy
     return true;
 }
@@ -77,7 +78,8 @@ void EglContext::ensureFbo(int w, int h) {
 }
 
 void EglContext::present(int srcW, int srcH, bool bottomLeftOrigin) {
-    if (window_ == EGL_NO_SURFACE) return;
+    static int noWindow = 0, swapFails = 0;
+    if (window_ == EGL_NO_SURFACE) { if (noWindow++ % 600 == 0) LOGE("egl: present with no window (%d)", noWindow); return; }
     EGLint winW = 0, winH = 0;
     eglQuerySurface(display_, window_, EGL_WIDTH, &winW);
     eglQuerySurface(display_, window_, EGL_HEIGHT, &winH);
@@ -95,7 +97,8 @@ void EglContext::present(int srcW, int srcH, bool bottomLeftOrigin) {
         glBlitFramebuffer(0, 0, srcW, srcH, x, y, x + dstW, y + dstH, GL_COLOR_BUFFER_BIT, GL_LINEAR);
     else
         glBlitFramebuffer(0, srcH, srcW, 0, x, y, x + dstW, y + dstH, GL_COLOR_BUFFER_BIT, GL_LINEAR);
-    eglSwapBuffers(display_, window_);
+    if (!eglSwapBuffers(display_, window_) && swapFails++ % 600 == 0)
+        LOGE("egl: swap failed: 0x%x (%d times)", eglGetError(), swapFails);
 }
 
 void EglContext::destroy() {

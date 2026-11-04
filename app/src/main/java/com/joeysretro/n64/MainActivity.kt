@@ -222,6 +222,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     // anyway; 2x renders correctly at 60. The Adreno 740 is fine at 4x.
     private fun capUpscaling(key: String, value: String): String {
         if (key != "mupen64plus-parallel-rdp-upscaling" || value !in setOf("4x", "8x") || "Adreno (TM) 722" !in gpuName) return value
+        // Dev: --ez nocap true lifts the cap, to try other drivers
+        if (intent?.getBooleanExtra("nocap", false) == true) return value
         Log.w(TAG, "parallel-RDP upscaling $value capped at 2x on $gpuName")
         return "2x"
     }

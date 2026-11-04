@@ -97,6 +97,11 @@ std::vector<std::string> g_cheats;
 std::mutex g_dumpMutex;
 std::string g_dumpPath;
 constexpr int kFastForwardSpeed = 4;
+// Upscaling costs the GPU most of the fast-forward headroom (Odin 3 at 4x: Peach's Fury 1.5x, GoldenEye 1.03x),
+// so fast-forward renders at 1x. The setting in use before is restored after ("" = none was overridden).
+constexpr const char* kUpscaleKey = "mupen64plus-parallel-rdp-upscaling";
+std::string g_upscaleBeforeFf;
+bool g_upscaleFfApplied = false;
 
 std::atomic<int> g_buttons{0};
 std::atomic<int> g_tapped{0}; // presses not yet seen by a poll, so sub-frame taps still register
@@ -474,6 +479,17 @@ void runLoop() {
             // Games that need sync (g_rdpSync) get it back when fast-forward ends.
             if (g_vulkan) {
                 g_optionOverrides["mupen64plus-parallel-rdp-synchronous"] = (g_rdpSync && !ff) ? "True" : "False";
+                static const bool keepUpscale = getenv("N64_FF_KEEP_UPSCALE") && atoi(getenv("N64_FF_KEEP_UPSCALE"));
+                if (ff && !keepUpscale) {
+                    auto it = g_optionOverrides.find(kUpscaleKey);
+                    g_upscaleBeforeFf = it != g_optionOverrides.end() ? it->second : "";
+                    g_optionOverrides[kUpscaleKey] = "1x";
+                    g_upscaleFfApplied = true;
+                } else if (!ff && g_upscaleFfApplied) {
+                    if (g_upscaleBeforeFf.empty()) g_optionOverrides.erase(kUpscaleKey);
+                    else g_optionOverrides[kUpscaleKey] = g_upscaleBeforeFf;
+                    g_upscaleFfApplied = false;
+                }
                 g_optionsDirty = true;
             }
             ffNext = std::chrono::steady_clock::now();

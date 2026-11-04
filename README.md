@@ -59,6 +59,22 @@ Focus now: performance, compatibility and latency; menus come after.
 - [ ] Timing accuracy: no emulator matches N64 timing exactly (ares is closest), so scenes that slowed down on hardware run faster and a few games built around that slowdown misbehave. Compare game speed against ares on known cases, tune per game (CountPerOp) in the profile DB
 - [ ] Games that need the accurate path: custom microcodes (Factor 5: Rogue Squadron, Battle for Naboo, Indiana Jones) and framebuffer effects (Snap photos, blur/motion effects) break on GLideN64; the profile DB should keep them on parallel-RDP + LLE RSP, or warn on weak devices that fall back
 
+### Open items (found, not yet done or not yet checked; audit 2026-11-04)
+- [ ] Recompiler compile thread (PCSX-ReARMed): new code runs in the interpreter while a second thread compiles it. Flip: worst single compiles 4-10 ms when entering new areas (visible hitches), 0.2-2% of time in play (`N64_DRC_STATS=1`)
+- [ ] Adreno upscaling cost is mostly the CPU waiting for the GPU (Odin 3 GoldenEye 4x: GPU stages ~3.3 ms but emu thread 2.8 -> 9.6 ms/frame); find what the CPU touches every frame (`N64_RDP_SMART_DEBUG=1`) and overlap it
+- [ ] Pokémon Snap photo check (Oak's Mark) under smart sync: Snap now uses smart sync instead of sync on every device, photo correctness not yet checked
+- [ ] Byte-swapped (.v64) and word-swapped (.n64) ROMs: the core should convert them, never tested in our app (test sets now in devtools/testdata/roms)
+- [ ] Snap GLideN64 upstream PRs (gonetz/GLideN64#2991, libretro/mupen64plus-libretro-nx#674): test Mario Tennis (ROM now available) and add it to the PRs; check for reviews
+- [ ] Unbatched input on Android 11 (Flip): stick events arrive ~13 ms later than buttons because Android batches them to vsync; fix is `Window.takeInputQueue` read on our own thread (moves key mapping to C++). Proposal from 11-03, never decided
+- [ ] Flip menu frame drops (~0.8% of frames miss a vsync, 59.2-59.6 fps), cause unknown
+- [ ] Robustness ideas from pwnedbygary/phobos (via parallel-RDP review): GPU fence waits that time out instead of hanging on a driver lockup, guard against malformed RDP commands freezing the worker
+- [ ] Report upstream: PI DMA bit 0 (Last Impact / Star Road crash in every libretro build), Snap fix already posted
+- [ ] Duo 4x/8x geometry drops with Turnip (capped at 2x): retest with a newer Turnip build (download needs OK)
+- [ ] Timed pacing (`N64_SWAP_INTERVAL=2`) as the default on 120 Hz panels: Duo drops to ~51 fps in matches, one ~47-50 fps window at match start on the Odin 3; decision pending
+- [ ] Odin 3 compat run with the current defaults (exclusive audio, smart sync, scanout change)
+- [ ] Needs Joey: listen to audio (resampler, HLE audio) and try sticks/triggers on a real controller; merge `gliden64-update` into `handheld`
+- [ ] Can't test yet: upstream savestate queue check (the app can't load states); Mali without Vulkan 1.1 (no such device)
+
 ### Later
 - [ ] RetroAchievements (reuse the mupen64plus-ae fork's work; note it's GPLv3)
 - [ ] Display options: widescreen hacks, integer scaling, filters/CRT shaders, GLideN64 texture packs

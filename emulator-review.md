@@ -269,3 +269,21 @@ FEX JIT + native kernel + NV2A push buffer to Vulkan, Adreno/Turnip first. The m
 - ThreadedVideo=1 for GLideN64 on every chip; RK3326/RK3566 default to Rice at native resolution; per-game
   choice of big or little CPU cores; per-game option to use simple64's mupen64plus-core fork (run with the cached interpreter); HLE RSP
   everywhere; whole stack built with -Ofast.
+
+## GammaOS Next (TheGammaSqueeze; Android 14 firmware for handhelds; checked 2026-11-04)
+Firmware, not an emulator: most of its speed work is at the system level, which an app can't do.
+- **What doesn't carry over:** GPU overclocks baked into the kernel (Mali-G52 900 -> 1100 MHz, +23%; Mali-G76
+  850 -> 950 MHz), governor/thermal tuning and "Max Performance" modes (all clocks pinned), a Lite build
+  without Google services, a newer vendor GPU driver. Our app-side analogs are the ADPF hint and adrenotools GPU
+  turbo experiments. DraStic-nano (their DS player, "major performance pass, smoother frame pacing") is closed;
+  the public drastic-android-mod repo is only smali QoL patches (ESC = save state and quit, save on every exit
+  path, A/B confirm in menus). No N64-specific work found; the emulator configs (mupen64plusae, RetroArch) sit
+  in Git LFS archives in GammaOSNextDistribution, not read (needs a download).
+- **gammaos-turnip** (Mesa fork, branch adreno-610, 2026-10): Turnip tuned for the Adreno 610 — 128-wide
+  fragment waves when safe, sysmem vs GMEM chosen per render pass by measurement (like faux123's Adreno 722
+  work), a UBWC fix for 16-bit images. parallel-RDP is almost all compute, so the fragment and render-pass
+  changes would only touch our final blit. Idea worth checking: which wave size Turnip picks for parallel-RDP's
+  compute shaders on our Adrenos, and whether forcing the other one (VK_EXT_subgroup_size_control) is faster.
+- **Ideas that do carry over:** Quick Resume (save state on any exit path, auto-resume on launch, a preview
+  frame held over the handoff so there's no black flash) — already on our "never lose progress" item; a
+  per-app performance mode toggle in an overlay menu (ours would be the per-game "performance" option).

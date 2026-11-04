@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Standalone Android N64 emulator for handhelds (Retroid, Odin, AYN, Anbernic), hosting the
+Joey64: standalone Android N64 emulator for handhelds (Retroid, Odin, AYN, Anbernic), hosting the
 mupen64plus-next libretro core from a Kotlin app with a C++ libretro frontend.
 
 ## Goals (priority order)
@@ -9,7 +9,7 @@ mupen64plus-next libretro core from a Kotlin app with a C++ libretro frontend.
 3. Handheld-first frontend: device detection, controller profiles, controller-only UI.
 
 ## Layout
-- `app/src/main/java/com/joeysretro/n64/` – Kotlin: `MainActivity` (surface/lifecycle), `NativeBridge` (JNI)
+- `app/src/main/java/com/joeysretro/joey64/` – Kotlin: `MainActivity` (surface/lifecycle), `NativeBridge` (JNI)
 - `app/src/main/cpp/libretro_host.cpp` – dlopen core, environment callbacks, run thread, input state
 - `app/src/main/cpp/egl_context.*` – EGL/GLES3 context, FBO the core renders into, 4:3 blit
 - `app/src/main/cpp/vk_context.*` – Vulkan frontend for parallel-RDP: instance, swapchain, 4:3 blit of the core's image; the core creates the device via the v1 negotiation interface (creating it ourselves crashes Granite)
@@ -24,17 +24,17 @@ mupen64plus-next libretro core from a Kotlin app with a C++ libretro frontend.
 ## Build / run
 - Android Studio or `./gradlew assembleDebug` (needs JDK 17+, e.g. Android Studio's `jbr` as JAVA_HOME)
 - arm64-v8a only, minSdk 29, NDK 27.3
-- Dev ROM path: `/sdcard/Android/data/com.joeysretro.n64/files/test.z64`; or put ROMs in `files/roms/` (internal via run-as on the Flip) and start with `--es rom "<file name>"`, which also names the save
+- Dev ROM path: `/sdcard/Android/data/com.joeysretro.joey64/files/test.z64`; or put ROMs in `files/roms/` (internal via run-as on the Flip) and start with `--es rom "<file name>"`, which also names the save
 - Logs: `adb logcat -s n64host core Granite`
 - Driver by GPU (`MainActivity.setupGpu`, logged as `GPU: ...`): bundled faux123 Turnip on the Adreno 722 (Duo: draws Mario Party 2's text boxes right, 82/82 compat), bundled Turnip Gen8 on other Adreno 6xx–8xx (verified on Adreno 740), the system driver on Mali. malisx2 (bmdhacks/malisx2 + the Mesa patches in its `patches/mesa/`) is not bundled: ~14% slower than stock on the Mali-G52, and no device we have lacks a Vulkan 1.1 driver; it can still be dropped in as a dev driver. A custom driver that has no usable GPU falls back to the system driver. Override with `--es driver system|turnip|faux123`
-- Custom Vulkan driver (dev): a `.so` in `/sdcard/Android/data/com.joeysretro.n64/files/drivers/` (or internal `files/drivers/`) overrides the choice; the app copies it to internal storage and loads it. From Git Bash set `MSYS_NO_PATHCONV=1` or adb paths get mangled
-- Renderer: parallel-RDP when the driver in use is a custom one or stock Mali with Vulkan 1.1, else GLideN64; override with `--es renderer parallel|gliden64` on `am start`
+- Custom Vulkan driver (dev): a `.so` in `/sdcard/Android/data/com.joeysretro.joey64/files/drivers/` (or internal `files/drivers/`) overrides the choice; the app copies it to internal storage and loads it. From Git Bash set `MSYS_NO_PATHCONV=1` or adb paths get mangled
+- Renderer: parallel-RDP when the driver in use is a custom one or stock Mali with Vulkan 1.1 and the GPU has 16-bit storage buffers (the Adreno 610 has none: GLideN64), else GLideN64; override with `--es renderer parallel|gliden64` on `am start`
 - Dev process env (read by the core): `--es env "PARALLEL_RDP_SMALL_TYPES=0,KEY=value"`
 - Controls: positional mapping of any Android gamepad in MainActivity (bottom = N64 A, left = N64 B, L2 = Z, right stick = C). Presses shorter than a frame are held for 4 polls (Snap ignores 1-frame presses). R3 toggles fast-forward (no on-screen button for now) (4x cap, audio muted, ~60 fps shown, async parallel-RDP and 1x upscaling while on; the core rebuilds its renderer between frames, Odin 3 at 4x: 81 -> 240 fps in Peach's Fury, 62 -> 240 in GoldenEye; `--es env N64_FF_KEEP_UPSCALE=1` keeps the upscale)
 - Dev core options: `--es opts "key=value,key=value"` on `am start`; GameShark codes: `--es cheats '<code>;<code>'` (quote the whole `am start` for `adb shell`, or the device shell splits at spaces)
-- Debug builds: `adb shell am broadcast -a com.joeysretro.n64.DUMP --es name x` writes RDRAM to `files/dumps/x.bin`
+- Debug builds: `adb shell am broadcast -a com.joeysretro.joey64.DUMP --es name x` writes RDRAM to `files/dumps/x.bin`
 - Save RAM: `files/saves/<ROM file name without extension>.srm`, as RetroArch names them (its Mupen64Plus-Next .srm files work as they are; import = copy them in). Written atomically every 120 frames when changed, on pause and on exit. A ROM without a name (the `test.z64` dev path) uses `<fnv64 of ROM>.srm`, which is also read as a fallback when the named save doesn't exist yet
-- Debug builds: `adb shell am broadcast -a com.joeysretro.n64.STICK --ei x 0 --ei y 32767 --ei ms 200` moves the stick (`--ei stick 1` = C stick)
+- Debug builds: `adb shell am broadcast -a com.joeysretro.joey64.STICK --ei x 0 --ei y 32767 --ei ms 200` moves the stick (`--ei stick 1` = C stick)
 - Never set `MSYS_NO_PATHCONV=1` for `./gradlew`: the native build silently does nothing
 
 ## Conventions
@@ -65,4 +65,4 @@ mupen64plus-next libretro core from a Kotlin app with a C++ libretro frontend.
 - Tried and dropped for input latency: pre-rotating the swapchain (no change on Portal or Duo); the shared present mode (front buffer, offered only by the Flip's Mali driver, not Turnip): continuous refresh shudders even when copies are synced to Choreographer vsync, demand refresh and the synced copy drop the Flip to 24-52 fps
 
 ## Roadmap
-See README.md (M0–M6). Current milestone: get M0 booting, then M1 input.
+See README.md (M0–M6): M0-M2 done; current focus is performance, compatibility and latency (README).

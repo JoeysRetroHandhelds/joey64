@@ -51,7 +51,7 @@ Emulation from a savestate is deterministic, so:
    (non-determinism, or a renderer that doesn't restore cleanly from a state; GLideN64 keeps
    frame buffers on the GPU, so some games may need the parallel-RDP run).
 
-Triggered by `adb shell am broadcast -a com.joeysretro.n64.LAGTEST --es button A`, logged as
+Triggered by `adb shell am broadcast -a com.joeysretro.joey64.LAGTEST --es button A`, logged as
 `lagtest: A -> N frames`. Later this feeds the profile DB and sets run-ahead per game (step 4).
 
 ## Code changes

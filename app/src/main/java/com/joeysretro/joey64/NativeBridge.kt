@@ -1,4 +1,4 @@
-package com.joeysretro.n64
+package com.joeysretro.joey64
 
 import android.view.Surface
 

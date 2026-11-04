@@ -1,4 +1,4 @@
-package com.joeysretro.n64
+package com.joeysretro.joey64
 
 import android.app.Activity
 import android.content.BroadcastReceiver
@@ -468,7 +468,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     /**
      * Debug builds only: lets adb move the analog sticks, which `input keyevent` cannot, for
      * scripted testing. Example (left stick down for 200 ms):
-     *   adb shell am broadcast -a com.joeysretro.n64.STICK --ei x 0 --ei y 32767 --ei ms 200
+     *   adb shell am broadcast -a com.joeysretro.joey64.STICK --ei x 0 --ei y 32767 --ei ms 200
      * --ei stick 1 targets the right stick (C buttons).
      */
     private var debugStick: BroadcastReceiver? = null
@@ -484,14 +484,14 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
                 handler.postDelayed({ NativeBridge.setAnalog(stick, 0, 0) }, i.getIntExtra("ms", 150).toLong())
             }
         }
-        // adb shell am broadcast -a com.joeysretro.n64.DUMP --es name snap1  -> files/dumps/snap1.bin
+        // adb shell am broadcast -a com.joeysretro.joey64.DUMP --es name snap1  -> files/dumps/snap1.bin
         debugDump = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, i: Intent) {
                 val dir = File(getExternalFilesDir(null), "dumps").apply { mkdirs() }
                 NativeBridge.dumpRam(File(dir, "${i.getStringExtra("name") ?: "ram"}.bin").absolutePath)
             }
         }
-        for ((receiver, action) in listOf(debugStick to "com.joeysretro.n64.STICK", debugDump to "com.joeysretro.n64.DUMP")) {
+        for ((receiver, action) in listOf(debugStick to "com.joeysretro.joey64.STICK", debugDump to "com.joeysretro.joey64.DUMP")) {
             val filter = IntentFilter(action)
             if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
             else registerReceiver(receiver, filter)
@@ -499,7 +499,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     companion object {
-        const val TAG = "N64Handheld"
+        const val TAG = "Joey64"
         // Bundled in assets/drivers/ (see assets/licenses/): Turnip (Mesa freedreno).
         const val TURNIP = "libvulkan_freedreno.so"
         // Same file name in its own folder: the driver is loaded by that name

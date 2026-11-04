@@ -4,12 +4,12 @@ plugins {
 }
 
 android {
-    namespace = "com.joeysretro.n64"
+    namespace = "com.joeysretro.joey64"
     compileSdk = 34
     ndkVersion = "27.3.13750724"
 
     defaultConfig {
-        applicationId = "com.joeysretro.n64"
+        applicationId = "com.joeysretro.joey64"
         minSdk = 29
         targetSdk = 34
         versionCode = 1

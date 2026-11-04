@@ -640,7 +640,7 @@ void runLoop() {
 
 // ---- JNI -------------------------------------------------------------------
 
-#define JNI(name) Java_com_joeysretro_n64_NativeBridge_##name
+#define JNI(name) Java_com_joeysretro_joey64_NativeBridge_##name
 
 // 4-character game code from the cartridge header (0x3B, e.g. "NPFE"), whatever the ROM's byte order.
 std::string romGameId(const std::vector<uint8_t>& rom) {

@@ -18,7 +18,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 def api(path, data=None):
     req = urllib.request.Request("https://api.github.com" + path, data=json.dumps(data).encode() if data else None,
-                                 headers={"Accept": "application/vnd.github+json", "User-Agent": "n64-handheld-driver-check"})
+                                 headers={"Accept": "application/vnd.github+json", "User-Agent": "joey64-driver-check"})
     if os.environ.get("GITHUB_TOKEN"):
         req.add_header("Authorization", "Bearer " + os.environ["GITHUB_TOKEN"])
     with urllib.request.urlopen(req, timeout=30) as r:
@@ -30,7 +30,7 @@ def releases(repo):
 
 
 def open_issues(results, dry_run):
-    repo = os.environ.get("GITHUB_REPOSITORY", "JoeysRetroHandhelds/n64-handheld")
+    repo = os.environ.get("GITHUB_REPOSITORY", "JoeysRetroHandhelds/joey64")
     owner = repo.split("/")[0]
     existing = set()
     if not dry_run:

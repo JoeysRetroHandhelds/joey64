@@ -132,7 +132,7 @@ bool VkContext::init(const retro_hw_render_context_negotiation_interface_vulkan*
     if (!loadLibrary()) return false;
 
     VkApplicationInfo defaultApp{VK_STRUCTURE_TYPE_APPLICATION_INFO};
-    defaultApp.pApplicationName = "N64 Handheld";
+    defaultApp.pApplicationName = "Joey64";
     defaultApp.apiVersion = VK_API_VERSION_1_1;
     const VkApplicationInfo* app = &defaultApp;
     if (negotiation_ && negotiation_->get_application_info && negotiation_->get_application_info())

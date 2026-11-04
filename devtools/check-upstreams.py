@@ -22,7 +22,7 @@ MARK = re.compile(r"<!-- last: ([0-9a-f]{7,40}) -->")
 
 def api(path, data=None, method=None):
     req = urllib.request.Request("https://api.github.com" + path, data=json.dumps(data).encode() if data else None,
-                                 headers={"Accept": "application/vnd.github+json", "User-Agent": "n64-handheld-upstream-check"},
+                                 headers={"Accept": "application/vnd.github+json", "User-Agent": "joey64-upstream-check"},
                                  method=method)
     if os.environ.get("GITHUB_TOKEN"):
         req.add_header("Authorization", "Bearer " + os.environ["GITHUB_TOKEN"])
@@ -57,7 +57,7 @@ def lines(src, commits, found):
 
 
 def report_issues(results, dry_run):
-    repo = os.environ.get("GITHUB_REPOSITORY", "JoeysRetroHandhelds/n64-handheld")
+    repo = os.environ.get("GITHUB_REPOSITORY", "JoeysRetroHandhelds/joey64")
     owner = repo.split("/")[0]
     open_issues = {}
     if not dry_run:

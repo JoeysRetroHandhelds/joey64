@@ -2,9 +2,9 @@ package com.joeysretro.joey64
 
 import android.view.Surface
 
-/** JNI surface of libn64host.so. All calls are cheap; the emulator runs on its own native thread. */
+/** JNI surface of libjoey64host.so. All calls are cheap; the emulator runs on its own native thread. */
 object NativeBridge {
-    init { System.loadLibrary("n64host") }
+    init { System.loadLibrary("joey64host") }
 
     /** dlopen the core and call retro_init. corePath = absolute path of the core .so. */
     external fun loadCore(corePath: String, systemDir: String, saveDir: String): Boolean

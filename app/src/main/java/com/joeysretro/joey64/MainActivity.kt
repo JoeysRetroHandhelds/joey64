@@ -52,9 +52,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             window.decorView.requestUnbufferedDispatch(InputDevice.SOURCE_CLASS_JOYSTICK)
         registerDebugStick()
 
-        val coreFile = File(applicationInfo.nativeLibraryDir, "libmupen64plus_next_libretro_android.so")
-            .takeIf { it.exists() }
-            ?: File(applicationInfo.nativeLibraryDir, "mupen64plus_next_libretro_android.so")
+        // The bundled core (devtools/bundle-core.sh); older test builds still carry it under upstream's file names.
+        val coreFile = listOf("libjoey64_libretro_android.so", "libmupen64plus_next_libretro_android.so", "mupen64plus_next_libretro_android.so")
+            .map { File(applicationInfo.nativeLibraryDir, it) }
+            .firstOrNull { it.exists() } ?: File(applicationInfo.nativeLibraryDir, "libjoey64_libretro_android.so")
         val sys = File(filesDir, "system").apply { mkdirs() }
         val saves = File(filesDir, "saves").apply { mkdirs() }
 

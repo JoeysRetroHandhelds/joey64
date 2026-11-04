@@ -1,5 +1,5 @@
 {
-  "_comment": "Projects the core (JoeysRetroHandhelds/n64-core) is built from, or that we follow for ideas. devtools/check-upstreams.py lists commits newer than 'seen' (optionally only those touching 'path'). 'seen' = the newest commit we have merged or read. After merging or reading new commits, set 'seen' to the newest one and close that source's issue.",
+  "_comment": "Projects the core (JoeysRetroHandhelds/joey64-core) is built from, or that we follow for ideas. devtools/check-upstreams.py lists commits newer than 'seen' (optionally only those touching 'path'). 'seen' = the newest commit we have merged or read. After merging or reading new commits, set 'seen' to the newest one and close that source's issue.",
   "sources": [
     {
       "name": "parallel-RDP in libretro parallel-n64",

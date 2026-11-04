@@ -40,7 +40,7 @@ Focus now: performance, compatibility and latency; menus come after.
 - [ ] M5 – Handheld frontend: game list, settings, controller profiles, controller-only UI
 - [ ] M6 – Test harness: compatibility runs across a ROM library per device (scripted, first pass done), n64-systemtest results, Pokémon Snap photo check
 - [ ] Paks: Controller Pak works (player 1, saved in the .srm). Rumble Pak (vibrate device/controller; pick memory or rumble per game), Transfer Pak (Game Boy ROM + save for Pokémon Stadium 1/2), paks for players 2-4
-- [ ] Save states, then run-ahead (removes games' built-in input lag)
+- [ ] Save states, then run-ahead (removes games' built-in input lag). Started: dev-only loading (`N64_STATE=<raw file>`, 30 frames after boot, for benchmarks); no saving, slots or UI yet. RetroArch states import cleanly once unpacked: RZIP (zlib chunks) around a RASTATE container whose MEM chunk is the core's `M64+SAVE` data; Joey's states from RetroArch's Mupen64Plus-Next load in our core (OoT and SM64 checked so far; the benchmark logs each load). So the app can read RetroArch .state files directly
 - [x] Performance on weak devices: parallel-RDP command-ring syscalls, NEON RSP vector path (core ce55255, 00044b7, 6be4035)
 
 ### Current focus: performance, compatibility, latency (revisit as they come up)
@@ -80,7 +80,7 @@ Focus now: performance, compatibility and latency; menus come after.
 - [ ] Timed pacing (`N64_SWAP_INTERVAL=2`) as the default on 120 Hz panels: Duo drops to ~51 fps in matches, one ~47-50 fps window at match start on the Odin 3; decision pending
 - [ ] Odin 3 compat run with the current defaults (exclusive audio, smart sync, scanout change)
 - [ ] Needs Joey: listen to audio (resampler, HLE audio) and try sticks/triggers on a real controller (core `gliden64-update` merged into `handheld` 2026-11-04)
-- [ ] Can't test yet: upstream savestate queue check (the app can't load states); Mali without Vulkan 1.1 (no such device)
+- [ ] Can't test yet: upstream savestate queue check (the app can only load states through the dev hook so far); Mali without Vulkan 1.1 (no such device)
 
 ### Performance deep dive (2026-11-04: aim for big gains; try ideas from any emulator, measured)
 - [ ] Present only frames that changed. Most games draw 20-30 frames a second but the core presented every VI (60). GLideN64: the libretro core forces swap mode 0; M64Plus FZ/ae uses 2 (on a new frame buffer). Core switch `N64_GLN_SWAP_MODE=1|2` built: Duo, OoT Temple of Time, 213/214 -> 159/159 ms/s (same CPU as ae). Compat run with mode 2 vs 0 running on the Odin 3 (the first try was void: its run dir had lost its execute bit, so every game timed out; compat.sh now checks). Then check the opt-in pacing modes and make it the default

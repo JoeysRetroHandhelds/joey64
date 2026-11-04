@@ -345,24 +345,34 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     // ---- Gamepad → RetroPad (port 0) ---------------------------------------------------------
-    // Positional mapping for any Android gamepad. Android's BUTTON_A/B/X/Y are bottom/right/left/top.
-    // With mupen64plus-next defaults that gives bottom = N64 A, left = N64 B, L2 = Z, right stick =
-    // C buttons. M5 adds per-device profiles.
+    // Positional mapping for any Android gamepad: bottom face button = N64 A, left = N64 B, L2 = Z,
+    // right stick = C buttons. Which Android code is which position, and how far the sticks reach,
+    // comes from the pad's profile and calibration (Controllers).
     private var keyMask = 0
     private var hatMask = 0
     private var triggerMask = 0
+    private var padProfile = Controllers.DEFAULT
+    private var stickCal: Controllers.StickCal? = null
+    private val stickPrefs by lazy { getSharedPreferences("sticks", Context.MODE_PRIVATE) }
 
-    private fun retroId(keyCode: Int): Int = when (keyCode) {
-        KeyEvent.KEYCODE_BUTTON_A -> 0          // RETRO_DEVICE_ID_JOYPAD_B  → N64 A
-        KeyEvent.KEYCODE_BUTTON_X -> 1          // RETRO_DEVICE_ID_JOYPAD_Y  → N64 B
+    /** Switches to the pad that sent the last input: its profile and stick calibration. */
+    private fun usePad(dev: InputDevice?, id: Int) {
+        if (id == padDeviceId && stickCal != null) return
+        stickCal?.save(stickPrefs)
+        padDeviceId = id
+        padProfile = Controllers.profile(dev)
+        stickCal = Controllers.StickCal(dev?.descriptor ?: "unknown", padProfile.stickReach, stickPrefs)
+        Log.i(TAG, "Pad: ${dev?.name} (" + "%04x:%04x".format(dev?.vendorId ?: 0, dev?.productId ?: 0) +
+            "), profile ${padProfile.name}")
+    }
+
+    private fun retroId(keyCode: Int): Int = Controllers.faceRetroId(keyCode, padProfile).takeIf { it >= 0 } ?: when (keyCode) {
         KeyEvent.KEYCODE_BUTTON_SELECT -> 2
         KeyEvent.KEYCODE_BUTTON_START -> 3
         KeyEvent.KEYCODE_DPAD_UP -> 4
         KeyEvent.KEYCODE_DPAD_DOWN -> 5
         KeyEvent.KEYCODE_DPAD_LEFT -> 6
         KeyEvent.KEYCODE_DPAD_RIGHT -> 7
-        KeyEvent.KEYCODE_BUTTON_B -> 8          // RETRO_DEVICE_ID_JOYPAD_A
-        KeyEvent.KEYCODE_BUTTON_Y -> 9          // RETRO_DEVICE_ID_JOYPAD_X
         KeyEvent.KEYCODE_BUTTON_L1 -> 10
         KeyEvent.KEYCODE_BUTTON_R1 -> 11
         KeyEvent.KEYCODE_BUTTON_L2 -> 12        // → Z
@@ -378,9 +388,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) toggleFastForward()
             return true
         }
+        if (event.deviceId != padDeviceId && KeyEvent.isGamepadButton(event.keyCode)) usePad(event.device, event.deviceId)
         val id = retroId(event.keyCode)
         if (id < 0) return super.dispatchKeyEvent(event)
-        padDeviceId = event.deviceId
         when (event.action) {
             KeyEvent.ACTION_DOWN -> keyMask = keyMask or (1 shl id)
             KeyEvent.ACTION_UP -> keyMask = keyMask and (1 shl id).inv()
@@ -392,10 +402,13 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
         if (event.source and InputDevice.SOURCE_JOYSTICK != InputDevice.SOURCE_JOYSTICK ||
             event.action != MotionEvent.ACTION_MOVE) return super.dispatchGenericMotionEvent(event)
-        padDeviceId = event.deviceId
-        fun axis(a: Int) = (event.getAxisValue(a).coerceIn(-1f, 1f) * 32767).toInt()
-        NativeBridge.setAnalog(0, axis(MotionEvent.AXIS_X), axis(MotionEvent.AXIS_Y))
-        NativeBridge.setAnalog(1, axis(MotionEvent.AXIS_Z), axis(MotionEvent.AXIS_RZ))
+        usePad(event.device, event.deviceId)
+        val cal = stickCal!!
+        fun axis(v: Float) = (v.coerceIn(-1f, 1f) * 32767).toInt()
+        val (lx, ly) = cal.apply(0, event.getAxisValue(MotionEvent.AXIS_X), event.getAxisValue(MotionEvent.AXIS_Y))
+        val (rx, ry) = cal.apply(1, event.getAxisValue(MotionEvent.AXIS_Z), event.getAxisValue(MotionEvent.AXIS_RZ))
+        NativeBridge.setAnalog(0, axis(lx), axis(ly))
+        NativeBridge.setAnalog(1, axis(rx), axis(ry))
 
         val hx = event.getAxisValue(MotionEvent.AXIS_HAT_X)
         val hy = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
@@ -415,6 +428,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         fpsHandler.removeCallbacks(fpsTick)
         resumed = false
         setRumbling(false)
+        stickCal?.save(stickPrefs)
     }
     override fun onResume() {
         super.onResume()

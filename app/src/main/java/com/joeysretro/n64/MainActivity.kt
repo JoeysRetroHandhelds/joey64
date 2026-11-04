@@ -105,6 +105,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             textSize = 14f
             setTextColor(Color.WHITE)
             setShadowLayer(3 * dp, 0f, 0f, Color.BLACK)
+            includeFontPadding = false // the text's top sits at the window edge, not a line gap below it
         }
         val lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
@@ -114,7 +115,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.END // top left is for RetroAchievements popups
-            x = (16 * dp).toInt(); y = (16 * dp).toInt()
+            x = (4 * dp).toInt(); y = (2 * dp).toInt() // tucked into the corner (Joey, 2026-11-04)
             token = window.decorView.windowToken
             layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }

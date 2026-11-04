@@ -284,6 +284,16 @@ Firmware, not an emulator: most of its speed work is at the system level, which 
   work), a UBWC fix for 16-bit images. parallel-RDP is almost all compute, so the fragment and render-pass
   changes would only touch our final blit. Idea worth checking: which wave size Turnip picks for parallel-RDP's
   compute shaders on our Adrenos, and whether forcing the other one (VK_EXT_subgroup_size_control) is faster.
+- **azahar-nano** (his private 3DS build; no public source, checked 2026-11-04): the only public trace is
+  gammaos-turnip, whose build script packages the driver as an adrenotools zip "for azahar-nano / drastic-nano",
+  and whose commit messages are tested on 3DS games. What he did there: render to system memory for small
+  passes (Metroid 95 -> 97% at 2x), 128-wide fragment waves down to 3 waves in flight (SM3DL scene pass 8.6 ->
+  7.7 ms), measured sysmem/GMEM choice per pass with the losing mode re-sampled every 24 decisions (Luigi's
+  Mansion 14.8 -> 17.8 fps), a fix for stale baked dynamic state (black screen), and a UBWC clear for new
+  16-bit images that stopped whole-system freezes (13 in 35 runs -> 0 in 31). His release notes still say 3DS
+  games won't run better overall. For us: all of this is draw/render-pass work; parallel-RDP is compute, so
+  only the wave-size idea above applies. The UBWC freeze fix is worth remembering if a Turnip build ever hard
+  freezes a 6xx device.
 - **Ideas that do carry over:** Quick Resume (save state on any exit path, auto-resume on launch, a preview
   frame held over the handoff so there's no black flash) — already on our "never lose progress" item; a
   per-app performance mode toggle in an overlay menu (ours would be the per-game "performance" option).

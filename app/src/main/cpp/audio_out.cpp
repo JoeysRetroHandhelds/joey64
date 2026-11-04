@@ -1,12 +1,13 @@
 #include "audio_out.h"
 #include <android/log.h>
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <thread>
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "n64host", __VA_ARGS__)
 
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "n64host", __VA_ARGS__)
+#define LOGI(...) __android_log_print(getenv("N64_LOG_ERR") && *getenv("N64_LOG_ERR") == '1' ? ANDROID_LOG_ERROR : ANDROID_LOG_INFO, "n64host", __VA_ARGS__)
 
 namespace {
 int64_t nowNs() {
@@ -52,6 +53,13 @@ bool AudioOut::openStream() {
     AAudioStreamBuilder_setChannelCount(b, 2);
     AAudioStreamBuilder_setFormat(b, AAUDIO_FORMAT_PCM_FLOAT);
     AAudioStreamBuilder_setPerformanceMode(b, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
+    // Exclusive = AAudio's MMAP path where the device allows it, else AAudio falls back to shared (Flip).
+    // Device latency: Duo 14-16 -> 10 ms, Odin 3 14 -> 9 ms. N64_AUDIO_EXCLUSIVE=0 turns it off.
+    const char* excl = getenv("N64_AUDIO_EXCLUSIVE");
+    if (!excl || *excl != '0') AAudioStreamBuilder_setSharingMode(b, AAUDIO_SHARING_MODE_EXCLUSIVE);
+    // EXPERIMENT: game usage instead of the default media (PPSSPP does this)
+    const char* usage = getenv("N64_AUDIO_USAGE_GAME");
+    if (usage && *usage == '1') AAudioStreamBuilder_setUsage(b, AAUDIO_USAGE_GAME);
     AAudioStreamBuilder_setDataCallback(b, &AudioOut::cb, this);
     AAudioStreamBuilder_setErrorCallback(b, &AudioOut::onError, this);
     aaudio_result_t res = AAudioStreamBuilder_openStream(b, &stream_);
@@ -72,8 +80,8 @@ bool AudioOut::openStream() {
     // 32 ms of extra latency). Start at 2 bursts; takeStats adds a burst per xrun.
     AAudioStream_setBufferSizeInFrames(stream_, 2 * AAudioStream_getFramesPerBurst(stream_));
     xruns_ = 0;
-    LOGI("audio: core %d Hz -> device %d Hz, perf mode %d, burst %d, buffer %d of %d", srcRate, dstRate,
-         AAudioStream_getPerformanceMode(stream_), AAudioStream_getFramesPerBurst(stream_),
+    LOGI("audio: core %d Hz -> device %d Hz, perf mode %d, sharing %d, burst %d, buffer %d of %d", srcRate, dstRate,
+         AAudioStream_getPerformanceMode(stream_), AAudioStream_getSharingMode(stream_), AAudioStream_getFramesPerBurst(stream_),
          AAudioStream_getBufferSizeInFrames(stream_), AAudioStream_getBufferCapacityInFrames(stream_));
     AAudioStream_requestStart(stream_);
     return true;

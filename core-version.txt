@@ -1,0 +1,7 @@
+# The core bundled in app/src/main/jniLibs (written by devtools/bundle-core.sh; the .so itself is not committed)
+repo: JoeysRetroHandhelds/n64-core
+branch: gliden64-update
+commit: 3639398 2026-11-04 07:01:56 -0600 parallel-RDP: repeat-frame skip and precise smart sync on by default (built 5 min before this commit from the tree it records; written by hand)
+uncommitted: none
+built: 2026-11-04 06:56
+md5: 4cbb5e39029c58a5433a7d11d07a343b

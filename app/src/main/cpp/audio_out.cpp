@@ -57,9 +57,6 @@ bool AudioOut::openStream() {
     // Device latency: Duo 14-16 -> 10 ms, Odin 3 14 -> 9 ms. N64_AUDIO_EXCLUSIVE=0 turns it off.
     const char* excl = getenv("N64_AUDIO_EXCLUSIVE");
     if (!excl || *excl != '0') AAudioStreamBuilder_setSharingMode(b, AAUDIO_SHARING_MODE_EXCLUSIVE);
-    // EXPERIMENT: game usage instead of the default media (PPSSPP does this)
-    const char* usage = getenv("N64_AUDIO_USAGE_GAME");
-    if (usage && *usage == '1') AAudioStreamBuilder_setUsage(b, AAUDIO_USAGE_GAME);
     AAudioStreamBuilder_setDataCallback(b, &AudioOut::cb, this);
     AAudioStreamBuilder_setErrorCallback(b, &AudioOut::onError, this);
     aaudio_result_t res = AAudioStreamBuilder_openStream(b, &stream_);

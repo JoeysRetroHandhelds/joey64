@@ -320,8 +320,6 @@ bool VkContext::createSwapchain() {
         if (f.format == VK_FORMAT_R8G8B8A8_UNORM || f.format == VK_FORMAT_B8G8R8A8_UNORM) { fmt = f; break; }
 
     uint32_t count = std::max(caps.minImageCount + 1, 3u);
-    const char* imgs = getenv("N64_SWAP_IMAGES"); // EXPERIMENT: queue depth vs swap interval latency
-    if (imgs && atoi(imgs) > 0) count = std::max((uint32_t)atoi(imgs), caps.minImageCount);
     if (caps.maxImageCount) count = std::min(count, caps.maxImageCount);
     LOGI("vulkan: swapchain images: min %u max %u, asking %u", caps.minImageCount, caps.maxImageCount, count);
 

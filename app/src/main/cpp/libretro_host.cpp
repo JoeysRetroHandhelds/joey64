@@ -91,6 +91,9 @@ std::atomic<bool> g_fastForward{false};
 // parallel-RDP synchronous mode outside fast-forward. Async by default (sync makes the CPU wait for
 // the GPU at every RDP sync: ~10 ms/frame in Snap on the Thor vs 2-4 ms); per game in loadGame.
 bool g_rdpSync = false;
+// Games whose CPU reads what the RDP drew and that break with async parallel-RDP: they stay synchronous
+// in fast-forward too (async there gave black screens or the New Tetris halt). Set in loadGame.
+bool g_ffKeepSync = false;
 // GameShark codes applied after load_game (M3: per-game compatibility fixes from the profile DB).
 std::vector<std::string> g_cheats;
 // Debug: RDRAM dump requested from the UI thread, written by the emulation thread between frames.
@@ -475,10 +478,11 @@ void runLoop() {
             ffApplied = ff;
             if (g_vulkan) g_vk.setUnthrottled(ff);
             else g_egl.setSwapInterval(ff ? 0 : 1);
-            // Synchronous parallel-RDP caps fast-forward near 1.7x on the Thor; async reaches 4x.
-            // Games that need sync (g_rdpSync) get it back when fast-forward ends.
+            // Synchronous parallel-RDP caps fast-forward near 1.7x on the Thor; async reaches 4x. Sync
+            // (smart sync, by default on Adreno) comes back when fast-forward ends; games that break with
+            // async (g_ffKeepSync) keep it throughout.
             if (g_vulkan) {
-                g_optionOverrides["mupen64plus-parallel-rdp-synchronous"] = (g_rdpSync && !ff) ? "True" : "False";
+                g_optionOverrides["mupen64plus-parallel-rdp-synchronous"] = (g_rdpSync && (!ff || g_ffKeepSync)) ? "True" : "False";
                 static const bool keepUpscale = getenv("N64_FF_KEEP_UPSCALE") && atoi(getenv("N64_FF_KEEP_UPSCALE"));
                 if (ff && !keepUpscale) {
                     auto it = g_optionOverrides.find(kUpscaleKey);
@@ -663,11 +667,14 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
     // (photo checks), The New Tetris (async: halts on a "secret cheat, power off" screen after ~10 s),
     // Resident Evil 2 and Cruis'n USA (async: black screen). An explicit option override (--es opts) wins.
     static const char* const kSyncRdpGames[] = {"NPF", "NRI", "NRE", "NCU"};
+    // Also kept synchronous in fast-forward: Yoshi's Story renders black with async on Adreno.
+    static const char* const kAdrenoSyncGames[] = {"NYS"};
     std::string id = romGameId(buf);
+    auto idIn = [&](auto& list) { return std::any_of(std::begin(list), std::end(list), [&](const char* g) { return id.compare(0, 3, g) == 0; }); };
+    g_ffKeepSync = idIn(kSyncRdpGames) || idIn(kAdrenoSyncGames);
     auto syncOpt = g_optionOverrides.find("mupen64plus-parallel-rdp-synchronous");
     if (syncOpt != g_optionOverrides.end()) g_rdpSync = syncOpt->second == "True";
-    else g_rdpSync = std::any_of(std::begin(kSyncRdpGames), std::end(kSyncRdpGames),
-                                 [&](const char* g) { return id.compare(0, 3, g) == 0; });
+    else g_rdpSync = idIn(kSyncRdpGames);
     g_optionOverrides["mupen64plus-parallel-rdp-synchronous"] = g_rdpSync ? "True" : "False";
     g_optionsDirty = true;
     // CPU core: the dynamic recompiler, except games it crashes. Sin and Punishment (the English patch):

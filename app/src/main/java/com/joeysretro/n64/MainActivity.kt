@@ -228,7 +228,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             "faux123" -> bundledDriver(TURNIP_FAUX123)
             else -> when {
                 // The Duo's Adreno 722: faux123's Turnip (Duo fixes) draws Mario Party 2's text boxes without the
-                // stray lines the general build leaves, and passed the 82-game compat run (2026-11-05)
+                // stray lines the general build leaves, and passed the 82-game compat run (2026-11-04)
                 system != null && system.adreno && "Adreno (TM) 722" in system.name ->
                     bundledDriver(TURNIP_FAUX123) ?: bundledDriver(TURNIP)
                 system != null && system.adreno && TURNIP_GPUS.containsMatchIn(system.name) -> bundledDriver(TURNIP)

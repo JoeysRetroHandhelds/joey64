@@ -19,8 +19,7 @@ mupen64plus-next libretro core from a Kotlin app with a C++ libretro frontend.
 - `app/src/main/jniLibs/arm64-v8a/` – drop `libmupen64plus_next_libretro_android.so` here (not committed)
 - Core source: `C:\GithubProjects\mupen64plus-libretro-nx` (private repo JoeysRetroHandhelds/n64-core, branch `handheld`; `upstream` = libretro/mupen64plus-libretro-nx). Build (Git Bash, NDK 27.3):
   `ndk-build.cmd -C libretro/jni APP_ABI=arm64-v8a GLES3=1 STRINGS=<ndk>/toolchains/llvm/prebuilt/windows-x86_64/bin/llvm-strings.exe AWK=awk TR=tr -j16`.
-  On a clean tree the asm_defines rule fails under cmd.exe: run `llvm-strings <obj of asm_defines.c> | tr -d '
-' | awk -v dest_dir=libretro/obj/local/arm64-v8a/asm_defines/ -f mupen64plus-core/tools/gen_asm_defines.awk` and rerun. Output `libretro/libs/arm64-v8a/libretro.so` → copy to jniLibs under the name above
+  On a clean tree the asm_defines rule fails under cmd.exe: run `llvm-strings <obj of asm_defines.c> | tr -d '' | awk -v dest_dir=libretro/obj/local/arm64-v8a/asm_defines/ -f mupen64plus-core/tools/gen_asm_defines.awk` and rerun. Output `libretro/libs/arm64-v8a/libretro.so` → copy to jniLibs under the name above
 
 ## Build / run
 - Android Studio or `./gradlew assembleDebug` (needs JDK 17+, e.g. Android Studio's `jbr` as JAVA_HOME)

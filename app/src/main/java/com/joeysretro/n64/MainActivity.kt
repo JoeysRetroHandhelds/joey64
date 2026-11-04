@@ -225,7 +225,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val lib = devDriver() ?: when (intent?.getStringExtra("driver")) {
             "system" -> null
             "turnip" -> bundledDriver(TURNIP)
+            "faux123" -> bundledDriver(TURNIP_FAUX123)
             else -> when {
+                // The Duo's Adreno 722: faux123's Turnip (Duo fixes) draws Mario Party 2's text boxes without the
+                // stray lines the general build leaves, and passed the 82-game compat run (2026-11-05)
+                system != null && system.adreno && "Adreno (TM) 722" in system.name ->
+                    bundledDriver(TURNIP_FAUX123) ?: bundledDriver(TURNIP)
                 system != null && system.adreno && TURNIP_GPUS.containsMatchIn(system.name) -> bundledDriver(TURNIP)
                 else -> null
             }
@@ -240,7 +245,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val gpu = custom ?: system
         gpuName = gpu?.name ?: ""
         val parallel = gpu != null && gpu.vulkan11 && (custom != null || gpu.mali)
-        Log.i(TAG, "GPU: ${gpu ?: "no Vulkan"}, driver ${if (custom != null) lib!!.name else "system"}, " +
+        Log.i(TAG, "GPU: ${gpu ?: "no Vulkan"}, driver ${if (custom != null) lib!!.relativeTo(gpuDriverDir).path else "system"}, " +
             "default renderer ${if (parallel) "parallel" else "gliden64"}")
         return intent?.getStringExtra("renderer") ?: if (parallel) "parallel" else "gliden64"
     }
@@ -279,6 +284,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val version = packageManager.getPackageInfo(packageName, 0).lastUpdateTime.toString()
         if (dst.exists() && stamp.exists() && stamp.readText() == version) return dst
         return try {
+            dst.parentFile?.mkdirs()
             val tmp = File(gpuDriverDir, "$name.part")
             assets.open("drivers/$name").use { i -> tmp.outputStream().use { i.copyTo(it) } }
             tmp.renameTo(dst)
@@ -492,6 +498,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         const val TAG = "N64Handheld"
         // Bundled in assets/drivers/ (see assets/licenses/): Turnip (Mesa freedreno).
         const val TURNIP = "libvulkan_freedreno.so"
+        // Same file name in its own folder: the driver is loaded by that name
+        const val TURNIP_FAUX123 = "faux123/libvulkan_freedreno.so"
         val TURNIP_GPUS = Regex("""Adreno \(TM\) [678]\d\d""")
     }
 }

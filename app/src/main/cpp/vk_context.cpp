@@ -322,6 +322,10 @@ bool VkContext::createSwapchain() {
         if (f.format == VK_FORMAT_R8G8B8A8_UNORM || f.format == VK_FORMAT_B8G8R8A8_UNORM) { fmt = f; break; }
 
     uint32_t count = std::max(caps.minImageCount + 1, 3u);
+    // EXPERIMENT: N64_SWAP_IMAGES=<n> asks for n swapchain images (2 = one frame less queued, less lag; the Flip
+    // fell to ~40 fps with 2, the faster devices are untested). Never below what the driver allows.
+    if (const char* env = getenv("N64_SWAP_IMAGES"))
+        if (int n = atoi(env); n > 0) count = std::max((uint32_t)n, caps.minImageCount);
     if (caps.maxImageCount) count = std::min(count, caps.maxImageCount);
     LOGI("vulkan: swapchain images: min %u max %u, asking %u", caps.minImageCount, caps.maxImageCount, count);
 

@@ -7,12 +7,16 @@
     <application
         android:label="N64 Handheld"
         android:extractNativeLibs="true"
+        android:appCategory="game"
         android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+        <!-- Every config change is handled in place: a recreated activity would stop the running game
+             (dark mode switching at sunset, docking to a TV, font size, density) -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:screenOrientation="sensorLandscape"
-            android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation">
+            android:preferMinimalPostProcessing="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|uiMode|density|fontScale|keyboard|keyboardHidden|navigation|touchscreen|locale|layoutDirection|colorMode">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

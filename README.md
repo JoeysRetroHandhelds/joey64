@@ -74,7 +74,7 @@ Focus now: performance, compatibility and latency; menus come after.
 - [ ] Test runs that overlapped (audit 2026-11-04; Duo perf hint/turbo re-run done: no gain): a stopped job could leave its test script running, so two runs drove one device. Odin 3 "GoldenEye 13-16 fps at 1x" was this (clean re-run: 60 fps, 2.0 ms; OoT 1x/2x 60 fps). Flip shared present mode A/B redone clean (continuous refresh, 1 image, confirmed in the log): same 60 fps and the same poll->display as the default (~15-25 ms in a match) in both rounds, so no latency gain; dropping it stands (the demand-refresh and synced-copy variants were not re-run). Re-running: Duo perf hint/turbo, Odin 3 upscale timings (GoldenEye clean: 4x at 60 fps with the emu thread at 3.2 ms, see the CPU-wait item). Every launch now runs `devclean.sh` first (stops leftover test scripts and logcat readers for that device, clears its apps)
 - [ ] Timed pacing (`N64_SWAP_INTERVAL=2`) as the default on 120 Hz panels: Duo drops to ~51 fps in matches, one ~47-50 fps window at match start on the Odin 3; decision pending
 - [ ] Odin 3 compat run with the current defaults (exclusive audio, smart sync, scanout change)
-- [ ] Needs Joey: listen to audio (resampler, HLE audio) and try sticks/triggers on a real controller; merge `gliden64-update` into `handheld`
+- [ ] Needs Joey: listen to audio (resampler, HLE audio) and try sticks/triggers on a real controller (core `gliden64-update` merged into `handheld` 2026-11-04)
 - [ ] Can't test yet: upstream savestate queue check (the app can't load states); Mali without Vulkan 1.1 (no such device)
 
 ### Later

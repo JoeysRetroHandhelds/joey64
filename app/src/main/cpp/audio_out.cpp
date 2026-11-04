@@ -107,8 +107,12 @@ void AudioOut::waitForRoom() {
     // target via rate control), audio then never delays a frame past its vsync.
     size_t ceiling = target_ + (size_t)dstRate_ / 60 * 2;
     bool waited = false;
-    for (int spins = 0; fill() > ceiling && spins < 400; ++spins) { // <= ~100 ms, never deadlock
-        std::this_thread::sleep_for(std::chrono::microseconds(250));
+    // Sleep for as long as the excess takes to play, then check again (the callback drains in bursts):
+    // a few wake-ups per frame. Polling every 250 us was ~47 per frame, ~3.5% of the Duo's CPU samples.
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(100); // never deadlock
+    for (size_t f; (f = fill()) > ceiling && std::chrono::steady_clock::now() < deadline;) {
+        long us = (long)((double)(f - ceiling) * 1e6 / (dstRate_ * 2.0));
+        std::this_thread::sleep_for(std::chrono::microseconds(std::max(250L, us)));
         waited = true;
     }
     // Fill right before the frame: target + a frame when audio paces the frames, ~target when vsync does.

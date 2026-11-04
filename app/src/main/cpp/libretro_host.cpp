@@ -15,6 +15,7 @@
 #include <cstring>
 #include <unistd.h>
 #include <sched.h>
+#include <sys/resource.h>
 #include <dirent.h>
 #include <GLES3/gl3.h>
 #include <mutex>
@@ -457,8 +458,32 @@ void splitBigCores() {
     if (!moved.empty()) LOGI("threads moved off the emu thread's core: %s", moved.c_str());
 }
 
+// EXPERIMENT: emulation thread priority (mupen64plus-ae's "high priority thread" uses Android's
+// THREAD_PRIORITY_URGENT_AUDIO, nice -19). N64_THREAD_PRIO=<nice> sets it, e.g. -19 (urgent audio),
+// -10 (urgent display), -4 (display); unset leaves the default (0). N64_THREAD_PRIO_ALL=1 also gives the
+// other threads already running in the process (parallel-RDP workers, audio) the same value.
+void setEmuThreadPriority() {
+    const char* env = getenv("N64_THREAD_PRIO");
+    if (!env || !*env) return;
+    int nice = atoi(env);
+    int r = setpriority(PRIO_PROCESS, 0, nice);
+    LOGI("emu thread priority %d (%s), now %d", nice, r == 0 ? "ok" : strerror(errno), getpriority(PRIO_PROCESS, 0));
+    const char* all = getenv("N64_THREAD_PRIO_ALL");
+    if (!all || *all != '1') return;
+    std::string done;
+    if (DIR* d = opendir("/proc/self/task")) {
+        while (dirent* e = readdir(d)) {
+            pid_t tid = atoi(e->d_name);
+            if (tid > 0 && tid != gettid() && setpriority(PRIO_PROCESS, tid, nice) == 0) done += std::to_string(tid) + " ";
+        }
+        closedir(d);
+    }
+    LOGI("threads given priority %d: %s", nice, done.c_str());
+}
+
 void runLoop() {
     pinToBigCores();
+    setEmuThreadPriority();
     // EXPERIMENT: Adreno GPU clocks held at max while running (Dolphin's "Force max GPU clocks")
     const char* turboEnv = getenv("N64_GPU_TURBO");
     const bool turbo = turboEnv && *turboEnv == '1';

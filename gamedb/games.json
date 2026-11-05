@@ -46,18 +46,22 @@
     {
       "id": "NYS", "title": "Yoshi's Story",
       "settings": [
-        {"what": "kept synchronous in fast-forward", "where": "kAdrenoSyncGames", "why": "async renders black on Adreno"},
+        {"what": "synchronous parallel-RDP on every GPU, also in fast-forward", "where": "kSyncRdpGames (was kAdrenoSyncGames, Adreno fast-forward only, until 2026-11-05)", "why": "async: intro draws, then black (Odin 3 and Duo 2026-11-03, every Flip run since 2026-11-05)"},
         {"what": "save type 16K EEPROM for hacks (header ID)", "where": "core rom.c, 8e8f5c7", "why": "hacks not in the database got 4K and could not save"}
       ],
-      "issues": [
-        {"status": "open", "devices": "Flip (Mali, async)", "what": "draws its intro, then black with 0 new frames from ~25 s, in every Flip run since 2026-11-05 (fine 2026-11-03; Adrenos fine in every run). Suspect: repeat-frame skip hashing stale RDRAM under async", "evidence": "flip-early30, flip-gpu8c; test queued: chain60_flip_black (default / repeat skip off / sync)"}
+      "fixed": [
+        {"devices": "Flip (Mali)", "what": "draws its intro, then every frame black from ~25 s with async parallel-RDP (repeat skip off: still black, so not the skip; sync: plays)", "fix": "added to kSyncRdpGames, app 6e33c8e; flip-blk-def/noskip/sync; check of the default build queued (chain69_flip_sync6, flip-sync6)"}
       ]
     },
     {
       "id": "NSL", "title": "Spider-Man",
-      "issues": [
-        {"status": "open", "devices": "Flip (Mali, async)", "what": "same as Yoshi's Story: intro, then black with 0 new frames from ~25 s since 2026-11-05", "evidence": "flip-early30, flip-gpu8c; chain60_flip_black queued"}
-      ]
+      "settings": [
+        {"what": "synchronous parallel-RDP on every GPU, also in fast-forward", "where": "kSyncRdpGames", "why": "async: intro draws, then black (Portal 2026-11-03, every Flip run since 2026-11-05)"}
+      ],
+      "fixed": [
+        {"devices": "Flip (Mali)", "what": "intro, then every frame black from ~25 s with async parallel-RDP; sync plays it", "fix": "added to kSyncRdpGames, app 6e33c8e; flip-blk-*; default-build check queued (chain69_flip_sync6)"}
+      ],
+      "notes": ["Flip with sync: 58.6 emu fps average, lowest 5 s window 53.5 (flip-blk-sync)"]
     },
     {
       "id": "NGU", "title": "Sin and Punishment (English patch)",

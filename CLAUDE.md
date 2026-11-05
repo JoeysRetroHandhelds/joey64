@@ -40,7 +40,7 @@ mupen64plus-next libretro core from a Kotlin app with a C++ libretro frontend.
 ## Conventions
 - Core options are overridden in `g_optionOverrides` (libretro_host.cpp); M3 replaces this with the profile DB.
 - Emulation runs on one native thread that owns the GL context; UI thread only posts surface/input changes.
-- License: GPLv2+ (core is GPL). ares-derived code keeps its ISC notice.
+- License: GPL-3.0-or-later (`LICENSE`; README "Licensing" says why). GPLv3 code may be copied, GPLv2-only code (Project64) may not. ares-derived code keeps its ISC notice.
 - M0 verified on AYN Thor (SD 8 Gen 2): SM64 at 60 fps on GLideN64. `adb logcat -s joey64host` prints fps stats every 5 s.
 
 ## Known issues

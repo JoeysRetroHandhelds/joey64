@@ -198,6 +198,18 @@ One line per idea from emulator-review.md. An idea leaves "Not tested" only with
 - [ ] 21. Mali tuning inside parallel-RDP: SMALL_TYPES off cost the Flip 12.9%, so its shaders are sensitive to data width; read which sizes (workgroup, tile, binning) parallel-RDP fixes at build time and whether an 8-wide Bifrost GPU wants others (unchecked)
 - [ ] 22. Flip dips (41-50 fps in heavy scenes): find what present/acquire blocks on; the present thread lifted them to ~55 but added 8-13 ms lag [present thread item]
 
+**Strong devices (Portal, Odin 3, Thor) top ten, queued 2026-11-05 (Joey: "Add the top ten to queue")**. Thor has the Portal's chip (Snapdragon 8 Gen 2, Joey) but is not connected: Thor results come from the Portal until it is. Queues run after each device's current jobs, Portal under the battery guard.
+- [ ] T1. First-launch stutter: pre-build port, `bench/pbfirst.txt` (app-pnhitch.apk = Joey64 app + pn64-ports core 51b1b87; list kept, caches deleted; pb on vs off, 6 games x 2) on the Portal and Odin 3. The shipped per-game list (item 20) gets built if pre-build helps
+- [ ] T2. Lazy waking: waits on the Portal compat run (running now)
+- [ ] T3. Perf hint with all threads and the KGSL clock pin: `bench/clock.txt`, queued on all three Adreno devices
+- [ ] T4. GPU priority above the compositor: built 2026-11-05 (app 4e437f1): our bundled Turnip creates its KGSL contexts with no priority (Mesa `kgsl_submitqueue_new`; Vulkan's global-priority request never reaches KGSL), so a hook library loaded into the driver's namespace sets `N64_KGSL_PRIO=<1-15>` on each context it creates (lower = higher; hakuX used 7). `bench/gpu2.txt` (app-gpu2.apk), capped and uncapped, Duo, Portal, Odin 3. Duo's run comes first (after its clock test) and doubles as the hook's first check
+- [ ] T5. CPU one frame ahead of the GPU (DuckStation): profile first (does the scanout drain wait for the GPU), not built
+- [ ] T6. Wave size: built 2026-11-05 (core branch gpu2 c61bcf2): parallel-RDP fixes the subgroup size only for tile binning; `N64_RDP_WAVE=64/128` forces it on every other compute shader where the driver allows; in `bench/gpu2.txt`. Plus 4x upscaling (Joey: "is 1080p achievable", 4x = 1280x960): `bench/up4.txt`, uncapped and at 60 fps 1x/2x/4x, Portal and Odin 3
+- [ ] T7. RSP: NEON JIT (built, Joey decides), overlay block cache and parallel-n64's HLE geometry: not built yet
+- [ ] T8. Smoother mode: `bench/smooth.txt`, at 60 fps, presented = the game's own frame rate: CountPerOp=1 and CountPerOpDenomPot=1 (2x overclock) vs default, Portal and Odin 3; check screenshots for broken timing
+- [ ] T9. Run-ahead: needs savestates first (roadmap), blocked
+- [ ] T10. Idle-loop skipping: waits for all runs (Joey), as item 8
+
 **Measuring now (results go into their items)**
 - [ ] parallel-n64 ports: all four done; ~2% on the Portal (never loses), no clear gain on the Flip, Duo, Odin 3: decide after all runs
 - [ ] Lazy waking: +4-8% but OoT loses; Portal compat pending

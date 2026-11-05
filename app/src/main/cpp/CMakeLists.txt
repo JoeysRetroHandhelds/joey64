@@ -6,6 +6,7 @@ add_library(joey64host SHARED
     egl_context.cpp
     audio_out.cpp
     perf_hint.cpp
+    gpu_clock_pin.cpp
     vk_context.cpp)
 
 add_subdirectory(third_party/libadrenotools)

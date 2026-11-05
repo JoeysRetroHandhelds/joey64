@@ -2,6 +2,7 @@
 // provide a GLES3 or Vulkan HW render context, and run retro_run on a dedicated thread.
 #include <adrenotools/driver.h>
 #include "perf_hint.h"
+#include "gpu_clock_pin.h"
 #include <jni.h>
 #include <dlfcn.h>
 #include <android/log.h>
@@ -343,6 +344,7 @@ void applySurfaceIfChanged() {
     }
 }
 
+std::string gpuClockText();
 // Logs emulated frames/s (retro_run calls), presented and duped frames every 5 s.
 void logStats() {
     using clock = std::chrono::steady_clock;
@@ -358,14 +360,26 @@ void logStats() {
     double fillMs, targetMs; int underruns;
     g_audio.takeStats(!g_fastForward && !g_bench && g_statRuns / secs >= 58.5, fillMs, targetMs, underruns);
     LOGI("stats: %.1f emu fps, %.1f presented, %.1f dupes (%ux%u), run %.2f ms, wait %.2f ms, "
-         "audio wait %.2f ms, fill %.0f/%.0f ms, %d underruns, device %.0f ms%s, slowest frame %.1f ms, %d over 33 ms",
+         "audio wait %.2f ms, fill %.0f/%.0f ms, %d underruns, device %.0f ms%s, slowest frame %.1f ms, %d over 33 ms%s",
          g_statRuns / secs, g_statPresents / secs, g_statDupes / secs, g_lastW, g_lastH,
          g_statRunMs / g_statRuns, g_statWaitMs / g_statRuns, g_statAudioWaitMs / g_statRuns, fillMs,
-         targetMs, underruns, g_audio.outputLatencyMs(), lat, g_statSlowestMs, g_statSlowFrames);
+         targetMs, underruns, g_audio.outputLatencyMs(), lat, g_statSlowestMs, g_statSlowFrames,
+         gpuClockText().c_str());
     g_statRuns = g_statPresents = g_statDupes = 0;
     g_statRunMs = g_statWaitMs = g_statAudioWaitMs = g_statSlowestMs = 0;
     g_statSlowFrames = 0;
     start = clock::now();
+}
+
+// GPU clock for the stats line, where the app may read it (Adreno kgsl sysfs; "" elsewhere or when SELinux denies it)
+std::string gpuClockText() {
+    static bool readable = true;
+    if (!readable) return "";
+    FILE* f = fopen("/sys/class/kgsl/kgsl-3d0/gpuclk", "r");
+    long hz = 0;
+    if (!f || fscanf(f, "%ld", &hz) != 1 || hz <= 0) { if (f) fclose(f); readable = false; LOGI("GPU clock: not readable here"); return ""; }
+    fclose(f);
+    return ", gpu " + std::to_string(hz / 1000000) + " MHz";
 }
 
 // ---- save RAM ---------------------------------------------------------------
@@ -466,6 +480,28 @@ void splitBigCores() {
     if (!moved.empty()) LOGI("threads moved off the emu thread's core: %s", moved.c_str());
 }
 
+// The core's worker threads (parallel-RDP's command worker, fence and pipeline threads, ...): they are not named,
+// so they carry the process name like the emulation thread; the Java main thread (tid == pid) is left out.
+std::vector<int32_t> coreWorkerThreads() {
+    std::vector<int32_t> out;
+    char self[32] = {0}, name[32];
+    if (FILE* f = fopen("/proc/self/comm", "r")) { if (!fgets(self, sizeof self, f)) self[0] = 0; fclose(f); }
+    const pid_t me = gettid(), pid = getpid();
+    if (DIR* d = opendir("/proc/self/task")) {
+        while (dirent* e = readdir(d)) {
+            pid_t tid = atoi(e->d_name);
+            if (tid <= 0 || tid == me || tid == pid) continue;
+            std::string p = "/proc/self/task/" + std::to_string(tid) + "/comm";
+            FILE* f = fopen(p.c_str(), "r");
+            if (!f) continue;
+            if (fgets(name, sizeof name, f) && strcmp(name, self) == 0) out.push_back(tid);
+            fclose(f);
+        }
+        closedir(d);
+    }
+    return out;
+}
+
 // EXPERIMENT: emulation thread priority (mupen64plus-ae's "high priority thread" uses Android's
 // THREAD_PRIORITY_URGENT_AUDIO, nice -19). N64_THREAD_PRIO=<nice> sets it, e.g. -19 (urgent audio),
 // -10 (urgent display), -4 (display); unset leaves the default (0). N64_THREAD_PRIO_ALL=1 also gives the
@@ -493,12 +529,21 @@ void runLoop() {
     pinToBigCores();
     setEmuThreadPriority();
     // EXPERIMENT: Adreno GPU clocks held at max while running (Dolphin's "Force max GPU clocks")
+    // N64_GPU_TURBO=2: KGSL power constraint held by a keep-alive context instead (DroidDeck's way, gpu_clock_pin.cpp)
     const char* turboEnv = getenv("N64_GPU_TURBO");
     const bool turbo = turboEnv && *turboEnv == '1';
     if (turbo) { adrenotools_set_turbo(true); LOGI("GPU turbo on"); }
+    GpuClockPin clockPin;
+    if (turboEnv && *turboEnv == '2') LOGI("GPU clock pin %s", clockPin.start() ? "on" : "failed");
     // EXPERIMENT: ADPF performance hint session for this thread (Android 13+)
     const char* hintEnv = getenv("N64_PERF_HINT");
-    const bool useHint = hintEnv && *hintEnv == '1';
+    // N64_PERF_HINT=2 also adds the core's worker threads at the first thread split (WatermelonDS), and
+    // N64_PERF_HINT_FF_US=<us> sets the target while uncapped (bench/fast-forward; default 1000 us, 0 = keep 8333).
+    const int hintMode = hintEnv ? atoi(hintEnv) : 0;
+    const bool useHint = hintMode >= 1;
+    const char* hintFfEnv = getenv("N64_PERF_HINT_FF_US");
+    const int64_t hintFfNs = (hintFfEnv && *hintFfEnv ? atoll(hintFfEnv) : 1000) * 1000;
+    bool hintThreadsAdded = false;
     PerfHint perfHint;
     const char* noSplit = getenv("N64_PIN_SPLIT");
     const bool split = !(noSplit && *noSplit == '0');
@@ -635,8 +680,14 @@ void runLoop() {
             }
         }
         if (++framesSinceSaveCheck >= 120) { framesSinceSaveCheck = 0; flushSave(); }
-        if (useHint) perfHint.reportFrame();
-        if (split && --splitIn == 0) { splitBigCores(); splitIn = 600; }
+        if (useHint) {
+            perfHint.setTargetNs((ff || g_bench) && hintFfNs > 0 ? hintFfNs : 1000000000LL / 60 / 2);
+            perfHint.reportFrame();
+        }
+        if (split && --splitIn == 0) {
+            splitBigCores(); splitIn = 600;
+            if (hintMode == 2 && !hintThreadsAdded) { perfHint.addThreads(coreWorkerThreads()); hintThreadsAdded = true; }
+        }
     }
     if (turbo) adrenotools_set_turbo(false);
     flushSave();

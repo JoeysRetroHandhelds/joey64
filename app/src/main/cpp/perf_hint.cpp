@@ -18,6 +18,7 @@ struct Api {
     APerformanceHintSession* (*createSession)(APerformanceHintManager*, const int32_t*, size_t, int64_t);
     int (*reportActual)(APerformanceHintSession*, int64_t);
     void (*closeSession)(APerformanceHintSession*);
+    int (*updateTarget)(APerformanceHintSession*, int64_t);
 
     bool load() {
         void* lib = dlopen("libandroid.so", RTLD_NOW);
@@ -26,6 +27,7 @@ struct Api {
         createSession = (decltype(createSession))dlsym(lib, "APerformanceHint_createSession");
         reportActual = (decltype(reportActual))dlsym(lib, "APerformanceHint_reportActualWorkDuration");
         closeSession = (decltype(closeSession))dlsym(lib, "APerformanceHint_closeSession");
+        updateTarget = (decltype(updateTarget))dlsym(lib, "APerformanceHint_updateTargetWorkDuration");
         return getManager && createSession && reportActual && closeSession;
     }
 };
@@ -53,11 +55,32 @@ void PerfHint::reportFrame() {
         const Api* a = api();
         APerformanceHintManager* m = a ? a->getManager() : nullptr;
         const int32_t tid = gettid();
-        session_ = m ? a->createSession(m, &tid, 1, kTargetNs) : nullptr;
+        if (!targetNs_) targetNs_ = kTargetNs;
+        session_ = m ? a->createSession(m, &tid, 1, targetNs_) : nullptr;
         if (!session_) { LOGI("performance hint: not available"); failed_ = true; return; }
-        LOGI("performance hint: session for thread %d, target %lld us", tid, (long long)(kTargetNs / 1000));
+        LOGI("performance hint: session for thread %d, target %lld us", tid, (long long)(targetNs_ / 1000));
     }
     const int64_t now = threadCpuNs();
     if (lastCpuNs_ >= 0 && now > lastCpuNs_) api()->reportActual(session_, now - lastCpuNs_);
     lastCpuNs_ = now;
+}
+
+void PerfHint::addThreads(const std::vector<int32_t>& others) {
+    if (failed_ || !session_ || others.empty()) return;
+    const Api* a = api();
+    std::vector<int32_t> tids{(int32_t)gettid()};
+    tids.insert(tids.end(), others.begin(), others.end());
+    APerformanceHintSession* s = a->createSession(a->getManager(), tids.data(), tids.size(), targetNs_);
+    if (!s) { LOGI("performance hint: session with %zu threads refused, keeping the emu thread only", tids.size()); return; }
+    a->closeSession(session_);
+    session_ = s;
+    LOGI("performance hint: session now covers %zu threads", tids.size());
+}
+
+void PerfHint::setTargetNs(int64_t ns) {
+    if (ns <= 0 || ns == targetNs_) return;
+    targetNs_ = ns;
+    const Api* a = api();
+    if (session_ && a && a->updateTarget) a->updateTarget(session_, ns);
+    LOGI("performance hint: target %lld us", (long long)(ns / 1000));
 }

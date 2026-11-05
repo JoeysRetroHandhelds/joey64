@@ -852,13 +852,13 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
     // Sync by default on Adreno (MainActivity). Elsewhere, games that break with async parallel-RDP (their
     // CPU reads the framebuffer, which async can serve stale): Pokemon Snap
     // (photo checks), The New Tetris (async: halts on a "secret cheat, power off" screen after ~10 s),
-    // Resident Evil 2 and Cruis'n USA (async: black screen). An explicit option override (--es opts) wins.
-    static const char* const kSyncRdpGames[] = {"NPF", "NRI", "NRE", "NCU"};
-    // Also kept synchronous in fast-forward: Yoshi's Story renders black with async on Adreno.
-    static const char* const kAdrenoSyncGames[] = {"NYS"};
+    // Resident Evil 2 and Cruis'n USA (async: black screen), Yoshi's Story and Spider-Man (async: the intro
+    // draws, then every frame renders black from ~25 s; on the Flip's Mali since 2026-11-05, flip-blk-*, and
+    // Yoshi's Story on Adreno in fast-forward). An explicit option override (--es opts) wins.
+    static const char* const kSyncRdpGames[] = {"NPF", "NRI", "NRE", "NCU", "NYS", "NSL"};
     std::string id = romGameId(buf);
     auto idIn = [&](auto& list) { return std::any_of(std::begin(list), std::end(list), [&](const char* g) { return id.compare(0, 3, g) == 0; }); };
-    g_ffKeepSync = idIn(kSyncRdpGames) || idIn(kAdrenoSyncGames);
+    g_ffKeepSync = idIn(kSyncRdpGames);
     auto syncOpt = g_optionOverrides.find("mupen64plus-parallel-rdp-synchronous");
     if (syncOpt != g_optionOverrides.end()) g_rdpSync = syncOpt->second == "True";
     else g_rdpSync = idIn(kSyncRdpGames);

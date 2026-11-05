@@ -4,6 +4,7 @@
 #include "perf_hint.h"
 #include "gpu_clock_pin.h"
 #include "gpu_counters.h"
+#include "thermal.h"
 #include <jni.h>
 #include <dlfcn.h>
 #include <android/log.h>
@@ -90,7 +91,8 @@ std::thread g_thread;
 std::atomic<bool> g_running{false}, g_paused{false};
 std::mutex g_pauseMutex;
 std::condition_variable g_pauseCv;
-// Fast-forward: vsync off, audio dropped, emulation capped at kFastForwardSpeed x normal.
+// Fast-forward: vsync off, audio dropped, emulation capped at 4x normal (lower while the
+// N64_THERMAL_GOV=1 governor says so: thermal.h).
 std::atomic<bool> g_fastForward{false};
 // Benchmark (dev env N64_BENCH=1): no speed cap, vsync off, audio dropped, settings unchanged and every frame
 // presented, so the counter shows how fast the game could run: the headroom a full-speed game has.
@@ -106,7 +108,6 @@ std::vector<std::string> g_cheats;
 // Debug: RDRAM dump requested from the UI thread, written by the emulation thread between frames.
 std::mutex g_dumpMutex;
 std::string g_dumpPath;
-constexpr int kFastForwardSpeed = 4;
 // Upscaling costs the GPU most of the fast-forward headroom (Odin 3 at 4x: Peach's Fury 1.5x, GoldenEye 1.03x),
 // so fast-forward renders at 1x. The setting in use before is restored after ("" = none was overridden).
 constexpr const char* kUpscaleKey = "mupen64plus-parallel-rdp-upscaling";
@@ -360,12 +361,13 @@ void logStats() {
         snprintf(lat, sizeof lat, ", poll->display %.1f ms (max %.1f), %d uneven", latMean, latMax, uneven);
     double fillMs, targetMs; int underruns;
     g_audio.takeStats(!g_fastForward && !g_bench && g_statRuns / secs >= 58.5, fillMs, targetMs, underruns);
+    Thermal::update();
     LOGI("stats: %.1f emu fps, %.1f presented, %.1f dupes (%ux%u), run %.2f ms, wait %.2f ms, "
-         "audio wait %.2f ms, fill %.0f/%.0f ms, %d underruns, device %.0f ms%s, slowest frame %.1f ms, %d over 33 ms%s",
+         "audio wait %.2f ms, fill %.0f/%.0f ms, %d underruns, device %.0f ms%s, slowest frame %.1f ms, %d over 33 ms%s%s",
          g_statRuns / secs, g_statPresents / secs, g_statDupes / secs, g_lastW, g_lastH,
          g_statRunMs / g_statRuns, g_statWaitMs / g_statRuns, g_statAudioWaitMs / g_statRuns, fillMs,
          targetMs, underruns, g_audio.outputLatencyMs(), lat, g_statSlowestMs, g_statSlowFrames,
-         gpuClockText().c_str());
+         gpuClockText().c_str(), Thermal::text().c_str());
     g_statRuns = g_statPresents = g_statDupes = 0;
     g_statRunMs = g_statWaitMs = g_statAudioWaitMs = g_statSlowestMs = 0;
     g_statSlowFrames = 0;
@@ -538,6 +540,8 @@ void runLoop() {
     if (turboEnv && *turboEnv == '2') LOGI("GPU clock pin %s", clockPin.start() ? "on" : "failed");
     // DEV (N64_GPU_COUNTERS=1): Adreno GPU clock and busy % every 5 s, read through a KGSL context of our own
     GpuCounters gpuCounters;
+    // Dev (item 31 heat runs): N64_FF_START=1 starts in fast-forward, as if R3 had been pressed
+    if (getenv("N64_FF_START") && *getenv("N64_FF_START") == '1') g_fastForward = true;
     if (getenv("N64_GPU_COUNTERS") && *getenv("N64_GPU_COUNTERS") == '1') LOGI("GPU counters %s", gpuCounters.start() ? "on" : "failed");
     // EXPERIMENT: ADPF performance hint session for this thread (Android 13+)
     const char* hintEnv = getenv("N64_PERF_HINT");
@@ -608,7 +612,7 @@ void runLoop() {
             ffNext = std::chrono::steady_clock::now();
         }
         if (ff) {
-            ffNext += std::chrono::microseconds((long long)(1e6 / (g_av.timing.fps * kFastForwardSpeed)));
+            ffNext += std::chrono::microseconds((long long)(1e6 / (g_av.timing.fps * Thermal::fastForwardSpeed())));
             auto now = std::chrono::steady_clock::now();
             if (ffNext > now) std::this_thread::sleep_until(ffNext);
             else if (now - ffNext > std::chrono::milliseconds(100)) ffNext = now; // don't sprint to catch up

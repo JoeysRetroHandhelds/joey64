@@ -336,7 +336,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         NativeBridge.setSurface(holder.surface)
         if (!started) {
             val (rom, saveName) = resolveRom() ?: run { Log.e(TAG, "No ROM. Push one to ${getExternalFilesDir(null)}/test.z64"); return }
+            reportGameState(loading = true)
             if (NativeBridge.loadGame(rom, saveName)) { NativeBridge.start(); started = true }
+            reportGameState(loading = false)
         }
     }
 
@@ -445,6 +447,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     override fun onPause() {
         super.onPause()
         NativeBridge.pause(true)
+        reportGameState(loading = false, playing = false)
         fpsHandler.removeCallbacks(fpsTick)
         resumed = false
         setRumbling(false)
@@ -453,12 +456,28 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     override fun onResume() {
         super.onResume()
         NativeBridge.pause(false)
+        if (started) reportGameState(loading = false)
         fpsLastTime = 0L
         fpsHandler.post(fpsTick)
         resumed = true
         setRumbling(NativeBridge.rumble() > 0)
         if (!rumbleWatcher.isAlive) rumbleWatcher.start()
     }
+    // Item 31 (dev, --es env N64_GAME_STATE=1, Android 13+): tell the system a game is being played
+    // (GameManager.setGameState, as ARMSX2 and DroidDeck do), so OEM game modes and the thermal/power
+    // policy know. Interruptible gameplay while running, loading during the ROM load, none while paused.
+    private fun reportGameState(loading: Boolean, playing: Boolean = true) {
+        if (Build.VERSION.SDK_INT < 33 || android.system.Os.getenv("N64_GAME_STATE") != "1") return
+        val gm = getSystemService(android.app.GameManager::class.java) ?: return
+        val mode = if (playing) android.app.GameState.MODE_GAMEPLAY_INTERRUPTIBLE else android.app.GameState.MODE_NONE
+        try {
+            gm.setGameState(android.app.GameState(loading, mode))
+            Log.e(TAG, "game state: loading $loading, mode $mode")
+        } catch (e: Exception) {
+            Log.e(TAG, "setGameState: $e")
+        }
+    }
+
     override fun onDestroy() {
         debugStick?.let { unregisterReceiver(it) }
         debugDump?.let { unregisterReceiver(it) }

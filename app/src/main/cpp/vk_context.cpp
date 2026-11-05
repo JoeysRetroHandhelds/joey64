@@ -256,7 +256,7 @@ bool VkContext::init(const retro_hw_render_context_negotiation_interface_vulkan*
     const char* dupes = getenv("N64_SKIP_DUPES");
     skipDupes_ = !(dupes && *dupes == '0');
     const char* early = getenv("N64_EARLY_ACQUIRE");
-    earlyAcquire_ = early && *early == '1';
+    earlyAcquire_ = early ? atoi(early) : 0; // new frames in a row before acquiring early (2 = first try)
     if (presenter_) { // command pools are used by one thread at a time
         vkCreateCommandPool(device_, &pci, nullptr, &presPool_);
         ai.commandPool = presPool_; ai.commandBufferCount = 1;
@@ -451,7 +451,7 @@ bool VkContext::beginFrame(bool show) {
         return true;
     }
     paceFrame();
-    if (skipDupes_ && earlyAcquire_ && newStreak_ >= 2) {
+    if (skipDupes_ && earlyAcquire_ > 0 && newStreak_ >= earlyAcquire_) {
         // every-frame stretch: acquire before the run, so a full swapchain is waited on before the input poll
         if (!acquireImage()) return false;
         sync_ = (sync_ + 1) % kSyncFrames;

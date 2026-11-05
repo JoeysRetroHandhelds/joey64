@@ -74,9 +74,14 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if ("Adreno" in gpuName) NativeBridge.setOption("mupen64plus-parallel-rdp-synchronous", "True")
         // Sharp display (opt-in; the native look stays the default): the VI's anti-aliasing and bilinear
         // blur off, and a sharp-bilinear final scale. Dev: --ez sharp true, until the settings screen exists.
-        if (intent?.getBooleanExtra("sharp", false) == true) {
+        // --ez sharp2 true (experiment, Joey 2026-11-05): Sharp plus the VI dither filter off. That filter blurs the
+        // games' dither pattern away and is most of the native softness (Flip screenshots: edge contrast +28% with it
+        // off, +9% for VI AA off); the price is the dither grain showing on flat surfaces.
+        val sharp2 = intent?.getBooleanExtra("sharp2", false) == true
+        if (sharp2 || intent?.getBooleanExtra("sharp", false) == true) {
             NativeBridge.setOption("mupen64plus-parallel-rdp-vi-aa", "False")
             NativeBridge.setOption("mupen64plus-parallel-rdp-vi-bilinear", "False")
+            if (sharp2) NativeBridge.setOption("mupen64plus-parallel-rdp-dither-filter", "False")
             NativeBridge.setSharp(true)
         }
         // Dev: --es opts "mupen64plus-parallel-rdp-synchronous=False,key=value"

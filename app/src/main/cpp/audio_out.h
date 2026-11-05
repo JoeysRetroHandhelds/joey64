@@ -57,6 +57,13 @@ private:
     double drcI_ = 0;        // integral part of the rate correction
     int frames_ = 0;         // waitForRoom calls since open (startup frames don't adapt the target)
     int xruns_ = 0;          // AAudio xrun count at the last check
+    // N64_AUDIO_SMOOTH=1 (experiment): games that hand over audio unevenly between frames (Perfect Dark: 0, then
+    // two frames' worth, every other frame) made audio sync start frames ~5 then ~28 ms apart (judder on 120 Hz).
+    // The wait then compares the fill minus excess_, a fading sum of each frame's audio above the running average.
+    bool smooth_ = false;
+    size_t lastW_ = 0;       // write index at the last waitForRoom
+    double avgWrite_ = -1;   // running average of samples written per frame (-1 = none yet)
+    double excess_ = 0;      // fading sum of (written - average), samples
     double step_ = 1.0;      // source frames per output frame
     double pos_ = 0.0;       // position between prev_ and the next source frame
     int16_t prev_[2] = {0, 0};

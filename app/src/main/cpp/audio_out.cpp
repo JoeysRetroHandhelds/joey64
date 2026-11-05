@@ -73,6 +73,9 @@ bool AudioOut::openStream() {
     cap_ = (size_t)dstRate / 5 * 2; // ~200 ms stereo
     ring_.assign(cap_, 0);
     r_ = w_ = 0;
+    lastW_ = 0; avgWrite_ = -1; excess_ = 0;
+    { const char* sm = getenv("N64_AUDIO_SMOOTH"); smooth_ = sm && *sm == '1'; }
+    if (smooth_) LOGI("audio: smoothed audio wait on (N64_AUDIO_SMOOTH=1)");
     // AAudio defaults the buffer to its whole capacity (8 bursts on the Flip and the Portal: 43 and
     // 32 ms of extra latency). Start at 2 bursts; takeStats adds a burst per xrun.
     AAudioStream_setBufferSizeInFrames(stream_, 2 * AAudioStream_getFramesPerBurst(stream_));
@@ -106,6 +109,19 @@ void AudioOut::waitForRoom() {
     // Waits only above target + one frame of audio: where vsync paces the frames (fill near the
     // target via rate control), audio then never delays a frame past its vsync.
     size_t ceiling = target_ + (size_t)dstRate_ / 60 * 2;
+    if (smooth_) {
+        // Samples written since the last call (one frame's audio), against their running average; a burst raises
+        // the ceiling by what it brought above the average, an empty frame lowers it, so frames start evenly.
+        size_t w = w_.load(std::memory_order_relaxed);
+        double wrote = (double)((w + cap_ - lastW_) % cap_);
+        lastW_ = w;
+        if (frames_ > 0) {
+            avgWrite_ = avgWrite_ < 0 ? wrote : avgWrite_ + 0.02 * (wrote - avgWrite_);
+            double lim = (double)cap_ / 4;
+            excess_ = std::max(-lim, std::min(lim, 0.97 * excess_ + (wrote - avgWrite_)));
+        }
+        ceiling = (size_t)std::max(0.0, (double)ceiling + excess_);
+    }
     bool waited = false;
     // Sleep for as long as the excess takes to play, then check again (the callback drains in bursts):
     // a few wake-ups per frame. Polling every 250 us was ~47 per frame, ~3.5% of the Duo's CPU samples.

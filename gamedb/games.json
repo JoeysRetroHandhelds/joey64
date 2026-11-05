@@ -71,7 +71,7 @@
     {
       "id": "NPD", "title": "Perfect Dark",
       "issues": [
-        {"status": "open", "devices": "120 Hz screens (Duo, Portal, Odin 3)", "what": "judders at 60 fps: the game hands over audio every other frame (0, then 1474 samples), audio sync then waits 0 or ~20 ms, so frames show for 1 or 3 refreshes (~240 of 300 frames uneven per 5 s)", "evidence": "duo-cadence, PD frame trace; fix N64_AUDIO_SMOOTH=1 (app a6b36c3) queued on the Duo, chain56_duo_smooth"}
+        {"status": "open", "devices": "120 Hz screens (Duo, Portal, Odin 3)", "what": "judders at 60 fps: the game hands over audio every other frame (0, then 1474 samples), audio sync then waits 0 or ~20 ms, so frames show for 1 or 3 refreshes (~240 of 300 frames uneven per 5 s)", "evidence": "duo-cadence, PD frame trace; fix found: N64_AUDIO_SMOOTH=1 (app a6b36c3). Duo duo-smooth: uneven 244 -> 39 per 5 s, 83% of frames shown 2 refreshes (was 12%), 0 underruns, lag 20.2 -> 18.6 ms. Not default yet: Odin 3 (odin3-smooth, chain67) and Flip (flip-smooth, chain68) checks and compat first"}
       ],
       "fixed": [
         {"what": "Portal: menu background shifted down (async build of 2026-11-03)", "fix": "current build, portal-prdp 2026-11-05"}

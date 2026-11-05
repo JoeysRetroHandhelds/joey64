@@ -171,6 +171,44 @@ Focus now: performance, compatibility and latency; menus come after.
 - [ ] RetroAchievements hardcore rules (flycast): stock clock/CountPerOp, no widescreen or 60 fps hacks, no cheats, no slow-motion, no state loading
 - [ ] Maybe (listed in the review as facts, no plan yet): parallel-n64's EverDrive-header save-type detection, ROMs over 64 MiB and RTC time in savestates; mupen64plus-ae's `Surface.setFrameRate(59.94)`; GammaOS's Turnip UBWC freeze fix if a Turnip build ever hard-freezes a 6xx device
 
+### Emulator review: master test list (every idea, 2026-11-04; Joey: "make sure we don't miss testing any of them")
+One line per idea from emulator-review.md. An idea leaves "Not tested" only with a measured result, a written reason it can't be tested, or Joey parking it. Details live in the item named in brackets. Order = test order.
+
+**Not tested yet**
+- [ ] 1. ADPF session covering every thread (WatermelonDS): parallel-RDP's worker, the fence thread and audio in the same session as the emu thread, target scaled in fast-forward; Portal, Odin 3, Duo (the Flip has no ADPF) [perf hint item]
+- [ ] 2. GPU clock pin with a KGSL `KGSL_CONSTRAINT_PWR_MAX` context kept alive every 25 ms (DroidDeck), against `N64_GPU_TURBO`; Portal and Duo (the Duo's GPU sat at 975 of 1150 MHz in every sample of the 2026-11-04 log) [GPU clock pin item]
+- [ ] 3. GPU clock and load readout during benches (DroidDeck counters, or a fixed kgsl sysfs read: the cpumon load column read 3% under full load, so it is wrong) [GPU clock readout item]
+- [ ] 4. PCSX2 "Spin GPU": a small busy compute job after a readback so the GPU does not clock down while it waits (only the CPU-side spins were built and measured) [spin item]
+- [ ] 5. Adreno compute wave size: which one Turnip picks for parallel-RDP, and forcing the other (VK_EXT_subgroup_size_control) [wave size item]
+- [ ] 6. Turnip GPU priority above the compositor (hakuX KGSL draw-context priority 7), late frames with HW overlays off [Turnip priority item]
+- [ ] 7. Recompiler compile thread (PCSX-ReARMed): Flip compiles cause 4-10 ms hitches; build and measure [compile thread item]
+- [ ] 8. Idle loops beyond `b .; nop`: dev counter first, then PCSX2's FF-block and timeout-loop rules, Dolphin/melonDS busy-wait rule, armGBA two-lap probe; waits for all runs (Joey) [idle-loop item]
+- [ ] 9. parallel-n64's HLE geometry for parallel-RDP (RSP microcode skipped): Flip try plus a compat run [HLE geometry item]
+- [ ] 10. RSP: JIT block cache per IMEM overlay (at most ~1.8%), then threaded RSP (Project64, timing risk) [RSP item]
+- [ ] 11. CPU-side depth answers for OoT (PPSSPP depth raster): early kicks, spins and relaxed depth all gave no gain, so this is the remaining OoT-wait idea; large [depth raster item]
+- [ ] 12. CPU running one frame ahead of the GPU (DuckStation `MaxQueuedFrames`) and whether the scanout drain waits on the GPU: profile [profiling questions item]
+- [ ] 13. Profile-first CPU ideas: fastmem (inline RDRAM check cost), self-modifying-code multi-form blocks and tiny routines (armGBA), OS HLE of libultra leaf functions (DaedalusX64) [their items]
+- [ ] 14. Pacing: Swappy, adaptive frame delay (DuckStation pre-frame sleep), frame skip when behind (VI skip, Flip only) [their items]
+- [ ] 15. Per-game timing: "smoother" mode (counter factor 1 / overclock, strong devices), hacks inherit the base game's CountPerOp by cartridge ID, Project64 ViRefresh / Delay SI / counter factor 2 compare, the 3 games Project64 runs with 4 MB [their items]
+- [ ] 16. Accuracy: ares fixes (COMPARE=0 timer, COUNT reads, banked SRAM, CACHE, LL/SC, flash, PI bus, in-block SMC, RTC), parallel-n64's new_dynarec fixes vs our crash list, PI DMA length rules vs gopher64, test ROM sets (Dillonb n64-tests, n64-systemtest, N64brew jam) [their items]
+- [ ] 17. Compiled-block list saved with savestates (PCSX-ReARMed): after savestates exist [its item]
+
+**Measuring now (results go into their items)**
+- [ ] parallel-n64 ports: Portal still running (no gain on Flip, Duo, Odin 3)
+- [ ] Lazy waking: +4-8% but OoT loses; Portal compat pending
+- [ ] Subgroup / small types on Adreno (Portal, Odin 3, Duo running; Mali defaults kept)
+- [ ] Pre-build threads on Adreno (Flip: keep 1); first-launch hitch on the Odin 3
+- [ ] Spins speed2 and 2-image swapchain (swap2) on Odin 3, Duo, Portal; relaxed depth and early kicks on Odin 3 and Duo
+- [ ] Perf hint and GPU turbo: Portal check (no gain on Duo; small on Odin 3)
+- [ ] RSP NEON vector JIT: built, correct, +0.7% Portal OoT; keep or drop is Joey's call
+- [ ] Duo's two speed levels: GPU log running
+
+**Tested and decided**: one frame less lag, precise smart sync (default), upstream mupen64plus fixes, hack save types, exclusive and sync ubershaders (dropped), early kicks, CPU spins, coherent memory, thread priority, status-register polling (too few reads), present thread, audio usage tag, exclusive audio (on), build flags/LTO/PGO, pipeline cache header check (already done), RDRAM import (no device has it), readback port (already same), SUBGROUP/SMALL_TYPES on Mali.
+
+**Not speed, waiting on Joey's menus or the roadmap**: SGSR/FXAA, temporal upscaler interface, 60 fps hacks, widescreen table, netplay, accessories, driver zips, second-screen output, auto/temporary savestates.
+
+**Parked by Joey**: GLideN64 work (shader store saved on pause, threaded renderer, performance profile, NEON_OPT/CRC_ARMV8 measurement); Duo-only issues get little effort.
+
 ### Options for the eventual menu (Joey designs the menu; until then these are dev switches)
 Things we measured that are not right as a default but help in some cases. Each line: what it does, when it helps, what it costs, how to turn it on today. Joey asked 2026-11-04 to keep these for the menu.
 

@@ -633,11 +633,21 @@ void runLoop() {
             if (!g_vk.beginFrame(show)) continue;   // swapchain recreated, try again
             auto t1 = std::chrono::steady_clock::now();
             core.run();
+            auto t3 = std::chrono::steady_clock::now();
             g_vk.endFrame();
             g_statWaitMs += std::chrono::duration<double, std::milli>(t1 - t0).count();
             auto t2 = std::chrono::steady_clock::now();
             g_statRunMs += std::chrono::duration<double, std::milli>(t2 - t1).count();
-            noteFrameTime(std::chrono::duration<double, std::milli>(t2 - t0).count());
+            double frameMs = std::chrono::duration<double, std::milli>(t2 - t0).count();
+            noteFrameTime(frameMs);
+            // Dev: N64_HITCH_LOG=1 logs every frame over 33 ms split into acquire (beginFrame), emulation
+            // (retro_run, which includes parallel-RDP's scanout) and present (endFrame), to find what a hitch is.
+            static const bool hitchLog = getenv("N64_HITCH_LOG") && *getenv("N64_HITCH_LOG") == '1';
+            if (hitchLog && frameMs > 33.0)
+                LOGI("hitch: %.1f ms frame: acquire %.1f, emulation %.1f, present %.1f ms (frame %u)", frameMs,
+                     std::chrono::duration<double, std::milli>(t1 - t0).count(),
+                     std::chrono::duration<double, std::milli>(t3 - t1).count(),
+                     std::chrono::duration<double, std::milli>(t2 - t3).count(), g_framesRun.load());
         } else {
             auto t0 = std::chrono::steady_clock::now();
             glBindFramebuffer(GL_FRAMEBUFFER, g_egl.fbo());

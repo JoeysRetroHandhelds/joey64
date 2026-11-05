@@ -255,6 +255,8 @@ bool VkContext::init(const retro_hw_render_context_negotiation_interface_vulkan*
     lockstep_ = pres && (*pres == '3' || *pres == '4');
     const char* dupes = getenv("N64_SKIP_DUPES");
     skipDupes_ = !(dupes && *dupes == '0');
+    const char* early = getenv("N64_EARLY_ACQUIRE");
+    earlyAcquire_ = early && *early == '1';
     if (presenter_) { // command pools are used by one thread at a time
         vkCreateCommandPool(device_, &pci, nullptr, &presPool_);
         ai.commandPool = presPool_; ai.commandBufferCount = 1;
@@ -449,6 +451,15 @@ bool VkContext::beginFrame(bool show) {
         return true;
     }
     paceFrame();
+    if (skipDupes_ && earlyAcquire_ && newStreak_ >= 2) {
+        // every-frame stretch: acquire before the run, so a full swapchain is waited on before the input poll
+        if (!acquireImage()) return false;
+        sync_ = (sync_ + 1) % kSyncFrames;
+        vkWaitForFences(device_, 1, &frameFences_[sync_], VK_TRUE, UINT64_MAX);
+        acquired_ = true;
+        presented_ = false;
+        return true;
+    }
     if (skipDupes_) { // acquire once the core reports a new frame (present), so repeats cost nothing
         sync_ = (sync_ + 1) % kSyncFrames;
         vkWaitForFences(device_, 1, &frameFences_[sync_], VK_TRUE, UINT64_MAX);
@@ -544,10 +555,11 @@ void VkContext::present(bool newImage) {
     if (needAcquire_) {
         // N64_SKIP_DUPES: a repeat frame leaves the last image up (FIFO keeps showing it); presenting
         // it again was a blit, a submit and a present per refresh while games draw 20-30 frames a second.
-        if (!newImage && !repaint_) { presented_ = true; return; }
+        if (!newImage && !repaint_) { presented_ = true; newStreak_ = 0; return; }
         if (!acquireImage()) { presented_ = true; return; }
         needAcquire_ = false;
     }
+    newStreak_ = newImage ? newStreak_ + 1 : 0;
     repaint_ = false;
     VkCommandBuffer cmd = frameCmds_[sync_];
     VkImage dst = presenter_ ? staging_[sync_] : images_[index_];

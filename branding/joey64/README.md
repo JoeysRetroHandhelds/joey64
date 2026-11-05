@@ -11,7 +11,8 @@ so nothing in `out/` depends on an installed font.
 ## out/
 - `joey64-icon.svg`: master icon
 - `joey64-icon-{512,192,144,96,72,48}.png`: 512 is the store-size icon
-- `joey64-wordmark.svg` / `.png`: JOEY64 wordmark, transparent
+- `joey64-wordmark.svg` / `.png`: JOEY64 wordmark, transparent (navy shadow, light backgrounds)
+- `joey64-wordmark-dark.svg` / `.png`: same with a black shadow, for dark backgrounds (dark mode)
 - `android-res/`: drop-in resources (minSdk 29, so the adaptive icon XML covers every launcher)
   - `mipmap-anydpi-v26/ic_launcher.xml`, `ic_launcher_round.xml`: adaptive icon
   - `drawable/ic_launcher_foreground.xml`: J64 + shadow on the 108dp layer

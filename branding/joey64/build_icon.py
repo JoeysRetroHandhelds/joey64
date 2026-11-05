@@ -59,12 +59,12 @@ def transformed(path, a, d, e, f):
     return q
 
 
-def layered(runs, shadow=True):
+def layered(runs, shadow=True, shadow_colour=NAVY):
     """Shadow layer (navy union) + face layers, all as pathops paths in design units."""
     face = text_paths(runs)
     layers = []
     if shadow:
-        layers.append((NAVY, transformed(union(face), 1, 1, SHADOW, SHADOW)))
+        layers.append((shadow_colour, transformed(union(face), 1, 1, SHADOW, SHADOW)))
     layers += face
     return layers, union(face)
 
@@ -194,8 +194,14 @@ def main():
     (res / "drawable" / "ic_stat_joey64.xml").write_text(
         vector_drawable(jicon, 24, 24, lambda p: (12 + p[0], 12 + p[1]), colour_override="#FFFFFFFF"))
 
-    # Wordmark: JOEY blue, 64 red, same shadow, transparent
-    wl, wf = layered([("JOEY", BLUE, 0), ("64", RED, 0)])
+    # Wordmark: JOEY blue, 64 red, same shadow, transparent. Dark-mode variant uses a black shadow.
+    for suffix, sc in (("", NAVY), ("-dark", "#000000")):
+        wordmark(suffix, sc)
+    print("done:", sorted(str(p.relative_to(OUT)) for p in OUT.rglob("*") if p.is_file()))
+
+
+def wordmark(suffix, shadow_colour):
+    wl, wf = layered([("JOEY", BLUE, 0), ("64", RED, 0)], shadow_colour=shadow_colour)
     x0, y0, x1, y1 = bounds(wf)
     wm = place(wl, wf, 1, 0)
     ax0, ay0, ax1, ay1 = bounds(union(wm))  # face + shadow
@@ -203,13 +209,12 @@ def main():
     wm = [(c, transformed(p, 1, 1, -mx, -my)) for c, p in wm]
     w, h = (ax1 - ax0) + 8, (ay1 - ay0) + 8
     body = "".join(f'<path fill="{c}" d="{d_of(p)}"/>' for c, p in wm)
-    (OUT / "joey64-wordmark.svg").write_text(
+    (OUT / f"joey64-wordmark{suffix}.svg").write_text(
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{w*8:.0f}" height="{h*8:.0f}" '
         f'viewBox="{-w/2:.2f} {-h/2:.2f} {w:.2f} {h:.2f}">{body}</svg>\n')
     big = raster(wm, 1024, bg=None, span=w)
     ph = round(1024 * h / w)
-    big.crop((0, (1024 - ph) // 2, 1024, (1024 - ph) // 2 + ph)).save(OUT / "joey64-wordmark.png")
-    print("done:", sorted(str(p.relative_to(OUT)) for p in OUT.rglob("*") if p.is_file()))
+    big.crop((0, (1024 - ph) // 2, 1024, (1024 - ph) // 2 + ph)).save(OUT / f"joey64-wordmark{suffix}.png")
 
 
 if __name__ == "__main__":

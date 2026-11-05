@@ -119,6 +119,13 @@ unsigned g_lastW = 0, g_lastH = 0;
 int g_statRuns = 0, g_statPresents = 0, g_statDupes = 0; // emulation thread only
 double g_statRunMs = 0, g_statWaitMs = 0;                 // time in retro_run / beginFrame
 double g_statAudioWaitMs = 0;                             // audio sync before each frame
+// Hitches: the slowest frame (beginFrame + retro_run + endFrame; no speed cap, audio wait or pause) and the
+// frames over 33 ms, which skip a frame even at normal speed: what averages hide, such as a shader compile.
+double g_statSlowestMs = 0; int g_statSlowFrames = 0;
+void noteFrameTime(double ms) {
+    if (ms > g_statSlowestMs) g_statSlowestMs = ms;
+    if (ms > 33.0) ++g_statSlowFrames;
+}
 // For the counter ("60 FPS | 20 DL/s | 100%"): emulated frames (retro_run calls, the game's speed) and new
 // frames presented (what the game drew: OoT 20 a second once repeats are skipped).
 std::atomic<uint32_t> g_framesRun{0}, g_framesDrawn{0};
@@ -351,12 +358,13 @@ void logStats() {
     double fillMs, targetMs; int underruns;
     g_audio.takeStats(!g_fastForward && !g_bench && g_statRuns / secs >= 58.5, fillMs, targetMs, underruns);
     LOGI("stats: %.1f emu fps, %.1f presented, %.1f dupes (%ux%u), run %.2f ms, wait %.2f ms, "
-         "audio wait %.2f ms, fill %.0f/%.0f ms, %d underruns, device %.0f ms%s",
+         "audio wait %.2f ms, fill %.0f/%.0f ms, %d underruns, device %.0f ms%s, slowest frame %.1f ms, %d over 33 ms",
          g_statRuns / secs, g_statPresents / secs, g_statDupes / secs, g_lastW, g_lastH,
          g_statRunMs / g_statRuns, g_statWaitMs / g_statRuns, g_statAudioWaitMs / g_statRuns, fillMs,
-         targetMs, underruns, g_audio.outputLatencyMs(), lat);
+         targetMs, underruns, g_audio.outputLatencyMs(), lat, g_statSlowestMs, g_statSlowFrames);
     g_statRuns = g_statPresents = g_statDupes = 0;
-    g_statRunMs = g_statWaitMs = g_statAudioWaitMs = 0;
+    g_statRunMs = g_statWaitMs = g_statAudioWaitMs = g_statSlowestMs = 0;
+    g_statSlowFrames = 0;
     start = clock::now();
 }
 
@@ -582,12 +590,16 @@ void runLoop() {
             core.run();
             g_vk.endFrame();
             g_statWaitMs += std::chrono::duration<double, std::milli>(t1 - t0).count();
-            g_statRunMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t1).count();
+            auto t2 = std::chrono::steady_clock::now();
+            g_statRunMs += std::chrono::duration<double, std::milli>(t2 - t1).count();
+            noteFrameTime(std::chrono::duration<double, std::milli>(t2 - t0).count());
         } else {
             auto t0 = std::chrono::steady_clock::now();
             glBindFramebuffer(GL_FRAMEBUFFER, g_egl.fbo());
             core.run(); // includes the swap, so the vsync wait lands here
-            g_statRunMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            g_statRunMs += ms;
+            noteFrameTime(ms);
         }
         logStats();
         if (stateWait > 0 && --stateWait == 0) {

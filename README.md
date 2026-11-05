@@ -192,6 +192,11 @@ One line per idea from emulator-review.md. An idea leaves "Not tested" only with
 - [ ] 15. Per-game timing: "smoother" mode (counter factor 1 / overclock, strong devices), hacks inherit the base game's CountPerOp by cartridge ID, Project64 ViRefresh / Delay SI / counter factor 2 compare, the 3 games Project64 runs with 4 MB [their items]
 - [ ] 16. Accuracy: ares fixes (COMPARE=0 timer, COUNT reads, banked SRAM, CACHE, LL/SC, flash, PI bus, in-block SMC, RTC), parallel-n64's new_dynarec fixes vs our crash list, PI DMA length rules vs gopher64, test ROM sets (Dillonb n64-tests, n64-systemtest, N64brew jam) [their items]
 - [ ] 17. Compiled-block list saved with savestates (PCSX-ReARMed): after savestates exist [its item]
+- [ ] 18. Flip (added 2026-11-05, Joey asked for the Flip's top ideas): see the Mali-G52's GPU time (Arm hardware counters through libGPUCounters/HWCPipe, or Perfetto's Mali counters; parallel-RDP's own GPU timers come back empty on this GPU), so Flip GPU work stops being guessed
+- [ ] 19. Flip: does the Mali's GPU clock drop between frames at 60 fps (Mali devfreq in sysfs while capped)? If it does, the PCSX2 GPU spin (item 4) is the Mali's only app-side fix (no KGSL, no ADPF on Android 11)
+- [ ] 20. Ship a per-game list of the parallel-RDP shader variants each game needs (driver-independent, unlike the Vulkan pipeline cache) so even the very first launch can pre-build them (with the parallel-n64 pre-build port); measure with the first-launch hitch bench on the Flip
+- [ ] 21. Mali tuning inside parallel-RDP: SMALL_TYPES off cost the Flip 12.9%, so its shaders are sensitive to data width; read which sizes (workgroup, tile, binning) parallel-RDP fixes at build time and whether an 8-wide Bifrost GPU wants others (unchecked)
+- [ ] 22. Flip dips (41-50 fps in heavy scenes): find what present/acquire blocks on; the present thread lifted them to ~55 but added 8-13 ms lag [present thread item]
 
 **Measuring now (results go into their items)**
 - [ ] parallel-n64 ports: all four done; ~2% on the Portal (never loses), no clear gain on the Flip, Duo, Odin 3: decide after all runs

@@ -281,9 +281,34 @@ void audio_sample(int16_t l, int16_t r) {
     if (g_fastForward || g_bench) return;
     int16_t s[2] = {l, r}; g_audio.write(s, 1);
 }
+size_t g_frameAudio = 0; // audio frames the core gave during this retro_run (N64_FRAME_TRACE)
 size_t audio_batch(const int16_t* d, size_t frames) {
     if (!g_fastForward && !g_bench) g_audio.write(d, frames); // blocking write would throttle fast-forward
+    g_frameAudio += frames;
     return frames;
+}
+// Dev: N64_FRAME_TRACE=1 logs 300 frames from frame 900 on (after the state load), 30 per line: audio frames the
+// core gave in each retro_run, ms waited for audio room before it, ms between frame starts. Finds bursty pacing.
+void traceFrame(double audioWaitMs) {
+    static const bool on = getenv("N64_FRAME_TRACE") && *getenv("N64_FRAME_TRACE") == '1';
+    static std::chrono::steady_clock::time_point last;
+    static std::string a, w, s;
+    static int n = 0;
+    auto now = std::chrono::steady_clock::now();
+    double since = std::chrono::duration<double, std::milli>(now - last).count();
+    last = now;
+    size_t audio = g_frameAudio;
+    g_frameAudio = 0;
+    uint32_t f = g_framesRun.load();
+    if (!on || f < 900 || f >= 1200) return;
+    char b[32];
+    snprintf(b, sizeof b, "%zu ", audio); a += b;
+    snprintf(b, sizeof b, "%.1f ", audioWaitMs); w += b;
+    snprintf(b, sizeof b, "%.1f ", since); s += b;
+    if (++n == 30) {
+        LOGI("trace: audio frames %s| audio wait ms %s| frame start gap ms %s", a.c_str(), w.c_str(), s.c_str());
+        a.clear(); w.clear(); s.clear(); n = 0;
+    }
 }
 // Taps are held for kMinPressPolls polls: some games (Pokemon Snap's tutorial) ignore a press
 // that is visible for a single frame.
@@ -628,7 +653,9 @@ void runLoop() {
         if (!ff && !g_bench) {
             auto t0 = std::chrono::steady_clock::now();
             g_audio.waitForRoom();
-            g_statAudioWaitMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            double aw = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            g_statAudioWaitMs += aw;
+            traceFrame(aw);
             // Speed cap. Audio sync and vsync normally pace, but a game that stops producing audio
             // (New Tetris) ran at the panel rate on 120 Hz: 2x. 2% slack keeps it out of the way
             // of audio pacing and rate control.

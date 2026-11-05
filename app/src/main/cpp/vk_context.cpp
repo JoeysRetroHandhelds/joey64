@@ -743,6 +743,18 @@ void VkContext::collectTiming() {
         if (ms <= 0 || ms > 500) continue;
         latSumMs_ += ms; latCount_++;
         latMaxMs_ = std::max(latMaxMs_, ms);
+        // Dev check N64_PRESENT_MARGIN=1 (2026-11-05 recheck): log presentMargin (how long before its display slot the
+        // compositor had the frame) as mean/min/max over every 300 frames, to see whether the driver reports usable values.
+        static const bool marginLog = getenv("N64_PRESENT_MARGIN") && *getenv("N64_PRESENT_MARGIN") == '1';
+        if (marginLog) {
+            static double mSum = 0, mMin = 1e18, mMax = -1e18; static int mN = 0;
+            double m = (double)past[i].presentMargin / 1e6;
+            mSum += m; mMin = std::min(mMin, m); mMax = std::max(mMax, m);
+            if (++mN == 300) {
+                LOGI("vulkan: presentMargin over 300 frames: mean %.2f ms, min %.2f, max %.2f", mSum / mN, mMin, mMax);
+                mSum = 0; mMin = 1e18; mMax = -1e18; mN = 0;
+            }
+        }
         if (swapMode_ == 2 && past[i].desiredPresentTime) {
             // Only misses where the frame itself came too late (earliest possible display past the
             // target): more lead can't fix slots the compositor skips on its own (Portal).

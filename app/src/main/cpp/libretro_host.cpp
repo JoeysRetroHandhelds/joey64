@@ -3,6 +3,7 @@
 #include <adrenotools/driver.h>
 #include "perf_hint.h"
 #include "gpu_clock_pin.h"
+#include "gpu_counters.h"
 #include <jni.h>
 #include <dlfcn.h>
 #include <android/log.h>
@@ -535,6 +536,9 @@ void runLoop() {
     if (turbo) { adrenotools_set_turbo(true); LOGI("GPU turbo on"); }
     GpuClockPin clockPin;
     if (turboEnv && *turboEnv == '2') LOGI("GPU clock pin %s", clockPin.start() ? "on" : "failed");
+    // DEV (N64_GPU_COUNTERS=1): Adreno GPU clock and busy % every 5 s, read through a KGSL context of our own
+    GpuCounters gpuCounters;
+    if (getenv("N64_GPU_COUNTERS") && *getenv("N64_GPU_COUNTERS") == '1') LOGI("GPU counters %s", gpuCounters.start() ? "on" : "failed");
     // EXPERIMENT: ADPF performance hint session for this thread (Android 13+)
     const char* hintEnv = getenv("N64_PERF_HINT");
     // N64_PERF_HINT=2 also adds the core's worker threads at the first thread split (WatermelonDS), and

@@ -5,6 +5,7 @@
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
+#include <cstdlib>
 #include <android_linker_ns.h>
 #include <android/dlext.h>
 #include <android/log.h>
@@ -84,6 +85,14 @@ __attribute__((visibility("default"))) void *hook_android_dlopen_ext(const char 
         }
 
         LOGI("hook_android_dlopen_ext: applied libfile_redirect_hook");
+    }
+
+    // Joey64: N64_KGSL_PRIO=<0-15> gives the driver's GPU contexts a KGSL priority (kgsl_priority_hook.c)
+    if (getenv("N64_KGSL_PRIO")) {
+        if (linkernsbypass_namespace_dlopen("libkgsl_priority_hook.so", RTLD_GLOBAL, driverNs))
+            LOGI("hook_android_dlopen_ext: applied libkgsl_priority_hook");
+        else
+            LOGI("hook_android_dlopen_ext: libkgsl_priority_hook failed to load");
     }
 
     // Use our new namespace to load the vulkan driver

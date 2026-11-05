@@ -216,7 +216,7 @@ One line per idea from emulator-review.md. An idea leaves "Not tested" only with
 - [ ] Lazy waking: +4-8% but OoT loses; Portal compat on a lazy build queued (the finished Portal compat was on a build without it)
 - [ ] Subgroup / small types on Adreno: Duo and Portal no gain (defaults kept); Odin 3 to come; Mali defaults kept
 - [ ] Pre-build threads on Adreno (Flip: keep 1); first-launch hitch on the Odin 3
-- [ ] Spins speed2 and 2-image swapchain (swap2) on Odin 3, Duo, Portal; relaxed depth and early kicks on Odin 3 and Duo. Duo speed2 done 2026-11-05: kicks, spins and priority all within 1% (no gain); Duo swap2 done: no lag gain. Portal speed2 done 2026-11-05: no overall gain (MK64 +8% with kick 1 pass, Banjo +13% with fence spin). Odin 3 speed done 2026-11-05: relaxed depth, kicks, priority, coherent memory no gain; wait spin +1.1% (Banjo +10%), fence spin costs Smash 7%; idle stats next
+- [ ] Spins speed2 and 2-image swapchain (swap2) on Odin 3, Duo, Portal; relaxed depth and early kicks on Odin 3 and Duo. Duo speed2 done 2026-11-05: kicks, spins and priority all within 1% (no gain); Duo and Portal swap2 done: no lag gain. Portal speed2 done 2026-11-05: no overall gain (MK64 +8% with kick 1 pass, Banjo +13% with fence spin). Odin 3 speed done 2026-11-05: relaxed depth, kicks, priority, coherent memory no gain; wait spin +1.1% (Banjo +10%), fence spin costs Smash 7%; idle stats next
 - [ ] Perf hint and GPU turbo: Portal check (no gain on Duo; small on Odin 3)
 - [ ] RSP NEON vector JIT: built, correct, +0.7% Portal OoT; keep or drop is Joey's call
 - [ ] Duo's two speed levels: GPU log running
@@ -239,7 +239,7 @@ Speed
 
 Latency
 - [ ] Frame delay (fixed 4 ms sleep after acquiring the image): -4.5 ms lag in Flip menus, but heavy scenes drop to 48 fps; light games or strong devices only
-- [ ] 2-image swapchain: one frame less queued; the Flip fell to ~40 fps; not tried on the Portal, Odin 3 or Duo, where it may work Dev switch back (app 6071a43, `N64_SWAP_IMAGES=<n>`); queued 2026-11-04 on the Portal, Odin 3 and Duo as a capped run (`benchlag.sh`: normal speed with vsync, records poll->display and uneven frames; uncapped runs can't show it), `bench/swap2.txt`, app-speed5. Duo (2026-11-05 03:0x, `duo-swap2`, 14 games x 2 at 60 fps): holds 60 fps in every game like the default, but poll->display is no lower: 25.2 vs 24.8 ms average (max 30.3 vs 29.1). No gain on the Duo (the bench keeps no app log line showing the swapchain really got 2 images, so that is unchecked)
+- [ ] 2-image swapchain: one frame less queued; the Flip fell to ~40 fps; not tried on the Portal, Odin 3 or Duo, where it may work Dev switch back (app 6071a43, `N64_SWAP_IMAGES=<n>`); queued 2026-11-04 on the Portal, Odin 3 and Duo as a capped run (`benchlag.sh`: normal speed with vsync, records poll->display and uneven frames; uncapped runs can't show it), `bench/swap2.txt`, app-speed5. Duo (2026-11-05 03:0x, `duo-swap2`, 14 games x 2 at 60 fps): holds 60 fps in every game like the default, but poll->display is no lower: 25.2 vs 24.8 ms average (max 30.3 vs 29.1). No gain on the Duo (the bench keeps no app log line showing the swapchain really got 2 images, so that is unchecked) Portal (2026-11-05 05:0x, `portal-swap2`, 14 games x 2 at 60 fps): same as the Duo, 60 fps everywhere and no lag gain: poll->display 26.2 vs 25.8 ms average. Odin 3 still to come
 - [ ] 60 Hz display mode on 120 Hz screens: no judder, a bit more lag; timed pacing `N64_SWAP_INTERVAL=2` is already a dev switch
 
 Accuracy fallbacks for problem games

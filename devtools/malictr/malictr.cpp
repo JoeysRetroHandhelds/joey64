@@ -3,6 +3,13 @@
 // Usage: malictr [interval_ms=100] [seconds=0 (forever)] [stop_file]
 // One tab-separated line per interval:
 //   epoch_ms  clock_MHz  gpu_busy%  gpu_active_Mcy  frag_active_Mcy  nonfrag_active_Mcy  tiler_active_Mcy  ext_rd_MB  ext_wr_MB
+// then, where the GPU has them (-1 if not), what limits the shader cores (2026-11-05, emulator pass question 1):
+//   alu%  ls%  tex%       arithmetic / load-store / texture unit utilisation
+//   allregs%              warps that use all registers (those run at half occupancy)
+//   diverged%             diverged instructions
+//   starve_Mcy            cycles the cores had no work
+//   l2rdmiss%  extrdstall%  L2 read misses, external read stalls
+//   nonfrag%              compute queue utilisation
 // gpu_busy% = GPU active cycles / (devfreq clock x interval): how much of the time the GPU had work.
 // frag/nonfrag are summed over the shader cores (2 on the Mali-G52), so they can exceed gpu_active.
 #include <hwcpipe/gpu.hpp>
@@ -42,6 +49,12 @@ int main(int argc, char** argv) {
                                         MaliExtBusRdBy, MaliExtBusWrBy};
     for (auto c : counters)
         if (config.add_counter(c)) { fprintf(stderr, "malictr: counter %d not supported\n", int(c)); return 1; }
+    const hwcpipe_counter extra[] = {MaliALUUtil, MaliLSUtil, MaliTexUtil, MaliCoreAllRegsWarpRate,
+                                     MaliEngDivergedInstrRate, MaliEngStarveCy, MaliL2CacheRdMissRate,
+                                     MaliExtBusRdStallRate, MaliNonFragUtil};
+    const size_t nExtra = sizeof extra / sizeof extra[0];
+    bool have[nExtra];
+    for (size_t i = 0; i < nExtra; i++) have[i] = !config.add_counter(extra[i]);
     auto sampler = hwcpipe::sampler<>(config);
     if (auto ec = sampler.start_sampling()) { fprintf(stderr, "malictr: %s\n", ec.message().c_str()); return 1; }
 
@@ -49,7 +62,8 @@ int main(int argc, char** argv) {
     auto start = clk::now();
     auto next = start;
     auto last = start;
-    printf("epoch_ms\tclock_MHz\tgpu_busy%%\tgpu_active_Mcy\tfrag_Mcy\tnonfrag_Mcy\ttiler_Mcy\text_rd_MB\text_wr_MB\n");
+    printf("epoch_ms\tclock_MHz\tgpu_busy%%\tgpu_active_Mcy\tfrag_Mcy\tnonfrag_Mcy\ttiler_Mcy\text_rd_MB\text_wr_MB"
+           "\talu%%\tls%%\ttex%%\tallregs%%\tdiverged%%\tstarve_Mcy\tl2rdmiss%%\textrdstall%%\tnonfrag%%\n");
     fflush(stdout);
     for (;;) {
         next += std::chrono::milliseconds(intervalMs);
@@ -63,14 +77,20 @@ int main(int argc, char** argv) {
         double busy = mhz > 0 ? 100.0 * active / (mhz * 1000.0 * ms) : -1;
         long long epoch = std::chrono::duration_cast<std::chrono::milliseconds>(
                               std::chrono::system_clock::now().time_since_epoch()).count();
-        printf("%lld\t%ld\t%.1f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\n", epoch, mhz, busy, active / 1e6,
+        printf("%lld\t%ld\t%.1f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f\t%.2f", epoch, mhz, busy, active / 1e6,
                value(sampler, MaliFragActiveCy) / 1e6, value(sampler, MaliNonFragActiveCy) / 1e6,
                value(sampler, MaliTilerActiveCy) / 1e6, value(sampler, MaliExtBusRdBy) / 1e6,
                value(sampler, MaliExtBusWrBy) / 1e6);
+        for (size_t i = 0; i < nExtra; i++) {
+            double v = have[i] ? value(sampler, extra[i]) : -1;
+            if (have[i] && extra[i] == MaliEngStarveCy) v /= 1e6;
+            printf("\t%.2f", v);
+        }
+        printf("\n");
         fflush(stdout);
         if (seconds > 0 && now - start >= std::chrono::seconds(seconds)) break;
         if (stopFile && access(stopFile, F_OK) == 0) break;
     }
-    sampler.stop_sampling();
+    (void)sampler.stop_sampling();
     return 0;
 }

@@ -183,7 +183,7 @@ One line per idea from emulator-review.md. An idea leaves "Not tested" only with
 - [ ] 6. Turnip GPU priority above the compositor (hakuX KGSL draw-context priority 7), late frames with HW overlays off [Turnip priority item]
 - [ ] 7. Recompiler compile thread (PCSX-ReARMed): Flip compiles cause 4-10 ms hitches; build and measure [compile thread item]
 - [ ] 8. Idle loops beyond `b .; nop`: dev counter first, then PCSX2's FF-block and timeout-loop rules, Dolphin/melonDS busy-wait rule, armGBA two-lap probe; waits for all runs (Joey) [idle-loop item]
-- [ ] 9. parallel-n64's HLE geometry for parallel-RDP (RSP microcode skipped): Flip try plus a compat run [HLE geometry item]
+- [ ] 9. parallel-n64's HLE geometry for parallel-RDP (RSP microcode skipped): Flip try plus a compat run [HLE geometry item] First look queued 2026-11-05 on the Flip after the MK64 trace: the libretro/parallel-n64 core built as is (NDK 27.3) inside the Joey64 app (`bench/hle.txt`, app-pn64core.apk), its RSP LLE vs HLE on 6 games, our core for scale; the port waits on that result.
 - [ ] 10. RSP: JIT block cache per IMEM overlay (at most ~1.8%), then threaded RSP (Project64, timing risk) [RSP item]
 - [ ] 11. CPU-side depth answers for OoT (PPSSPP depth raster): early kicks, spins and relaxed depth all gave no gain, so this is the remaining OoT-wait idea; large [depth raster item]
 - [ ] 12. CPU running one frame ahead of the GPU (DuckStation `MaxQueuedFrames`) and whether the scanout drain waits on the GPU: profile [profiling questions item]

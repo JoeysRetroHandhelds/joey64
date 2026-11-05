@@ -56,6 +56,9 @@ public:
     void notePoll(int64_t ns) { pollNs_ = ns; }
     // uneven: consecutive frames whose display times were not ~16.7 ms apart (judder).
     bool takeLatency(double& meanMs, double& maxMs, int& uneven);
+    // Cadence since the last call: how many refreshes each frame stayed on screen (1/2/3/4+; 2 is
+    // even at 60 fps on 120 Hz) and the mean/sd of the time between our present calls. "" if unknown.
+    std::string takeCadence();
 
     const retro_hw_render_interface_vulkan* iface() const { return &iface_; }
     void destroy();
@@ -148,6 +151,8 @@ private:
     double latSumMs_ = 0, latMaxMs_ = 0;
     uint32_t latCount_ = 0;
     uint64_t lastActual_ = 0; uint32_t lastId_ = 0; int uneven_ = 0;
+    int shownFor_[4] = {};
+    int64_t lastCallNs_ = 0; double callSum_ = 0, callSq_ = 0; int callN_ = 0;
     void collectTiming();
     std::mutex timingMutex_; // presenter mode: collectTiming runs on the presenter thread
 

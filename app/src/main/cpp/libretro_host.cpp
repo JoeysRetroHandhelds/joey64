@@ -355,10 +355,11 @@ void logStats() {
     ++g_framesRun;
     double secs = std::chrono::duration<double>(clock::now() - start).count();
     if (secs < 5.0) return;
-    char lat[64] = "";
+    char lat[256] = "";
     double latMean, latMax; int uneven;
     if (g_vulkan && g_vk.takeLatency(latMean, latMax, uneven))
-        snprintf(lat, sizeof lat, ", poll->display %.1f ms (max %.1f), %d uneven", latMean, latMax, uneven);
+        snprintf(lat, sizeof lat, ", poll->display %.1f ms (max %.1f), %d uneven%s", latMean, latMax, uneven,
+                 g_vk.takeCadence().c_str());
     double fillMs, targetMs; int underruns;
     g_audio.takeStats(!g_fastForward && !g_bench && g_statRuns / secs >= 58.5, fillMs, targetMs, underruns);
     Thermal::update();

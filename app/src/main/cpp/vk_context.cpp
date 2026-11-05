@@ -704,6 +704,13 @@ void VkContext::present(bool newImage) {
         presentPollNs_[presentId_ % kTimingRing] = pollNs_;
         times.swapchainCount = 1; times.pTimes = &when;
         pi.pNext = &times;
+        int64_t t = monoNs();
+        std::lock_guard<std::mutex> lk(timingMutex_);
+        if (lastCallNs_ && t - lastCallNs_ < 100000000) {
+            double d = (t - lastCallNs_) / 1e6;
+            callSum_ += d; callSq_ += d * d; ++callN_;
+        }
+        lastCallNs_ = t;
     }
     VkResult r;
     {
@@ -749,6 +756,10 @@ void VkContext::collectTiming() {
             double gap = (int64_t)(past[i].actualPresentTime - lastActual_) / 1e6, frame = 1000.0 / contentHz_;
             double k = skipDupes_ ? std::max(1.0, std::round(gap / frame)) : 1.0;
             if (gap - k * frame < -2.7 || gap - k * frame > 2.8) ++uneven_;
+            if (refreshNs_) { // how many refreshes each frame stayed up (cadence)
+                long n = std::lround(gap * 1e6 / (double)refreshNs_);
+                ++shownFor_[std::max(1L, std::min(4L, n)) - 1];
+            }
         }
         lastActual_ = past[i].actualPresentTime; lastId_ = past[i].presentID;
     }
@@ -760,6 +771,19 @@ bool VkContext::takeLatency(double& meanMs, double& maxMs, int& uneven) {
     meanMs = latSumMs_ / latCount_; maxMs = latMaxMs_; uneven = uneven_; uneven_ = 0;
     latSumMs_ = latMaxMs_ = 0; latCount_ = 0;
     return true;
+}
+
+std::string VkContext::takeCadence() {
+    std::lock_guard<std::mutex> lk(timingMutex_);
+    char buf[128] = "";
+    if (callN_) {
+        double mean = callSum_ / callN_, sd = std::sqrt(std::max(0.0, callSq_ / callN_ - mean * mean));
+        snprintf(buf, sizeof buf, ", shown 1/2/3/4+ refreshes %d/%d/%d/%d, present every %.2f ms (sd %.2f)",
+                 shownFor_[0], shownFor_[1], shownFor_[2], shownFor_[3], mean, sd);
+    }
+    shownFor_[0] = shownFor_[1] = shownFor_[2] = shownFor_[3] = 0;
+    callSum_ = callSq_ = 0; callN_ = 0;
+    return buf;
 }
 
 // Skipped frame: submit only what the core handed over (so its semaphores are consumed and the

@@ -1,0 +1,190 @@
+{
+  "about": "Joey64 per-game database: what each game needs, what is wrong with it and where, and what was fixed. Seed for the M3 profile DB. Rules: gamedb/README.md. Update this file in the same commit as any change to a game's status (new problem found, fixed, regressed, setting added or dropped).",
+  "updated": "2026-11-05",
+  "games": [
+    {
+      "id": "NPF", "title": "Pokemon Snap",
+      "settings": [
+        {"what": "synchronous parallel-RDP (smart sync), also in fast-forward", "where": "libretro_host.cpp kSyncRdpGames", "why": "photo checks read the framebuffer; async can hand the CPU a stale one"}
+      ],
+      "issues": [
+        {"status": "open", "devices": "all", "what": "Oak's Mark photo check not yet checked under smart sync (Snap moved from plain sync to smart sync)", "evidence": "README Pokemon Snap photo check item"},
+        {"status": "parked", "renderer": "GLideN64", "what": "Oak's Mark fix (upstream PRs gonetz/GLideN64#2991, libretro #674) not rechecked after the gonetz update, core 2f73718", "evidence": "README parked-with-GLideN64 item"}
+      ],
+      "notes": ["VI filters off: +20% speed on the Flip, the biggest gain of the 14 bench games (2026-11-05, vifilt)"]
+    },
+    {
+      "id": "NRI", "title": "The New Tetris",
+      "settings": [
+        {"what": "synchronous parallel-RDP, also in fast-forward", "where": "kSyncRdpGames", "why": "async: halts on a 'secret cheat, power off' screen after ~10 s"}
+      ],
+      "fixed": [
+        {"what": "ran at 121 fps on 120 Hz screens (audio did not pace it)", "fix": "speed cap when audio does not pace, app c642e3e"}
+      ]
+    },
+    {
+      "id": "NRE", "title": "Resident Evil 2",
+      "settings": [
+        {"what": "synchronous parallel-RDP, also in fast-forward", "where": "kSyncRdpGames", "why": "async: black screen"}
+      ],
+      "issues": [
+        {"status": "open", "devices": "all", "what": "rooms in gameplay (pre-rendered backgrounds + 3D) only checked up to the intro video and save screen; check in-game from a save, also on the Flip", "evidence": "README RE2 gameplay item"}
+      ]
+    },
+    {
+      "id": "NCU", "title": "Cruis'n USA",
+      "settings": [
+        {"what": "synchronous parallel-RDP, also in fast-forward", "where": "kSyncRdpGames", "why": "async: black screen"}
+      ],
+      "issues": [
+        {"status": "open", "what": "bench state stops on the Controller Pak notice, so its bench numbers are a static menu (150-1190 fps swings); needs a state in a race", "evidence": "README bench states item"}
+      ],
+      "fixed": [
+        {"what": "RSP looped on the boot screen with precise smart sync", "fix": "copies (DMA, RSP, C code) always wait, core c3713bb"}
+      ]
+    },
+    {
+      "id": "NYS", "title": "Yoshi's Story",
+      "settings": [
+        {"what": "kept synchronous in fast-forward", "where": "kAdrenoSyncGames", "why": "async renders black on Adreno"},
+        {"what": "save type 16K EEPROM for hacks (header ID)", "where": "core rom.c, 8e8f5c7", "why": "hacks not in the database got 4K and could not save"}
+      ],
+      "issues": [
+        {"status": "open", "devices": "Flip (Mali, async)", "what": "draws its intro, then black with 0 new frames from ~25 s, in every Flip run since 2026-11-05 (fine 2026-11-03; Adrenos fine in every run). Suspect: repeat-frame skip hashing stale RDRAM under async", "evidence": "flip-early30, flip-gpu8c; test queued: chain60_flip_black (default / repeat skip off / sync)"}
+      ]
+    },
+    {
+      "id": "NSL", "title": "Spider-Man",
+      "issues": [
+        {"status": "open", "devices": "Flip (Mali, async)", "what": "same as Yoshi's Story: intro, then black with 0 new frames from ~25 s since 2026-11-05", "evidence": "flip-early30, flip-gpu8c; chain60_flip_black queued"}
+      ]
+    },
+    {
+      "id": "NGU", "title": "Sin and Punishment (English patch)",
+      "settings": [
+        {"what": "cached interpreter instead of the dynarec", "where": "libretro_host.cpp kInterpreterGames", "why": "new_dynarec jumps to a bogus address right after boot since upstream's 3.0 core update"}
+      ],
+      "issues": [
+        {"status": "open", "devices": "all", "what": "find the dynarec commit that broke it, fix, report upstream (then drop the interpreter setting)", "evidence": "README Sin and Punishment item"}
+      ]
+    },
+    {
+      "id": "NPD", "title": "Perfect Dark",
+      "issues": [
+        {"status": "open", "devices": "120 Hz screens (Duo, Portal, Odin 3)", "what": "judders at 60 fps: the game hands over audio every other frame (0, then 1474 samples), audio sync then waits 0 or ~20 ms, so frames show for 1 or 3 refreshes (~240 of 300 frames uneven per 5 s)", "evidence": "duo-cadence, PD frame trace; fix N64_AUDIO_SMOOTH=1 (app a6b36c3) queued on the Duo, chain56_duo_smooth"}
+      ],
+      "fixed": [
+        {"what": "Portal: menu background shifted down (async build of 2026-11-03)", "fix": "current build, portal-prdp 2026-11-05"}
+      ],
+      "notes": [
+        "input delay steady 18-24 ms (Smash 16-18); an earlier 54-83 ms was an averaging artifact",
+        "Flip slow frames are a first-run dynarec compile burst (2009 blocks / 273 ms in one window), like MK64",
+        "100-140 ms boot frames on the Flip"
+      ]
+    },
+    {
+      "id": "CZL", "crc": "EC7011B77616D72B", "title": "Ocarina of Time",
+      "issues": [
+        {"status": "open", "devices": "all", "what": "pause-screen freezes (M6 core fixes list)", "evidence": "README core emulation fixes item"}
+      ],
+      "notes": [
+        "reads its depth buffer every frame (lens flare): smart sync waits 599 of 600 frames; lazy waking of the RDP worker costs it 3% on the Portal (Snap 15%, GoldenEye 6%: games where the CPU waits on GPU results)",
+        "hacks Sands of Time, Sealed Palace, Master of Time, Missing Link, Dawn & Dusk share the CZL ID: tell them apart by crc"
+      ]
+    },
+    {
+      "id": "NKT", "title": "Mario Kart 64",
+      "issues": [
+        {"status": "open", "devices": "Flip (95 ms), Odin 3 (29 ms)", "what": "hitch the first time an area's code runs: ~2100 dynarec blocks compiled at once (not code thrown away and rebuilt). A one-off per area; fixes: compile thread (item 7) or saved block list (item 17)", "evidence": "flip-mkhitch, flip-drcinv, odin3-hitch"}
+      ],
+      "notes": ["first launch: 98-100 ms worst frame on the Flip while shaders compile (warm 40-41 ms)", "maybe a white dash on the bottom lines of the race view on all devices (low confidence)"]
+    },
+    {
+      "id": "NZS", "title": "Majora's Mask",
+      "issues": [
+        {"status": "open", "devices": "Flip", "what": "first launch stutters while shaders compile: 93-108 ms worst frames, 40 slow frames per window (warm 40-43 ms)", "evidence": "hitch bench; shader pre-build list is item 20"},
+        {"status": "open", "devices": "Flip", "what": "white glow over the floor in one of two runs with the new parallel-RDP; check in the next Flip screenshots", "evidence": "screenshot review 2026-11-04"}
+      ],
+      "notes": ["HLE audio: +14-19% on the Flip", "mixes louder than SM64, as on hardware"]
+    },
+    {
+      "id": "NMW", "title": "Mario Party 2",
+      "fixed": [
+        {"devices": "Duo (Adreno 722)", "what": "text boxes showed lines (old text strokes) with the bundled Turnip Gen8 V38", "fix": "faux123 Turnip v1.2.5 made the Duo's driver, 2026-11-04"}
+      ]
+    },
+    {
+      "id": "NM8", "title": "Mario Tennis",
+      "notes": ["Flip: one dip window at match start, 51.7-56.3 fps on today's build (flip-dip22); the present thread does not help"]
+    },
+    {
+      "id": "NFU", "title": "Conker's Bad Fur Day",
+      "notes": ["100-140 ms boot frames on the Flip", "RSP chunk cache made it 10.9% slower (dropped)", "Europe ROM (07) has no bench state; use the USA ROM (81)"]
+    },
+    {
+      "id": "NDO", "title": "Donkey Kong 64",
+      "settings": [
+        {"what": "save type from the header ID for hacks", "where": "core rom.c, 8e8f5c7", "why": "hacks not in the database got 4K EEPROM and could not save"}
+      ],
+      "notes": ["breaks with plain async parallel-RDP (no smart sync); fine on the default"]
+    },
+    {
+      "id": "NB7", "title": "Banjo-Tooie",
+      "settings": [
+        {"what": "save type from the header ID for hacks", "where": "core rom.c, 8e8f5c7", "why": "hacks not in the database got 4K EEPROM and could not save"}
+      ],
+      "issues": [
+        {"status": "open", "devices": "all", "what": "music problem (M6 core fixes list)", "evidence": "README core emulation fixes item"}
+      ]
+    },
+    {
+      "id": "NSM", "crc": "DC493C8DE033E6F2", "title": "SM64 Last Impact (hack)",
+      "settings": [
+        {"what": "PI DMA keeps bit 0 of the cart address (all ROMs not in the database)", "where": "core afa156c", "why": "ERET crash at boot in every libretro build; upstream PR libretro #675"}
+      ],
+      "issues": [
+        {"status": "open", "devices": "all", "what": "file-select screen: thin purple/yellow line across the platform, 'FILE 1' half drawn, floor bulging; may be how the hack looks: compare with M64Plus FZ / a console video", "evidence": "every compat run since 2026-11-03"}
+      ]
+    },
+    {
+      "id": "NSM", "crc": "9CC44345D6DF4426", "title": "Super Mario Star Road Final Deluxe (hack)",
+      "settings": [
+        {"what": "PI DMA keeps bit 0 of the cart address", "where": "core afa156c", "why": "crashed in every libretro build"}
+      ],
+      "issues": [
+        {"status": "open", "devices": "Duo, Odin 3, Flip", "what": "in the game only Mario, Yoshi and the HUD on black in the compat screenshots; may be a black opening cutscene: check live and against FZ", "evidence": "README Star Road item"},
+        {"status": "parked", "renderer": "GLideN64", "what": "black screen (FZ shows it too)", "evidence": "README parked item"}
+      ]
+    },
+    {
+      "id": "NSM", "crc": "A97AA1A91B749C63", "title": "SM64 Elise (hack)",
+      "issues": [
+        {"status": "open", "devices": "all", "what": "freezes on its title half faded in: CPU runs (61 fps) but no more display lists. Emulation, not drawing; check FZ, then timing / save type / RSP-RDP status", "evidence": "every compat run since 2026-11-03"}
+      ]
+    },
+    {
+      "id": "NAL", "crc": "FB8169896F442541", "title": "Smash Remix 0.9.4 (hack)",
+      "issues": [
+        {"status": "open", "what": "Project64 marks it Unaligned DMA=1, our ini aligns it: test both ways (item 26)", "evidence": "README unaligned PI DMA item"}
+      ]
+    },
+    {
+      "id": "NAL", "crc": "916B8B5B780B85A4", "title": "Super Smash Bros.",
+      "issues": [
+        {"status": "open", "what": "Project64 runs it at counter factor 2, we use CountPerOp 1: check for timing problems", "evidence": "README Project64 compare item"}
+      ]
+    },
+    {
+      "id": "NDM", "title": "Doom 64",
+      "fixed": [{"devices": "Portal", "what": "control menu drew the D-pad-down icon as coloured stripes (async build of 2026-11-03)", "fix": "current build, portal-prdp"}]
+    },
+    {
+      "id": "NOB", "title": "Ogre Battle 64",
+      "fixed": [{"devices": "Portal", "what": "mixed two backgrounds (async build of 2026-11-03)", "fix": "current build, portal-prdp"}]
+    },
+    {
+      "id": "NGE", "title": "GoldenEye 007",
+      "notes": ["VI filters off: +9% on the Flip", "Duo 2x upscaled: 59.9 fps on faux123 Turnip vs 50.7 on the bundled Gen8"]
+    }
+  ]
+}

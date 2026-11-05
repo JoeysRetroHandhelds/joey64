@@ -1,0 +1,6 @@
+/* Joey64: the drivers import ioctl@LIBC (versioned); bionic binds a versioned reference only to a definition of that
+   version, so the hook must export ioctl@@LIBC or the driver never calls it. */
+LIBC {
+  global: ioctl;
+  local: *;
+};

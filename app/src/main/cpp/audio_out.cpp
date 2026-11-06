@@ -74,8 +74,9 @@ bool AudioOut::openStream() {
     ring_.assign(cap_, 0);
     r_ = w_ = 0;
     lastW_ = 0; avgWrite_ = -1; excess_ = 0;
-    { const char* sm = getenv("N64_AUDIO_SMOOTH"); smooth_ = sm && *sm == '1'; }
-    if (smooth_) LOGI("audio: smoothed audio wait on (N64_AUDIO_SMOOTH=1)");
+    { const char* sm = getenv("N64_AUDIO_SMOOTH"); smoothMode_ = sm && *sm == '1' ? 1 : sm && *sm == '0' ? 0 : -1; }
+    smooth_ = smoothMode_ == 1;
+    if (smoothMode_ >= 0) LOGI("audio: smoothed audio wait forced %s (N64_AUDIO_SMOOTH)", smooth_ ? "on" : "off");
     // AAudio defaults the buffer to its whole capacity (8 bursts on the Flip and the Portal: 43 and
     // 32 ms of extra latency). Start at 2 bursts; takeStats adds a burst per xrun.
     AAudioStream_setBufferSizeInFrames(stream_, 2 * AAudioStream_getFramesPerBurst(stream_));
@@ -101,6 +102,15 @@ void AudioOut::setPaused(bool p) {
     paused_ = p;
     if (!stream_) return;
     p ? AAudioStream_requestPause(stream_) : AAudioStream_requestStart(stream_);
+}
+
+void AudioOut::setPanelRefreshNs(uint64_t ns) {
+    if (smoothMode_ != -1) return;
+    bool on = ns > 0 && ns < 15000000; // faster than ~66 Hz
+    if (on == smooth_) return;
+    smooth_ = on;
+    lastW_ = w_.load(std::memory_order_relaxed); avgWrite_ = -1; excess_ = 0;
+    LOGI("audio: smoothed audio wait %s (panel refresh %.2f ms)", on ? "on" : "off", ns / 1e6);
 }
 
 void AudioOut::waitForRoom() {

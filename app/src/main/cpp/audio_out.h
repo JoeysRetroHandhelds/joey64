@@ -20,6 +20,9 @@ public:
     // plus one frame, so the wait lands before the frame polls input rather than in the middle of it.
     // Also reopens the stream when the output device went away (see onError).
     void waitForRoom();
+    // The panel's refresh period (0 = unknown), each frame before waitForRoom: smoothing is automatic on panels
+    // faster than 60 Hz (see smooth_).
+    void setPanelRefreshNs(uint64_t ns);
     // Device-side output latency in ms (AAudio timestamps: frames written but not yet played),
     // -1 if unknown. AAudio's buffer starts at 2 bursts and grows a burst per xrun.
     double outputLatencyMs();
@@ -57,9 +60,13 @@ private:
     double drcI_ = 0;        // integral part of the rate correction
     int frames_ = 0;         // waitForRoom calls since open (startup frames don't adapt the target)
     int xruns_ = 0;          // AAudio xrun count at the last check
-    // N64_AUDIO_SMOOTH=1 (experiment): games that hand over audio unevenly between frames (Perfect Dark: 0, then
-    // two frames' worth, every other frame) made audio sync start frames ~5 then ~28 ms apart (judder on 120 Hz).
-    // The wait then compares the fill minus excess_, a fading sum of each frame's audio above the running average.
+    // Smoothed audio wait: games that hand over audio unevenly between frames (Perfect Dark: 0, then two frames'
+    // worth, every other frame) made audio sync start frames ~5 then ~28 ms apart (judder on 120 Hz). The wait then
+    // compares the fill minus excess_, a fading sum of each frame's audio above the running average. On by default
+    // on panels faster than 60 Hz (Duo/Odin 3: Perfect Dark uneven 244-246 -> 28-39 per 5 s, lag 1.6-2.6 ms lower,
+    // other games unchanged); off at 60 Hz, where vsync paces and it gained nothing (Flip). N64_AUDIO_SMOOTH=1/0
+    // forces it on/off. smoothMode_: -1 auto, 0 off, 1 on.
+    int smoothMode_ = -1;
     bool smooth_ = false;
     size_t lastW_ = 0;       // write index at the last waitForRoom
     double avgWrite_ = -1;   // running average of samples written per frame (-1 = none yet)

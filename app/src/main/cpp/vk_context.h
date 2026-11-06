@@ -34,6 +34,7 @@ public:
     void attachWindow(ANativeWindow* win); // nullptr detaches (swapchain + surface destroyed)
     void resizeSwapchain();                // rebuild at the window's current size
     bool hasWindow() const { return swapchain_ != VK_NULL_HANDLE; }
+    uint64_t refreshNs() const { return refreshNs_; } // panel refresh period (display timing), 0 = unknown
 
     // Around retro_run: acquire a swapchain image (= sync index) and present it afterwards.
     // endFrame re-presents the last image if the core produced no new one.

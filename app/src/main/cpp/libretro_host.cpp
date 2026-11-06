@@ -652,6 +652,7 @@ void runLoop() {
         }
         if (!ff && !g_bench) {
             auto t0 = std::chrono::steady_clock::now();
+            g_audio.setPanelRefreshNs(g_vulkan ? g_vk.refreshNs() : 0);
             g_audio.waitForRoom();
             double aw = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
             g_statAudioWaitMs += aw;

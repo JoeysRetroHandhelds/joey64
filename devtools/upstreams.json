@@ -34,8 +34,8 @@
       "name": "mupen64plus-core",
       "repo": "mupen64plus/mupen64plus-core",
       "branch": "master",
-      "seen": "dc1411a196b0e35745e9a5661a44e60809fad250",
-      "why": "libretro's copy in our core forked from here. Up to dc1411a read 2026-11-04: the six fixes ported to the core (01d92a9, 09c9871); FreeBSD/macOS build commits skipped"
+      "seen": "a9ca8ec0b7decd17390c76c6341cf423d5d79321",
+      "why": "libretro's copy in our core forked from here. Up to dc1411a read 2026-11-04: the six fixes ported to the core (01d92a9, 09c9871); FreeBSD/macOS build commits skipped. Up to a9ca8ec read 2026-11-06: the two Game Boy (Transfer Pak) fixes ported to the core (c052db1, f4e3041; the app does not load a Transfer Pak yet); the x18 change is Apple-only, skipped"
     },
     {
       "name": "mupen64plus-libretro-nx",

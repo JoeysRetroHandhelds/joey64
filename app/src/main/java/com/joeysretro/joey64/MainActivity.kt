@@ -450,8 +450,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (saveName.isEmpty()) { JLog.i(TAG, "states: off for a ROM without a name (the dev path)"); return }
         val st = GameStates(this, saveName)
         states = st
+        val givenTitle = intent?.getStringExtra(EXTRA_TITLE)
         overlay = GameOverlay(this, pauseActions).also {
-            it.title = saveName
+            it.title = givenTitle ?: saveName
             it.saveSlotName = slotName(currentSlot())
         }
         stateHandler.post {
@@ -461,10 +462,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         }
         // The pause menu's title: the game's name in the library, else the ROM's (a frontend's game).
         stateHandler.post {
-            val title = try {
+            val title = givenTitle ?: try {
                 com.joeysretro.joey64.launcher.data.LibraryDb.get(this).gameWithFile(saveName, GameStates::saveNameOf)?.title
             } catch (e: Exception) { JLog.e(TAG, "pause menu: can't read the library: $e"); null }
-            if (title != null) runOnUiThread { overlay?.title = title }
+            if (title != null && givenTitle == null) runOnUiThread { overlay?.title = title }
+            recent = recentEntry(saveName, title)
+            recent?.let { RecentlyPlayed.record(this, it) }
         }
         when (val which = intent?.getStringExtra(EXTRA_LOAD_STATE)) {
             null -> {}
@@ -473,6 +476,28 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             else -> JLog.e(TAG, "states: unknown state to load: $which")
         }
         stateHandler.postDelayed(recoveryTick, RECOVERY_EVERY_MS)
+        // Dev (--es env N64_POPUP_TEST=1): a pop-up kept on screen the whole time, renewed every 4 s,
+        // to measure what one costs (plan, Phase 3: the measure).
+        if (android.system.Os.getenv("N64_POPUP_TEST") == "1") fpsHandler.post(popupTest)
+    }
+
+    private val popupTest = object : Runnable {
+        override fun run() {
+            if (destroyed) return
+            pop("state", InGamePopup.Kind.Saved, "Save state", "Slot 3 saved", overlay?.title ?: "")
+            fpsHandler.postDelayed(this, 4_000)
+        }
+    }
+
+    /** This game's line in recently played (JoeyOS reads it); null for a dev start. Only touched on [stateThread]. */
+    private var recent: RecentlyPlayed.Entry? = null
+
+    private fun recentEntry(saveName: String, title: String?): RecentlyPlayed.Entry? {
+        val i = intent ?: return null
+        val uri = i.getStringExtra(EXTRA_SOURCE_URI) ?: i.data?.toString() ?: return null
+        val file = i.getStringExtra(EXTRA_SOURCE_NAME) ?: i.data?.let { displayName(it) } ?: saveName
+        val path = try { RecentlyPlayed.pathOf(Uri.parse(uri)) } catch (e: Exception) { "" }
+        return RecentlyPlayed.Entry(title ?: saveName, file, uri, path, saveName, System.currentTimeMillis())
     }
 
     /** Every few minutes while playing (not while paused or quitting), the recovery state. */
@@ -712,6 +737,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             if (startLoadFailed) JLog.e(TAG, "states: the state asked for at start didn't load, so the auto slot is kept as it was")
             else st.save(StateSlots.AUTO)
             st.clearRecovery()
+            recent?.let { RecentlyPlayed.record(this, it.copy(lastPlayed = System.currentTimeMillis())) }
             runOnUiThread { finish() }
         }
     }
@@ -735,6 +761,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val next = Intent(this, MainActivity::class.java).apply {
             intent.extras?.let { putExtras(it) }
             removeExtra("rom")
+            // The URI isn't carried over (the ROM is), so recently played gets the source as extras.
+            intent.data?.let { d ->
+                if (!hasExtra(EXTRA_SOURCE_URI)) putExtra(EXTRA_SOURCE_URI, d.toString())
+                if (!hasExtra(EXTRA_SOURCE_NAME)) displayName(d)?.let { putExtra(EXTRA_SOURCE_NAME, it) }
+            }
             putExtra(EXTRA_ROM_PATH, rom)
             putExtra(EXTRA_SAVE_NAME, saveName)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
@@ -972,6 +1003,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         const val EXTRA_SAVE_NAME = "com.joeysretro.joey64.SAVE_NAME"
         /** The launcher: load this state once the game is up, [STATE_AUTO] (Continue) or [STATE_RECOVERY] (after a crash). */
         const val EXTRA_LOAD_STATE = "com.joeysretro.joey64.LOAD_STATE"
+        /** The ROM as the user has it (the archive in the ROMs folder), for recently played. */
+        const val EXTRA_SOURCE_URI = "com.joeysretro.joey64.SOURCE_URI"
+        const val EXTRA_SOURCE_NAME = "com.joeysretro.joey64.SOURCE_NAME"
+        /** The library's title (pause menu, recently played). */
+        const val EXTRA_TITLE = "com.joeysretro.joey64.TITLE"
         const val STATE_AUTO = "auto"
         const val STATE_RECOVERY = "recovery"
         /** "Every few minutes" (approved 2026-11-05). */

@@ -1,3 +1,4 @@
+#include "joeylog.h"
 #include "perf_hint.h"
 #include <android/log.h>
 #include <cstdlib>
@@ -5,7 +6,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define LOGI(...) __android_log_print(getenv("N64_LOG_ERR") && *getenv("N64_LOG_ERR") == '1' ? ANDROID_LOG_ERROR : ANDROID_LOG_INFO, "joey64host", __VA_ARGS__)
+#define LOGI(...) joeyLog(ANDROID_LOG_INFO, "joey64host", __VA_ARGS__)
 
 struct APerformanceHintManager;
 

@@ -9,6 +9,7 @@ add_library(joey64host SHARED
     gpu_clock_pin.cpp
     gpu_counters.cpp
     thermal.cpp
+    joeylog.cpp
     vk_context.cpp)
 
 add_subdirectory(third_party/libadrenotools)

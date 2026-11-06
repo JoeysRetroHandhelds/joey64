@@ -1,5 +1,6 @@
 // Minimal libretro frontend: dlopen the core, answer environment calls,
 // provide a GLES3 or Vulkan HW render context, and run retro_run on a dedicated thread.
+#include "joeylog.h"
 #include <adrenotools/driver.h>
 #include "perf_hint.h"
 #include "gpu_clock_pin.h"
@@ -34,8 +35,8 @@
 
 // Dev env N64_LOG_ERR=1 logs info at error level, for devices whose logd drops everything
 // below error (Retroid Pocket Duo).
-#define LOGI(...) __android_log_print(getenv("N64_LOG_ERR") && *getenv("N64_LOG_ERR") == '1' ? ANDROID_LOG_ERROR : ANDROID_LOG_INFO, "joey64host", __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "joey64host", __VA_ARGS__)
+#define LOGI(...) joeyLog(ANDROID_LOG_INFO, "joey64host", __VA_ARGS__)
+#define LOGE(...) joeyLog(ANDROID_LOG_ERROR, "joey64host", __VA_ARGS__)
 
 namespace {
 
@@ -165,7 +166,7 @@ retro_proc_address_t hw_get_proc_address(const char* name) {
 
 void log_cb(enum retro_log_level level, const char* fmt, ...) {
     va_list ap; va_start(ap, fmt);
-    __android_log_vprint(level >= RETRO_LOG_ERROR || (getenv("N64_LOG_ERR") && *getenv("N64_LOG_ERR") == '1') ? ANDROID_LOG_ERROR : ANDROID_LOG_INFO, "core", fmt, ap);
+    joeyLogV(level >= RETRO_LOG_ERROR ? ANDROID_LOG_ERROR : level == RETRO_LOG_WARN ? ANDROID_LOG_WARN : ANDROID_LOG_INFO, "core", fmt, ap);
     va_end(ap);
 }
 
@@ -765,6 +766,27 @@ std::string romGameId(const std::vector<uint8_t>& rom) {
     return id;
 }
 
+// For the session log: what was loaded, so a tester's log names the exact dump (header name, CRCs, size, byte order).
+std::string romSummary(const std::vector<uint8_t>& rom) {
+    if (rom.size() < 0x40) return "too small for an N64 ROM";
+    auto at = [&](size_t i) -> uint8_t {
+        switch (rom[0]) {
+            case 0x37: return rom[i ^ 1];
+            case 0x40: return rom[i ^ 3];
+            default:   return rom[i];
+        }
+    };
+    auto be32 = [&](size_t i) { return (uint32_t)at(i) << 24 | (uint32_t)at(i + 1) << 16 | (uint32_t)at(i + 2) << 8 | at(i + 3); };
+    std::string name;
+    for (size_t i = 0x20; i < 0x34; ++i) { uint8_t c = at(i); name += (c >= 0x20 && c < 0x7F) ? (char)c : '?'; }
+    while (!name.empty() && name.back() == ' ') name.pop_back();
+    char out[200];
+    snprintf(out, sizeof out, "header \"%s\", id %s, version %u, CRC %08X %08X, %zu bytes, %s", name.c_str(),
+             romGameId(rom).c_str(), at(0x3F), be32(0x10), be32(0x14), rom.size(),
+             rom[0] == 0x37 ? "v64 (byte-swapped)" : rom[0] == 0x40 ? "n64 (little-endian)" : rom[0] == 0x80 ? "z64" : "unknown byte order");
+    return out;
+}
+
 extern "C" {
 
 JNIEXPORT jboolean JNICALL JNI(loadCore)(JNIEnv* env, jobject, jstring path, jstring sys, jstring save) {
@@ -872,6 +894,8 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
                         [&](const char* g) { return id.compare(0, 3, g) == 0; }) ? "cached_interpreter" : "dynamic_recompiler";
     LOGI("game id %s, parallel-RDP %s, %s", id.c_str(), g_rdpSync ? "synchronous" : "async",
          g_optionOverrides["mupen64plus-cpucore"].c_str());
+    LOGI("ROM %s: %s", p, romSummary(buf).c_str());
+    for (auto& [k, v] : g_optionOverrides) LOGI("option in effect: %s = %s", k.c_str(), v.c_str());
     retro_game_info info{ p, buf.data(), buf.size(), nullptr };
     bool ok = !buf.empty() && core.load_game(&info);
     env->ReleaseStringUTFChars(rom, p);
@@ -979,6 +1003,22 @@ JNIEXPORT jint JNICALL JNI(framesDrawn)(JNIEnv*, jobject) {
 }
 JNIEXPORT jdouble JNICALL JNI(contentFps)(JNIEnv*, jobject) {
     return g_av.timing.fps;
+}
+
+// The session log file (LogFiles.kt), and lines from the Kotlin side so both halves land in one file in order
+JNIEXPORT void JNICALL JNI(openLog)(JNIEnv* env, jobject, jstring path) {
+    if (!path) { joeyLogOpen(nullptr); return; }
+    const char* p = env->GetStringUTFChars(path, nullptr);
+    joeyLogOpen(p);
+    env->ReleaseStringUTFChars(path, p);
+}
+
+JNIEXPORT void JNICALL JNI(log)(JNIEnv* env, jobject, jint prio, jstring tag, jstring msg) {
+    const char* t = env->GetStringUTFChars(tag, nullptr);
+    const char* m = env->GetStringUTFChars(msg, nullptr);
+    joeyLog(prio, t, "%s", m);
+    env->ReleaseStringUTFChars(msg, m);
+    env->ReleaseStringUTFChars(tag, t);
 }
 
 JNIEXPORT void JNICALL JNI(stop)(JNIEnv*, jobject) {

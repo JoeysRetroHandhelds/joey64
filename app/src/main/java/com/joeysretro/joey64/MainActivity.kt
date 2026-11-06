@@ -44,10 +44,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        LogFiles.start(this, intent)
         if (gameLoaded && hasRom(intent)) { switching = true; switchGame(); return }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // Dev check (2026-11-05 recheck): whether this device offers sustained performance mode (checked before only on the Flip and Portal)
-        Log.w(TAG, "sustained performance mode supported: " +
+        JLog.w(TAG, "sustained performance mode supported: " +
             (getSystemService(POWER_SERVICE) as android.os.PowerManager).isSustainedPerformanceModeSupported)
         window.attributes.layoutInDisplayCutoutMode =
             WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
@@ -110,7 +111,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // Dev: --es cheats "D11E3184 2881,811E3184 2001;<next cheat>"
         intent?.getStringExtra("cheats")?.split(';')?.filter { it.isNotBlank() }?.forEach { NativeBridge.addCheat(it) }
         if (!NativeBridge.loadCore(coreFile.absolutePath, sys.absolutePath, saves.absolutePath)) {
-            Log.e(TAG, "Core failed to load: $coreFile"); finish()
+            JLog.e(TAG, "Core failed to load: $coreFile"); finish()
         }
     }
 
@@ -152,7 +153,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         else { latMoves++; latMoveSum += d; latMoveMax = maxOf(latMoveMax, d); if (history > 0) latBatched++ }
         if (latStart == 0L) latStart = now
         if (now - latStart < 5000) return
-        Log.e(TAG, "input lat: moves $latMoves mean " + "%.1f".format(latMoveSum.toDouble() / maxOf(latMoves, 1)) +
+        JLog.e(TAG, "input lat: moves $latMoves mean " + "%.1f".format(latMoveSum.toDouble() / maxOf(latMoves, 1)) +
             " max $latMoveMax ms batched $latBatched; keys $latKeys mean " +
             "%.1f".format(latKeySum.toDouble() / maxOf(latKeys, 1)) + " max $latKeyMax ms")
         latStart = now
@@ -230,7 +231,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         rumbling = on
         if (on) {
             rumbleVibrator = vibrator()
-            Log.i(TAG, "rumble on: ${rumbleVibrator ?: "no vibrator"}")
+            JLog.i(TAG, "rumble on: ${rumbleVibrator ?: "no vibrator"}")
             // Long one-shot, cancelled when the game switches the motor off.
             rumbleVibrator?.vibrate(VibrationEffect.createOneShot(10_000, VibrationEffect.DEFAULT_AMPLITUDE))
         } else {
@@ -304,15 +305,15 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             val tmp = File(cacheDir, "gpu_tmp").apply { mkdirs() }
             NativeBridge.setVulkanDriver("${lib.parent}/", lib.name, "${applicationInfo.nativeLibraryDir}/", "${tmp.absolutePath}/")
             custom = parseGpu(NativeBridge.probeVulkan(true))
-            if (custom == null) Log.w(TAG, "Driver ${lib.name} has no usable GPU, using the system driver")
+            if (custom == null) JLog.w(TAG, "Driver ${lib.name} has no usable GPU, using the system driver")
         }
         val gpu = custom ?: system
         gpuName = gpu?.name ?: ""
         // parallel-RDP also needs 16-bit storage buffers: without them it fails to start and the core crashes
         // (Adreno 610, Snapdragon 665: missing on both drivers, so GLideN64 there)
         val parallel = gpu != null && gpu.vulkan11 && gpu.storage16 == 1 && (custom != null || gpu.mali)
-        if (gpu != null && gpu.vulkan11 && gpu.storage16 != 1) Log.w(TAG, "GPU ${gpu.name}: no 16-bit storage buffers, parallel-RDP can't run")
-        Log.i(TAG, "GPU: ${gpu ?: "no Vulkan"}, driver ${if (custom != null) lib!!.relativeTo(gpuDriverDir).path else "system"}, " +
+        if (gpu != null && gpu.vulkan11 && gpu.storage16 != 1) JLog.w(TAG, "GPU ${gpu.name}: no 16-bit storage buffers, parallel-RDP can't run")
+        JLog.i(TAG, "GPU: ${gpu ?: "no Vulkan"}, driver ${if (custom != null) lib!!.relativeTo(gpuDriverDir).path else "system"}, " +
             "default renderer ${if (parallel) "parallel" else "gliden64"}")
         return intent?.getStringExtra("renderer") ?: if (parallel) "parallel" else "gliden64"
     }
@@ -326,7 +327,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (key != "mupen64plus-parallel-rdp-upscaling" || value !in setOf("4x", "8x") || "Adreno (TM) 722" !in gpuName) return value
         // Dev: --ez nocap true lifts the cap, to try other drivers
         if (intent?.getBooleanExtra("nocap", false) == true) return value
-        Log.w(TAG, "parallel-RDP upscaling $value capped at 2x on $gpuName")
+        JLog.w(TAG, "parallel-RDP upscaling $value capped at 2x on $gpuName")
         return "2x"
     }
 
@@ -358,7 +359,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             stamp.writeText(version)
             dst
         } catch (e: java.io.IOException) {
-            Log.w(TAG, "Driver $name is not bundled"); null
+            JLog.w(TAG, "Driver $name is not bundled"); null
         }
     }
 
@@ -371,8 +372,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // Handed over by switchGame from the process before this one: the ROM is already unpacked.
         intent?.getStringExtra(EXTRA_ROM_PATH)?.let { return it to (intent.getStringExtra(EXTRA_SAVE_NAME) ?: "") }
         intent?.data?.let { uri ->
-            val inner = copyToCache(uri) ?: run { Log.e(TAG, "No N64 ROM in $uri"); return null }
-            if (inner.isNotEmpty()) Log.i(TAG, "ROM $inner from archive $uri")
+            val inner = copyToCache(uri) ?: run { JLog.e(TAG, "No N64 ROM in $uri"); return null }
+            if (inner.isNotEmpty()) JLog.i(TAG, "ROM $inner from archive $uri")
             return romCache.absolutePath to saveName(displayName(uri) ?: inner)
         }
         // Some Android 11 devices (Retroid Pocket Flip) block adb from Android/data: there, copy the
@@ -380,12 +381,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val dirs = listOfNotNull(getExternalFilesDir(null), filesDir)
         intent?.getStringExtra("rom")?.let { name ->
             val rom = dirs.map { File(it, "roms/$name") }.firstOrNull { it.exists() }
-                ?: run { Log.e(TAG, "ROM $name not found in roms/"); return null }
+                ?: run { JLog.e(TAG, "ROM $name not found in roms/"); return null }
             if (!RomFiles.isArchive(rom.inputStream().use { i -> ByteArray(4).also { i.read(it) } }))
                 return rom.absolutePath to saveName(rom.name)
             val inner = rom.inputStream().use { RomFiles.extract(it, romCache) }
-                ?: run { Log.e(TAG, "No N64 ROM in $name"); return null }
-            Log.i(TAG, "ROM $inner from archive $name")
+                ?: run { JLog.e(TAG, "No N64 ROM in $name"); return null }
+            JLog.i(TAG, "ROM $inner from archive $name")
             return romCache.absolutePath to saveName(rom.name)
         }
         return dirs.map { File(it, "test.z64") }.firstOrNull { it.exists() }?.let { it.absolutePath to "" }
@@ -414,7 +415,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (!mine) return
         NativeBridge.setSurface(holder.surface)
         if (!started) {
-            val (rom, saveName) = resolveRom() ?: run { Log.e(TAG, "No ROM. Push one to ${getExternalFilesDir(null)}/test.z64"); return }
+            val (rom, saveName) = resolveRom() ?: run { JLog.e(TAG, "No ROM. Push one to ${getExternalFilesDir(null)}/test.z64"); return }
             reportGameState(loading = true)
             if (NativeBridge.loadGame(rom, saveName)) { NativeBridge.start(); started = true; owner = this; gameLoaded = true }
             reportGameState(loading = false)
@@ -431,10 +432,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
      * has to survive the restart. The intent's other extras (env, opts, renderer, ...) go along.
      */
     private fun switchGame() {
-        Log.i(TAG, "new ROM while a game is loaded: restarting the process for it")
+        JLog.i(TAG, "new ROM while a game is loaded: restarting the process for it")
         owner?.let { NativeBridge.stop(); it.finish() }
         owner = null
-        val (rom, saveName) = resolveRom() ?: run { Log.e(TAG, "No N64 ROM in the new intent"); finish(); return }
+        val (rom, saveName) = resolveRom() ?: run { JLog.e(TAG, "No N64 ROM in the new intent"); finish(); return }
         val next = Intent(this, MainActivity::class.java).apply {
             intent.extras?.let { putExtras(it) }
             removeExtra("rom")
@@ -485,7 +486,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         padDeviceId = id
         padProfile = Controllers.profile(dev)
         stickCal = Controllers.StickCal(dev?.descriptor ?: "unknown", padProfile.stickReach, stickPrefs)
-        Log.i(TAG, "Pad: ${dev?.name} (" + "%04x:%04x".format(dev?.vendorId ?: 0, dev?.productId ?: 0) +
+        JLog.i(TAG, "Pad: ${dev?.name} (" + "%04x:%04x".format(dev?.vendorId ?: 0, dev?.productId ?: 0) +
             "), profile ${padProfile.name}")
     }
 
@@ -577,15 +578,16 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val mode = if (playing) android.app.GameState.MODE_GAMEPLAY_INTERRUPTIBLE else android.app.GameState.MODE_NONE
         try {
             gm.setGameState(android.app.GameState(loading, mode))
-            Log.e(TAG, "game state: loading $loading, mode $mode")
+            JLog.e(TAG, "game state: loading $loading, mode $mode")
         } catch (e: Exception) {
-            Log.e(TAG, "setGameState: $e")
+            JLog.e(TAG, "setGameState: $e")
         }
     }
 
     override fun onDestroy() {
         debugStick?.let { unregisterReceiver(it) }
         debugDump?.let { unregisterReceiver(it) }
+        debugLogs?.let { unregisterReceiver(it) }
         destroyed = true
         fpsView?.let { windowManager.removeView(it) }
         if (owner === this) { NativeBridge.stop(); owner = null } else if (owner == null && !switching) NativeBridge.stop()
@@ -600,6 +602,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
      */
     private var debugStick: BroadcastReceiver? = null
     private var debugDump: BroadcastReceiver? = null
+    private var debugLogs: BroadcastReceiver? = null
 
     private fun registerDebugStick() {
         if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return
@@ -618,7 +621,14 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
                 NativeBridge.dumpRam(File(dir, "${i.getStringExtra("name") ?: "ram"}.bin").absolutePath)
             }
         }
-        for ((receiver, action) in listOf(debugStick to "com.joeysretro.joey64.STICK", debugDump to "com.joeysretro.joey64.DUMP")) {
+        // adb shell am broadcast -a com.joeysretro.joey64.LOGS  -> cache/joey64-logs.zip (what the Share button will send)
+        debugLogs = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, i: Intent) {
+                JLog.i(TAG, "log: zipped to ${LogFiles.zip(ctx)}")
+            }
+        }
+        for ((receiver, action) in listOf(debugStick to "com.joeysretro.joey64.STICK", debugDump to "com.joeysretro.joey64.DUMP",
+                debugLogs to "com.joeysretro.joey64.LOGS")) {
             val filter = IntentFilter(action)
             if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
             else registerReceiver(receiver, filter)

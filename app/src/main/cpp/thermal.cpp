@@ -1,3 +1,4 @@
+#include "joeylog.h"
 #include "thermal.h"
 
 #include <android/log.h>
@@ -8,14 +9,9 @@
 #include <cstdlib>
 #include <dlfcn.h>
 
-#define LOGI(...) __android_log_print(logPrio(), "joey64host", __VA_ARGS__)
+#define LOGI(...) joeyLog(ANDROID_LOG_INFO, "joey64host", __VA_ARGS__)
 
 namespace {
-int logPrio() {
-    static const bool err = getenv("N64_LOG_ERR") && *getenv("N64_LOG_ERR") == '1';
-    return err ? ANDROID_LOG_ERROR : ANDROID_LOG_INFO;
-}
-
 struct AThermalManager;
 using AcquireFn = AThermalManager* (*)();
 using StatusFn = int (*)(AThermalManager*);

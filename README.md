@@ -245,6 +245,8 @@ One line per idea from emulator-review.md. An idea leaves "Not tested" only with
 
 **Parked by Joey**: GLideN64 work (shader store saved on pause, threaded renderer, performance profile, NEON_OPT/CRC_ARMV8 measurement); Duo-only issues get little effort.
 
+- [ ] Logs for testers (2026-11-06, Joey: "Do we have proper logging enabled for when we do test builds to other users?" then "Yes, build it"): built and checked on the Duo (session log with header, game and stats lines kept although its logd drops info; logcat capture, no child left after force-stop; a deliberate native crash came back on the next launch as a symbolized tombstone). Open: the Share button (Joey's menus; `LogFiles.zip` is ready), a release version scheme (versionName is still 0.1; the commit is in the build stamp), and merging into launcher/phase0 (the Frontend session merges main)
+
 ### Options for the eventual menu (Joey designs the menu; until then these are dev switches)
 Things we measured that are not right as a default but help in some cases. Each line: what it does, when it helps, what it costs, how to turn it on today. Joey asked 2026-11-04 to keep these for the menu.
 

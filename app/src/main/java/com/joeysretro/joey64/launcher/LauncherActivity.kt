@@ -107,6 +107,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             val folders = s.romFolders.map { it.toUri() }
             if (folders.isNotEmpty()) {
                 LifecycleResumeEffect(folders) {
+                    model.resumed()
                     model.refresh(folders)
                     onPauseOrDispose { }
                 }
@@ -144,7 +145,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                 !home -> listOf(Hint("A", "Select"))
                 onRail -> listOf(Hint("A", "Open"))
                 place == RailPlace.Settings -> settingsHints
-                else -> listOf(Hint("A", "Play"))
+                else -> listOf(Hint("A", "Play"), Hint("Start", "Options"))
             })
             if (home) updates.prompt.collectAsStateWithLifecycle().value?.let { UpdatePopup(it, updates) }
         }

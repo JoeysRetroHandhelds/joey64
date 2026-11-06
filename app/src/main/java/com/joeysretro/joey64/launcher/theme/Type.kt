@@ -63,6 +63,8 @@ data class JoeyType(
     val tile: TextStyle,
     /** The small grey line under a centred page's buttons ("Copies only. RetroArch keeps its own files."). */
     val small: TextStyle,
+    /** Hashes and codes, in a fixed-width face (Details: RA hash). */
+    val code: TextStyle,
 )
 
 val DefaultType = JoeyType(
@@ -81,6 +83,7 @@ val DefaultType = JoeyType(
     path = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Medium, fontSize = 14.5.sp),
     tile = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Bold, fontSize = 14.sp, lineHeight = 18.sp),
     small = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Normal, fontSize = 12.5.sp),
+    code = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Normal, fontSize = 13.sp),
 )
 
 val LocalJoeyType = staticCompositionLocalOf { DefaultType }

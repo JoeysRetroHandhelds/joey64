@@ -99,8 +99,58 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
 
     fun offlineSeen() { _offline.value = false }
 
-    /** [game]'s cover file, null when it has none (a title tile). */
-    fun cover(game: LibraryGame): java.io.File? = if (game.art) boxArt.file(game.md5) else null
+    /** [game]'s cover file, null when it shows none (a title tile). */
+    fun cover(game: LibraryGame): java.io.File? = when (game.art) {
+        com.joeysretro.joey64.launcher.data.ArtKind.Libretro -> boxArt.file(game.md5)
+        com.joeysretro.joey64.launcher.data.ArtKind.Custom -> boxArt.customFile(game.md5)
+        else -> null
+    }
+
+    suspend fun details(game: LibraryGame): com.joeysretro.joey64.launcher.data.GameDetails? = withContext(Dispatchers.IO) { db.details(game.id) }
+
+    /** The downloaded cover is still there, so Downloaded art can be chosen. */
+    fun hasDownloaded(game: LibraryGame) = boxArt.file(game.md5).exists()
+
+    /** Change box art: Downloaded art or No box art. */
+    suspend fun chooseArt(game: LibraryGame, kind: com.joeysretro.joey64.launcher.data.ArtKind) {
+        withContext(Dispatchers.IO) { db.chooseArt(game.id, kind) }
+        _games.value = withContext(Dispatchers.IO) { db.libraryGames() }
+    }
+
+    /** Change box art › Choose image: [image] (a picked document) becomes the game's cover. */
+    suspend fun chooseImage(game: LibraryGame, image: Uri): Boolean {
+        val ok = withContext(Dispatchers.IO) {
+            try { boxArt.saveCustom(game.md5, image); db.chooseArt(game.id, com.joeysretro.joey64.launcher.data.ArtKind.Custom); true }
+            catch (e: Exception) { JLog.w(TAG, "can't use that image for ${game.title}" + "\n" + Log.getStackTraceString(e)); false }
+        }
+        if (ok) _games.value = withContext(Dispatchers.IO) { db.libraryGames() }
+        return ok
+    }
+
+    // Play time (Details): from the launcher starting a game to the launcher being back in front.
+    // Counted in uptime, which stops while the device sleeps, so a game left paused with the
+    // screen off doesn't count. Kept in prefs: the launcher's process can be gone by then.
+    private val plays get() = getApplication<Application>().getSharedPreferences("plays", android.content.Context.MODE_PRIVATE)
+
+    private fun started(game: LibraryGame) {
+        plays.edit().putLong("game", game.id).putLong("uptime", android.os.SystemClock.uptimeMillis())
+            .putLong("wall", System.currentTimeMillis()).apply()
+    }
+
+    /** The launcher is in front again: a game it started has ended. */
+    fun resumed() {
+        val p = plays
+        if (!p.contains("game")) return
+        val id = p.getLong("game", 0); val up = p.getLong("uptime", 0); val wall = p.getLong("wall", 0)
+        p.edit().clear().apply()
+        val ms = android.os.SystemClock.uptimeMillis() - up
+        // Negative: the device restarted since (uptime begins again), so the length isn't known.
+        if (ms <= 0) return
+        viewModelScope.launch(Dispatchers.IO) {
+            db.recordPlay(id, wall, ms / 1000)
+            JLog.i(TAG, "played game $id for ${ms / 1000} s")
+        }
+    }
 
     /** Brings the library up to date with [folders]: quick when nothing changed (sizes and dates only). */
     fun refresh(folders: List<Uri>) {
@@ -131,7 +181,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 val intent = withContext(Dispatchers.IO) { launcher.intentFor(game) }
-                if (intent != null) start(intent) else JLog.w(TAG, "no readable file for ${game.title}")
+                if (intent != null) { started(game); start(intent) } else JLog.w(TAG, "no readable file for ${game.title}")
             } finally {
                 starting = false
             }

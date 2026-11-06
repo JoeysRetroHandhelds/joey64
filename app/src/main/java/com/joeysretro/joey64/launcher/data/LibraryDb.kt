@@ -19,7 +19,7 @@ import com.joeysretro.joey64.launcher.library.RomInfo
  * the file is renamed or moved, or the same ROM sits in two folders.
  */
 object LibrarySchema {
-    const val VERSION = 2
+    const val VERSION = 3
 
     val V1 = listOf(
         // md5: RetroAchievements' N64 hash, the MD5 of the ROM in big-endian (.z64) byte order.
@@ -129,6 +129,16 @@ object LibrarySchema {
         """,
     )
 
+    /**
+     * Version 3 (Details): what the ROM's header says and its size, for the Details popup. Set
+     * by every read; for games read before, the upgrade has their files read again.
+     */
+    val V3 = listOf(
+        "ALTER TABLE games ADD COLUMN region INTEGER",
+        "ALTER TABLE games ADD COLUMN revision INTEGER",
+        "ALTER TABLE games ADD COLUMN rom_size INTEGER",
+    )
+
     /** Tables the cache owns; emptied on sign-out. */
     val RA_CACHE = listOf("ra_achievements", "ra_sets")
 }
@@ -137,7 +147,40 @@ object LibrarySchema {
  * A game in the library grid. [md5] is its RetroAchievements hash, and names its unpacked copy
  * and its cover. [art]: it has a cover to show (boxart/<md5>.jpg).
  */
-data class LibraryGame(val id: Long, val title: String, val md5: String, val art: Boolean = false)
+data class LibraryGame(val id: Long, val title: String, val md5: String, val art: ArtKind? = null)
+
+/** What a game's tile shows, from `box_art.kind` (V2). Null: no row yet, not looked up. */
+enum class ArtKind(val db: String) {
+    /** A downloaded libretro cover. */
+    Libretro("libretro"),
+    /** Looked up, nothing found: a title tile. */
+    None("none"),
+    /** A picture the user chose (Details, Change box art). */
+    Custom("custom"),
+    /** No box art, by the user's choice: a title tile, never looked up again. */
+    Hidden("hidden");
+
+    val shows get() = this == Libretro || this == Custom
+
+    companion object {
+        fun of(db: String?) = entries.firstOrNull { it.db == db }
+    }
+}
+
+/** Everything the Details popup shows. [file] is the most recently seen file's name. */
+data class GameDetails(
+    val title: String,
+    val md5: String,
+    val file: String?,
+    val regionCode: Char?,
+    val revision: Int?,
+    val romSize: Long?,
+    val lastPlayedAt: Long?,
+    val playSeconds: Long,
+    val art: ArtKind?,
+    /** The libretro cover found for it, kept when the user picks another, so Downloaded art can come back. */
+    val cover: String?,
+)
 
 /** A game whose cover hasn't been looked up against the current listing: its first file's name, without extension. */
 data class ArtLookup(val gameId: Long, val md5: String, val fileName: String)
@@ -159,13 +202,19 @@ class LibraryDb private constructor(context: Context) :
     }
 
     override fun onCreate(db: SQLiteDatabase) {
-        for (sql in LibrarySchema.V1 + LibrarySchema.V2) db.execSQL(sql)
+        for (sql in LibrarySchema.V1 + LibrarySchema.V2 + LibrarySchema.V3) db.execSQL(sql)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         // Version 1 is the first. Each later version adds a step here; nothing is ever dropped
         // and rebuilt, since play time and collections can't be scanned back.
         if (oldVersion < 2) for (sql in LibrarySchema.V2) db.execSQL(sql)
+        if (oldVersion < 3) {
+            for (sql in LibrarySchema.V3) db.execSQL(sql)
+            // Read every file again (a size no file has), so the new columns fill in. Games, play
+            // time and covers stay: they're keyed by MD5.
+            db.execSQL("UPDATE files SET size = -1")
+        }
     }
 
     /** Adds a finished play session and keeps the game's total and last-played in step. */
@@ -210,6 +259,11 @@ class LibraryDb private constructor(context: Context) :
                     put("added_at", now)
                 }, SQLiteDatabase.CONFLICT_IGNORE)
                 gameId = rawQuery("SELECT id FROM games WHERE md5 = ?", arrayOf(info.md5)).use { c -> if (c.moveToFirst()) c.getLong(0) else null }
+                update("games", ContentValues().apply {
+                    put("region", info.header.region.code.code)
+                    put("revision", info.header.revision)
+                    put("rom_size", info.size)
+                }, "md5 = ?", arrayOf(info.md5))
             }
             val row = ContentValues().apply {
                 put("uri", file.uri)
@@ -243,10 +297,36 @@ class LibraryDb private constructor(context: Context) :
     /** The library: every game with at least one file in a ROM folder, by title. */
     fun libraryGames(): List<LibraryGame> =
         readableDatabase.rawQuery(
-            "SELECT g.id, g.title, g.md5, a.kind IN ('libretro', 'custom') FROM games g LEFT JOIN box_art a ON a.game_id = g.id" +
+            "SELECT g.id, g.title, g.md5, a.kind FROM games g LEFT JOIN box_art a ON a.game_id = g.id" +
                 " WHERE EXISTS (SELECT 1 FROM files f WHERE f.game_id = g.id) ORDER BY g.title COLLATE NOCASE",
             null,
-        ).use { c -> buildList { while (c.moveToNext()) add(LibraryGame(c.getLong(0), c.getString(1), c.getString(2), c.getInt(3) == 1)) } }
+        ).use { c -> buildList { while (c.moveToNext()) add(LibraryGame(c.getLong(0), c.getString(1), c.getString(2), ArtKind.of(c.getString(3)))) } }
+
+    fun details(gameId: Long): GameDetails? =
+        readableDatabase.rawQuery(
+            "SELECT g.title, g.md5, (SELECT f.name FROM files f WHERE f.game_id = g.id ORDER BY f.seen_at DESC LIMIT 1)," +
+                " g.region, g.revision, g.rom_size, g.last_played_at, g.play_seconds, a.kind, a.cover" +
+                " FROM games g LEFT JOIN box_art a ON a.game_id = g.id WHERE g.id = ?",
+            arrayOf(gameId.toString()),
+        ).use { c ->
+            if (!c.moveToFirst()) null
+            else GameDetails(
+                title = c.getString(0), md5 = c.getString(1), file = c.getString(2),
+                regionCode = if (c.isNull(3)) null else c.getInt(3).toChar(), revision = if (c.isNull(4)) null else c.getInt(4), romSize = if (c.isNull(5)) null else c.getLong(5),
+                lastPlayedAt = if (c.isNull(6)) null else c.getLong(6), playSeconds = c.getLong(7),
+                art = ArtKind.of(c.getString(8)), cover = c.getString(9),
+            )
+        }
+
+    /** The user's Change box art choice: [kind] Custom, Hidden, or Libretro again; the libretro cover's name stays. */
+    fun chooseArt(gameId: Long, kind: ArtKind) {
+        writableDatabase.transaction {
+            val row = ContentValues().apply { put("kind", kind.db) }
+            if (update("box_art", row, "game_id = ?", arrayOf(gameId.toString())) == 0) {
+                insertOrThrow("box_art", null, row.apply { put("game_id", gameId); put("checked_at", 0L) })
+            }
+        }
+    }
 
     /**
      * Games to look up against the cover listing fetched at [listedAt]: never looked up, or

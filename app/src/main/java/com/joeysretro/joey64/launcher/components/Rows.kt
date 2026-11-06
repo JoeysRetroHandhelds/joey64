@@ -115,7 +115,16 @@ fun KeyBadge(key: String) {
  * by accident). [valueColor] overrides the value's colour (the tap count in gold).
  */
 @Composable
-fun InfoRow(label: String, value: String, modifier: Modifier = Modifier, valueColor: androidx.compose.ui.graphics.Color? = null, onTap: (() -> Unit)? = null) {
+fun InfoRow(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    valueColor: androidx.compose.ui.graphics.Color? = null,
+    /** Details: grey labels with plain values, as the approved Details popup draws them. */
+    labelColor: androidx.compose.ui.graphics.Color? = null,
+    valueStyle: androidx.compose.ui.text.TextStyle? = null,
+    onTap: (() -> Unit)? = null,
+) {
     val c = JoeyTheme.colors
     Row(
         modifier = modifier
@@ -125,8 +134,9 @@ fun InfoRow(label: String, value: String, modifier: Modifier = Modifier, valueCo
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(label, style = JoeyTheme.type.row, color = c.text, modifier = Modifier.weight(1f), maxLines = 1)
-        Text(value, style = JoeyTheme.type.rowValue, color = valueColor ?: c.value, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(label, style = JoeyTheme.type.row, color = labelColor ?: c.text, maxLines = 1)
+        Text(value, style = valueStyle ?: JoeyTheme.type.rowValue, color = valueColor ?: c.value, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            textAlign = androidx.compose.ui.text.style.TextAlign.End, modifier = Modifier.weight(1f))
     }
 }
 

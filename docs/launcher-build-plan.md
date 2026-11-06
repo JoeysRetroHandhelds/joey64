@@ -279,7 +279,7 @@ The parts without screens:
   - **Hash table:** libretro-database is CC-BY-SA 4.0. Its N64 dat is No-Intro's data (2,268 entries, version 2026.10.07). No-Intro's own Data Usage License (datomatic.no-intro.org/terms.html, updated 2026-09-11) lets anyone use and redistribute it, with no attribution needed. Built from libretro's copy, the table ships as its own asset file under CC-BY-SA 4.0, credited to libretro-database in the app's licences. Share-alike covers that file only, not the GPL code. Building straight from No-Intro's download would have no conditions at all.
   - **Box art images:** libretro-thumbnails has no licence. The pictures are the publishers' artwork, so they're never bundled. They're downloaded at run time from `thumbnails.libretro.com`, as RetroArch does. libretro publishes no terms for other apps using that server, so we'll be polite about it: our own User-Agent, download each cover once, and cache it.
 
-**Phase 2 status (2026-11-06, branch `launcher/phase0`).** Covers are built and checked on the Thor. Not built yet: Change box art from Details, the Download box art switch's row, and cheats in the same pass (listed below).
+**Phase 2 status (2026-11-06, branch `launcher/phase0`).** Covers, the Start options popup, Details and Change box art are built and checked on the Thor. Not built yet: the Download box art switch's row, and cheats in the same pass (listed below).
 - **Table:** `assets/boxart/n64-names.tsv`, 1,147 big-endian ROMs (MD5, then the No-Intro name), built by `devtools/boxart/build-table.py` from libretro-database's N64 dat (version 2026.10.07). Credited in `assets/licenses/libretro-database.txt` (CC-BY-SA 4.0, the table only).
 - **Matching** (`launcher/boxart/BoxArtNames`, BoxArtNamesTest):
   1. The ROM's MD5 gives its No-Intro name, and that cover is used when it exists.
@@ -304,8 +304,25 @@ The parts without screens:
   - 82 games read, 65 covers downloaded, the 17 hacks as title tiles.
   - Offline (stand-in address refused): the popup, OK closes it, and the next launch while still offline shows no popup. Back online, all 65 covers came on the next launch.
   - A on a cover starts the game (Pokémon Snap), and Back lands on the library.
+- **Options, Details and Change box art** (2026-11-06; approved mockups details2.html, the "Hold A" in them read as Start):
+  - **Options:** Start on a focused game, or a long-press by touch, opens its options popup. It shows only what's built: Play and Details. States, Game settings, Controls, Achievements and Add to collection come with their phases. Start does nothing while the rail has focus. The hint row reads "A Play / Start Options".
+  - **Details:** the cover on the left, then Last played, Play time, File, Revision, Region, Size and RA hash (fixed-width). B goes back to Options. The RetroAchievements row ("Supported" / "No set for this file") comes with Phase 7. Options and Details are one popup window whose contents change (the update popups' flicker lesson).
+  - **Header values:** region, revision and ROM size are now kept per game (schema 3). The upgrade has every file read once more to fill them in (Thor: 82 games in 9.8 s, with the library's progress bar).
+  - **Play time and Last played:** recorded by the launcher, from starting a game until the launcher is back in front. Counted in uptime, so time with the device asleep isn't counted. A session across a restart is dropped. Before this, nothing recorded play time. A game started directly by a frontend isn't counted yet, since MainActivity doesn't record sessions.
+  - **Change box art:** the cover is the one thing to press in Details. Box art offers Choose image... (Android's picker), Downloaded art (only when a cover was downloaded) and No box art, with a tick on the one in use. A chosen image is kept as `files/boxart/custom/<md5>.jpg`, at most 1,024 px wide. The downloaded cover stays, so Downloaded art can come back. No box art is never looked up again.
+  - **Fixed while checking:**
+    - An item Compose focuses in the frame it first appears (new contents in a popup that stays open) never lit up. The highlight collected focus events in an effect that starts a frame later, and nothing replays them. Details' cover and the update popup's Cancel had no outline. `rememberFocusState` now records focus as it happens.
+    - A cover changed to none kept showing the last picture.
+  - **Checked on the Thor:**
+    - Options from Start and from a long-press; Start on the rail does nothing.
+    - Details for Banjo-Kazooie: Original, USA · NTSC, 16 MB, the RA hash.
+    - After 40 s of play: "Today" and "Under a minute".
+    - No box art shows the title tile in Details and the grid; Downloaded art brings the cover back.
+    - Choose image with a test picture: it shows in both places, then went back to the downloaded cover. The test picture was deleted afterwards.
+    - Cancelling the picker returns to Box art with focus.
+    - The update popup's Cancel is now highlighted.
+  - **Left out, not designed:** a message when a picked image can't be read. The popup closes and the cover stays as it was (logged).
 - **Not built yet, on the tracked list:**
-  - **Change box art from Details** (Choose image, Downloaded art, No box art; approved 2026-11-04, details2.html). It waits for the hold-A / Start options popup and Details, which aren't built. The `box_art` table already has room for "custom" and "hidden".
   - **The Download box art switch's row in Settings › Library.** The setting exists (on by default) and is obeyed. Settings › Library doesn't exist yet.
   - **Cheats in the same pass:** the `joey64-cheats` repo doesn't exist yet (checked 2026-11-06).
   - **The licence list in Settings › About** (already listed under Phase 0b), which will show the new libretro-database credit.

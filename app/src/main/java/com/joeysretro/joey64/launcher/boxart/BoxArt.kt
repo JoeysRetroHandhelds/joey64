@@ -60,6 +60,37 @@ class BoxArt(private val context: Context, private val db: LibraryDb) {
 
     fun file(md5: String) = File(dir, "$md5.jpg")
 
+    /** A picture the user chose (Details, Change box art), kept apart so Downloaded art can come back. */
+    fun customFile(md5: String) = File(File(dir, "custom"), "$md5.jpg")
+
+    /**
+     * Keeps the picked image [uri] as [md5]'s own cover: decoded at most [CUSTOM_WIDTH] wide (a
+     * phone photo is far bigger than any tile), as a JPEG, written whole or not at all.
+     */
+    fun saveCustom(md5: String, uri: android.net.Uri) {
+        val r = context.contentResolver
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        // A bounds-only decode always returns null; the size is in [bounds].
+        (r.openInputStream(uri) ?: throw IOException("can't open $uri")).use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0) throw IOException("not an image")
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= CUSTOM_WIDTH) sample *= 2
+        val decoded = r.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }) }
+            ?: throw IOException("not an image")
+        val bmp = if (decoded.width > CUSTOM_WIDTH) Bitmap.createScaledBitmap(decoded, CUSTOM_WIDTH, decoded.height * CUSTOM_WIDTH / decoded.width, true)
+            .also { decoded.recycle() } else decoded
+        val to = customFile(md5)
+        to.parentFile?.mkdirs()
+        val part = File(to.parentFile, to.name + ".part")
+        try {
+            part.outputStream().use { if (!bmp.compress(Bitmap.CompressFormat.JPEG, 90, it)) throw IOException("can't encode") }
+            if (!part.renameTo(to)) throw IOException("can't rename ${part.name}")
+        } finally {
+            bmp.recycle()
+            part.delete()
+        }
+    }
+
     /** Looks up and downloads every library game's cover not yet looked up against the listing. [onCover] after each new one. */
     suspend fun fetch(onCover: () -> Unit = {}): Outcome = withContext(Dispatchers.IO) {
         val t0 = SystemClock.elapsedRealtime()
@@ -200,5 +231,6 @@ class BoxArt(private val context: Context, private val db: LibraryDb) {
         const val LISTING = "listing.txt"
         const val LISTING_DAYS = 7
         const val THREADS = 3
+        const val CUSTOM_WIDTH = 1024
     }
 }

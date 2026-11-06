@@ -7,7 +7,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.runtime.Composable
@@ -42,12 +41,45 @@ import kotlinx.coroutines.launch
 
 private const val TAG = "Joey64Focus"
 
-/** An interaction source plus whether it currently holds focus: the highlight for one element. */
+/**
+ * An interaction source plus whether it currently holds focus: the highlight for one element.
+ *
+ * The focus state is kept as the source emits, not by collecting it. A collector starts only in
+ * an effect, after the frame that composed the element, and an interaction source replays
+ * nothing. So an element Compose focused in that same frame (new contents in a popup that stays
+ * open, where focus moves to the first new item at once) stayed unlit: found on the Thor
+ * 2026-11-06 in Details' cover and the update popup's Cancel.
+ */
 @Composable
 fun rememberFocusState(): Pair<MutableInteractionSource, Boolean> {
-    val source = remember { MutableInteractionSource() }
-    val focused by source.collectIsFocusedAsState()
-    return source to focused
+    val source = remember { FocusTrackingSource() }
+    return source to source.focused
+}
+
+private class FocusTrackingSource(private val inner: MutableInteractionSource = MutableInteractionSource()) :
+    MutableInteractionSource by inner {
+    private val held = HashSet<androidx.compose.foundation.interaction.FocusInteraction.Focus>()
+    var focused by androidx.compose.runtime.mutableStateOf(false)
+        private set
+
+    private fun track(i: androidx.compose.foundation.interaction.Interaction) {
+        when (i) {
+            is androidx.compose.foundation.interaction.FocusInteraction.Focus -> held += i
+            is androidx.compose.foundation.interaction.FocusInteraction.Unfocus -> held -= i.focus
+            else -> return
+        }
+        focused = held.isNotEmpty()
+    }
+
+    override suspend fun emit(interaction: androidx.compose.foundation.interaction.Interaction) {
+        track(interaction)
+        inner.emit(interaction)
+    }
+
+    override fun tryEmit(interaction: androidx.compose.foundation.interaction.Interaction): Boolean {
+        track(interaction)
+        return inner.tryEmit(interaction)
+    }
 }
 
 /**

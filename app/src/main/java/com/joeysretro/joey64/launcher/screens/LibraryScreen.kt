@@ -5,6 +5,12 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import com.joeysretro.joey64.launcher.controls.Control
+import com.joeysretro.joey64.launcher.controls.ControlBus
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.background
 import androidx.compose.ui.draw.clip
@@ -60,8 +66,8 @@ import com.joeysretro.joey64.launcher.theme.JoeyTheme
  * (none found, or not downloaded yet) shows its name on a plain tile, as the mockups draw it. A plays.
  * Focus starts on the first game and comes back to the one you played.
  *
- * Not built yet, so not shown: the Filter button (collections and filters, Phase 5), Search,
- * Start for options.
+ * Start (or a long-press) opens the focused game's options ([GamePopups]: Play, Details).
+ * Not built yet, so not shown: the Filter button (collections and filters, Phase 5) and Search.
  */
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
@@ -73,8 +79,26 @@ fun LibraryScreen(model: LibraryModel) {
     LaunchedEffect(Unit) { landing?.arm() }
     if (model.offline.collectAsStateWithLifecycle().value) OfflinePopup(model::offlineSeen)
 
+    // The game whose tile has focus, for Start; null while focus is on the rail.
+    var focusedGame by remember { mutableStateOf<LibraryGame?>(null) }
+    var popup by remember { mutableStateOf<Pair<Long, GamePopup>?>(null) }
+    val currentFocused by rememberUpdatedState(focusedGame)
+    DisposableEffect(Unit) {
+        val handler: (Control) -> Boolean = { control ->
+            val g = currentFocused
+            if (control == Control.Options && g != null) { popup = g.id to GamePopup.Options; true } else false
+        }
+        ControlBus.setHandler(handler)
+        onDispose { ControlBus.clearHandler(handler) }
+    }
+
     val c = JoeyTheme.colors
     val list = games ?: return
+    popup?.let { (id, which) ->
+        val g = list.firstOrNull { it.id == id }
+        if (g == null) popup = null
+        else GamePopups(g, which, model, onPopup = { next -> popup = next?.let { id to it } }) { model.play(g) { context.startActivity(it) } }
+    }
     Column(Modifier.fillMaxSize()) {
         if (list.isEmpty()) {
             Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -104,7 +128,9 @@ fun LibraryScreen(model: LibraryModel) {
             modifier = Modifier.fillMaxSize().focusRestorer().focusGroup(),
         ) {
             itemsIndexed(list, key = { _, g -> g.id }) { i, g ->
-                GameTile(g, model.cover(g), Modifier.initialFocus(i == 0)) { model.play(g) { context.startActivity(it) } }
+                GameTile(g, model.cover(g), Modifier.initialFocus(i == 0),
+                    onFocus = { on -> if (on) focusedGame = g else if (focusedGame?.id == g.id) focusedGame = null },
+                    onOptions = { popup = g.id to GamePopup.Options }) { model.play(g) { context.startActivity(it) } }
             }
         }
         }
@@ -131,9 +157,11 @@ private class RowGapSpec(private val margin: Float) : BringIntoViewSpec {
  * cover loads the tile is plain, so a name doesn't flash up first.
  */
 @Composable
-private fun GameTile(game: LibraryGame, cover: File?, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun GameTile(game: LibraryGame, cover: File?, modifier: Modifier = Modifier, onFocus: (Boolean) -> Unit,
+                     onOptions: () -> Unit, onClick: () -> Unit) {
     val c = JoeyTheme.colors
     val (source, focused) = rememberFocusState()
+    LaunchedEffect(focused) { onFocus(focused) }
     val picture by rememberCover(cover)
     val shape = RoundedCornerShape(4.dp)
     Box(
@@ -142,7 +170,7 @@ private fun GameTile(game: LibraryGame, cover: File?, modifier: Modifier = Modif
             .aspectRatio(1.45f)
             .coverSelection(focused)
             .background(c.chip, shape)
-            .pressable(source, onClick = onClick),
+            .pressable(source, onLongClick = onOptions, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         val p = picture

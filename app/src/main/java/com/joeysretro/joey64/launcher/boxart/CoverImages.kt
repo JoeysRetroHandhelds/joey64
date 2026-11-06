@@ -37,5 +37,8 @@ object CoverImages {
 @Composable
 fun rememberCover(file: File?): State<ImageBitmap?> =
     produceState(file?.let { CoverImages.cached(it) }, file) {
+        // A new key keeps the old picture until it's set: set it each time, so No box art (null)
+        // or a new image doesn't leave the last cover up.
+        value = file?.let { CoverImages.cached(it) }
         if (file != null && value == null) value = CoverImages.load(file)
     }

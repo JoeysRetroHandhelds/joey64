@@ -176,7 +176,20 @@ Comes straight after Phase 0, before the library, so every later build reaches t
 - **Details popup.**
 - **Test on:** the Portal's 81 zipped games, the Flip, and the Duo's empty ROMs folder.
 
-**Phase 1 status (2026-11-06, branch `launcher/phase0`): the parts without screens.**
+**Phase 1 status (2026-11-06, branch `launcher/phase0`).**
+
+- **Entry point** (Joey, 2026-11-06: the app opens to setup or the library, never straight into a game unless a frontend asks): `LauncherActivity` is the app's launch screen now, and `MainActivity` keeps only its VIEW filter for frontends and file managers. The launcher starts games with that same VIEW intent; zips are unpacked first to `cache/launch/<md5>/`, named after the zip, so the save is named as RetroArch names it. The last 3 unpacked games are kept.
+- **First run, screens 1-2** (approved 2026-11-05): "Choose your ROMs folder", then "Found N N64 games" with the folder box, Use this folder / Choose another folder. A folder without games shows "No N64 games found" with Choose another folder.
+  - Screens 3-4 (where saves go) wait for the core to take file descriptors, so saves stay in Joey64's own storage for now. Screens 5-7 (Import from RetroArch) are next.
+- **Library grid:** the tiles show the game's name until box art comes (Phase 2), in the screen shape's column count. A plays, and focus comes back to the game played. While new files are read, a line says "Reading your games: N of M".
+  - The rail shows the logo and Library only. Continue, Search, Achievements, Controls and Settings come with their pages, and so do the Filter button and Start for options.
+- **Checked on the Thor:**
+  - first run from no settings, then the picker at SD Card › ROMs
+  - "Found 82 N64 games" in SD Card › ROMs › n64, and the D-pad between the two buttons
+  - the library, and a zipped game (Bomberman Hero) started with A at 60 fps
+  - Back from the game lands on that game's tile
+
+The parts without screens:
 
 - **ROM reading** (`launcher/library/RomReader`, `ArchiveReader`): `.z64`, `.v64` and `.n64` by their first four bytes, not their names, and the first ROM inside a `.zip`, streamed, nothing unpacked. One pass gives the header (name, game code, region, revision, CRCs), the RetroAchievements hash (MD5 of the first 64 MiB in z64 order) and the CRC-32 No-Intro lists. Region names come from ares (ISC); NTSC or PAL follows the core's own rule, so Scandinavia reads NTSC.
   - Checked against the 2,440 No-Intro test zips in both byte orders (`RealRomsCheck`, run by hand, about 3 minutes). In each set, 1,056 match the DAT's MD5 and CRC, 157 aren't in this DAT, and no serial differs from the header. Three are older 32 MiB overdumps of prototypes the DAT now lists trimmed (Frogger 2 Proto 1 and 2, Taz Express); their CRC matches the zip's own. The BIOS and cheat-cart dumps are rightly turned down.

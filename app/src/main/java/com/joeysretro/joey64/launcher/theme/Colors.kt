@@ -43,6 +43,9 @@ data class JoeyColors(
     /** The small letter badges in the hint row. */
     val keyBadge: Color,
     val keyBadgeText: Color,
+    /** The main button on a page ("Choose ROMs folder", "Use this folder"): blue, white text, in both themes. */
+    val buttonPrimary: Color,
+    val onButtonPrimary: Color,
 )
 
 private val Yellow = Color(0xFFF9D036)
@@ -68,6 +71,8 @@ val DarkColors = JoeyColors(
     scrim = Color(0xA6050814),       // rgba(5,8,20,.65)
     keyBadge = Color(0xFF1A2448),
     keyBadgeText = Color(0xFFE6E9F4),
+    buttonPrimary = Color(0xFF3A6FE0),
+    onButtonPrimary = Color(0xFFFFFFFF),
 )
 
 val LightColors = JoeyColors(
@@ -90,6 +95,8 @@ val LightColors = JoeyColors(
     scrim = Color(0x9E141B33),       // rgba(20,27,51,.62)
     keyBadge = Navy,
     keyBadgeText = Color(0xFFFFFFFF),
+    buttonPrimary = Color(0xFF3A6FE0),
+    onButtonPrimary = Color(0xFFFFFFFF),
 )
 
 val LocalJoeyColors = staticCompositionLocalOf { DarkColors }

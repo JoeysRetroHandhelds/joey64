@@ -19,16 +19,30 @@
             android:screenOrientation="sensorLandscape"
             android:preferMinimalPostProcessing="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|uiMode|density|fontScale|keyboard|keyboardHidden|navigation|touchscreen|locale|layoutDirection|colorMode">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-            <!-- Lets launchers / file managers hand us a ROM -->
+            <!-- Lets launchers / file managers hand us a ROM; the app icon opens the launcher below -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="application/octet-stream" />
             </intent-filter>
         </activity>
+        <!-- The app's home: first run, then the library. It starts games in MainActivity. -->
+        <activity
+            android:name=".launcher.LauncherActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <!-- Zipped ROMs unpacked to cache/launch/ reach MainActivity as content:// URIs -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.launch"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/launch_paths" />
+        </provider>
     </application>
 </manifest>

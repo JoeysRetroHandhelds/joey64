@@ -43,6 +43,15 @@ data class JoeyType(
     /** The hint row's words and its key letters. */
     val hint: TextStyle,
     val hintKey: TextStyle,
+    /** A centred page's heading and its line under it (first run: "Choose your ROMs folder"). */
+    val heading: TextStyle,
+    val body: TextStyle,
+    /** Buttons on a page. */
+    val button: TextStyle,
+    /** A folder's path in the folder box. */
+    val path: TextStyle,
+    /** A game's name on a tile that has no box art yet. */
+    val tile: TextStyle,
 )
 
 val DefaultType = JoeyType(
@@ -55,6 +64,11 @@ val DefaultType = JoeyType(
     tab = TextStyle(fontWeight = FontWeight.Bold, fontSize = 14.sp),
     hint = TextStyle(fontWeight = FontWeight.Medium, fontSize = 12.5.sp),
     hintKey = TextStyle(fontWeight = FontWeight.Bold, fontSize = 11.sp),
+    heading = TextStyle(fontWeight = FontWeight.Bold, fontSize = 19.sp),
+    body = TextStyle(fontWeight = FontWeight.Normal, fontSize = 13.5.sp, lineHeight = 19.5.sp),
+    button = TextStyle(fontWeight = FontWeight.Bold, fontSize = 14.5.sp),
+    path = TextStyle(fontWeight = FontWeight.Medium, fontSize = 14.5.sp),
+    tile = TextStyle(fontWeight = FontWeight.Bold, fontSize = 14.sp, lineHeight = 18.sp),
 )
 
 val LocalJoeyType = staticCompositionLocalOf { DefaultType }

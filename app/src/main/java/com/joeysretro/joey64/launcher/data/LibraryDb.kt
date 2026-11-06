@@ -116,6 +116,12 @@ object LibrarySchema {
     val RA_CACHE = listOf("ra_achievements", "ra_sets")
 }
 
+/** A game in the library grid. [md5] is its RetroAchievements hash, and names its unpacked copy. */
+data class LibraryGame(val id: Long, val title: String, val md5: String)
+
+/** One of a game's files in a picked ROM folder. */
+data class GameFile(val uri: String, val treeUri: String, val name: String)
+
 /**
  * The launcher's database. One instance per process ([get]); SQLiteOpenHelper serialises access.
  * Write-ahead logging, so the library can read while a scan writes, and foreign keys on (SQLite
@@ -209,6 +215,19 @@ class LibraryDb private constructor(context: Context) :
             for (u in uris) delete("files", "uri = ?", arrayOf(u))
         }
     }
+
+    /** The library: every game with at least one file in a ROM folder, by title. */
+    fun libraryGames(): List<LibraryGame> =
+        readableDatabase.rawQuery(
+            "SELECT id, title, md5 FROM games g WHERE EXISTS (SELECT 1 FROM files f WHERE f.game_id = g.id) ORDER BY title COLLATE NOCASE",
+            null,
+        ).use { c -> buildList { while (c.moveToNext()) add(LibraryGame(c.getLong(0), c.getString(1), c.getString(2))) } }
+
+    /** A game's files, most recently seen first (the same ROM can sit in two folders). */
+    fun filesOf(gameId: Long): List<GameFile> =
+        readableDatabase.rawQuery("SELECT uri, tree_uri, name FROM files WHERE game_id = ? ORDER BY seen_at DESC", arrayOf(gameId.toString())).use { c ->
+            buildList { while (c.moveToNext()) add(GameFile(c.getString(0), c.getString(1), c.getString(2))) }
+        }
 
     /** Games with at least one file in a ROM folder: the library. */
     fun gameCount(): Int =

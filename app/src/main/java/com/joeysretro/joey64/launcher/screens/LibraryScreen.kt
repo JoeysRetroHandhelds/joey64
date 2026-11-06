@@ -1,6 +1,22 @@
 package com.joeysretro.joey64.launcher.screens
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.AnnotatedString
+import com.joeysretro.joey64.launcher.boxart.rememberCover
+import com.joeysretro.joey64.launcher.components.Hint
+import com.joeysretro.joey64.launcher.components.JoeyDialog
+import com.joeysretro.joey64.launcher.components.JoeyOption
+import com.joeysretro.joey64.launcher.components.PopupTitle
+import com.joeysretro.joey64.launcher.components.PromptText
+import java.io.File
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRestorer
@@ -39,20 +56,22 @@ import com.joeysretro.joey64.launcher.theme.JoeyTheme
 
 /**
  * The library grid (approved library design, 2026-11-04): every game in the picked ROM folders,
- * box-art tiles in as many columns as the screen shape gives (4 at 16:9). Until box art comes
- * (Phase 2) a tile shows the game's name, as the mockups draw a game without art. A plays.
+ * box-art tiles in as many columns as the screen shape gives (4 at 16:9). A game without a cover
+ * (none found, or not downloaded yet) shows its name on a plain tile, as the mockups draw it. A plays.
  * Focus starts on the first game and comes back to the one you played.
  *
  * Not built yet, so not shown: the Filter button (collections and filters, Phase 5), Search,
  * Start for options.
  */
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 fun LibraryScreen(model: LibraryModel) {
     val games by model.games.collectAsStateWithLifecycle()
     val reading by model.reading.collectAsStateWithLifecycle()
     val landing = LocalFocusLanding.current
     val context = LocalContext.current
     LaunchedEffect(Unit) { landing?.arm() }
+    if (model.offline.collectAsStateWithLifecycle().value) OfflinePopup(model::offlineSeen)
 
     val c = JoeyTheme.colors
     val list = games ?: return
@@ -72,6 +91,11 @@ fun LibraryScreen(model: LibraryModel) {
                 ProgressLine(r, width = 320.dp, centred = false)
             }
         }
+        // Focus moving to a row half off screen scrolls it fully in with a row gap to spare, so the
+        // selected tile and its outline are never the cut-off ones (approved grid, 2026-11-04).
+        // Compose's default stops with the tile flush against the hint row, outline cut.
+        val gap = with(LocalDensity.current) { 16.dp.toPx() }
+        CompositionLocalProvider(LocalBringIntoViewSpec provides remember(gap) { RowGapSpec(gap) }) {
         LazyVerticalGrid(
             columns = GridCells.Fixed(LocalScreenLayout.current.boxArtColumns),
             contentPadding = PaddingValues(horizontal = JoeyTheme.spacing.margin, vertical = 14.dp),
@@ -80,28 +104,68 @@ fun LibraryScreen(model: LibraryModel) {
             modifier = Modifier.fillMaxSize().focusRestorer().focusGroup(),
         ) {
             itemsIndexed(list, key = { _, g -> g.id }) { i, g ->
-                GameTile(g, Modifier.initialFocus(i == 0)) { model.play(g) { context.startActivity(it) } }
+                GameTile(g, model.cover(g), Modifier.initialFocus(i == 0)) { model.play(g) { context.startActivity(it) } }
             }
+        }
         }
     }
 }
 
-/** A game without box art: its name on a plain tile, the size and shape of a cover. */
+/** Scrolls an item into view with [margin] around it; an item already that far inside stays put. */
+@OptIn(ExperimentalFoundationApi::class)
+private class RowGapSpec(private val margin: Float) : BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+        val start = offset - margin
+        val end = offset + size + margin
+        return when {
+            start < 0f -> start
+            end > containerSize -> minOf(end - containerSize, start)
+            else -> 0f
+        }
+    }
+}
+
+/**
+ * A game's tile: its cover, filling the tile (libretro's are ~1.43:1, the tile 1.45:1, so a sliver
+ * is cropped), or without one, its name on a plain tile the size and shape of a cover. While a
+ * cover loads the tile is plain, so a name doesn't flash up first.
+ */
 @Composable
-private fun GameTile(game: LibraryGame, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun GameTile(game: LibraryGame, cover: File?, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val c = JoeyTheme.colors
     val (source, focused) = rememberFocusState()
+    val picture by rememberCover(cover)
+    val shape = RoundedCornerShape(4.dp)
     Box(
         modifier = modifier
             .fillMaxWidth()
             .aspectRatio(1.45f)
             .coverSelection(focused)
-            .background(c.chip, RoundedCornerShape(4.dp))
-            .pressable(source, onClick = onClick)
-            .padding(10.dp),
+            .background(c.chip, shape)
+            .pressable(source, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(game.title, style = JoeyTheme.type.tile, color = c.textSecondary, textAlign = TextAlign.Center,
-            maxLines = 4, overflow = TextOverflow.Ellipsis)
+        val p = picture
+        when {
+            p != null -> Image(p, contentDescription = game.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(shape))
+            cover == null -> Text(game.title, style = JoeyTheme.type.tile, color = c.textSecondary, textAlign = TextAlign.Center,
+                maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(10.dp))
+        }
+    }
+}
+
+/**
+ * No connection when covers were due (approved 2026-11-05, scratchpad build_offline.py): once per
+ * scan that finds new games and can't connect. Covers then fill in by themselves once online.
+ * The approved text also names cheats; they say so once cheats download (Phase 6).
+ */
+@Composable
+private fun OfflinePopup(onOk: () -> Unit) {
+    JoeyDialog(onDismiss = onOk, hints = listOf(Hint("A", "OK")), width = 440.dp) {
+        Column {
+            PopupTitle("Go online to get box art")
+            PromptText(AnnotatedString("Joey64 couldn't connect. Box art downloads by itself next time you're online."))
+            JoeyOption("OK", modifier = Modifier.initialFocus(), onClick = onOk)
+        }
     }
 }

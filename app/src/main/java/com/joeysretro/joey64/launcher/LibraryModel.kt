@@ -9,7 +9,12 @@ import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import android.net.ConnectivityManager
+import android.net.Network
+import com.joeysretro.joey64.launcher.boxart.BoxArt
 import com.joeysretro.joey64.launcher.data.LibraryDb
+import com.joeysretro.joey64.launcher.settings.SettingsStore
+import kotlinx.coroutines.flow.first
 import com.joeysretro.joey64.launcher.data.LibraryGame
 import com.joeysretro.joey64.launcher.library.GameLauncher
 import com.joeysretro.joey64.launcher.library.LibraryScanner
@@ -36,6 +41,20 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     private val db = LibraryDb.get(app)
     private val scanner = LibraryScanner(app, db)
     private val launcher = GameLauncher(app, db)
+    private val boxArt = BoxArt(app, db)
+    private val settings = SettingsStore(app)
+
+    private val _offline = MutableStateFlow(false)
+    /** The "Go online to get box art" popup is up (plan, Phase 2: once per scan that can't connect, never on every launch). */
+    val offline: StateFlow<Boolean> = _offline
+    private var art: Job? = null
+    /** The last cover fetch couldn't connect: the next network that comes up tries again, silently. */
+    @Volatile private var waitingForNetwork = false
+    private val network = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(n: Network) {
+            if (waitingForNetwork) viewModelScope.launch { fetchArt(newGames = false) }
+        }
+    }
 
     private val _games = MutableStateFlow<List<LibraryGame>?>(null)
     /** Null until the database has been read once. */
@@ -49,25 +68,59 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
 
     init {
         viewModelScope.launch { _games.value = withContext(Dispatchers.IO) { db.libraryGames() } }
+        app.getSystemService(ConnectivityManager::class.java)?.registerDefaultNetworkCallback(network)
     }
+
+    override fun onCleared() {
+        getApplication<Application>().getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(network)
+    }
+
+    /** Covers for games not looked up yet, when Download box art is on. [newGames]: this scan added games, so an offline popup is due. */
+    private suspend fun fetchArt(newGames: Boolean) {
+        if (art?.isActive == true) return
+        if (!settings.settings.first().downloadBoxArt) return
+        art = viewModelScope.launch {
+            var got = 0
+            val outcome = boxArt.fetch {
+                // Covers appear as they come, a few at a time.
+                if (++got % 4 == 0) _games.value = db.libraryGames()
+            }
+            _games.value = withContext(Dispatchers.IO) { db.libraryGames() }
+            waitingForNetwork = outcome is BoxArt.Outcome.Offline
+            if (outcome is BoxArt.Outcome.Offline) {
+                val prefs = getApplication<Application>().getSharedPreferences("box_art", android.content.Context.MODE_PRIVATE)
+                if (newGames || !prefs.getBoolean("offline_shown", false)) {
+                    prefs.edit().putBoolean("offline_shown", true).apply()
+                    _offline.value = true
+                }
+            }
+        }
+    }
+
+    fun offlineSeen() { _offline.value = false }
+
+    /** [game]'s cover file, null when it has none (a title tile). */
+    fun cover(game: LibraryGame): java.io.File? = if (game.art) boxArt.file(game.md5) else null
 
     /** Brings the library up to date with [folders]: quick when nothing changed (sizes and dates only). */
     fun refresh(folders: List<Uri>) {
         if (scan?.isActive == true || folders.isEmpty()) return
         scan = viewModelScope.launch {
+            var newGames = false
             try {
                 val started = android.os.SystemClock.elapsedRealtime()
-                scanner.scan(folders) { done, total ->
+                newGames = scanner.scan(folders) { done, total ->
                     _reading.value = Progress(done, total, started)
                     // New games appear as they're read, a few at a time.
                     if (done % 6 == 0 || done == total) _games.value = db.libraryGames()
-                }
+                }.read > 0
             } catch (e: Exception) {
                 JLog.w(TAG, "library read failed" + "\n" + Log.getStackTraceString(e))
             } finally {
                 _reading.value = null
                 _games.value = withContext(Dispatchers.IO) { db.libraryGames() }
             }
+            fetchArt(newGames)
         }
     }
 

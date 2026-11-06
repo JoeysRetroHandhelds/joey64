@@ -1,0 +1,15 @@
+boxart/n64-names.tsv
+
+Built from libretro-database (https://github.com/libretro/libretro-database),
+metadat/no-intro/"Nintendo - Nintendo 64.dat", by the libretro team and contributors.
+Its N64 data comes from No-Intro (https://datomatic.no-intro.org).
+
+Licensed under the Creative Commons Attribution-ShareAlike 4.0 International licence
+(CC BY-SA 4.0): https://creativecommons.org/licenses/by-sa/4.0/
+
+Changes: only the ROM MD5 and game name columns of the big-endian (.z64) rows are kept,
+as a tab-separated table (devtools/boxart/build-table.py). The table is shared under the same
+licence. It is a separate file; the licence covers it only, not Joey64's code.
+
+Box art images are not part of Joey64. They are downloaded when the app runs from
+thumbnails.libretro.com (libretro-thumbnails), each once, and kept on the device.

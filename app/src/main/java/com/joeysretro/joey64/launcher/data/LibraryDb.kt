@@ -19,7 +19,7 @@ import com.joeysretro.joey64.launcher.library.RomInfo
  * the file is renamed or moved, or the same ROM sits in two folders.
  */
 object LibrarySchema {
-    const val VERSION = 1
+    const val VERSION = 2
 
     val V1 = listOf(
         // md5: RetroAchievements' N64 hash, the MD5 of the ROM in big-endian (.z64) byte order.
@@ -112,12 +112,35 @@ object LibrarySchema {
         """,
     )
 
+    /**
+     * Version 2 (Phase 2, box art): what each game shows. kind: "libretro" (a downloaded cover,
+     * boxart/<md5>.jpg; cover = its libretro name), "none" (no cover found in the listing of
+     * checked_at; looked for again when a newer listing comes), later "custom" and "hidden"
+     * (Details, Change box art). A game without a row hasn't been looked up yet.
+     */
+    val V2 = listOf(
+        """
+        CREATE TABLE box_art (
+            game_id INTEGER PRIMARY KEY REFERENCES games(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL,
+            cover TEXT,
+            checked_at INTEGER NOT NULL
+        )
+        """,
+    )
+
     /** Tables the cache owns; emptied on sign-out. */
     val RA_CACHE = listOf("ra_achievements", "ra_sets")
 }
 
-/** A game in the library grid. [md5] is its RetroAchievements hash, and names its unpacked copy. */
-data class LibraryGame(val id: Long, val title: String, val md5: String)
+/**
+ * A game in the library grid. [md5] is its RetroAchievements hash, and names its unpacked copy
+ * and its cover. [art]: it has a cover to show (boxart/<md5>.jpg).
+ */
+data class LibraryGame(val id: Long, val title: String, val md5: String, val art: Boolean = false)
+
+/** A game whose cover hasn't been looked up against the current listing: its first file's name, without extension. */
+data class ArtLookup(val gameId: Long, val md5: String, val fileName: String)
 
 /** One of a game's files in a picked ROM folder. */
 data class GameFile(val uri: String, val treeUri: String, val name: String)
@@ -136,12 +159,13 @@ class LibraryDb private constructor(context: Context) :
     }
 
     override fun onCreate(db: SQLiteDatabase) {
-        for (sql in LibrarySchema.V1) db.execSQL(sql)
+        for (sql in LibrarySchema.V1 + LibrarySchema.V2) db.execSQL(sql)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         // Version 1 is the first. Each later version adds a step here; nothing is ever dropped
         // and rebuilt, since play time and collections can't be scanned back.
+        if (oldVersion < 2) for (sql in LibrarySchema.V2) db.execSQL(sql)
     }
 
     /** Adds a finished play session and keeps the game's total and last-played in step. */
@@ -219,9 +243,32 @@ class LibraryDb private constructor(context: Context) :
     /** The library: every game with at least one file in a ROM folder, by title. */
     fun libraryGames(): List<LibraryGame> =
         readableDatabase.rawQuery(
-            "SELECT id, title, md5 FROM games g WHERE EXISTS (SELECT 1 FROM files f WHERE f.game_id = g.id) ORDER BY title COLLATE NOCASE",
+            "SELECT g.id, g.title, g.md5, a.kind IN ('libretro', 'custom') FROM games g LEFT JOIN box_art a ON a.game_id = g.id" +
+                " WHERE EXISTS (SELECT 1 FROM files f WHERE f.game_id = g.id) ORDER BY g.title COLLATE NOCASE",
             null,
-        ).use { c -> buildList { while (c.moveToNext()) add(LibraryGame(c.getLong(0), c.getString(1), c.getString(2))) } }
+        ).use { c -> buildList { while (c.moveToNext()) add(LibraryGame(c.getLong(0), c.getString(1), c.getString(2), c.getInt(3) == 1)) } }
+
+    /**
+     * Games to look up against the cover listing fetched at [listedAt]: never looked up, or
+     * "none" against an older listing. Library games only.
+     */
+    fun artToLookUp(listedAt: Long): List<ArtLookup> =
+        readableDatabase.rawQuery(
+            "SELECT g.id, g.md5, (SELECT f.name FROM files f WHERE f.game_id = g.id ORDER BY f.seen_at DESC LIMIT 1) n" +
+                " FROM games g LEFT JOIN box_art a ON a.game_id = g.id" +
+                " WHERE n IS NOT NULL AND (a.kind IS NULL OR (a.kind = 'none' AND a.checked_at < ?)) ORDER BY g.title COLLATE NOCASE",
+            arrayOf(listedAt.toString()),
+        ).use { c -> buildList { while (c.moveToNext()) add(ArtLookup(c.getLong(0), c.getString(1), c.getString(2).substringBeforeLast('.'))) } }
+
+    /** Records what [gameId] shows; see [LibrarySchema.V2]. */
+    fun setArt(gameId: Long, kind: String, cover: String?, checkedAt: Long) {
+        writableDatabase.insertWithOnConflict("box_art", null, ContentValues().apply {
+            put("game_id", gameId)
+            put("kind", kind)
+            put("cover", cover)
+            put("checked_at", checkedAt)
+        }, SQLiteDatabase.CONFLICT_REPLACE)
+    }
 
     /** A game's files, most recently seen first (the same ROM can sit in two folders). */
     fun filesOf(gameId: Long): List<GameFile> =

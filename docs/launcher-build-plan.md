@@ -279,6 +279,37 @@ The parts without screens:
   - **Hash table:** libretro-database is CC-BY-SA 4.0. Its N64 dat is No-Intro's data (2,268 entries, version 2026.10.07). No-Intro's own Data Usage License (datomatic.no-intro.org/terms.html, updated 2026-09-11) lets anyone use and redistribute it, with no attribution needed. Built from libretro's copy, the table ships as its own asset file under CC-BY-SA 4.0, credited to libretro-database in the app's licences. Share-alike covers that file only, not the GPL code. Building straight from No-Intro's download would have no conditions at all.
   - **Box art images:** libretro-thumbnails has no licence. The pictures are the publishers' artwork, so they're never bundled. They're downloaded at run time from `thumbnails.libretro.com`, as RetroArch does. libretro publishes no terms for other apps using that server, so we'll be polite about it: our own User-Agent, download each cover once, and cache it.
 
+**Phase 2 status (2026-11-06, branch `launcher/phase0`).** Covers are built and checked on the Thor. Not built yet: Change box art from Details, the Download box art switch's row, and cheats in the same pass (listed below).
+- **Table:** `assets/boxart/n64-names.tsv`, 1,147 big-endian ROMs (MD5, then the No-Intro name), built by `devtools/boxart/build-table.py` from libretro-database's N64 dat (version 2026.10.07). Credited in `assets/licenses/libretro-database.txt` (CC-BY-SA 4.0, the table only).
+- **Matching** (`launcher/boxart/BoxArtNames`, BoxArtNamesTest):
+  1. The ROM's MD5 gives its No-Intro name, and that cover is used when it exists.
+  2. Otherwise the file's own name.
+  3. Otherwise the title alone, the text before the first " (". Of the covers with that title, it takes the one sharing the most bracketed tags, then not a beta or proto, then the shortest name.
+
+  Against the cover list then (1,115 covers): 981 ROMs match by MD5, 62 by title and 104 have none (homebrew, test carts, some protos). Joey's 82 games: 63 by MD5, Resident Evil 2 by file name, and Tsumi to Batsu (a patched translation) by title. The 17 hacks get title tiles; none got a wrong cover.
+- **Download** (`BoxArt`):
+  - Runs after every library read, when Download box art is on.
+  - Each game is looked up once. A game with no cover is looked up again only against a newer cover list.
+  - The cover list (thumbnails.libretro.com's folder listing) is fetched at most once a week and kept.
+  - Covers download three at a time with our own User-Agent, and are kept as JPEGs in `files/boxart/<md5>.jpg` (Thor: 65 covers, 4.6 MB, 7.8 s).
+  - The database gained a `box_art` table (schema 2; the upgrade from 1 was checked on the Thor).
+  - Debug builds can point at a stand-in server through `files/dev_boxart_base`.
+- **Offline:**
+  - When the covers can't be fetched, the approved popup shows once. After that it shows only when a library read finds new games. A launch with nothing to fetch never goes online.
+  - The next library read retries, and so does a network coming up (needs ACCESS_NETWORK_STATE). Covers then fill in with no popup.
+  - The text leaves out cheats until they download (Phase 6): "Go online to get box art" / "Joey64 couldn't connect. Box art downloads by itself next time you're online."
+- **Grid:** a cover fills its tile, cropped (libretro's are about 1.43:1, the tile 1.45:1). A game without one keeps its title tile, and a tile is plain while its cover loads. Decoded covers are kept in memory (an eighth of the heap).
+  - Fixed while checking: moving down to a half-visible row used to stop with the selected tile flush against the hint row, its outline cut. It now scrolls a row gap further, so the selected tile is never the cut-off one (approved grid rule).
+- **Checked on the Thor:**
+  - 82 games read, 65 covers downloaded, the 17 hacks as title tiles.
+  - Offline (stand-in address refused): the popup, OK closes it, and the next launch while still offline shows no popup. Back online, all 65 covers came on the next launch.
+  - A on a cover starts the game (Pokémon Snap), and Back lands on the library.
+- **Not built yet, on the tracked list:**
+  - **Change box art from Details** (Choose image, Downloaded art, No box art; approved 2026-11-04, details2.html). It waits for the hold-A / Start options popup and Details, which aren't built. The `box_art` table already has room for "custom" and "hidden".
+  - **The Download box art switch's row in Settings › Library.** The setting exists (on by default) and is obeyed. Settings › Library doesn't exist yet.
+  - **Cheats in the same pass:** the `joey64-cheats` repo doesn't exist yet (checked 2026-11-06).
+  - **The licence list in Settings › About** (already listed under Phase 0b), which will show the new libretro-database credit.
+
 ## Phase 3: in game, save states and screenshots
 
 - **Pause menu** on Android Back, as a Compose panel window over the paused game.

@@ -2,27 +2,36 @@ package com.joeysretro.joey64.launcher.theme
 
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.joeysretro.joey64.R
 
 /**
  * Type from the mockups: titles in Rubik Black Italic (the wordmark's face), everything else in
- * a plain sans.
+ * Rubik Regular, Medium and Bold.
  *
- * Only Rubik Black Italic is in the repo (branding/joey64/font, OFL). The mockups set body text in
- * Rubik 500/700; until those files are added, body text uses the system sans, so sizes and weights
- * are right and only the face differs.
+ * Titles use the static Black Italic from branding/joey64/font. Body text uses google/fonts' Rubik
+ * variable font (`rubik_variable.ttf`, weights 300-900, OFL in assets/licenses/rubik-ofl.txt;
+ * Joey approved the download 2026-11-06), one file set to each weight the styles use.
  *
  * Sizes are in sp and nothing caps the font scale: text never shrinks to fit (plan, Phase 0).
  * Sizes are the mockups' CSS px at their 832 px wide 16:9 frame, which maps 1:1 to dp on a 16:9
  * handheld in landscape.
  */
 val RubikTitle = FontFamily(Font(R.font.rubik_black_italic, FontWeight.Black, FontStyle.Italic))
+
+@OptIn(ExperimentalTextApi::class)
+private fun rubik(weight: FontWeight) =
+    Font(R.font.rubik_variable, weight, variationSettings = FontVariation.Settings(FontVariation.weight(weight.weight)))
+
+/** Body text: Rubik at the three weights the styles use. */
+val Rubik = FontFamily(rubik(FontWeight.Normal), rubik(FontWeight.Medium), rubik(FontWeight.Bold))
 
 @Immutable
 data class JoeyType(
@@ -59,19 +68,19 @@ data class JoeyType(
 val DefaultType = JoeyType(
     pageTitle = TextStyle(fontFamily = RubikTitle, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, fontSize = 22.sp),
     popupTitle = TextStyle(fontFamily = RubikTitle, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, fontSize = 17.sp),
-    row = TextStyle(fontWeight = FontWeight.Medium, fontSize = 14.5.sp),
-    rowValue = TextStyle(fontWeight = FontWeight.Medium, fontSize = 13.sp),
-    label = TextStyle(fontWeight = FontWeight.Medium, fontSize = 12.sp),
-    note = TextStyle(fontWeight = FontWeight.Normal, fontSize = 13.sp, lineHeight = 18.sp),
-    tab = TextStyle(fontWeight = FontWeight.Bold, fontSize = 14.sp),
-    hint = TextStyle(fontWeight = FontWeight.Medium, fontSize = 12.5.sp),
-    hintKey = TextStyle(fontWeight = FontWeight.Bold, fontSize = 11.sp),
-    heading = TextStyle(fontWeight = FontWeight.Bold, fontSize = 19.sp),
-    body = TextStyle(fontWeight = FontWeight.Normal, fontSize = 13.5.sp, lineHeight = 19.5.sp),
-    button = TextStyle(fontWeight = FontWeight.Bold, fontSize = 14.5.sp),
-    path = TextStyle(fontWeight = FontWeight.Medium, fontSize = 14.5.sp),
-    tile = TextStyle(fontWeight = FontWeight.Bold, fontSize = 14.sp, lineHeight = 18.sp),
-    small = TextStyle(fontWeight = FontWeight.Normal, fontSize = 12.5.sp),
+    row = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Medium, fontSize = 14.5.sp),
+    rowValue = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Medium, fontSize = 13.sp),
+    label = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Medium, fontSize = 12.sp),
+    note = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Normal, fontSize = 13.sp, lineHeight = 18.sp),
+    tab = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Bold, fontSize = 14.sp),
+    hint = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Medium, fontSize = 12.5.sp),
+    hintKey = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Bold, fontSize = 11.sp),
+    heading = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Bold, fontSize = 19.sp),
+    body = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Normal, fontSize = 13.5.sp, lineHeight = 19.5.sp),
+    button = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Bold, fontSize = 14.5.sp),
+    path = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Medium, fontSize = 14.5.sp),
+    tile = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Bold, fontSize = 14.sp, lineHeight = 18.sp),
+    small = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Normal, fontSize = 12.5.sp),
 )
 
 val LocalJoeyType = staticCompositionLocalOf { DefaultType }

@@ -133,7 +133,7 @@ So Joey64 uses the **Storage Access Framework**, the way PPSSPP does on Play. Th
 - Still to do:
   - The 4:3, square and portrait previews come with the first screens (Phase 1); there is nothing to preview yet.
   - Dropping forced landscape is a manifest change on `MainActivity`, which belongs to the emulator side.
-  - Rubik Regular, Medium and Bold: download approved (Joey, 2026-11-06), bundled for body text.
+  - Rubik Regular, Medium and Bold: download approved (Joey, 2026-11-06). google/fonts has only the variable font now (`Rubik[wght].ttf`, 360 KB, weights 300-900), so `res/font/rubik_variable.ttf` is bundled once and set to each weight. All body styles and Material's default text style use it. Checked on the Thor.
   - The core still opens saves by path in `files/saves`. It needs to take file descriptors before data can move to a picked folder, so nothing calls the move yet.
 - Build changes, which reach the emulator build when this merges: Android Gradle plugin 8.5.2 → 8.13.2, Kotlin 2.0.20 → 2.2.21 with the Compose plugin, compileSdk 34 → 35 (targetSdk unchanged).
 

@@ -1,7 +1,9 @@
 package com.joeysretro.joey64.launcher.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -82,6 +84,9 @@ fun JoeyTheme(choice: ThemeChoice = ThemeChoice.Dark, content: @Composable () ->
         outline = colors.border, error = colors.error,
     )
     CompositionLocalProvider(LocalJoeyColors provides colors) {
-        MaterialTheme(colorScheme = scheme, content = content)
+        // Rubik for any text that sets no style of its own.
+        MaterialTheme(colorScheme = scheme) {
+            ProvideTextStyle(LocalTextStyle.current.copy(fontFamily = Rubik), content)
+        }
     }
 }

@@ -25,3 +25,10 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
 }
+
+dependencies {
+    // .7z ROMs (RomFiles): Apache Commons Compress (Apache-2.0; pulls commons-io and commons-lang3, Apache-2.0) and
+    // XZ for Java (public domain, 0BSD) for its LZMA/LZMA2 decoders. Joey's go 2026-11-06.
+    implementation("org.apache.commons:commons-compress:1.27.1")
+    implementation("org.tukaani:xz:1.10")
+}

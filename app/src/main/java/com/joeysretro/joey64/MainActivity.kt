@@ -35,8 +35,16 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     private var started = false
 
+
+    /** This instance only hands its game over (switchGame): it must not touch the native side. */
+    private var switching = false
+    private val mine get() = !switching && (owner == null || owner === this)
+
+    private fun hasRom(i: Intent?) = i?.data != null || i?.getStringExtra("rom") != null || i?.getStringExtra(EXTRA_ROM_PATH) != null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (gameLoaded && hasRom(intent)) { switching = true; switchGame(); return }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // Dev check (2026-11-05 recheck): whether this device offers sustained performance mode (checked before only on the Flip and Portal)
         Log.w(TAG, "sustained performance mode supported: " +
@@ -360,14 +368,25 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
      * is named by content hash since different games get pushed there. M5 replaces this with a game list.
      */
     private fun resolveRom(): Pair<String, String>? {
-        intent?.data?.let { uri -> return copyToCache(uri) to saveName(displayName(uri) ?: "") }
+        // Handed over by switchGame from the process before this one: the ROM is already unpacked.
+        intent?.getStringExtra(EXTRA_ROM_PATH)?.let { return it to (intent.getStringExtra(EXTRA_SAVE_NAME) ?: "") }
+        intent?.data?.let { uri ->
+            val inner = copyToCache(uri) ?: run { Log.e(TAG, "No N64 ROM in $uri"); return null }
+            if (inner.isNotEmpty()) Log.i(TAG, "ROM $inner from archive $uri")
+            return romCache.absolutePath to saveName(displayName(uri) ?: inner)
+        }
         // Some Android 11 devices (Retroid Pocket Flip) block adb from Android/data: there, copy the
         // ROM into internal storage with run-as instead.
         val dirs = listOfNotNull(getExternalFilesDir(null), filesDir)
         intent?.getStringExtra("rom")?.let { name ->
             val rom = dirs.map { File(it, "roms/$name") }.firstOrNull { it.exists() }
                 ?: run { Log.e(TAG, "ROM $name not found in roms/"); return null }
-            return rom.absolutePath to saveName(rom.name)
+            if (!RomFiles.isArchive(rom.inputStream().use { i -> ByteArray(4).also { i.read(it) } }))
+                return rom.absolutePath to saveName(rom.name)
+            val inner = rom.inputStream().use { RomFiles.extract(it, romCache) }
+                ?: run { Log.e(TAG, "No N64 ROM in $name"); return null }
+            Log.i(TAG, "ROM $inner from archive $name")
+            return romCache.absolutePath to saveName(rom.name)
         }
         return dirs.map { File(it, "test.z64") }.firstOrNull { it.exists() }?.let { it.absolutePath to "" }
     }
@@ -379,24 +398,52 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             if (c.moveToFirst()) c.getString(0) else null
         } ?: uri.lastPathSegment?.substringAfterLast('/')
 
-    private fun copyToCache(uri: Uri): String {
-        val out = File(cacheDir, "current.rom")
-        contentResolver.openInputStream(uri)!!.use { i -> out.outputStream().use { i.copyTo(it) } }
-        return out.absolutePath
-    }
+    private val romCache get() = File(cacheDir, "current.rom")
+
+    /**
+     * Copies the ROM behind [uri] to [romCache], unpacking a zip or 7z (RomFiles). Returns the ROM's own name inside an
+     * archive (logged only: saves are named after the archive, as RetroArch names them, checked on the Thor 2026-11-06:
+     * "Paper Mario - TTYD64.zip" holding "Paper Mario (USA) (patched).z64" has "Paper Mario - TTYD64.srm"; the inner
+     * name would also let a hack that keeps the original file name overwrite the real game's save), "" for a plain
+     * ROM, or null when it holds no N64 ROM.
+     */
+    private fun copyToCache(uri: Uri): String? =
+        contentResolver.openInputStream(uri)?.use { RomFiles.extract(it, romCache) }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
+        if (!mine) return
         NativeBridge.setSurface(holder.surface)
         if (!started) {
             val (rom, saveName) = resolveRom() ?: run { Log.e(TAG, "No ROM. Push one to ${getExternalFilesDir(null)}/test.z64"); return }
             reportGameState(loading = true)
-            if (NativeBridge.loadGame(rom, saveName)) { NativeBridge.start(); started = true }
+            if (NativeBridge.loadGame(rom, saveName)) { NativeBridge.start(); started = true; owner = this; gameLoaded = true }
             reportGameState(loading = false)
         }
     }
 
-    override fun surfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) = NativeBridge.surfaceResized()
-    override fun surfaceDestroyed(holder: SurfaceHolder) = NativeBridge.setSurface(null)
+    override fun surfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) { if (mine) NativeBridge.surfaceResized() }
+    override fun surfaceDestroyed(holder: SurfaceHolder) { if (mine) NativeBridge.setSurface(null) }
+
+    /**
+     * A ROM arrived while a game is loaded in this process (a frontend sending a second game). The core cannot load
+     * another one, so: stop the running game (its save is written on exit), unpack the new ROM here, and start the
+     * game screen again in a fresh process (RestartActivity), passing the unpacked path and save name so no URI grant
+     * has to survive the restart. The intent's other extras (env, opts, renderer, ...) go along.
+     */
+    private fun switchGame() {
+        Log.i(TAG, "new ROM while a game is loaded: restarting the process for it")
+        owner?.let { NativeBridge.stop(); it.finish() }
+        owner = null
+        val (rom, saveName) = resolveRom() ?: run { Log.e(TAG, "No N64 ROM in the new intent"); finish(); return }
+        val next = Intent(this, MainActivity::class.java).apply {
+            intent.extras?.let { putExtras(it) }
+            removeExtra("rom")
+            putExtra(EXTRA_ROM_PATH, rom)
+            putExtra(EXTRA_SAVE_NAME, saveName)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        }
+        RestartActivity.restart(this, next)
+    }
     override fun surfaceRedrawNeeded(holder: SurfaceHolder) {}
 
     // Immersive: hide status + nav bars so the surface is the whole screen. Re-applied on focus
@@ -502,6 +549,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     override fun onPause() {
         super.onPause()
+        if (!mine) return
         NativeBridge.pause(true)
         reportGameState(loading = false, playing = false)
         fpsHandler.removeCallbacks(fpsTick)
@@ -511,6 +559,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
     override fun onResume() {
         super.onResume()
+        if (!mine) return
         NativeBridge.pause(false)
         if (started) reportGameState(loading = false)
         fpsLastTime = 0L
@@ -539,7 +588,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         debugDump?.let { unregisterReceiver(it) }
         destroyed = true
         fpsView?.let { windowManager.removeView(it) }
-        NativeBridge.stop(); super.onDestroy()
+        if (owner === this) { NativeBridge.stop(); owner = null } else if (owner == null && !switching) NativeBridge.stop()
+        super.onDestroy()
     }
 
     /**
@@ -576,6 +626,18 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     companion object {
+        /**
+         * The instance whose surface, pause and stop calls reach the native side: the one that loaded the game. A ROM
+         * handed over while the game screen is already open makes a second instance; the first one's surfaceDestroyed,
+         * onPause and onDestroy used to take the surface and the game away from it (black screen at 0 fps, Thor
+         * 2026-11-06). Null while no game is loaded, when any instance may set the surface.
+         */
+        private var owner: MainActivity? = null
+        /** A game was loaded in this process; the core cannot load a second one, so a new ROM restarts the process. */
+        private var gameLoaded = false
+        /** switchGame -> the next process: the ROM already unpacked, and its save name. */
+        const val EXTRA_ROM_PATH = "com.joeysretro.joey64.ROM_PATH"
+        const val EXTRA_SAVE_NAME = "com.joeysretro.joey64.SAVE_NAME"
         const val TAG = "Joey64"
         // Bundled in assets/drivers/ (see assets/licenses/): Turnip (Mesa freedreno).
         const val TURNIP = "libvulkan_freedreno.so"

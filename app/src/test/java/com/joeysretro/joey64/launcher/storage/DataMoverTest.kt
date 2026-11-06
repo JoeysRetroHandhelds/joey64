@@ -23,14 +23,20 @@ class DataMoverTest {
         from.put("saves/Super Mario 64.srm", "save")
         from.put("states/Super Mario 64.state1", "state")
         from.put("screenshots/Super Mario 64/shot 1.png", "png")
+        from.put("textures/SUPER MARIO 64_HIRESTEXTURES.hts", "hts")
+        from.put("cheats/Super Mario 64 (USA).cht", "cht")
+        from.put("boxart/Super Mario 64 (USA).png", "cover")
 
         val r = DataMover.move(from, to)
 
-        assertEquals(3, r.moved)
+        assertEquals(6, r.moved)
         assertTrue(r.complete)
         assertEquals("save", to.read("saves/Super Mario 64.srm"))
         assertEquals("state", to.read("states/Super Mario 64.state1"))
         assertEquals("png", to.read("screenshots/Super Mario 64/shot 1.png"))
+        assertEquals("hts", to.read("textures/SUPER MARIO 64_HIRESTEXTURES.hts"))
+        assertEquals("cht", to.read("cheats/Super Mario 64 (USA).cht"))
+        assertEquals("cover", to.read("boxart/Super Mario 64 (USA).png"))
         assertFalse(File(from.root, "saves").exists())
         assertFalse(File(from.root, "screenshots").exists())
     }
@@ -106,6 +112,13 @@ class DataMoverTest {
         assertEquals("aaaa", File(tmp.root, "picked/saves/a.srm").readText())
         assertFalse(File(tmp.root, "picked/saves/b.srm").exists())
         assertFalse(File(tmp.root, "picked/saves/b.srm${DataMover.PART_SUFFIX}").exists())
+    }
+
+    @Test fun coversAndTexturesAreHiddenFromTheGalleryScreenshotsAreNot() {
+        val space = space("picked")
+        DataFolderRules.hideFromGallery(space)
+        for (d in listOf("boxart", "textures", "cheats")) assertTrue(d, File(space.root, "$d/.nomedia").isFile)
+        for (d in listOf("screenshots", "saves", "states")) assertFalse(d, File(space.root, "$d/.nomedia").exists())
     }
 
     @Test fun nothingToMoveIsComplete() {

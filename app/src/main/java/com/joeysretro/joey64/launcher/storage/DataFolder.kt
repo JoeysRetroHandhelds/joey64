@@ -20,7 +20,10 @@ class DataFolder private constructor(val space: FileSpace, val treeUri: Uri?) {
 
     val isInternal get() = treeUri == null
 
-    fun list(kind: DataKind) = space.list(listOf(kind.dir)).filter { !it.isDir }
+    fun list(kind: DataKind) = space.list(listOf(kind.dir)).filter { !it.isDir && it.name != DataKind.NO_MEDIA }
+
+    /** Puts the `.nomedia` file in every folder hidden from the gallery; called before writing into one, and after a move. */
+    fun hideFromGallery() = DataFolderRules.hideFromGallery(space)
 
     /** A descriptor for native code; see [FileSpace.openFd]. */
     fun openFd(kind: DataKind, name: String, mode: String): ParcelFileDescriptor? =
@@ -39,7 +42,7 @@ class DataFolder private constructor(val space: FileSpace, val treeUri: Uri?) {
     /** Moves everything here to [target]; the caller switches to [target] when the result is complete (or the user accepts what's left). */
     fun moveTo(target: DataFolder): MoveResult {
         require(canMoveTo(target)) { "data folders overlap" }
-        return DataMover.move(space, target.space)
+        return DataMover.move(space, target.space).also { target.hideFromGallery() }
     }
 
     companion object {
@@ -69,5 +72,15 @@ object TreeRules {
             return if (p.endsWith(':')) child.startsWith(p) else child.startsWith("$p/")
         }
         return inside(docIdA, docIdB) || inside(docIdB, docIdA)
+    }
+}
+
+/** Data folder rules that only need a [FileSpace], so they're unit tested (DataMoverTest). */
+object DataFolderRules {
+    fun hideFromGallery(space: FileSpace) {
+        for (kind in DataKind.entries.filter { it.hiddenFromGallery }) {
+            val path = listOf(kind.dir, DataKind.NO_MEDIA)
+            if (!space.exists(path)) runCatching { space.openWrite(path).close() }
+        }
     }
 }

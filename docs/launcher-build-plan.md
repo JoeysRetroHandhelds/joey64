@@ -63,7 +63,9 @@ So Joey64 uses the **Storage Access Framework**, the way PPSSPP does on Play. Th
 
 - **ROMs:** one or more folders the user picks. The picker opens straight at `ROMs` on internal storage (`EXTRA_INITIAL_URI`), so in an ES-DE layout it's one tap. Inside a picked folder, Joey64 looks for `n64`, `N64` or `Nintendo 64` by itself.
 - **Data, "anywhere you want":** saves, states and screenshots go in a folder the user picks, for example a `Joey64` folder on internal storage or the SD card.
-  - Default subfolders: `saves/`, `states/`, `screenshots/`.
+  - Default subfolders: `saves/`, `states/`, `screenshots/`, `textures/`, `cheats/`, `boxart/` (textures, cheats and box art added by Joey, 2026-11-06). Everything Joey64 keeps for the user is in that one folder, where it's easy to find and back up.
+  - `boxart/`, `textures/` and `cheats/` get a `.nomedia` file, so thousands of covers and texture PNGs don't fill the phone's photo gallery. `screenshots/` stays visible in the gallery.
+  - Texture packs: GLideN64 opens packs by folder path (`hires_texture/<game name>/` for PNG packs, `cache/` for .hts/.htc), and a picked folder doesn't give native code paths. The core needs a way to read packs through file descriptors (a single .hts file can be opened as `/proc/self/fd/N`; a PNG folder needs more). This is emulator-side work, to be worked out with the texture-pack step.
   - File names follow RetroArch, so RetroArch's files can be imported.
   - Joey64 never points at, or writes into, RetroArch's own folders. Instead, **Import from RetroArch** (Phase 1) copies its N64 saves and states (including `saves/Mupen64Plus-Next` and `states/Mupen64Plus-Next`) into Joey64's folder and leaves the originals untouched. RetroArch states already load in Joey64. Joey64 states loading in RetroArch is untested, and our core has moved a long way from RetroArch's.
   - Until a folder is picked, data stays in Joey64's own storage. Anything already there moves over when a folder is picked.

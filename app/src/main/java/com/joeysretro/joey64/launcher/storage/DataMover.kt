@@ -2,11 +2,23 @@ package com.joeysretro.joey64.launcher.storage
 
 import java.io.InputStream
 
-/** The data Joey64 keeps, one subfolder each (plan: default subfolders saves/, states/, screenshots/). */
-enum class DataKind(val dir: String) {
+/**
+ * The data Joey64 keeps, one subfolder each in the data folder (plan: Storage). [hiddenFromGallery]
+ * folders get a `.nomedia` file, so covers and texture PNGs stay out of the photo gallery;
+ * screenshots stay visible there.
+ */
+enum class DataKind(val dir: String, val hiddenFromGallery: Boolean = false) {
     Saves("saves"),
     States("states"),
     Screenshots("screenshots"),
+    Textures("textures", hiddenFromGallery = true),
+    Cheats("cheats", hiddenFromGallery = true),
+    BoxArt("boxart", hiddenFromGallery = true),
+    ;
+
+    companion object {
+        const val NO_MEDIA = ".nomedia"
+    }
 }
 
 /** What a move did. Nothing is lost either way: a file only leaves the old place once its copy reads back equal. */

@@ -55,9 +55,11 @@ fun ButtonRow(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
  * place is grey, the folders in text colour.
  */
 @Composable
-fun FolderBox(place: String, folders: List<String>, modifier: Modifier = Modifier) {
+fun FolderBox(place: String, folders: List<String>, modifier: Modifier = Modifier, subs: String? = null) {
     val c = JoeyTheme.colors
     val shape = RoundedCornerShape(8.dp)
+    // As wide as its text, at least 420; the folders inside that were used ("saves · states")
+    // sit at the right end.
     Row(
         modifier = modifier
             .widthIn(min = 420.dp)
@@ -65,16 +67,19 @@ fun FolderBox(place: String, folders: List<String>, modifier: Modifier = Modifie
             .border(1.dp, c.border, shape)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Icon(painterResource(R.drawable.ic_folder), contentDescription = null, tint = c.value, modifier = Modifier.size(20.dp))
-        val text = buildAnnotatedString {
-            withStyle(SpanStyle(color = c.textDim)) { append(place) }
-            for (f in folders) {
-                withStyle(SpanStyle(color = c.textDim)) { append(" › ") }
-                withStyle(SpanStyle(color = c.text)) { append(f) }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(painterResource(R.drawable.ic_folder), contentDescription = null, tint = c.value, modifier = Modifier.size(20.dp))
+            val text = buildAnnotatedString {
+                withStyle(SpanStyle(color = c.textDim)) { append(place) }
+                for (f in folders) {
+                    withStyle(SpanStyle(color = c.textDim)) { append(" › ") }
+                    withStyle(SpanStyle(color = c.text)) { append(f) }
+                }
             }
+            Text(text, style = JoeyTheme.type.path)
         }
-        Text(text, style = JoeyTheme.type.path)
+        if (subs != null) Text(subs, style = JoeyTheme.type.small, color = c.textDim, modifier = Modifier.padding(start = 16.dp))
     }
 }

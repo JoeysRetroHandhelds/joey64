@@ -72,7 +72,7 @@ data class RomsLook(val volumeId: String, val romsEntries: Int?, val n64Entries:
  * ([com.joeysretro.joey64.launcher.settings.SettingsStore]); the permissions live with Android.
  */
 object RomFolders {
-    private const val EXTERNAL_STORAGE = "com.android.externalstorage.documents"
+    const val EXTERNAL_STORAGE = "com.android.externalstorage.documents"
 
     /**
      * Where the picker opens: the `ROMs` folder that has the games ([RomFolderRules.startVolume]),

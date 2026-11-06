@@ -3,8 +3,6 @@ package com.joeysretro.joey64.launcher
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
-import android.os.storage.StorageManager
-import android.provider.DocumentsContract
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -12,7 +10,7 @@ import com.joeysretro.joey64.launcher.data.LibraryDb
 import com.joeysretro.joey64.launcher.data.LibraryGame
 import com.joeysretro.joey64.launcher.library.GameLauncher
 import com.joeysretro.joey64.launcher.library.LibraryScanner
-import com.joeysretro.joey64.launcher.storage.RomFolderRules
+import com.joeysretro.joey64.launcher.storage.FolderNames
 import com.joeysretro.joey64.launcher.storage.RomFolders
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -87,19 +85,10 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     suspend fun look(tree: Uri): FolderLook = withContext(Dispatchers.IO) {
         val app = getApplication<Application>()
         val roms = RomFolders.scan(app.contentResolver, tree)
-        val docId = DocumentsContract.getTreeDocumentId(tree)
-        val volume = docId.substringBefore(':')
-        val path = docId.substringAfter(':', "").split('/').filter { it.isNotEmpty() }
+        val name = FolderNames.of(app, tree)
         // The N64 folder the scan went into, when there is one ("ROMs" picked, "n64" inside).
         val subs = roms.filter { it.path.size > 1 }.map { it.path.first() }.distinct()
-        FolderLook(tree, roms.size, placeName(volume), path + (if (roms.isNotEmpty() && subs.size == 1 && roms.all { it.path.size > 1 }) subs else emptyList()))
-    }
-
-    private fun placeName(volume: String): String {
-        if (volume == RomFolderRules.PRIMARY) return "Internal storage"
-        val app = getApplication<Application>()
-        val sm = app.getSystemService(StorageManager::class.java)
-        return sm?.storageVolumes?.firstOrNull { it.uuid.equals(volume, ignoreCase = true) }?.getDescription(app) ?: "SD card"
+        FolderLook(tree, roms.size, name.place, name.folders + (if (roms.isNotEmpty() && subs.size == 1 && roms.all { it.path.size > 1 }) subs else emptyList()))
     }
 
     private companion object {

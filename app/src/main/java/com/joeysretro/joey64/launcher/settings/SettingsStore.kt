@@ -22,6 +22,8 @@ data class LauncherSettings(
     /** Decision 3: both on by default (Joey, 2026-11-05). */
     val downloadBoxArt: Boolean = true,
     val downloadCheats: Boolean = true,
+    /** First run is finished (ROMs folder picked, Import from RetroArch offered); until then the app opens to it. */
+    val setupDone: Boolean = false,
 )
 
 private val Context.settingsStore: DataStore<Preferences> by preferencesDataStore(name = "launcher_settings")
@@ -40,6 +42,7 @@ class SettingsStore(context: Context) {
             dataFolder = p[DATA_FOLDER],
             downloadBoxArt = p[BOX_ART] ?: true,
             downloadCheats = p[CHEATS] ?: true,
+            setupDone = p[SETUP_DONE] ?: false,
         )
     }
 
@@ -49,6 +52,7 @@ class SettingsStore(context: Context) {
     suspend fun setDataFolder(treeUri: String?) = store.edit { if (treeUri == null) it.remove(DATA_FOLDER) else it[DATA_FOLDER] = treeUri }
     suspend fun setDownloadBoxArt(on: Boolean) = store.edit { it[BOX_ART] = on }
     suspend fun setDownloadCheats(on: Boolean) = store.edit { it[CHEATS] = on }
+    suspend fun setSetupDone() = store.edit { it[SETUP_DONE] = true }
 
     private companion object {
         val THEME = stringPreferencesKey("theme")
@@ -56,5 +60,6 @@ class SettingsStore(context: Context) {
         val DATA_FOLDER = stringPreferencesKey("data_folder")
         val BOX_ART = booleanPreferencesKey("download_box_art")
         val CHEATS = booleanPreferencesKey("download_cheats")
+        val SETUP_DONE = booleanPreferencesKey("setup_done")
     }
 }

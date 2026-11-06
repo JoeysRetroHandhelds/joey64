@@ -180,7 +180,24 @@ Comes straight after Phase 0, before the library, so every later build reaches t
 
 - **Entry point** (Joey, 2026-11-06: the app opens to setup or the library, never straight into a game unless a frontend asks): `LauncherActivity` is the app's launch screen now, and `MainActivity` keeps only its VIEW filter for frontends and file managers. The launcher starts games with that same VIEW intent; zips are unpacked first to `cache/launch/<md5>/`, named after the zip, so the save is named as RetroArch names it. The last 3 unpacked games are kept.
 - **First run, screens 1-2** (approved 2026-11-05): "Choose your ROMs folder", then "Found N N64 games" with the folder box, Use this folder / Choose another folder. A folder without games shows "No N64 games found" with Choose another folder.
-  - Screens 3-4 (where saves go) wait for the core to take file descriptors, so saves stay in Joey64's own storage for now. Screens 5-7 (Import from RetroArch) are next.
+  - Screens 3-4 (where saves go) wait for the core to take file descriptors, so saves stay in Joey64's own storage for now.
+- **Import from RetroArch, screens 5-7 and the clash popups** (approved 2026-11-05): first run's last step, after the ROMs folder. Skip or Continue finishes first run (`setup_done`), and the app opens to the library from then on.
+  - Clashes are all asked before anything is copied, so Back in the popup cancels with nothing written. "Do the same for the other N" answers the rest.
+  - The Copy screen counts a file already in Joey64 with the same contents as done; it is not copied again.
+  - Added where the mockups had nothing:
+    - "Looking for saves and states" and "Copying N saves and N states" while those run
+    - "No N64 saves or states found", with Choose another folder and Skip
+    - "Nothing copied" when every clash kept Joey64's file
+    - a line on the done screen when files fail
+  - Left out: the first screen's "You can do this later in Settings › Library." There's no Settings yet; it comes back with Settings › Library.
+  - States are copied, but the emulator can't load states yet (Phase 3), so for now only the saves are used.
+  - Checked on the Thor (Joey's RetroArch folder, internal storage):
+    - **First copy:** the picker opened at RetroArch's folder. Found 104 saves and 107 states. Copying took about 55 s: 103 saves, 107 states and 11 pictures. The copies match RetroArch's files (md5), and nothing in RetroArch's folder changed.
+    - **Clash, kept:** Joey64's own SM64 save clashed. Keep Joey64's left it unchanged, and Back in the popup cancelled with nothing written.
+    - **Clash, replaced:** a second run found all 210 already there. Use RetroArch's replaced the SM64 save with RetroArch's, and no `.joey64-part` or `.joey64-old` file was left.
+    - **Do the same:** three made-up clashes, with Do the same for the other 2 ticked and Keep Joey64's, kept all three.
+    - **Saves load:** Bomberman Hero, started from the library, loaded the imported save at 60 fps.
+    - **Cleanup:** the test copies were removed afterwards.
 - **Library grid:** the tiles show the game's name until box art comes (Phase 2), in the screen shape's column count. A plays, and focus comes back to the game played. While new files are read, a line says "Reading your games: N of M".
   - The rail shows the logo and Library only. Continue, Search, Achievements, Controls and Settings come with their pages, and so do the Filter button and Start for options.
 - **Checked on the Thor:**

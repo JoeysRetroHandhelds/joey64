@@ -49,6 +49,7 @@ fun JoeyRow(
     sideways: Boolean = false,
     onLongClick: (() -> Unit)? = null,
     onFocused: ((Boolean) -> Unit)? = null,
+    leading: (@Composable RowScope.(focused: Boolean) -> Unit)? = null,
     trailing: (@Composable RowScope.(focused: Boolean) -> Unit)? = null,
     onClick: () -> Unit = {},
 ) {
@@ -71,6 +72,7 @@ fun JoeyRow(
             !enabled -> if (focused && c.isDark) c.textDim else c.textFaint
             else -> rowTextColor(c, focused, c.text)
         }
+        leading?.invoke(this, focused)
         Text(label, style = JoeyTheme.type.row, color = labelColor, modifier = Modifier.weight(1f),
             maxLines = 2, overflow = TextOverflow.Ellipsis)
         if (value != null) {

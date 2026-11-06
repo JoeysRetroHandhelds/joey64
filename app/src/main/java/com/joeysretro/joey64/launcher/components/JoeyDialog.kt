@@ -250,6 +250,13 @@ fun PopupNote(text: String) {
         modifier = Modifier.padding(horizontal = JoeyTheme.spacing.rowPadH).padding(top = 8.dp))
 }
 
+/** A line between a popup's options and the ones that act on more than one thing ("Do the same for the other 2"). */
+@Composable
+fun PopupDivider() {
+    androidx.compose.material3.HorizontalDivider(thickness = 1.dp, color = JoeyTheme.colors.separator,
+        modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp))
+}
+
 /** Lets [JoeyDialog]'s exit route, which lives outside the dialog window, reach that window's keyboard. */
 private class DialogIme {
     var isUp: () -> Boolean = { false }

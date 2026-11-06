@@ -4,22 +4,15 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.joeysretro.joey64.launcher.FolderLook
 import com.joeysretro.joey64.launcher.LibraryModel
@@ -27,10 +20,12 @@ import com.joeysretro.joey64.launcher.components.ButtonRow
 import com.joeysretro.joey64.launcher.components.FolderBox
 import com.joeysretro.joey64.launcher.components.JoeyButton
 import com.joeysretro.joey64.launcher.components.LocalFocusLanding
-import com.joeysretro.joey64.launcher.components.Wordmark
+import com.joeysretro.joey64.launcher.components.SetupBody
+import com.joeysretro.joey64.launcher.components.SetupButtonsTop
+import com.joeysretro.joey64.launcher.components.SetupHeading
+import com.joeysretro.joey64.launcher.components.SetupPage
 import com.joeysretro.joey64.launcher.components.initialFocus
 import com.joeysretro.joey64.launcher.storage.RomFolders
-import com.joeysretro.joey64.launcher.theme.JoeyTheme
 import kotlinx.coroutines.launch
 
 /**
@@ -40,7 +35,8 @@ import kotlinx.coroutines.launch
  * A folder with no games says so on the same screen ("No N64 games found") with only Choose
  * another folder. [onUse] saves the folder; the library takes over from there.
  *
- * Screens 3-4 (where saves go) and 5-7 (Import from RetroArch) come next; see the build plan.
+ * Screens 3-4 (where saves go) wait for the core to open saves by descriptor; Import from
+ * RetroArch (5-7) follows as its own screen ([ImportScreen]).
  */
 @Composable
 fun FirstRunScreen(model: LibraryModel, onUse: (Uri) -> Unit) {
@@ -64,47 +60,31 @@ fun FirstRunScreen(model: LibraryModel, onUse: (Uri) -> Unit) {
     BackHandler(enabled = look != null) { look = null; landing?.arm() }
 
     val found = look
-    Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 40.dp).padding(bottom = 20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Wordmark(Modifier.padding(bottom = 26.dp))
+    SetupPage {
         when {
-            looking -> Heading("Looking for N64 games")
+            looking -> SetupHeading("Looking for N64 games")
             found == null -> {
-                Heading("Choose your ROMs folder")
-                Body("Android's folder picker opens at your ROMs folder. Pick the folder with your N64 games, or the ROMs folder that holds an n64 folder.")
-                ButtonRow(Modifier.padding(top = 22.dp)) {
+                SetupHeading("Choose your ROMs folder")
+                SetupBody("Android's folder picker opens at your ROMs folder. Pick the folder with your N64 games, or the ROMs folder that holds an n64 folder.")
+                ButtonRow(Modifier.padding(top = SetupButtonsTop)) {
                     JoeyButton("Choose ROMs folder", primary = true, modifier = Modifier.initialFocus(), onClick = choose)
                 }
             }
             found.roms == 0 -> {
-                Heading("No N64 games found")
+                SetupHeading("No N64 games found")
                 if (found.place.isNotEmpty()) FolderBox(found.place, found.folders, Modifier.padding(top = 16.dp))
-                ButtonRow(Modifier.padding(top = 22.dp)) {
+                ButtonRow(Modifier.padding(top = SetupButtonsTop)) {
                     JoeyButton("Choose another folder", primary = true, modifier = Modifier.initialFocus(), onClick = choose)
                 }
             }
             else -> {
-                Heading(if (found.roms == 1) "Found 1 N64 game" else "Found ${found.roms} N64 games")
+                SetupHeading(if (found.roms == 1) "Found 1 N64 game" else "Found ${found.roms} N64 games")
                 FolderBox(found.place, found.folders, Modifier.padding(top = 16.dp))
-                ButtonRow(Modifier.padding(top = 22.dp)) {
+                ButtonRow(Modifier.padding(top = SetupButtonsTop)) {
                     JoeyButton("Use this folder", primary = true, modifier = Modifier.initialFocus()) { onUse(found.tree) }
                     JoeyButton("Choose another folder", primary = false, onClick = choose)
                 }
             }
         }
     }
-}
-
-@Composable
-private fun Heading(text: String) {
-    Text(text, style = JoeyTheme.type.heading, color = JoeyTheme.colors.text, textAlign = TextAlign.Center)
-}
-
-@Composable
-private fun Body(text: String) {
-    Text(text, style = JoeyTheme.type.body, color = JoeyTheme.colors.textDim, textAlign = TextAlign.Center,
-        modifier = Modifier.padding(top = 7.dp).widthIn(max = 560.dp))
 }

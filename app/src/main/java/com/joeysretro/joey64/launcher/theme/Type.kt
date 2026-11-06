@@ -52,6 +52,8 @@ data class JoeyType(
     val path: TextStyle,
     /** A game's name on a tile that has no box art yet. */
     val tile: TextStyle,
+    /** The small grey line under a centred page's buttons ("Copies only. RetroArch keeps its own files."). */
+    val small: TextStyle,
 )
 
 val DefaultType = JoeyType(
@@ -69,6 +71,7 @@ val DefaultType = JoeyType(
     button = TextStyle(fontWeight = FontWeight.Bold, fontSize = 14.5.sp),
     path = TextStyle(fontWeight = FontWeight.Medium, fontSize = 14.5.sp),
     tile = TextStyle(fontWeight = FontWeight.Bold, fontSize = 14.sp, lineHeight = 18.sp),
+    small = TextStyle(fontWeight = FontWeight.Normal, fontSize = 12.5.sp),
 )
 
 val LocalJoeyType = staticCompositionLocalOf { DefaultType }

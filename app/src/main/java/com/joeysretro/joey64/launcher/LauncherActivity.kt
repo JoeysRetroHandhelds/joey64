@@ -37,6 +37,7 @@ import com.joeysretro.joey64.launcher.components.RailPlace
 import com.joeysretro.joey64.launcher.controls.KeyNormaliser
 import com.joeysretro.joey64.launcher.layout.ProvideScreenLayout
 import com.joeysretro.joey64.launcher.screens.FirstRunScreen
+import com.joeysretro.joey64.launcher.screens.ImportScreen
 import com.joeysretro.joey64.launcher.screens.LibraryScreen
 import com.joeysretro.joey64.launcher.settings.SettingsStore
 import com.joeysretro.joey64.launcher.storage.RomFolders
@@ -44,7 +45,8 @@ import com.joeysretro.joey64.launcher.theme.JoeyTheme
 import kotlinx.coroutines.launch
 
 /**
- * The app's home (plan, decision 2): first run until a ROMs folder is picked, then the library.
+ * The app's home (plan, decision 2): first run (a ROMs folder, then Import from RetroArch) until
+ * it's finished, then the library.
  * Opening Joey64 from its icon lands here; a frontend or file manager that hands over a ROM goes
  * straight to the game screen (MainActivity), as before.
  */
@@ -54,6 +56,7 @@ import kotlinx.coroutines.launch
 class LauncherActivity : ComponentActivity() {
     private val keys = KeyNormaliser { super.dispatchKeyEvent(it) }
     private val model: LibraryModel by viewModels()
+    private val importModel: ImportModel by viewModels()
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean = keys.dispatch(event)
 
@@ -64,12 +67,12 @@ class LauncherActivity : ComponentActivity() {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             hide(WindowInsetsCompat.Type.systemBars())
         }
-        setContent { LauncherApp(model) }
+        setContent { LauncherApp(model, importModel) }
     }
 }
 
 @Composable
-private fun LauncherApp(model: LibraryModel) {
+private fun LauncherApp(model: LibraryModel, importModel: ImportModel) {
     val context = LocalContext.current
     val store = remember { SettingsStore(context) }
     val settings by store.settings.collectAsState(initial = null)
@@ -95,17 +98,22 @@ private fun LauncherApp(model: LibraryModel) {
                 Box(Modifier.weight(1f).fillMaxSize()) {
                     ProvideScreenLayout {
                         CompositionLocalProvider(LocalFocusLanding provides landing) {
-                            if (folders.isEmpty()) FirstRunScreen(model) { tree ->
-                                scope.launch {
-                                    RomFolders.keep(context, tree, write = false)
-                                    store.addRomFolder(tree.toString())
+                            when {
+                                folders.isEmpty() -> FirstRunScreen(model) { tree ->
+                                    scope.launch {
+                                        RomFolders.keep(context, tree, write = false)
+                                        store.addRomFolder(tree.toString())
+                                    }
                                 }
-                            } else LibraryScreen(model)
+                                // Then Import from RetroArch, offered once; Skip or Continue finishes first run.
+                                !s.setupDone -> ImportScreen(importModel, s.dataFolder) { scope.launch { store.setSetupDone() } }
+                                else -> LibraryScreen(model)
+                            }
                         }
                     }
                 }
             }
-            HintRow(if (folders.isEmpty()) listOf(Hint("A", "Select")) else listOf(Hint("A", "Play")))
+            HintRow(if (folders.isEmpty() || !s.setupDone) listOf(Hint("A", "Select")) else listOf(Hint("A", "Play")))
         }
     }
 }

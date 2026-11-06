@@ -83,7 +83,7 @@ So Joey64 uses the **Storage Access Framework**, the way PPSSPP does on Play. Th
   - the bottom bar in portrait
   - Settings in one column when narrow
   - text never shrinks
-- Drop forced landscape. Test 4:3 on the RP Duo's second screen (`am start --display 2`).
+- Drop forced landscape. 4:3, square and portrait layouts are checked in Compose previews at those sizes. No second screen is used (Joey, 2026-11-05).
 - **Storage layer:** picked folders, file descriptors to native code, and moving data when the folder changes.
 - **SQLite** (built into Android) for games, hashes, play time, collections and the achievement progress cache. The sign-in key is encrypted with the Android Keystore.
 
@@ -200,6 +200,7 @@ So Joey64 uses the **Storage Access Framework**, the way PPSSPP does on Play. Th
   - Until RetroAchievements approves Joey64, its server saves unlocks as softcore and saves no leaderboard scores.
   - Asking RetroAchievements for approval is a step only you can take.
 - Sign-in and the RetroAchievements tab as approved, with Hardcore and Leaderboards locked.
+- Pop-up and sound settings APPROVED (2026-11-05; scratchpad `build_rapop.py`): Pop-up place (six spots, live 16:9 preview, the badges' spot greyed; default Top left), Badge place (default Bottom right), Pop-ups stay for 3 / 5 / 8 / 10 / 15 seconds (default 5, like DuckStation and PCSX2). Unlock sound: None, Joey64 chime (default), Soft ping, Coin, or Your own sound (.wav, .ogg or .mp3, copied into Joey64), each played on focus. Volume 0-100% in 10% steps, unlock sound only. Joey64's own sounds still have to be made.
 - Achievements screens, the in-game panel, pop-ups, offline queue and progress cache.
 - **Waiting for approval:** the Hardcore limits, the Leaderboards tab and screens, and the leaderboard pop-ups.
 
@@ -212,8 +213,7 @@ So Joey64 uses the **Storage Access Framework**, the way PPSSPP does on Play. Th
 
 - Settings General, Video and Audio; per-game Game settings; the real Library tab.
 - Anything that needs Hardcore approval.
-- What a second screen shows.
-- Per-pop-up position and timing, the unlock sound file, and volume.
+- A second screen: not used for now (Joey, 2026-11-05).
 - **Wanted, not designed yet** (Joey 2026-11-05: "all of those are worth it"). Each needs a mockup first:
   - On-screen touch controls and their layout editor. Default layout, editor and Add list APPROVED (Joey 2026-11-05; scratchpad build_touch.py): Z left of A, C diamond, menu by Start away from A, octagon-gate stick, see-through buttons. Also APPROVED (same day): Controls › Touch controls page (Show when no controller, opacity, haptics, auto-hide; landscape and portrait layouts; stick Fixed / Recentres where you touch (default) / Anywhere on the left half, sensitivity, dead zone, full speed at 85%; slide between buttons; hold Z, L or R by tapping), the combo-button setup, and the portrait layout (scratchpad build_touchset.py, build_touch2.py). User reviews (2026-11-05) put first: move and resize each button, reliable multi-touch, a good stick (sensitivity, walk vs run, optional floating stick), hide when a controller is used; N64: Z not above the stick, A away from the menu button, combo buttons. Base: PPSSPP-style editor, FZ-style N64 stick, Lemuroid-style look and haptics, our own Compose touch layer.
   - Problem screens APPROVED (2026-11-05; scratchpad build_problems.py): game won't start (damaged file; OK, Details), can't reach the ROMs folder (its games greyed; Try again, Choose the folder again, Not now), crash recovery (Continue, Not now), controller disconnected (paused, carries on when it's back; Use touch controls, Quit to library), not enough space to save (OK, Change data folder).
@@ -227,7 +227,7 @@ So Joey64 uses the **Storage Access Framework**, the way PPSSPP does on Play. Th
 
 ## How each phase is checked
 
-- The Flip, Portal, Odin 3, the Duo, and the Duo's second screen.
+- The Flip, Portal, Odin 3 and the Duo.
 - Dark and light against the mockups.
 - Controller only, then touch only.
 - Phases that touch the game get the uncapped bench.

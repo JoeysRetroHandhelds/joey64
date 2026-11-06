@@ -168,7 +168,7 @@
     {
       "id": "NAL", "crc": "FB8169896F442541", "title": "Smash Remix 0.9.4 (hack)",
       "issues": [
-        {"status": "open", "what": "Project64 marks it Unaligned DMA=1, our ini aligns it: test both ways (item 26)", "evidence": "README unaligned PI DMA item"}
+        {"status": "open", "what": "Project64 marks it Unaligned DMA=1, our ini aligns it: test both ways (item 26). Boot to the 1P character select: no DMA from an odd address with either setting, same screens (Flip 2026-11-06); a match still to test", "evidence": "README unaligned PI DMA item; results/pialign/flip1"}
       ]
     },
     {

@@ -197,7 +197,7 @@ private fun CheckScreen(onClose: () -> Unit) {
                     JoeyRow("Background blur behind popups", value = if (blur) "available" else "not available (dim only)")
 
                     SectionLabel("ROM folders")
-                    JoeyRow("Pick a ROMs folder", value = results["roms"]) { pickRoms.launch(RomFolders.initialPickerUri()) }
+                    JoeyRow("Pick a ROMs folder", value = results["roms"]) { pickRoms.launch(RomFolders.initialPickerUri(context)) }
                     JoeyRow("Scan the saved ROM folders", value = results["scan"]) {
                         run("scan") {
                             val folders = settings.settings.first().romFolders
@@ -213,6 +213,7 @@ private fun CheckScreen(onClose: () -> Unit) {
                             }
                         }
                     }
+                    JoeyRow("Where the ROMs picker opens", value = results["see"]) { run("see") { pickerStart(context) } }
 
                     SectionLabel("Data folder")
                     JoeyRow("Pick a data folder", value = results["data"] ?: dataTree?.let { DocumentsContract.getTreeDocumentId(it) }) {
@@ -386,4 +387,12 @@ private fun databaseCheck(lib: LibraryDb): String {
     val leftSessions = db.rawQuery("SELECT COUNT(*) FROM play_sessions WHERE game_id = ?", arrayOf(id.toString())).use { it.moveToFirst(); it.getLong(0) }
     val ok = seconds == 120L && leftSessions == 0L && fk == 1 && wal.equals("wal", ignoreCase = true)
     return "${if (ok) "OK" else "FAILED"}: SQLite $version, $wal, play time $seconds s, sessions left $leftSessions"
+}
+
+/** What [RomFolders.looks] sees on each volume, and where the picker opens because of it. */
+private fun pickerStart(context: android.content.Context): String {
+    val looks = RomFolders.looks(context)
+    val start = DocumentsContract.getDocumentId(RomFolders.initialPickerUri(context))
+    Log.i(TAG, "picker: $looks -> $start")
+    return start
 }

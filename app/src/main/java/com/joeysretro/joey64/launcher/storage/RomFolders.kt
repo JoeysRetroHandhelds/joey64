@@ -4,7 +4,9 @@ import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.storage.StorageManager
 import android.provider.DocumentsContract
+import java.io.File
 
 /** A ROM found in a picked folder. [uri] is its document URI, opened through the folder's permission. */
 data class RomFile(val uri: Uri, val treeUri: Uri, val path: List<String>, val size: Long, val modified: Long) {
@@ -40,7 +42,28 @@ object RomFolderRules {
         val n64 = childFolders.filter(::isN64FolderName)
         return n64.ifEmpty { listOf("") }
     }
+
+    /**
+     * Which storage volume's `ROMs` the picker opens at, from [looks] in volume order (internal
+     * storage first). The one whose N64 folder has something in it; else one with an N64 folder
+     * (Android may hide other apps' file names, so an N64 folder can read empty when it isn't);
+     * else one whose `ROMs` has anything; else internal storage. On the Thor the games are on
+     * the SD card and internal `ROMs` is empty, which opened the picker at the empty one.
+     */
+    fun startVolume(looks: List<RomsLook>): String =
+        (looks.firstOrNull { (it.n64Entries ?: 0) > 0 }
+            ?: looks.firstOrNull { it.n64Entries != null }
+            ?: looks.firstOrNull { (it.romsEntries ?: 0) > 0 })?.volumeId ?: PRIMARY
+
+    const val PRIMARY = "primary"
 }
+
+/**
+ * One storage volume's `ROMs` folder as Joey64 sees it before any folder is picked, by plain file
+ * access. [volumeId] is the volume's part of a document id ("primary", or an SD card's "6439-6232");
+ * [romsEntries] is null without a `ROMs` folder, [n64Entries] null without an N64 folder in it.
+ */
+data class RomsLook(val volumeId: String, val romsEntries: Int?, val n64Entries: Int?)
 
 /**
  * The ROM folders the user picked. Each is a tree URI with a persisted permission, so access
@@ -52,11 +75,29 @@ object RomFolders {
     private const val EXTERNAL_STORAGE = "com.android.externalstorage.documents"
 
     /**
-     * Where the picker opens: `ROMs` on internal storage, so in an ES-DE layout it's one tap
-     * (plan). Given as EXTRA_INITIAL_URI (ActivityResultContracts.OpenDocumentTree's input);
-     * when the folder doesn't exist the picker opens where it would anyway.
+     * Where the picker opens: the `ROMs` folder that has the games ([RomFolderRules.startVolume]),
+     * on internal storage or a card, so in an ES-DE layout it's one tap (plan). Given as
+     * EXTRA_INITIAL_URI (ActivityResultContracts.OpenDocumentTree's input); when the folder
+     * doesn't exist the picker opens where it would anyway. Reads a few folders: call it off the
+     * main thread where possible (a card can be slow to wake).
      */
-    fun initialPickerUri(): Uri = DocumentsContract.buildDocumentUri(EXTERNAL_STORAGE, "primary:ROMs")
+    fun initialPickerUri(context: Context): Uri =
+        DocumentsContract.buildDocumentUri(EXTERNAL_STORAGE, RomFolderRules.startVolume(looks(context)) + ":ROMs")
+
+    /** Every mounted volume's `ROMs`, internal storage first (getExternalFilesDirs' order). */
+    fun looks(context: Context): List<RomsLook> {
+        val storage = context.getSystemService(StorageManager::class.java)
+        return context.getExternalFilesDirs(null).filterNotNull().mapNotNull { appDir ->
+            // The app's own folder on that volume is <volume root>/Android/data/<package>/files.
+            val root = File(appDir.path.substringBefore("/Android/data/"))
+            val volume = storage.getStorageVolume(root) ?: return@mapNotNull null
+            val id = if (volume.isPrimary) RomFolderRules.PRIMARY else volume.uuid ?: return@mapNotNull null
+            val roms = File(root, "ROMs")
+            val names = roms.list()?.toList()
+            val n64 = names?.firstOrNull(RomFolderRules::isN64FolderName)
+            RomsLook(id, names?.size, n64?.let { File(roms, it).list()?.size ?: 0 })
+        }
+    }
 
     /** Keeps the picker's grant across restarts. Call with the URI the picker returned. */
     fun keep(context: Context, treeUri: Uri, write: Boolean) {

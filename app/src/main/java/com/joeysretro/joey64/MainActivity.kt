@@ -48,11 +48,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // games and runs a 120 Hz vsync loop in our process (Duo: ~17 ms of CPU a second). The window's
         // views no longer draw, so the FPS counter is its own panel window (showFpsCounter).
         window.takeSurface(this)
-        // Android batches joystick moves (sticks, hat D-pads, analog triggers) to the next frame:
-        // Odin 2 Portal 10 ms -> 0.5 ms from event to dispatch. Requested on the decor view because
-        // only the focused-view chain counts and nothing here takes focus. No effect on Android 11.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
-            window.decorView.requestUnbufferedDispatch(InputDevice.SOURCE_CLASS_JOYSTICK)
+        requestUnbufferedJoystick(late = false)
         registerDebugStick()
 
         // The bundled core (devtools/bundle-core.sh); older test builds still carry it under upstream's file names.
@@ -112,8 +108,45 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private var fpsLastDrawn = 0
     private var fpsLastTime = 0L
 
+    // Android batches joystick moves (sticks, hat D-pads, analog triggers) to the next frame:
+    // Odin 2 Portal 10 ms -> 0.5 ms from event to dispatch. Requested on the decor view because
+    // only the focused-view chain counts and nothing here takes focus. The window (ViewRootImpl) only
+    // takes the request when it is made while the decor view is attached: made in onCreate alone, the
+    // Flip (Android 11) never got it (dumpsys: mUnbufferedInputSource=0; the Portal showed 10). So it
+    // is made again once attached and on every focus gain (a focus change recomputes it). The same
+    // value twice is ignored by View, hence NONE first.
+    private fun requestUnbufferedJoystick(late: Boolean = true) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        // dev, until measured on the Flip (unbuf.sh): N64_UNBUF_LATE=1 makes the late requests; default onCreate only, as before
+        if (late && android.system.Os.getenv("N64_UNBUF_LATE") != "1") return
+        val decor = window.decorView
+        decor.requestUnbufferedDispatch(InputDevice.SOURCE_CLASS_NONE)
+        decor.requestUnbufferedDispatch(InputDevice.SOURCE_CLASS_JOYSTICK)
+    }
+
+    // Dev (--es env N64_INPUT_LAT=1): every 5 s, how long joystick moves and key presses took from
+    // the kernel event to our dispatch (uptime ms), and how many moves came batched (with history).
+    private val inputLat by lazy { android.system.Os.getenv("N64_INPUT_LAT") == "1" } // env is set in onCreate
+    private var latStart = 0L
+    private var latMoves = 0; private var latMoveSum = 0L; private var latMoveMax = 0L; private var latBatched = 0
+    private var latKeys = 0; private var latKeySum = 0L; private var latKeyMax = 0L
+    private fun noteInputLat(eventTime: Long, key: Boolean, history: Int) {
+        val now = android.os.SystemClock.uptimeMillis()
+        val d = now - eventTime
+        if (key) { latKeys++; latKeySum += d; latKeyMax = maxOf(latKeyMax, d) }
+        else { latMoves++; latMoveSum += d; latMoveMax = maxOf(latMoveMax, d); if (history > 0) latBatched++ }
+        if (latStart == 0L) latStart = now
+        if (now - latStart < 5000) return
+        Log.e(TAG, "input lat: moves $latMoves mean " + "%.1f".format(latMoveSum.toDouble() / maxOf(latMoves, 1)) +
+            " max $latMoveMax ms batched $latBatched; keys $latKeys mean " +
+            "%.1f".format(latKeySum.toDouble() / maxOf(latKeys, 1)) + " max $latKeyMax ms")
+        latStart = now
+        latMoves = 0; latMoveSum = 0; latMoveMax = 0; latBatched = 0; latKeys = 0; latKeySum = 0; latKeyMax = 0
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        requestUnbufferedJoystick()
         if (fpsView != null) return
         val dp = resources.displayMetrics.density
         val view = TextView(this).apply {
@@ -364,6 +397,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (!hasFocus) return
+        requestUnbufferedJoystick()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.setDecorFitsSystemWindows(false)
             window.insetsController?.let {
@@ -426,6 +460,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (event.deviceId != padDeviceId && KeyEvent.isGamepadButton(event.keyCode)) usePad(event.device, event.deviceId)
         val id = retroId(event.keyCode)
         if (id < 0) return super.dispatchKeyEvent(event)
+        if (inputLat && event.action == KeyEvent.ACTION_DOWN) noteInputLat(event.eventTime, true, 0)
         when (event.action) {
             KeyEvent.ACTION_DOWN -> keyMask = keyMask or (1 shl id)
             KeyEvent.ACTION_UP -> keyMask = keyMask and (1 shl id).inv()
@@ -438,6 +473,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (event.source and InputDevice.SOURCE_JOYSTICK != InputDevice.SOURCE_JOYSTICK ||
             event.action != MotionEvent.ACTION_MOVE) return super.dispatchGenericMotionEvent(event)
         usePad(event.device, event.deviceId)
+        if (inputLat) noteInputLat(if (event.historySize > 0) event.getHistoricalEventTime(0) else event.eventTime, false, event.historySize)
         val cal = stickCal!!
         fun axis(v: Float) = (v.coerceIn(-1f, 1f) * 32767).toInt()
         val (lx, ly) = cal.apply(0, event.getAxisValue(MotionEvent.AXIS_X), event.getAxisValue(MotionEvent.AXIS_Y))

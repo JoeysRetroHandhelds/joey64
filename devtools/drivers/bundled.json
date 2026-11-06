@@ -21,7 +21,10 @@
       "release": "turnip_faux123 v1.2.5",
       "tag": "v1.2.5",
       "md5": "ea5a0408e9f07ae5324ba13ea8312519",
-      "bundled": "2026-11-04"
+      "bundled": "2026-11-04",
+      "skip": {
+        "v1.2.6": "2026-11-06, Joey: skip. Only adds the Adreno 710/720; release notes say every chip v1.2.5 knew (the Duo's 722 included) is byte for byte the same"
+      }
     }
   ],
   "watch_only": [

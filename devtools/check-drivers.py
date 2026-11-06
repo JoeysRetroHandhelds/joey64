@@ -1,7 +1,8 @@
 """check-drivers.py: reports GitHub releases of our Vulkan drivers newer than the ones the app bundles.
 
 Reads devtools/drivers/bundled.json. For each driver, the newest release of its repo whose name contains 'match'
-is compared with the bundled 'tag' (watch_only entries: with 'seen'). Prints one line per driver and exits 1 when
+is compared with the bundled 'tag' (watch_only entries: with 'seen'); tags listed in a driver's 'skip' (tag: reason)
+were looked at and passed over and count as current. Prints one line per driver and exits 1 when
 any has a newer release, 0 when all are current, 2 when GitHub could not be reached. Standard library only;
 GITHUB_TOKEN is used when set (60 unauthenticated requests an hour is plenty otherwise).
 --issues (the daily workflow, .github/workflows/driver-updates.yml): opens one issue per new release in
@@ -83,11 +84,12 @@ def main():
         if rel is None:
             results.append({"name": d["name"], "status": "no release found", "repo": d["repo"]})
             continue
-        is_new = rel["tag_name"] != have
+        skipped = rel["tag_name"] in d.get("skip", {})  # looked at and passed over (reason in bundled.json)
+        is_new = rel["tag_name"] != have and not skipped
         new |= is_new
         results.append({"name": d["name"], "repo": d["repo"], "have": have, "latest": rel["tag_name"],
                         "title": rel.get("name"), "published": rel.get("published_at"), "url": rel.get("html_url"),
-                        "new": is_new, "bundled": bundled})
+                        "new": is_new, "bundled": bundled, "skipped": skipped})
     if "--issues" in sys.argv:
         open_issues(results, "--dry-run" in sys.argv)
     if "--json" in sys.argv:
@@ -98,6 +100,8 @@ def main():
                 print(f"{r['name']}: {r['status']} ({r['repo']})")
             elif r["new"]:
                 print(f"NEW  {r['name']}: {r['title']} ({r['latest']}, {r['published'][:10]}), we have {r['have']}  {r['url']}")
+            elif r.get("skipped"):
+                print(f"skip {r['name']}: {r['latest']} passed over (see 'skip' in bundled.json), we have {r['have']}")
             else:
                 print(f"ok   {r['name']}: {r['latest']} is current")
     return 1 if new else 0

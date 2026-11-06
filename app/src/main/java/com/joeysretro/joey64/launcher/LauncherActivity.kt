@@ -18,6 +18,19 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import com.joeysretro.joey64.R
+import com.joeysretro.joey64.launcher.components.JoeyToast
+import com.joeysretro.joey64.launcher.screens.SettingsScreen
+import com.joeysretro.joey64.launcher.screens.UpdatePopup
+import com.joeysretro.joey64.launcher.update.UpdateModel
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
@@ -58,6 +71,7 @@ class LauncherActivity : ComponentActivity() {
     private val keys = KeyNormaliser { super.dispatchKeyEvent(it) }
     private val model: LibraryModel by viewModels()
     private val importModel: ImportModel by viewModels()
+    private val updates: UpdateModel by viewModels()
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean = keys.dispatch(event)
 
@@ -71,12 +85,12 @@ class LauncherActivity : ComponentActivity() {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             hide(WindowInsetsCompat.Type.systemBars())
         }
-        setContent { LauncherApp(model, importModel) }
+        setContent { LauncherApp(model, importModel, updates) }
     }
 }
 
 @Composable
-private fun LauncherApp(model: LibraryModel, importModel: ImportModel) {
+private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: UpdateModel) {
     val context = LocalContext.current
     val store = remember { SettingsStore(context) }
     val settings by store.settings.collectAsState(initial = null)
@@ -97,8 +111,13 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel) {
                     onPauseOrDispose { }
                 }
             }
+            val home = folders.isNotEmpty() && s.setupDone
+            var place by remember { mutableStateOf(RailPlace.Library) }
+            var settingsHints by remember { mutableStateOf(listOf(Hint("B", "Back"))) }
+            var onRail by remember { mutableStateOf(false) }
+            if (home) UpdateChecks(updates)
             Row(Modifier.weight(1f).fillMaxWidth()) {
-                LauncherRail(RailPlace.Library)
+                LauncherRail(if (home) place else RailPlace.Library, enabled = home, onFocused = { onRail = it }) { place = it }
                 Box(Modifier.weight(1f).fillMaxSize()) {
                     ProvideScreenLayout {
                         CompositionLocalProvider(LocalFocusLanding provides landing) {
@@ -113,13 +132,49 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel) {
                                 }
                                 // Then Import from RetroArch, offered once; Skip or Continue finishes first run.
                                 !s.setupDone -> ImportScreen(importModel, s.dataFolder) { scope.launch { store.setSetupDone() } }
+                                place == RailPlace.Settings -> SettingsScreen(updates, onHints = { settingsHints = it }) { place = RailPlace.Library }
                                 else -> LibraryScreen(model)
                             }
                         }
                     }
+                    if (home) UpdatedToast(updates, Modifier.align(Alignment.TopEnd))
                 }
             }
-            HintRow(if (folders.isEmpty() || !s.setupDone) listOf(Hint("A", "Select")) else listOf(Hint("A", "Play")))
+            HintRow(when {
+                !home -> listOf(Hint("A", "Select"))
+                onRail -> listOf(Hint("A", "Open"))
+                place == RailPlace.Settings -> settingsHints
+                else -> listOf(Hint("A", "Play"))
+            })
+            if (home) updates.prompt.collectAsStateWithLifecycle().value?.let { UpdatePopup(it, updates) }
         }
     }
+}
+
+/**
+ * The updater's checks (plan, Phase 0b): on every fresh start and every 15 minutes while the
+ * launcher is in front (a failed check is tried again a minute later), never while a game is up,
+ * since the launcher is paused then. Coming back from Android's settings picks up a waiting install.
+ */
+@Composable
+private fun UpdateChecks(updates: UpdateModel) {
+    LifecycleResumeEffect(Unit) {
+        updates.resumed()
+        updates.autoCheck()
+        onPauseOrDispose { }
+    }
+    val owner = LocalLifecycleOwner.current
+    LaunchedEffect(owner) {
+        owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) { delay(60_000L); updates.autoCheck() }
+        }
+    }
+}
+
+/** "Updated, Joey64 is now 0.3.0" on the first start after an update, for 5 seconds. */
+@Composable
+private fun UpdatedToast(updates: UpdateModel, modifier: Modifier) {
+    val version = updates.updated.collectAsStateWithLifecycle().value ?: return
+    LaunchedEffect(version) { delay(5_000L); updates.toastShown() }
+    JoeyToast(R.drawable.ic_circle_check, "Updated", "Joey64 is now $version", "What's new is in Settings \u203a About", modifier)
 }

@@ -3,6 +3,9 @@
     <uses-feature android:glEsVersion="0x00030000" android:required="true" />
     <uses-feature android:name="android.hardware.gamepad" android:required="false" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- The in-app updater (docs/launcher-build-plan.md, Phase 0b): GitHub releases, then Android's installer -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:label="Joey64"
@@ -39,7 +42,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <!-- Zipped ROMs unpacked to cache/launch/ reach MainActivity as content:// URIs -->
+        <!-- Zipped ROMs unpacked to cache/launch/ reach MainActivity as content:// URIs; downloaded updates (cache/updates/) reach Android's installer -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.launch"
@@ -47,6 +50,13 @@
             android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/launch_paths" />
         </provider>
+        <!-- Where an update's install session answers; it reopens the launcher after the update -->
+        <activity
+            android:name=".launcher.update.UpdateStatusActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <!-- MainActivity.switchGame: a new ROM while a game is loaded starts the game screen in a fresh process -->
         <activity
             android:name=".RestartActivity"

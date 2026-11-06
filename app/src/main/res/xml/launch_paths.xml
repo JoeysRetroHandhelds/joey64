@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- GameLauncher unpacks zipped ROMs here and hands them to the game screen. -->
+<!-- GameLauncher unpacks zipped ROMs here and hands them to the game screen; the updater hands
+     downloaded APKs to Android's installer from updates/. -->
 <paths>
     <cache-path name="launch" path="launch/" />
+    <cache-path name="updates" path="updates/" />
 </paths>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings (a gear), pinned at the bottom of the rail. A line icon drawn here; tinted where it's used. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M10.33,4.32C10.75,2.56 13.25,2.56 13.67,4.32A1.72,1.72 0 0 0 16.24,5.39C17.78,4.45 19.55,6.21 18.61,7.76A1.72,1.72 0 0 0 19.67,10.33C21.43,10.75 21.43,13.25 19.67,13.67A1.72,1.72 0 0 0 18.61,16.24C19.55,17.78 17.78,19.55 16.24,18.61A1.72,1.72 0 0 0 13.67,19.67C13.25,21.43 10.75,21.43 10.33,19.67A1.72,1.72 0 0 0 7.76,18.61C6.22,19.55 4.45,17.78 5.39,16.24A1.72,1.72 0 0 0 4.33,13.67C2.57,13.25 2.57,10.75 4.33,10.33A1.72,1.72 0 0 0 5.39,7.76C4.45,6.22 6.22,4.45 7.76,5.39A1.72,1.72 0 0 0 10.33,4.32Z M12,9A3,3 0 1 1 12,15A3,3 0 1 1 12,9Z"/>
+</vector>

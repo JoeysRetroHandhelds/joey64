@@ -95,6 +95,8 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.0.0")
     implementation("androidx.documentfile:documentfile:1.0.1")
     testImplementation("junit:junit:4.13.2")
+    // The real org.json for JVM tests (Android's is a stub there): the updater's release parsing (ReleasesTest).
+    testImplementation("org.json:json:20240303")
 }
 
 dependencies {

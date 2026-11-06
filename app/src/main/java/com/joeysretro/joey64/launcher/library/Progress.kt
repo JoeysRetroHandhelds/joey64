@@ -11,6 +11,8 @@ data class Progress(
     val startedAt: Long,
     val doneBytes: Long = 0,
     val totalBytes: Long = 0,
+    /** After the total: " MB" for a download ("12 of 28 MB"). */
+    val unit: String = "",
 ) {
     /** 0..1, by bytes when they're known, else by count. */
     val fraction: Float
@@ -34,12 +36,12 @@ data class Progress(
 
     /** "37 of 211 · about 20 s left", "37 of 211 · about 2 min left", "37 of 211". */
     fun text(now: Long): String {
-        val left = secondsLeft(now) ?: return "$done of $total"
+        val left = secondsLeft(now) ?: return "$done of $total$unit"
         val eta = when {
             left < 5 -> "a few seconds left"
             left < 60 -> "about ${(left + 4) / 5 * 5} s left"
             else -> "about ${(left + 30) / 60} min left"
         }
-        return "$done of $total · $eta"
+        return "$done of $total$unit · $eta"
     }
 }

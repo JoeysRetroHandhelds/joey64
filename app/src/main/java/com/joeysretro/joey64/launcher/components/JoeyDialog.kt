@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -261,4 +264,55 @@ fun PopupDivider() {
 private class DialogIme {
     var isUp: () -> Boolean = { false }
     var hide: () -> Unit = {}
+}
+
+/**
+ * The top of a prompt popup (the updater's, approved 2026-11-05): an icon over the title, and an
+ * optional tag beside the title ("Testing build").
+ */
+@Composable
+fun PromptHeader(@androidx.annotation.DrawableRes icon: Int, title: String, tag: String? = null, @androidx.annotation.DrawableRes tagIcon: Int? = null) {
+    val c = JoeyTheme.colors
+    Column(Modifier.padding(horizontal = JoeyTheme.spacing.rowPadH).padding(top = 2.dp, bottom = 4.dp)) {
+        androidx.compose.material3.Icon(androidx.compose.ui.res.painterResource(icon), contentDescription = null,
+            tint = c.gold, modifier = Modifier.padding(bottom = 6.dp).size(22.dp))
+        androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, style = JoeyTheme.type.popupTitle, color = c.text)
+            if (tag != null) {
+                androidx.compose.foundation.layout.Row(
+                    Modifier.padding(start = 8.dp).background(c.chip, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 1.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (tagIcon != null) androidx.compose.material3.Icon(androidx.compose.ui.res.painterResource(tagIcon), contentDescription = null,
+                        tint = c.gold, modifier = Modifier.padding(end = 3.dp).size(12.dp))
+                    Text(tag, style = JoeyTheme.type.label, color = c.gold)
+                }
+            }
+        }
+    }
+}
+
+/** A prompt popup's text, with its bold parts (a version number) as the caller marks them. */
+@Composable
+fun PromptText(text: androidx.compose.ui.text.AnnotatedString) {
+    Text(text, style = JoeyTheme.type.body, color = JoeyTheme.colors.textSecondary,
+        modifier = Modifier.padding(horizontal = JoeyTheme.spacing.rowPadH).padding(bottom = 8.dp))
+}
+
+/** "What's new in 0.3.0" and the release's notes, in a box; long notes scroll inside it. */
+@Composable
+fun PromptNotes(heading: String, text: String) {
+    val c = JoeyTheme.colors
+    Column(
+        Modifier
+            .padding(horizontal = JoeyTheme.spacing.rowPadH).padding(bottom = 8.dp)
+            .fillMaxWidth()
+            .background(c.page, RoundedCornerShape(8.dp))
+            .heightIn(max = 140.dp)
+            .verticalScroll(androidx.compose.foundation.rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Text(heading, style = JoeyTheme.type.label, color = c.text, modifier = Modifier.padding(bottom = 4.dp))
+        Text(text, style = JoeyTheme.type.small, color = c.textSecondary)
+    }
 }

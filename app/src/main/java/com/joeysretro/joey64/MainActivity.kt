@@ -76,6 +76,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // Driver and renderer by GPU (setupGpu). Override with: am start ... --es renderer parallel|gliden64
         val renderer = setupGpu()
         NativeBridge.setRenderer(renderer == "parallel")
+        // Settings > About shows the renderer the last game started with (the launcher can't probe Vulkan itself).
+        getSharedPreferences("device", MODE_PRIVATE).edit().putString("renderer", renderer).apply()
         // Early acquire on Mali (Flip) by default (Joey 2026-11-05): after 30 new frames in a row the next frame
         // acquires its swapchain image early. Flip compat 82/82 (flip-early30); no gain on the 120 Hz Adrenos
         // (Duo, Odin 3, Portal), where GoldenEye judders with it, so it stays off there. --es env wins.

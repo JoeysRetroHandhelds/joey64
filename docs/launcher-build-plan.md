@@ -167,6 +167,21 @@ Comes straight after Phase 0, before the library, so every later build reaches t
   - Library: Update available (must be answered), downloading with Cancel, the Install unknown apps step, a testing build (the Missable-style tag), download failed, and the Updated toast on the next start.
   - About: the Check for updates row (Checked N minutes ago / Checking / Up to date) and the version countdown ("4 more taps for testing builds"). Testing builds are turned off with the same seven taps, as in JoeyOS.
 
+**Phase 0b status (2026-11-06, branch `launcher/phase0`).** Built; tested on the Thor against a stand-in feed (scratchpad `feedserver.py`: GitHub's release JSON for `Joey64-<version>.apk` assets, served from the PC through `adb reverse`, with a slow rate and a dropped connection to test). The repo stays private (Joey, 2026-11-06), so the real feed answers 404 until it's public; that's logged and nothing shows.
+- **Code:** `launcher/update/`: `Releases` (pure: picks the release to offer, version compare; ReleasesTest), `AppUpdates` (feed, download to `cache/updates/` with size and package checks, Android's install screen first and an install session as the fallback, as JoeyOS learned on the Thor), `UpdateModel`, `UpdateStatusActivity`. Popups in `screens/UpdatePopups.kt` from new shared pieces in `JoeyDialog.kt` (`PromptHeader`, `PromptText`, `PromptNotes`). The toast is `components/JoeyToast.kt` (the achievement pop-up's shape). Permissions: INTERNET and REQUEST_INSTALL_PACKAGES. Debug builds read the feed from `files/dev_update_feed` and allow plain http to 127.0.0.1 only.
+- **Settings › About:** built so the update rows have their place. The rail now has Settings at the bottom, and its places are focus stops (left from the library's first column; A opens; the hint row says "A Open"). Only the About tab exists. Left column as approved: the app, Version (touch only; seven taps, counting down from the third), Check for updates, Core (from core-version.txt), Renderer (the last game start's, written by MainActivity; "After the first game" before that), Device, Copy device info. Right column: the licence row, and "What's new in <version>" when this build came through the updater (the Updated toast points there).
+- **Checked on the Thor:**
+  - The automatic check on start offers 0.1.1 over 0.1. B and Back do nothing; Later skips it, and the next start finds it but doesn't offer it. Check for updates in About offers it anyway.
+  - Downloading shows "9 of 38 MB · about 20 s left". Cancel stops it and leaves no file.
+  - A connection dropped at 10 MB gives "Couldn't download the update ... at 10 of 38 MB"; Try again downloads all 40,027,973 bytes.
+  - Install unknown apps is off for Joey64: the permission popup opens Android's own switch for Joey64. Coming back without turning it on keeps the popup up.
+  - Seven taps turn testing builds on. Then 0.1.1.1 is offered with the Testing build tag.
+  - The Updated toast shows on the first start after a version change and goes after 5 s.
+  - The release build (R8, 10.4 MB) runs with the updater; the private repo's 404 is logged.
+- **Not yet checked:** the install itself (Android's update screen, the launcher reopening, the toast after a real update). That needs Install unknown apps turned on for Joey64 on the Thor. It's a security setting, so Joey turns it on; then the test takes a minute.
+- **Left for later, on the tracked list:** the Open-source licences list and texts, the Source code row (with the public repo), credits for box art, the game list and cheats (with those features), the other Settings tabs, and rail labels.
+- **Differs from the mockups:** the download bar is the shared progress bar (blue), not the mockup's yellow one, since there is one progress bar for the whole app.
+
 ## Phase 1: library and first run
 
 - **First run** with the folder pickers above, then the approved "Found N games", "several folders" and "nothing found" screens.

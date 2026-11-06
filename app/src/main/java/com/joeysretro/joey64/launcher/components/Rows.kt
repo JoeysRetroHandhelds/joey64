@@ -1,6 +1,9 @@
 package com.joeysretro.joey64.launcher.components
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -104,4 +107,39 @@ fun KeyBadge(key: String) {
             .padding(horizontal = 6.dp, vertical = 1.dp),
         contentAlignment = Alignment.Center,
     ) { Text(key, style = JoeyTheme.type.hintKey, color = c.keyBadgeText) }
+}
+
+/**
+ * A row that's read, not chosen: never a controller stop, laid out like [JoeyRow]. Settings ›
+ * About's Version is one (seven taps on it switch testing builds, touch only, so nobody finds it
+ * by accident). [valueColor] overrides the value's colour (the tap count in gold).
+ */
+@Composable
+fun InfoRow(label: String, value: String, modifier: Modifier = Modifier, valueColor: androidx.compose.ui.graphics.Color? = null, onTap: (() -> Unit)? = null) {
+    val c = JoeyTheme.colors
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .then(if (onTap == null) Modifier else Modifier.pointerInput(Unit) { detectTapGestures { onTap() } })
+            .padding(horizontal = JoeyTheme.spacing.rowPadH, vertical = JoeyTheme.spacing.rowPadV),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(label, style = JoeyTheme.type.row, color = c.text, modifier = Modifier.weight(1f), maxLines = 1)
+        Text(value, style = JoeyTheme.type.rowValue, color = valueColor ?: c.value, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** The line under a page's rows that says what the focused one does: "**Check for updates** · Also checked when ...". */
+@Composable
+fun DescriptionLine(title: String, text: String, modifier: Modifier = Modifier) {
+    val c = JoeyTheme.colors
+    Text(
+        androidx.compose.ui.text.buildAnnotatedString {
+            withStyle(androidx.compose.ui.text.SpanStyle(color = c.text, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)) { append(title) }
+            if (text.isNotEmpty()) append(" · $text")
+        },
+        style = JoeyTheme.type.small, color = c.textDim, maxLines = 2, overflow = TextOverflow.Ellipsis,
+        modifier = modifier.padding(horizontal = JoeyTheme.spacing.rowPadH),
+    )
 }

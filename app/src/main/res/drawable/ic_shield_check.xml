@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shield with a tick (Let Joey64 install its updates). A line icon drawn here; tinted where it's used. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M12,3A12,12 0 0 0 20.5,6A12,12 0 0 1 12,21A12,12 0 0 1 3.5,6A12,12 0 0 0 12,3Z M9,12L11,14L15,10"/>
+</vector>

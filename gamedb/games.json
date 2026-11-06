@@ -37,6 +37,7 @@
         {"what": "synchronous parallel-RDP, also in fast-forward", "where": "kSyncRdpGames", "why": "async: black screen"}
       ],
       "issues": [
+        {"status": "open", "what": "async with texture load snapshots (N64_RDP_TEX_SNAPSHOT=1): plays on the Duo, still black on the Flip, so it stays synchronous", "devices": "Flip", "evidence": "duo-ts-async-on / flip-ts-async-on, README item 33"},
         {"status": "open", "what": "bench state stops on the Controller Pak notice, so its bench numbers are a static menu (150-1190 fps swings); needs a state in a race", "evidence": "README bench states item"}
       ],
       "fixed": [

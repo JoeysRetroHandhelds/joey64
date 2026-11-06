@@ -87,6 +87,18 @@ So Joey64 uses the **Storage Access Framework**, the way PPSSPP does on Play. Th
 - **Storage layer:** picked folders, file descriptors to native code, and moving data when the folder changes.
 - **SQLite** (built into Android) for games, hashes, play time, collections and the achievement progress cache. The sign-in key is encrypted with the Android Keystore.
 
+**Phase 0 status (2026-11-05, branch `launcher/phase0`, built without a device):**
+
+- Built: Compose and the theme (`launcher/theme`), the control layer carried over from JoeyOS (`launcher/controls`, `launcher/components`: `JoeyDialog`, `JoeyPage`, rows, hint row, `ControllerTextField`), layout by screen shape (`launcher/layout`), the storage layer (`launcher/storage`: picked folders, ROM scan, data folder, file descriptors, data move), SQLite (`launcher/data`), DataStore settings and the Keystore-sealed sign-in (`launcher/settings`).
+- Tested on the JVM: the screen-shape rules, the ROM folder rules, overlapping data folders, and the data move (copy, check, never overwrite, resume after a cut-off move, a failed copy keeps the original). The schema was run through SQLite with its foreign keys.
+- Still to check on a device: focus and keys in a page and a popup, the popup blur, the picker opening at `ROMs`, a scan of a real ROMs folder, a data move into a picked folder, the Keystore round trip, and the database on Android 10's SQLite.
+- Still to do:
+  - The 4:3, square and portrait previews come with the first screens (Phase 1); there is nothing to preview yet.
+  - Dropping forced landscape is a manifest change on `MainActivity`, which belongs to the emulator side.
+  - Rubik's other weights are not bundled yet (needs a download); body text uses the system sans until then.
+  - The core still opens saves by path in `files/saves`. It needs to take file descriptors before data can move to a picked folder, so nothing calls the move yet.
+- Build changes, which reach the emulator build when this merges: Android Gradle plugin 8.5.2 → 8.13.2, Kotlin 2.0.20 → 2.2.21 with the Compose plugin, compileSdk 34 → 35 (targetSdk unchanged).
+
 ## Phase 1: library and first run
 
 - **First run** with the folder pickers above, then the approved "Found N games", "several folders" and "nothing found" screens.

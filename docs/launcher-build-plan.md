@@ -99,6 +99,39 @@ So Joey64 uses the **Storage Access Framework**, the way PPSSPP does on Play. Th
   - The core still opens saves by path in `files/saves`. It needs to take file descriptors before data can move to a picked folder, so nothing calls the move yet.
 - Build changes, which reach the emulator build when this merges: Android Gradle plugin 8.5.2 → 8.13.2, Kotlin 2.0.20 → 2.2.21 with the Compose plugin, compileSdk 34 → 35 (targetSdk unchanged).
 
+## Phase 0b: in-app updater (one of the very first things, Joey 2026-11-05)
+
+Comes straight after Phase 0, before the library, so every later build reaches the handhelds by itself. Built the way JoeyOS's updater is built (`JoeyOS/app/src/main/java/com/joeyos/app/data/AppUpdates.kt`, `UpdatePrompt.kt`, `UpdateStatusActivity.kt`), with what it learned on device.
+
+- **Public builds and testing builds:**
+  - Public builds are the latest normal release.
+  - Testing builds are pre-releases on the same releases page, with a fourth version number ("0.2.0.1").
+  - Testing builds are hidden. As in JoeyOS, tapping the version seven times switches them on or off for that device. After three taps the row counts down ("4 more for testing builds on"). It works by touch only and is never a controller stop, so nobody finds it by accident.
+  - JoeyOS has the version in Settings › Tools. In Joey64 it is the version row in the approved Settings › About.
+  - With testing builds on, the newest release counts, pre-release or not. Switching them off keeps the build you have until a public release is newer, since Android won't install an older version over a newer one.
+- **When it checks:**
+  - On every fresh start, then every 15 minutes while the launcher is showing. GitHub allows 60 unauthenticated checks an hour.
+  - Never during a game, and the prompt never opens over one.
+  - Later skips that version. The automatic check doesn't offer it again, though a newer one still is.
+  - Settings › About gets a "Check for updates" row that always checks.
+- **Installing:**
+  - Downloads to the cache under a temporary name, with its size checked, then hands it to Android's PackageInstaller. Android shows its own confirmation and refuses an APK signed with another key, so nothing installs silently.
+  - Android sometimes never answers an install session (seen with JoeyOS on the Thor). The fallback is Android's own install screen, opened while Joey64 is on screen.
+  - If "Install unknown apps" is off for Joey64, the updater opens that switch for it.
+- **Google Play:** Play doesn't allow an app from Play to update itself any other way than Play, and doesn't allow `REQUEST_INSTALL_PACKAGES` for self-updates (Device and Network Abuse policy; REQUEST_INSTALL_PACKAGES policy). So there are two builds of the same code:
+  - the direct build (GitHub releases) has the updater and the permission
+  - the Play build has neither, and Play updates it
+  - A Play install and a direct install are signed with different keys, so neither can update over the other. Android refuses that by itself.
+- **Where releases live (Joey's call, needed before this is built):**
+  - The joey64 repo is private, and a private repo's releases can only be read with a token. A token built into a public APK can be pulled out by anyone (RetroTracker does this, which is fine for a personal app).
+  - So public and testing builds need a public releases page: either a releases-only repo (for example `JoeysRetroHandhelds/joey64-releases`) or the joey64 repo made public.
+  - Either way, handing out builds means handing out GPL code (the core's mupen64plus and GLideN64 code is GPL), so the source has to be offered with them. This is the same open question as the About › Source code row.
+- **Releasing:**
+  - A release build signed with Joey's key.
+  - A pre-release check script like JoeyOS's `scripts/prerelease-check.sh`: permissions used vs declared, the signing key, bundled data such as the core and drivers.
+  - The release is made on GitHub only on Joey's go for that build.
+- **Screens:** the update popup (version, notes, Update / Later, download progress) and the two About rows need mockups and Joey's approval first. JoeyOS's `UpdatePrompt` is the starting point, in the Joey64 look.
+
 ## Phase 1: library and first run
 
 - **First run** with the folder pickers above, then the approved "Found N games", "several folders" and "nothing found" screens.

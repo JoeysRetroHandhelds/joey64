@@ -10,6 +10,8 @@ import com.joeysretro.joey64.launcher.data.LibraryDb
 import com.joeysretro.joey64.launcher.data.LibraryGame
 import com.joeysretro.joey64.launcher.library.GameLauncher
 import com.joeysretro.joey64.launcher.library.LibraryScanner
+import com.joeysretro.joey64.launcher.library.Progress
+import com.joeysretro.joey64.launcher.library.RomCheck
 import com.joeysretro.joey64.launcher.storage.FolderNames
 import com.joeysretro.joey64.launcher.storage.RomFolders
 import kotlinx.coroutines.Dispatchers
@@ -22,8 +24,6 @@ import kotlinx.coroutines.withContext
 /** What a picked ROMs folder holds, for first run's Found screen: "Found 82 N64 games" in "SD card › ROMs › n64". */
 data class FolderLook(val tree: Uri, val roms: Int, val place: String, val folders: List<String>)
 
-/** Reading progress of the library's background read: files read, files to read. */
-data class Reading(val done: Int, val total: Int)
 
 /**
  * The launcher's state that outlives a screen rotation: the library list, the background read
@@ -37,9 +37,9 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     private val _games = MutableStateFlow<List<LibraryGame>?>(null)
     /** Null until the database has been read once. */
     val games: StateFlow<List<LibraryGame>?> = _games
-    private val _reading = MutableStateFlow<Reading?>(null)
-    /** Non-null while new or changed files are being read. */
-    val reading: StateFlow<Reading?> = _reading
+    private val _reading = MutableStateFlow<Progress?>(null)
+    /** Non-null while new or changed files are being read: files read, files to read. */
+    val reading: StateFlow<Progress?> = _reading
 
     private var scan: Job? = null
     private var starting = false
@@ -53,8 +53,9 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         if (scan?.isActive == true || folders.isEmpty()) return
         scan = viewModelScope.launch {
             try {
+                val started = android.os.SystemClock.elapsedRealtime()
                 scanner.scan(folders) { done, total ->
-                    _reading.value = Reading(done, total)
+                    _reading.value = Progress(done, total, started)
                     // New games appear as they're read, a few at a time.
                     if (done % 6 == 0 || done == total) _games.value = db.libraryGames()
                 }
@@ -84,7 +85,21 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     /** Lists a picked folder (names and sizes only, no reading), for the Found screen. */
     suspend fun look(tree: Uri): FolderLook = withContext(Dispatchers.IO) {
         val app = getApplication<Application>()
-        val roms = RomFolders.scan(app.contentResolver, tree)
+        val t0 = android.os.SystemClock.elapsedRealtime()
+        val files = RomFolders.scan(app.contentResolver, tree)
+        // Names alone count any zip; a few bytes of each say which are N64 games, 6 at a time.
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(6)
+        val roms = try {
+            val n64 = files.map { f ->
+                pool.submit<Boolean> {
+                    try { app.contentResolver.openInputStream(f.uri)?.use { RomCheck.isN64(f.name, it) } ?: false } catch (e: Exception) { false }
+                }
+            }
+            files.filterIndexed { i, _ -> n64[i].get() }
+        } finally {
+            pool.shutdown()
+        }
+        Log.i(TAG, "look: ${roms.size} of ${files.size} files are N64 games, ${android.os.SystemClock.elapsedRealtime() - t0} ms")
         val name = FolderNames.of(app, tree)
         // The N64 folder the scan went into, when there is one ("ROMs" picked, "n64" inside).
         val subs = roms.filter { it.path.size > 1 }.map { it.path.first() }.distinct()

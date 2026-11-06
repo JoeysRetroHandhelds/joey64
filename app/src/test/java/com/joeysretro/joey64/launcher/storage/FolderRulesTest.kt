@@ -87,4 +87,12 @@ class FolderRulesTest {
         assertTrue(TreeRules.overlaps("com.other.provider", "x", "com.other.provider", "x"))
         assertFalse(TreeRules.overlaps("com.other.provider", "x", "com.other.provider", "x/y"))
     }
+
+    @Test fun pickerOpensAtTheN64FolderWhenThereIsOne() {
+        val looks = listOf(RomsLook("primary", 0, null), RomsLook("6439-6232", 42, 82, "n64"))
+        assertEquals("6439-6232:ROMs/n64", RomFolderRules.startFolder(looks))
+        assertEquals("6439-6232:ROMs/Nintendo 64", RomFolderRules.startFolder(listOf(RomsLook("6439-6232", 42, 82, "Nintendo 64"))))
+        // No N64 folder: the ROMs folder.
+        assertEquals("primary:ROMs", RomFolderRules.startFolder(listOf(RomsLook("primary", 3, null))))
+    }
 }

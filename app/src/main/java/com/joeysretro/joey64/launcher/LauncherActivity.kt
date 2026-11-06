@@ -99,10 +99,12 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel) {
                     ProvideScreenLayout {
                         CompositionLocalProvider(LocalFocusLanding provides landing) {
                             when {
-                                folders.isEmpty() -> FirstRunScreen(model) { tree ->
+                                folders.isEmpty() -> FirstRunScreen(model) { trees ->
                                     scope.launch {
-                                        RomFolders.keep(context, tree, write = false)
-                                        store.addRomFolder(tree.toString())
+                                        for (tree in trees) {
+                                            RomFolders.keep(context, tree, write = false)
+                                            store.addRomFolder(tree.toString())
+                                        }
                                     }
                                 }
                                 // Then Import from RetroArch, offered once; Skip or Continue finishes first run.

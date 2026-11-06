@@ -56,7 +56,7 @@ object RetroArchImport {
      * Finds the N64 files in RetroArch's folder [ra] (its root, with `saves/` and `states/`; or
      * a saves or states folder picked by itself). Reads only states, and only their first bytes.
      */
-    fun find(ra: FileSpace): RaFound {
+    fun find(ra: FileSpace, threads: Int = 1): RaFound {
         val space = ra as? ReadOnlySpace ?: ReadOnlySpace(ra)
         val top = space.list(emptyList()).filter { it.isDir }.map { it.name }
         val roots = listOf("saves", "states").filter { it in top }.map { listOf(it) }.ifEmpty { listOf(emptyList()) }
@@ -75,23 +75,72 @@ object RetroArchImport {
                 when {
                     ext == "srm" && e.size == N64_SRM_SIZE -> saves += RaFile(DataKind.Saves, path, e.size, e.modified)
                     ext in OTHER_FORMAT_SAVES -> other += RaFile(DataKind.Saves, path, e.size, e.modified)
-                    STATE.matches(e.name) && isN64State(space, path) -> {
+                    // A state; whether it's N64 is read from its first bytes below.
+                    STATE.matches(e.name) -> {
                         val png = names[e.name + ".png"]?.takeIf { !it.isDir }?.let { RaFile(DataKind.States, dir + it.name, it.size, it.modified) }
                         states += RaFile(DataKind.States, path, e.size, e.modified, png)
                     }
                 }
             }
         }
+        val n64States = inParallel(states, threads) { isN64State(space, it.path) }
         val (newSaves, oldSaves) = newestByName(saves)
-        val (newStates, oldStates) = newestByName(states)
+        val (newStates, oldStates) = newestByName(n64States)
         return RaFound(newSaves, newStates, oldSaves + oldStates, other)
     }
 
+    /** The files of [files] that pass [test], in their order; [threads] at a time (opening a file through a picked folder is slow, the bytes are few). */
+    private fun inParallel(files: List<RaFile>, threads: Int, test: (RaFile) -> Boolean): List<RaFile> {
+        if (threads <= 1 || files.size < 2) return files.filter(test)
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(threads)
+        try {
+            val results = files.map { f -> pool.submit<Boolean> { test(f) } }
+            return files.filterIndexed { i, _ -> results[i].get() }
+        } finally {
+            pool.shutdown()
+        }
+    }
+
+    /**
+     * Walks [dir] and the folders below it to [MAX_DEPTH]. Leaves out RetroArch's folders for
+     * other cores ("Beetle PSX", "SwanStation"; [isOtherCore]): they hold no N64 files, and
+     * checking their states was most of the time (Joey's Thor: 1,127 states, 108 of them N64).
+     */
     private fun walk(space: FileSpace, dir: List<String>, depth: Int, visit: (List<String>, List<SpaceEntry>) -> Unit) {
         val entries = space.list(dir)
         visit(dir, entries)
-        if (depth < MAX_DEPTH) for (e in entries) if (e.isDir && !e.name.startsWith(".")) walk(space, dir + e.name, depth + 1, visit)
+        if (depth < MAX_DEPTH) for (e in entries) {
+            if (!e.isDir || e.name.startsWith(".") || isOtherCore(e.name)) continue
+            walk(space, dir + e.name, depth + 1, visit)
+        }
     }
+
+    /**
+     * A folder RetroArch made for a core other than the N64 ones ("Sort saves/states into folders
+     * by core name" names them after the core). Never Mupen64Plus-Next, Mupen64Plus or ParaLLEl
+     * N64. A folder named after a game or content folder is never one of these, so it's walked.
+     */
+    fun isOtherCore(name: String): Boolean {
+        val n = name.trim().lowercase()
+        if (n in N64_CORES) return false
+        return n in OTHER_CORES || OTHER_CORE_PREFIXES.any { n.startsWith(it) }
+    }
+
+    private val N64_CORES = setOf("mupen64plus-next", "mupen64plus", "mupen64plus-next gles3", "mupen64plus-next gles2", "parallel n64")
+    /** Families whose every core folder starts the same way ("Beetle PSX HW", "MAME 2003-Plus", "DOSBox-pure"). */
+    private val OTHER_CORE_PREFIXES = listOf("beetle ", "mame", "dosbox", "finalburn", "fb alpha", "mednafen ")
+    /** RetroArch's folder names (the core's library name) for other systems. Whole names only, so a game's folder never matches. */
+    private val OTHER_CORES = setOf(
+        "swanstation", "duckstation", "pcsx-rearmed", "pcsx rearmed", "pcsx2", "lrps2", "ppsspp", "ppsspp-ext", "play!",
+        "snes9x", "snes9x 2010", "snes9x 2005", "bsnes", "bsnes-hd beta", "bsnes-mercury", "mesen", "mesen-s",
+        "fceumm", "nestopia", "quicknes", "genesis plus gx", "genesis plus gx wide", "picodrive", "blastem",
+        "gambatte", "sameboy", "gearboy", "tgb dual", "mgba", "gpsp", "vba-m", "vba next", "vbam",
+        "melonds", "melonds ds", "desmume", "desmume 2015", "citra", "dolphin", "flycast", "reicast", "redream",
+        "stella", "stella 2014", "prosystem", "virtual jaguar", "handy", "atari800", "hatari", "puae", "vice x64",
+        "opera", "yabause", "yaba sanshiro", "kronos", "neocd", "geolith", "openbor", "openbor-ext", "scummvm",
+        "gooseStation", "smsplus", "sms plus gx", "gearsystem", "pokemini", "o2em", "freeintv", "vecx", "potator",
+        "retropad remote", "tic-80", "ecwolf", "prboom", "tyrquake", "nxengine", "bluemsx", "fmsx", "cap32", "fuse",
+    ).map { it.lowercase() }.toSet()
 
     private fun newestByName(files: List<RaFile>): Pair<List<RaFile>, List<RaFile>> {
         val keep = ArrayList<RaFile>()
@@ -102,6 +151,18 @@ object RetroArchImport {
             left += sorted.drop(1)
         }
         return keep.sortedBy { it.name } to left
+    }
+
+    /**
+     * When the folder picked ([folders], its path) is RetroArch's saves or states folder, or one
+     * inside it: that kind, since only it can be found there. Null for RetroArch's own folder.
+     */
+    fun onlyKindOf(folders: List<String>): DataKind? {
+        val names = folders.map { it.lowercase() }
+        val at = names.indexOfLast { it == "saves" || it == "states" }
+        // saves/ itself, or one level in (saves/Mupen64Plus-Next): RetroArch's folders go no deeper.
+        if (at < 0 || at < names.size - 3) return null
+        return if (names[at] == "saves") DataKind.Saves else DataKind.States
     }
 
     /** Where a file goes in Joey64's data folder: `saves/<name>` or `states/<name>`. */
@@ -131,19 +192,38 @@ object RetroArchImport {
      * the old file is swapped out only once the copy reads back whole ([FileCopy.replaceChecked]).
      * Without it a file whose name is taken by then is left out, never overwritten.
      */
-    fun copy(ra: FileSpace, joey: FileSpace, files: List<RaFile>, replace: Boolean): RaImportResult {
+    fun copy(
+        ra: FileSpace, joey: FileSpace, files: List<RaFile>, replace: Boolean,
+        threads: Int = 1,
+        /** After each file (and its picture), from whichever thread copied it. */
+        onFile: (RaFile) -> Unit = {},
+    ): RaImportResult {
         val space = ra as? ReadOnlySpace ?: ReadOnlySpace(ra)
-        var copied = 0
-        val failed = ArrayList<String>()
-        for (f in files) {
-            val ok = put(space, joey, f, replace)
-            if (ok) {
-                copied++
+        val copied = java.util.concurrent.atomic.AtomicInteger()
+        val failed = java.util.Collections.synchronizedList(ArrayList<String>())
+        fun one(f: RaFile) {
+            if (put(space, joey, f, replace)) {
+                copied.incrementAndGet()
                 // A state's picture follows its state; a missing one is no failure.
                 f.thumbnail?.let { put(space, joey, it, replace) }
             } else failed += f.path.joinToString("/")
+            onFile(f)
         }
-        return RaImportResult(copied, failed)
+        if (threads <= 1 || files.size < 2) files.forEach(::one)
+        else {
+            // The first file of each kind alone, so its folder (saves/, states/) is made once:
+            // in a picked folder two threads making it at once would give "saves (1)".
+            val firsts = files.distinctBy { it.kind }
+            firsts.forEach(::one)
+            val rest = files - firsts.toSet()
+            val pool = java.util.concurrent.Executors.newFixedThreadPool(threads)
+            try {
+                rest.map { f -> pool.submit { one(f) } }.forEach { it.get() }
+            } finally {
+                pool.shutdown()
+            }
+        }
+        return RaImportResult(copied.get(), failed.toList())
     }
 
     private fun put(ra: FileSpace, joey: FileSpace, f: RaFile, replace: Boolean): Boolean {

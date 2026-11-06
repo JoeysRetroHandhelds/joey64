@@ -179,7 +179,10 @@ Comes straight after Phase 0, before the library, so every later build reaches t
 **Phase 1 status (2026-11-06, branch `launcher/phase0`).**
 
 - **Entry point** (Joey, 2026-11-06: the app opens to setup or the library, never straight into a game unless a frontend asks): `LauncherActivity` is the app's launch screen now, and `MainActivity` keeps only its VIEW filter for frontends and file managers. The launcher starts games with that same VIEW intent; zips are unpacked first to `cache/launch/<md5>/`, named after the zip, so the save is named as RetroArch names it. The last 3 unpacked games are kept.
-- **First run, screens 1-2** (approved 2026-11-05): "Choose your ROMs folder", then "Found N N64 games" with the folder box, Use this folder / Choose another folder. A folder without games shows "No N64 games found" with Choose another folder.
+- **First run, screens 1-2** (approved 2026-11-05): "Choose your ROMs folder", then "Found N N64 games" with the folder box. A folder without games shows "No N64 games found" with Choose another folder.
+  - The picker opens at the N64 folder in ROMs when there is one (`SD Card › ROMs › n64` on the Thor), else at ROMs (Joey, 2026-11-06).
+  - The folders are a list (Joey, 2026-11-06): each row has its game count and a Remove button, then an "Add another folder" line picks one more. The button reads Use this folder or Use these folders, and every folder on the list is saved. The same folder picked twice is listed once. A folder with no N64 games isn't added, and a line under the list says so. Back takes off that line, else the last folder.
+  - Games are counted by content: the first four bytes of each file, or of a zip's entries, must be an N64 ROM's (`RomCheck`), 6 files at a time. Before this, names alone counted, so an `atari2600` folder read as 190 N64 games. Thor: 82 of 82 in 240 ms, 0 of 190 in 446 ms. `.7z` still counts by name until the launcher reads 7z.
   - Screens 3-4 (where saves go) wait for the core to take file descriptors, so saves stay in Joey64's own storage for now.
 - **Import from RetroArch, screens 5-7 and the clash popups** (approved 2026-11-05): first run's last step, after the ROMs folder. Skip or Continue finishes first run (`setup_done`), and the app opens to the library from then on.
   - Clashes are all asked before anything is copied, so Back in the popup cancels with nothing written. "Do the same for the other N" answers the rest.
@@ -190,6 +193,9 @@ Comes straight after Phase 0, before the library, so every later build reaches t
     - "Nothing copied" when every clash kept Joey64's file
     - a line on the done screen when files fail
   - Left out: the first screen's "You can do this later in Settings › Library." There's no Settings yet; it comes back with Settings › Library.
+  - **Saves or states folder picked by itself** (Joey, 2026-11-06): "This is RetroArch's saves folder" (or "...inside RetroArch's saves folder"), saying to choose the RetroArch folder that holds both. Choose RetroArch folder opens the picker at the folder above `saves`; Use this folder goes on with what it holds.
+  - **Progress:** copying shows a bar and "N of M · about X s left". The bar follows bytes, since states are far bigger than saves. The time left appears after 2 s or 3% (`Progress`, tested in ProgressTest). The library read uses the same bar.
+  - **Speed** (Thor, Joey's RetroArch folder): finding took 24.8 s, because every state read listed its folder again through the picked-folder provider (1,127 states, 108 of them N64). Folder listings are now cached, states are checked 6 at a time, and other cores' folders are skipped by name (never an N64 core's). Finding now takes 0.3-0.4 s. Copying went from 6.8 s warm to 0.7 s: 6 files at a time, and each file read once for its copy and its CRC. All 222 copied files (104 saves, 107 states, 11 pictures) match RetroArch's by md5. Joey's first import took about 55 s, likely because the files weren't cached yet; that can't be checked without root.
   - States are copied, but the emulator can't load states yet (Phase 3), so for now only the saves are used.
   - Checked on the Thor (Joey's RetroArch folder, internal storage):
     - **First copy:** the picker opened at RetroArch's folder. Found 104 saves and 107 states. Copying took about 55 s: 103 saves, 107 states and 11 pictures. The copies match RetroArch's files (md5), and nothing in RetroArch's folder changed.
@@ -198,13 +204,14 @@ Comes straight after Phase 0, before the library, so every later build reaches t
     - **Do the same:** three made-up clashes, with Do the same for the other 2 ticked and Keep Joey64's, kept all three.
     - **Saves load:** Bomberman Hero, started from the library, loaded the imported save at 60 fps.
     - **Cleanup:** the test copies were removed afterwards.
-- **Library grid:** the tiles show the game's name until box art comes (Phase 2), in the screen shape's column count. A plays, and focus comes back to the game played. While new files are read, a line says "Reading your games: N of M".
+- **Library grid:** the tiles show the game's name until box art comes (Phase 2), in the screen shape's column count. A plays, and focus comes back to the game played. While new files are read, "Reading your games" sits above the grid with a bar and "N of M · about X s left", or in the middle when nothing is listed yet. On the Thor, reading all 82 zips afresh took 31.7 s.
   - The rail shows the logo and Library only. Continue, Search, Achievements, Controls and Settings come with their pages, and so do the Filter button and Start for options.
 - **Checked on the Thor:**
   - first run from no settings, then the picker at SD Card › ROMs
   - "Found 82 N64 games" in SD Card › ROMs › n64, and the D-pad between the two buttons
   - the library, and a zipped game (Bomberman Hero) started with A at 60 fps
   - Back from the game lands on that game's tile
+  - 2026-11-06, from a fresh first run: the picker at SD Card › ROMs › n64; the folder list (a second folder, the same folder again, an Atari folder with its line, Back, Remove, Use these folders saving both); the saves-folder warning with both buttons, its picker at RetroArch; the copy bar; and the library bar after clearing the database. One bug was found and fixed: after Use this folder on the warning, focus was lost.
 
 The parts without screens:
 
@@ -213,7 +220,7 @@ The parts without screens:
   - `.7z` files are listed and left unread until a 7z decoder is in (a library download, waiting on Joey's go).
 - **Scan cache** (`ScanPlanner`, `LibraryScanner`, `LibraryDb`): a game is its MD5, so any copy, zipped or not, in any byte order or folder, is the same game. A file is read again only when its size or date changes. A file that isn't a ROM is remembered and not read again. A folder that can't be read (permission gone, card out) keeps its games, so pulling the SD card doesn't empty the library.
   - Checked on the Thor (check page row "Read the saved ROM folders into the library"), SD card `ROMs` with 82 zips:
-    - **First read:** 80 s, about 1 s a game (each zip inflated through the picked folder, up to 64 MiB). It runs in the background with progress, but the first-run screen will need to show it.
+    - **First read:** 80 s, about 1 s a game (each zip inflated through the picked folder, up to 64 MiB). It runs in the background; the library now shows its progress (31.7 s on 2026-11-06).
     - **Second read:** 40 ms, 82 unchanged, nothing opened.
     - **Hashes:** in the database copied off the device, 63 games match the No-Intro DAT's MD5 and CRC, and 18 are hacks and translations not in it.
     - **Resident Evil 2 (USA):** another 64 MiB file, dated 2026-11-03, not the No-Intro dump. The zip's own CRC (49E3964E) agrees with the reader.

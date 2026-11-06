@@ -190,4 +190,19 @@ class RetroArchImportTest {
         assertEquals(107, found.states.size)
         assertEquals(emptyList<String>(), notInNext)
     }
+
+    @Test fun otherCoresFoldersAreSkippedN64OnesNever() {
+        for (n in listOf("Beetle PSX HW", "SwanStation", "PCSX-ReARMed", "mGBA", "Snes9x", "melonDS DS", "MAME 2003-Plus", "GooseStation"))
+            assertTrue(n, RetroArchImport.isOtherCore(n))
+        // N64 cores, and folders named after games or content folders.
+        for (n in listOf("Mupen64Plus-Next", "Mupen64Plus", "ParaLLEl N64", "n64", "Nintendo 64", "Super Mario 64 (USA)", "Fuse Racer", "gw"))
+            assertFalse(n, RetroArchImport.isOtherCore(n))
+    }
+
+    @Test fun savesOrStatesFolderPickedByItself() {
+        assertEquals(com.joeysretro.joey64.launcher.storage.DataKind.Saves, RetroArchImport.onlyKindOf(listOf("RetroArch", "saves")))
+        assertEquals(com.joeysretro.joey64.launcher.storage.DataKind.States, RetroArchImport.onlyKindOf(listOf("RetroArch", "states", "Mupen64Plus-Next")))
+        assertEquals(null, RetroArchImport.onlyKindOf(listOf("RetroArch")))
+        assertEquals(null, RetroArchImport.onlyKindOf(emptyList()))
+    }
 }

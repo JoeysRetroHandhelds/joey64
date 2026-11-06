@@ -30,6 +30,7 @@ import com.joeysretro.joey64.launcher.LibraryModel
 import com.joeysretro.joey64.launcher.components.LocalFocusLanding
 import com.joeysretro.joey64.launcher.components.coverSelection
 import com.joeysretro.joey64.launcher.components.initialFocus
+import com.joeysretro.joey64.launcher.components.ProgressLine
 import com.joeysretro.joey64.launcher.components.pressable
 import com.joeysretro.joey64.launcher.components.rememberFocusState
 import com.joeysretro.joey64.launcher.data.LibraryGame
@@ -56,16 +57,20 @@ fun LibraryScreen(model: LibraryModel) {
     val c = JoeyTheme.colors
     val list = games ?: return
     Column(Modifier.fillMaxSize()) {
-        reading?.let { r ->
-            Text("Reading your games: ${r.done} of ${r.total}", style = JoeyTheme.type.note, color = c.textDim,
-                modifier = Modifier.padding(start = JoeyTheme.spacing.margin, top = 12.dp))
-        }
         if (list.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 Text(if (reading != null) "Reading your games" else "No N64 games found",
                     style = JoeyTheme.type.heading, color = c.text)
+                reading?.let { ProgressLine(it, Modifier.padding(top = 20.dp)) }
             }
             return
+        }
+        // New games appear as they're read; the bar says how far it has got.
+        reading?.let { r ->
+            Column(Modifier.padding(start = JoeyTheme.spacing.margin, top = 12.dp)) {
+                Text("Reading your games", style = JoeyTheme.type.note, color = c.textDim, modifier = Modifier.padding(bottom = 6.dp))
+                ProgressLine(r, width = 320.dp, centred = false)
+            }
         }
         LazyVerticalGrid(
             columns = GridCells.Fixed(LocalScreenLayout.current.boxArtColumns),

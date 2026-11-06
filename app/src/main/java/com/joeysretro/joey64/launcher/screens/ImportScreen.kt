@@ -33,6 +33,7 @@ import com.joeysretro.joey64.launcher.components.JoeyRow
 import com.joeysretro.joey64.launcher.components.LocalFocusLanding
 import com.joeysretro.joey64.launcher.components.PopupDivider
 import com.joeysretro.joey64.launcher.components.PopupTitle
+import com.joeysretro.joey64.launcher.components.ProgressLine
 import com.joeysretro.joey64.launcher.components.SetupBody
 import com.joeysretro.joey64.launcher.components.SetupButtonsTop
 import com.joeysretro.joey64.launcher.components.SetupHeading
@@ -43,6 +44,7 @@ import com.joeysretro.joey64.launcher.components.rowTextColor
 import com.joeysretro.joey64.launcher.library.ImportText
 import com.joeysretro.joey64.launcher.library.RaClash
 import com.joeysretro.joey64.launcher.library.RaFile
+import com.joeysretro.joey64.launcher.storage.DataKind
 import com.joeysretro.joey64.launcher.theme.JoeyTheme
 import java.time.ZoneId
 
@@ -66,11 +68,14 @@ fun ImportScreen(model: ImportModel, dataFolder: String?, onDone: () -> Unit) {
         if (uri == null) landing?.arm() else model.look(uri, dataFolder)
     }
     val choose = { picker.launch(model.pickerUri()) }
-    LaunchedEffect(step) { landing?.arm() }
     BackHandler(enabled = step is ImportStep.Found) { model.back() }
 
     // The clash being asked about, and the answers so far; null while no popup is up.
     var asking by remember(step) { mutableStateOf<Asking?>(null) }
+    // A saves or states folder picked: "Use this folder" goes on to what it holds.
+    var useAnyway by remember(step) { mutableStateOf(false) }
+    // Focus lands on each new screen's first button, also the Found screen after the warning.
+    LaunchedEffect(step, useAnyway) { landing?.arm() }
 
     SetupPage {
         when (val s = step) {
@@ -83,7 +88,18 @@ fun ImportScreen(model: ImportModel, dataFolder: String?, onDone: () -> Unit) {
                 }
             }
             ImportStep.Looking -> SetupHeading("Looking for saves and states")
-            is ImportStep.Found -> if (s.total == 0) {
+            is ImportStep.Found -> if (s.onlyKind != null && !useAnyway) {
+                // Picked RetroArch's saves or states folder, likely by mistake: the RetroArch folder has both.
+                val mine = if (s.onlyKind == DataKind.Saves) "saves" else "states"
+                val other = if (s.onlyKind == DataKind.Saves) "states" else "saves"
+                SetupHeading(if (s.folders.lastOrNull()?.lowercase() == mine) "This is RetroArch's $mine folder" else "This folder is inside RetroArch's $mine folder")
+                SetupBody("Choose the RetroArch folder instead, the one that holds both saves and states, so your $other are copied too.")
+                FolderBox(s.place, s.folders, Modifier.padding(top = 16.dp))
+                ButtonRow(Modifier.padding(top = SetupButtonsTop)) {
+                    JoeyButton("Choose RetroArch folder", primary = true, modifier = Modifier.initialFocus(), onClick = choose)
+                    JoeyButton("Use this folder", primary = false) { useAnyway = true }
+                }
+            } else if (s.total == 0) {
                 SetupHeading("No N64 saves or states found")
                 FolderBox(s.place, s.folders, Modifier.padding(top = 16.dp), subs = s.subs)
                 ButtonRow(Modifier.padding(top = SetupButtonsTop)) {
@@ -101,7 +117,10 @@ fun ImportScreen(model: ImportModel, dataFolder: String?, onDone: () -> Unit) {
                 }
                 SetupSmall("Copies only. RetroArch keeps its own files.")
             }
-            is ImportStep.Copying -> SetupHeading("Copying " + ImportText.counts(s.saves, s.states))
+            is ImportStep.Copying -> {
+                SetupHeading("Copying " + ImportText.counts(s.saves, s.states))
+                ProgressLine(s.progress, Modifier.padding(top = 20.dp))
+            }
             is ImportStep.Done -> {
                 val total = s.saves + s.states
                 SetupHeading(if (total == 0) "Nothing copied" else "Copied " + ImportText.counts(s.saves, s.states))

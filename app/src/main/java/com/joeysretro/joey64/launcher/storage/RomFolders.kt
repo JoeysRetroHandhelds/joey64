@@ -55,6 +55,17 @@ object RomFolderRules {
             ?: looks.firstOrNull { it.n64Entries != null }
             ?: looks.firstOrNull { (it.romsEntries ?: 0) > 0 })?.volumeId ?: PRIMARY
 
+    /**
+     * Where the picker opens, as a document id: the chosen volume's N64 folder when its `ROMs`
+     * has one (`6439-6232:ROMs/n64`), else its `ROMs` (Joey, 2026-11-06: open at ROMs/n64 when
+     * it's there).
+     */
+    fun startFolder(looks: List<RomsLook>): String {
+        val volume = startVolume(looks)
+        val n64 = looks.firstOrNull { it.volumeId == volume }?.n64Name
+        return "$volume:ROMs" + (if (n64 != null) "/$n64" else "")
+    }
+
     const val PRIMARY = "primary"
 }
 
@@ -63,7 +74,7 @@ object RomFolderRules {
  * access. [volumeId] is the volume's part of a document id ("primary", or an SD card's "6439-6232");
  * [romsEntries] is null without a `ROMs` folder, [n64Entries] null without an N64 folder in it.
  */
-data class RomsLook(val volumeId: String, val romsEntries: Int?, val n64Entries: Int?)
+data class RomsLook(val volumeId: String, val romsEntries: Int?, val n64Entries: Int?, val n64Name: String? = null)
 
 /**
  * The ROM folders the user picked. Each is a tree URI with a persisted permission, so access
@@ -82,7 +93,7 @@ object RomFolders {
      * main thread where possible (a card can be slow to wake).
      */
     fun initialPickerUri(context: Context): Uri =
-        DocumentsContract.buildDocumentUri(EXTERNAL_STORAGE, RomFolderRules.startVolume(looks(context)) + ":ROMs")
+        DocumentsContract.buildDocumentUri(EXTERNAL_STORAGE, RomFolderRules.startFolder(looks(context)))
 
     /** Every mounted volume's `ROMs`, internal storage first (getExternalFilesDirs' order). */
     fun looks(context: Context): List<RomsLook> {
@@ -95,7 +106,7 @@ object RomFolders {
             val roms = File(root, "ROMs")
             val names = roms.list()?.toList()
             val n64 = names?.firstOrNull(RomFolderRules::isN64FolderName)
-            RomsLook(id, names?.size, n64?.let { File(roms, it).list()?.size ?: 0 })
+            RomsLook(id, names?.size, n64?.let { File(roms, it).list()?.size ?: 0 }, n64)
         }
     }
 

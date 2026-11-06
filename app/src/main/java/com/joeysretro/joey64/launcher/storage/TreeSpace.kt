@@ -17,8 +17,11 @@ import java.io.OutputStream
  *
  * Listing uses one query per folder with only the columns we read
  * (buildChildDocumentsUriUsingTree + a projection), not DocumentFile.listFiles(), which makes a
- * query per child for each property. Paths resolve folder by folder and are cached, so opening
- * files in the same folder costs one listing.
+ * query per child for each property. Paths resolve folder by folder, and each folder's listing
+ * is cached until something in it changes here (create, write, rename, delete), so opening many
+ * files in one folder costs one listing: without it every open listed its folder again, and
+ * Import from RetroArch spent ~25 s listing 30 folders over a thousand times on the Thor.
+ * Safe to read from several threads.
  */
 class TreeSpace(
     private val resolver: ContentResolver,
@@ -30,10 +33,23 @@ class TreeSpace(
 
     /** Folder path → its document id. Cleared on anything that changes the tree's shape. */
     private val dirIds = HashMap<List<String>, String>().apply { put(emptyList(), rootDocId) }
+    /** Folder document id → its listing. */
+    private val listings = HashMap<String, List<Child>>()
+    private val lock = Any()
 
     fun documentUri(docId: String): Uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
 
     private fun children(docId: String): List<Child> {
+        synchronized(lock) { listings[docId] }?.let { return it }
+        val out = query(docId)
+        synchronized(lock) { listings[docId] = out }
+        return out
+    }
+
+    /** Drops the cached listing of the folder [docId], after something in it changed. */
+    private fun changed(docId: String) = synchronized(lock) { listings.remove(docId) }
+
+    private fun query(docId: String): List<Child> {
         val uri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, docId)
         val out = ArrayList<Child>()
         try {
@@ -65,17 +81,21 @@ class TreeSpace(
      */
     private fun forgetDirs(dir: List<String>) {
         if (dir.isEmpty()) return
-        dirIds.keys.removeAll { it.size >= dir.size && it.subList(0, dir.size) == dir }
+        synchronized(lock) {
+            dirIds.keys.removeAll { it.size >= dir.size && it.subList(0, dir.size) == dir }
+            // Folder ids below it may be gone too; listings are cheap to read again.
+            listings.clear()
+        }
     }
 
     private fun dirId(dir: List<String>, create: Boolean): String? {
         if (dir.isEmpty()) return rootDocId
-        dirIds[dir]?.let { return it }
+        synchronized(lock) { dirIds[dir] }?.let { return it }
         val parent = dirId(dir.dropLast(1), create) ?: return null
         val name = dir.last()
         val found = children(parent).firstOrNull { it.entry.isDir && it.entry.name == name }?.docId
             ?: if (create) createDocument(parent, Document.MIME_TYPE_DIR, name) else null
-        if (found != null) dirIds[dir] = found
+        if (found != null) synchronized(lock) { dirIds[dir] = found }
         return found
     }
 
@@ -91,6 +111,8 @@ class TreeSpace(
     } catch (e: Exception) {
         Log.w(TAG, "creating $name failed: $e")
         null
+    } finally {
+        changed(parentId)
     }
 
     /**
@@ -100,6 +122,8 @@ class TreeSpace(
      */
     private fun fileIdForWrite(path: List<String>): String? {
         val parent = dirId(path.dropLast(1), create = true) ?: return null
+        // The write changes the file's size and date in the folder's listing.
+        changed(parent)
         val name = path.last()
         children(parent).firstOrNull { it.entry.name == name }?.let { return if (it.entry.isDir) null else it.docId }
         val mime = if (name.endsWith(".png", ignoreCase = true)) "image/png" else "application/octet-stream"
@@ -125,6 +149,7 @@ class TreeSpace(
 
     override fun rename(path: List<String>, newName: String): Boolean {
         val child = childId(path) ?: return false
+        val parent = dirId(path.dropLast(1), create = false)
         if (exists(path.dropLast(1) + newName)) return false
         return try {
             DocumentsContract.renameDocument(resolver, documentUri(child.docId), newName) != null
@@ -132,18 +157,21 @@ class TreeSpace(
             Log.w(TAG, "renaming ${child.entry.name} failed: $e")
             false
         } finally {
+            parent?.let(::changed)
             if (child.entry.isDir) forgetDirs(path)
         }
     }
 
     override fun delete(path: List<String>): Boolean {
         val child = childId(path) ?: return true
+        val parent = dirId(path.dropLast(1), create = false)
         return try {
             DocumentsContract.deleteDocument(resolver, documentUri(child.docId))
         } catch (e: Exception) {
             Log.w(TAG, "deleting ${child.entry.name} failed: $e")
             false
         } finally {
+            parent?.let(::changed)
             if (child.entry.isDir) forgetDirs(path)
         }
     }

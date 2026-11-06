@@ -5,8 +5,9 @@ import java.io.OutputStream
 
 /**
  * Copies between [FileSpace]s that never leave a broken file behind (DataMover, RetroArch
- * import). The copy is written under a temporary name, read back and compared with the source,
- * and only then renamed into place. Cut off at any point (app killed, card pulled), the target
+ * import). The copy is written under a temporary name, read back and checked against the
+ * source's CRC-32 and length (taken while copying, so the source is read once), and only then
+ * renamed into place. Cut off at any point (app killed, card pulled), the target
  * has either its old file or the new one, whole, plus at most a temporary file the next run
  * clears.
  */
@@ -45,8 +46,21 @@ object FileCopy {
         return try {
             to.delete(part)
             val input = from.openRead(fromPath) ?: return null
-            input.use { i -> to.openWrite(part).use { o -> i.copyTo(o) } }
-            if (!sameContent(from, fromPath, to, part)) {
+            val crc = java.util.zip.CRC32()
+            var length = 0L
+            input.use { i ->
+                to.openWrite(part).use { o ->
+                    val buf = ByteArray(BUFFER)
+                    while (true) {
+                        val n = i.read(buf)
+                        if (n < 0) break
+                        crc.update(buf, 0, n)
+                        o.write(buf, 0, n)
+                        length += n
+                    }
+                }
+            }
+            if (!matches(to, part, crc.value, length)) {
                 to.delete(part)
                 return null
             }
@@ -56,6 +70,25 @@ object FileCopy {
             null
         }
     }
+
+    /** True when the file at [path] has [length] bytes with CRC-32 [crc]: the copy reads back whole. */
+    private fun matches(space: FileSpace, path: List<String>, crc: Long, length: Long): Boolean {
+        val input = space.openRead(path) ?: return false
+        val check = java.util.zip.CRC32()
+        var n = 0L
+        input.use { i ->
+            val buf = ByteArray(BUFFER)
+            while (true) {
+                val r = i.read(buf)
+                if (r < 0) break
+                check.update(buf, 0, r)
+                n += r
+            }
+        }
+        return n == length && check.value == crc
+    }
+
+    private const val BUFFER = 256 * 1024
 
     private fun sibling(path: List<String>, suffix: String) = path.dropLast(1) + (path.last() + suffix)
 

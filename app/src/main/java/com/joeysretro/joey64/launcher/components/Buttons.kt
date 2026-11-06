@@ -83,3 +83,27 @@ fun FolderBox(place: String, folders: List<String>, modifier: Modifier = Modifie
         if (subs != null) Text(subs, style = JoeyTheme.type.small, color = c.textDim, modifier = Modifier.padding(start = 16.dp))
     }
 }
+
+/**
+ * The line under a list of folders that adds one more ("Add another folder"): the folder box's
+ * size and shape with a plus, selected like a row.
+ */
+@Composable
+fun AddLine(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val c = JoeyTheme.colors
+    val (source, focused) = rememberFocusState()
+    val shape = RoundedCornerShape(8.dp)
+    Row(
+        modifier = modifier
+            .widthIn(min = 420.dp)
+            .rowSelection(focused, shape)
+            .border(1.dp, c.border, shape)
+            .pressable(source, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(painterResource(R.drawable.ic_add), contentDescription = null, tint = rowTextColor(c, focused, c.textDim), modifier = Modifier.size(20.dp))
+        Text(text, style = JoeyTheme.type.path, color = rowTextColor(c, focused, c.textDim))
+    }
+}

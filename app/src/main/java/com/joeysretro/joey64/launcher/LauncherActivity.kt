@@ -118,7 +118,11 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             var onRail by remember { mutableStateOf(false) }
             if (home) UpdateChecks(updates)
             Row(Modifier.weight(1f).fillMaxWidth()) {
-                LauncherRail(if (home) place else RailPlace.Library, enabled = home, onFocused = { onRail = it }) { place = it }
+                val continueGame by model.continueGame.collectAsStateWithLifecycle()
+                LauncherRail(if (home) place else RailPlace.Library, enabled = home, showContinue = home && continueGame != null,
+                    onFocused = { onRail = it }) {
+                    if (it == RailPlace.Continue) model.continuePlaying { intent -> context.startActivity(intent) } else place = it
+                }
                 Box(Modifier.weight(1f).fillMaxSize()) {
                     ProvideScreenLayout {
                         CompositionLocalProvider(LocalFocusLanding provides landing) {

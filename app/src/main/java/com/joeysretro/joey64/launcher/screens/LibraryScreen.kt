@@ -78,6 +78,9 @@ fun LibraryScreen(model: LibraryModel) {
     val context = LocalContext.current
     LaunchedEffect(Unit) { landing?.arm() }
     if (model.offline.collectAsStateWithLifecycle().value) OfflinePopup(model::offlineSeen)
+    model.recovery.collectAsStateWithLifecycle().value?.let { offer ->
+        RecoveryPopup(offer) { carryOn -> model.recoveryAnswered(carryOn) { context.startActivity(it) } }
+    }
 
     // The game whose tile has focus, for Start; null while focus is on the rail.
     var focusedGame by remember { mutableStateOf<LibraryGame?>(null) }
@@ -194,6 +197,33 @@ private fun OfflinePopup(onOk: () -> Unit) {
             PopupTitle("Go online to get box art")
             PromptText(AnnotatedString("Joey64 couldn't connect. Box art downloads by itself next time you're online."))
             JoeyOption("OK", modifier = Modifier.initialFocus(), onClick = onOk)
+        }
+    }
+}
+
+/**
+ * After a game closed without quitting (approved problem screens, 2026-11-05): carry on from the
+ * recovery state, or drop it. [onAnswer] true = Continue, false = Not now (the state is deleted),
+ * null = B: only closed, the state stays, and the popup comes back when the launcher is in front again.
+ */
+@Composable
+private fun RecoveryPopup(offer: LibraryModel.RecoveryOffer, onAnswer: (Boolean?) -> Unit) {
+    val ago = when (val m = offer.minutesBefore) {
+        0 -> "less than a minute"
+        1 -> "1 minute"
+        else -> "$m minutes"
+    }
+    JoeyDialog(onDismiss = { onAnswer(null) }, hints = listOf(Hint("A", "Select")), width = 440.dp) {
+        Column {
+            PopupTitle("Joey64 closed while you were playing")
+            PromptText(androidx.compose.ui.text.buildAnnotatedString {
+                pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = JoeyTheme.colors.text))
+                append(offer.game.title)
+                pop()
+                append(" has a recovery state from $ago before it closed. Carry on from there?")
+            })
+            JoeyOption("Continue", modifier = Modifier.initialFocus()) { onAnswer(true) }
+            JoeyOption("Not now") { onAnswer(false) }
         }
     }
 }

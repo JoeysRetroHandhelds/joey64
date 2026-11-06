@@ -60,6 +60,8 @@ struct Core {
     void (*cheat_reset)();
     void (*cheat_set)(unsigned, bool, const char*);
     bool (*unserialize)(const void*, size_t);
+    size_t (*serialize_size)();
+    bool (*serialize)(void*, size_t);
 } core;
 
 std::string g_systemDir, g_saveDir;
@@ -455,6 +457,82 @@ void flushSave() {
     LOGI("save: wrote %zu bytes", size);
 }
 
+// ---- save states --------------------------------------------------------------
+// The core's state (retro_serialize: the M64+SAVE data) is taken and put back on the emulation
+// thread between frames, the only place the core can do it. The UI side (StateFiles.kt) wraps it in
+// RetroArch's state format and writes the file, so this side never touches the data folder.
+// One request at a time: the JNI call waits for the emulation thread to serve it, also while the
+// game is paused (a pause menu saves with the game paused).
+struct StateRequest {
+    bool save = true;
+    std::vector<uint8_t> data;   // filled by a save, read by a load
+    bool done = false, ok = false;
+};
+std::mutex g_stateMutex;
+std::condition_variable g_stateCv;
+StateRequest* g_stateReq = nullptr;
+std::atomic<bool> g_statePending{false};
+// mupen64plus-next can't serialize before its emulation has started; the dev N64_STATE load waits
+// 30 frames for the same reason. Dev env N64_STATE_READY=<frames> tries another count.
+int stateReadyFrames() {
+    static const int n = getenv("N64_STATE_READY") && *getenv("N64_STATE_READY") ? atoi(getenv("N64_STATE_READY")) : 30;
+    return n;
+}
+
+// Serves a waiting request. [ready]: the core has run long enough. Too early, a request waits for a
+// later frame, unless [failEarly] (paused: no frame is coming), when it fails.
+void serveStateRequest(bool ready, bool failEarly) {
+    if (!g_statePending) return;
+    std::lock_guard<std::mutex> lk(g_stateMutex);
+    StateRequest* r = g_stateReq;
+    if (!r) { g_statePending = false; return; }
+    if (!ready && !failEarly) return;
+    auto t0 = std::chrono::steady_clock::now();
+    if (!ready) {
+        r->ok = false;
+        LOGE("state: %s asked for before the core was ready", r->save ? "save" : "load");
+    } else if (r->save) {
+        size_t n = core.serialize_size();
+        r->data.resize(n);
+        r->ok = n > 0 && core.serialize(r->data.data(), n);
+        if (!r->ok) r->data.clear();
+    } else if (r->data.size() < 44 || memcmp(r->data.data(), "M64+SAVE", 8) != 0) {
+        // Not the core's data. mupen64plus-next must never see it: its libretro load returns on a wrong
+        // magic without unlocking savestates_lock, and the emulation thread then hangs (found on the Thor
+        // 2026-11-06 with a damaged file); it also reads the 44-byte header from shorter data.
+        r->ok = false;
+        LOGE("state: not mupen64plus-next state data (%zu bytes), not loaded", r->data.size());
+    } else {
+        // Note: retro_unserialize returns true even when the core turns the state down (another ROM,
+        // an incompatible version); the core logs why.
+        r->ok = core.unserialize(r->data.data(), r->data.size());
+    }
+    if (ready)
+        LOGI("state: %s %s, %zu bytes, %.1f ms", r->save ? "save" : "load", r->ok ? "done" : "FAILED", r->data.size(),
+             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
+    r->done = true;
+    g_stateReq = nullptr;
+    g_statePending = false;
+    g_stateCv.notify_all();
+}
+
+// Hands [req] to the emulation thread and waits for it, at most [timeoutMs]. False if it wasn't served.
+bool runStateRequest(StateRequest& req, int timeoutMs) {
+    std::unique_lock<std::mutex> lk(g_stateMutex);
+    if (!g_running || g_stateReq) return false;
+    g_stateReq = &req;
+    g_statePending = true;
+    { std::lock_guard<std::mutex> pl(g_pauseMutex); }   // so a paused emulation thread can't miss the wake-up
+    g_pauseCv.notify_all();
+    bool served = g_stateCv.wait_for(lk, std::chrono::milliseconds(timeoutMs), [&] { return req.done || !g_running; });
+    if (!req.done) {
+        if (g_stateReq == &req) { g_stateReq = nullptr; g_statePending = false; }
+        LOGE("state: %s not served (%s)", req.save ? "save" : "load", served ? "game stopped" : "timed out");
+        return false;
+    }
+    return true;
+}
+
 // Keep the emulation thread on the big cores (capacity within 80% of the fastest): left to the
 // scheduler it starts on little cores and only migrates as load builds. M4 adds thermal fallback.
 void pinToBigCores() {
@@ -598,9 +676,17 @@ void runLoop() {
         if (g_paused) flushSave();
         {
             std::unique_lock<std::mutex> lk(g_pauseMutex);
-            g_pauseCv.wait(lk, [] { return !g_paused || !g_running; });
+            for (;;) {
+                g_pauseCv.wait(lk, [] { return !g_paused || !g_running || g_statePending; });
+                if (!g_paused || !g_running) break;
+                // Paused with a state request (the pause menu): served without running a frame.
+                lk.unlock();
+                serveStateRequest(g_framesRun >= (uint32_t)stateReadyFrames(), true);
+                lk.lock();
+            }
         }
         if (!g_running) break;
+        serveStateRequest(g_framesRun >= (uint32_t)stateReadyFrames(), false);
         applySurfaceIfChanged();
         bool hasWindow = g_vulkan ? g_vk.hasWindow() : g_egl.hasWindow();
         if (!hasWindow) { std::this_thread::sleep_for(std::chrono::milliseconds(16)); continue; }
@@ -736,6 +822,7 @@ void runLoop() {
             if (hintMode == 2 && !hintThreadsAdded) { perfHint.addThreads(coreWorkerThreads()); hintThreadsAdded = true; }
         }
     }
+    serveStateRequest(false, true);   // a request that came too late fails now, not at its timeout
     flushSave();
     if (g_hw.context_destroy) g_hw.context_destroy();
     core.unload_game();
@@ -815,7 +902,9 @@ JNIEXPORT jboolean JNICALL JNI(loadCore)(JNIEnv* env, jobject, jstring path, jst
         && sym(core.get_memory_size, "retro_get_memory_size")
         && sym(core.cheat_reset, "retro_cheat_reset")
         && sym(core.cheat_set, "retro_cheat_set")
-        && sym(core.unserialize, "retro_unserialize");
+        && sym(core.unserialize, "retro_unserialize")
+        && sym(core.serialize_size, "retro_serialize_size")
+        && sym(core.serialize, "retro_serialize");
     if (!ok) return JNI_FALSE;
 
     core.set_environment(environment);
@@ -1026,6 +1115,29 @@ JNIEXPORT void JNICALL JNI(stop)(JNIEnv*, jobject) {
     g_running = false;
     g_pauseCv.notify_all();
     if (g_thread.joinable()) g_thread.join();
+    { std::lock_guard<std::mutex> lk(g_stateMutex); }
+    g_stateCv.notify_all();
+}
+
+// The core's state between frames (paused or not), or null if it couldn't be taken in [timeoutMs].
+JNIEXPORT jbyteArray JNICALL JNI(saveState)(JNIEnv* env, jobject, jint timeoutMs) {
+    StateRequest req;
+    req.save = true;
+    if (!runStateRequest(req, timeoutMs) || !req.ok) return nullptr;
+    jbyteArray out = env->NewByteArray((jsize)req.data.size());
+    if (out) env->SetByteArrayRegion(out, 0, (jsize)req.data.size(), reinterpret_cast<const jbyte*>(req.data.data()));
+    return out;
+}
+
+// Puts [data] (the core's state, unwrapped) back between frames. Waits for the core to be ready, so
+// it can be called right after start(); false if it failed or wasn't served in [timeoutMs].
+JNIEXPORT jboolean JNICALL JNI(loadState)(JNIEnv* env, jobject, jbyteArray data, jint timeoutMs) {
+    StateRequest req;
+    req.save = false;
+    jsize n = env->GetArrayLength(data);
+    req.data.resize((size_t)n);
+    env->GetByteArrayRegion(data, 0, n, reinterpret_cast<jbyte*>(req.data.data()));
+    return runStateRequest(req, timeoutMs) && req.ok ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL JNI(setButtons)(JNIEnv*, jobject, jint mask) {

@@ -28,18 +28,20 @@ import com.joeysretro.joey64.launcher.theme.JoeyTheme
 
 /** A place the rail leads to. Only the ones that are built are shown. */
 enum class RailPlace(@DrawableRes val icon: Int, val label: String) {
+    /** Not a page: starts the last game from its auto slot. Shown once there's one to continue. */
+    Continue(R.drawable.ic_rail_continue, "Continue"),
     Library(R.drawable.ic_rail_library, "Library"),
     Settings(R.drawable.ic_rail_settings, "Settings"),
 }
 
 /**
  * The slim left rail (approved library design, 2026-11-04): the J64 logo at the top, then the
- * places, Settings pinned at the bottom. Continue, Search, Achievements and Controls come with
- * their pages. Its places are focus stops (left from the library's first column, or a tap); A
+ * places, Settings pinned at the bottom. Continue only once there's a game to continue
+ * ([showContinue]); Search, Achievements and Controls come with their pages. Its places are focus stops (left from the library's first column, or a tap); A
  * opens one. Labels beside the icons are still to come (plan, Phase 1).
  */
 @Composable
-fun LauncherRail(selected: RailPlace, modifier: Modifier = Modifier, enabled: Boolean = true, onFocused: (Boolean) -> Unit = {}, onSelect: (RailPlace) -> Unit = {}) {
+fun LauncherRail(selected: RailPlace, modifier: Modifier = Modifier, enabled: Boolean = true, showContinue: Boolean = false, onFocused: (Boolean) -> Unit = {}, onSelect: (RailPlace) -> Unit = {}) {
     val c = JoeyTheme.colors
     Column(
         modifier = modifier
@@ -55,6 +57,7 @@ fun LauncherRail(selected: RailPlace, modifier: Modifier = Modifier, enabled: Bo
             Image(painterResource(R.drawable.rail_logo), contentDescription = "Joey64", modifier = Modifier.size(30.dp))
         }
         for (place in RailPlace.entries) {
+            if (place == RailPlace.Continue && !showContinue) continue
             if (place == RailPlace.Settings) Spacer(Modifier.weight(1f))
             RailItem(place, place == selected, enabled) { onSelect(place) }
         }

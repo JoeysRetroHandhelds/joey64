@@ -343,6 +343,28 @@ The parts without screens:
 - **Pop-up system:** top-left queue, bottom-right stack, tap to open.
 - **Measure:** fps and poll→display with a pop-up window showing, uncapped from the bench states, before going further.
 
+**Phase 3 status (2026-11-06, branch `launcher/phase0`).** Save states are built and checked on the Thor: the host side, RetroArch's format, the auto slot with Continue, and the recovery state. Not built yet: screenshots, the pause menu, the slot picker, hotkeys and the pop-up system (the next steps), and the measure.
+
+- **Host:** the core's state is taken and put back on the emulation thread between frames, also while paused (the pause menu will save with the game paused). The JNI call waits for it. A load asked for right after start waits until the core has run 30 frames, as the dev `N64_STATE` load does (`N64_STATE_READY=<frames>` tries another count; 1 frame also worked for Banjo-Kazooie, 0.2 s after loading instead of 0.7 s, not made the default without wider testing).
+- **Format** (`states/StateFormat.kt`, tested in StateFormatTest): RASTATE version 1 with one `MEM ` block holding the core's exact size, `END `, inside RZIP (128 KB chunks, zlib level 6), as RetroArch 1.15+ writes them. Reading also takes uncompressed files, older RetroArch's bare core data, and skips `ACHV` / `RPLY` blocks. The import's reader takes what we write as an N64 state.
+- **Slots and names** (`StateSlots`): RetroArch's names beside the save, in Joey64's `states/`: Slot 1 is RetroArch's slot 0 (`<name>.state`), Slot 10 is `.state9`, the auto slot `.state.auto`. Files are written whole (`.part`, then put in place; the old one goes last). A save deletes the picture beside the slot (`.png`, RetroArch's or ours), which would show the moment before, until screenshots write a new one.
+- **Auto slot and Continue:** Back (until the pause menu takes it) pauses the game, writes the auto slot and quits to the library. Continue is the rail's first item (the play icon from the mockups), shown once the game played last has an auto slot. A starts it from there. The rail's labels are still to come, so its name isn't shown yet. If the state Continue asked for doesn't load, the game starts from power-on and quitting leaves the auto slot as it was, so the place to go back to isn't lost.
+- **Recovery state:** written every 2 minutes while playing (not while paused), to Joey64's own `files/recovery/` with the game's save name and time. Quitting cleanly (Back, or a frontend sending the next game) deletes it. If one is still there when the launcher comes to the front and no game is running, it shows the approved popup: "Joey64 closed while you were playing" / "<b>Banjo-Kazooie (USA)</b> has a recovery state from N minutes before it closed. Carry on from there?" with Continue and Not now. The minutes run to the close Android recorded (ApplicationExitInfo). Not now deletes the state. B only closes the popup, and it comes back the next time the launcher is in front. A recovery state for a game not in the library (one a frontend started) is dropped, since the launcher can't start it.
+- **Measured on the Thor:** the core's state is 16.8 MB, 1.65 MB packed (RetroArch's own file for the same game: 1.68 MB). Taking it stops the game for 9-16 ms, once per save or per 2 minutes for the recovery state. Packing and writing take 85-150 ms on the state thread. Loading takes 17-120 ms.
+- **Checked on the Thor:**
+  - Continue on Banjo-Kazooie and Bomberman 64: The Second Attack! loaded the states imported from RetroArch.
+  - Back wrote the auto slot. Continue went back to the same spot.
+  - A load on GLideN64.
+  - The load request survives the process restart for a second game.
+  - A crash (`am crash`) 70 s after the recovery state: the popup said "1 minute". Continue loaded the recovery state, and Back then wrote the auto slot and deleted the recovery state. Not now deleted it. B kept it and the popup came back.
+  - A save deleted the slot's old picture.
+  - A damaged auto state: turned down, the game starts from power-on, and Back kept the file.
+- **Found in the core (told the emulator chat, not fixed here):**
+  - mupen64plus-next's libretro load returns on a wrong magic number without unlocking `savestates_lock`, and the emulation thread then hangs. The host now passes only data that starts with `M64+SAVE`.
+  - `retro_unserialize` returns true even when the core turns a state down (another ROM, an incompatible version), so the host can't tell. The guard on the auto slot covers only what the host sees.
+- **Not checked:** our states loading in RetroArch. Joey64 never writes into RetroArch's folders, so that needs Joey to copy one over. The layout follows RetroArch's source, and the import's reader takes it.
+- **Still to come, tracked:** the slot thumbnails and the screenshot hotkey (screenshots), Save state and Load state in the pause menu, the slot picker, hotkeys, Hardcore's rules for Continue (Phase 7), the data folder when one is picked (states follow the saves, which stay in Joey64's own storage until the core opens them by descriptor), and the rail label "Continue · <game>".
+
 ## Phase 4: Controls
 
 - players 1–4, the remap popup, Clear and Reset

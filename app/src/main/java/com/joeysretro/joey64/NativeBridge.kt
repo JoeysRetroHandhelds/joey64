@@ -66,6 +66,18 @@ object NativeBridge {
     /** Blocks until the Rumble Pak motor is no longer [wasOn], or [timeoutMs] passes; returns whether it is on. */
     external fun waitRumble(wasOn: Boolean, timeoutMs: Int): Boolean
 
+    /**
+     * The core's save state (its own data, before RetroArch's wrapping: StateFiles), taken between
+     * frames, also while paused. Null if the game isn't running or it took over [timeoutMs].
+     */
+    external fun saveState(timeoutMs: Int): ByteArray?
+
+    /**
+     * Puts a state taken by [saveState] (or unwrapped from a RetroArch state) back, between frames.
+     * Right after [start] it waits until the core can take it (about half a second of boot).
+     */
+    external fun loadState(data: ByteArray, timeoutMs: Int): Boolean
+
     /** Fast-forward: no vsync, audio muted, capped at 4x. */
     external fun setFastForward(on: Boolean)
 

@@ -12,6 +12,8 @@ import androidx.lifecycle.viewModelScope
 import android.net.ConnectivityManager
 import android.net.Network
 import com.joeysretro.joey64.launcher.boxart.BoxArt
+import com.joeysretro.joey64.states.GameStates
+import com.joeysretro.joey64.states.StateSlots
 import com.joeysretro.joey64.launcher.data.LibraryDb
 import com.joeysretro.joey64.launcher.settings.SettingsStore
 import kotlinx.coroutines.flow.first
@@ -137,18 +139,80 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
             .putLong("wall", System.currentTimeMillis()).apply()
     }
 
+    // ---- Continue and the recovery state (plan, Phase 3) ---------------------------------------------
+
+    private val _continueGame = MutableStateFlow<LibraryGame?>(null)
+    /** The game Continue starts from its auto slot: the one played last, once it has one. Null hides Continue. */
+    val continueGame: StateFlow<LibraryGame?> = _continueGame
+
+    /** A recovery state left by a game that didn't quit cleanly, and how long before the close it was written. */
+    data class RecoveryOffer(val game: LibraryGame, val minutesBefore: Int)
+    private val _recovery = MutableStateFlow<RecoveryOffer?>(null)
+    /** "Joey64 closed while you were playing" (approved problem screen, 2026-11-05). */
+    val recovery: StateFlow<RecoveryOffer?> = _recovery
+
+    /** Looks again for Continue's game and a recovery state; each time the launcher comes to the front. */
+    private fun checkStates() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val app = getApplication<Application>()
+            _continueGame.value = db.lastPlayed()?.takeIf { g ->
+                launcher.saveNameFor(g)?.let { GameStates(app, it).exists(StateSlots.AUTO) } == true
+            }
+            if (com.joeysretro.joey64.MainActivity.gameRunning) return@launch
+            val r = GameStates.Recovery.find(app) ?: run { _recovery.value = null; return@launch }
+            val game = db.gameWithFile(r.saveName, GameStates::saveNameOf)
+            if (game == null) {
+                // A game a frontend started, or one no longer in the ROM folders: the launcher can't start it.
+                JLog.i(TAG, "recovery state for ${r.saveName}, which isn't in the library: dropped")
+                GameStates.Recovery.clear(app)
+                return@launch
+            }
+            _recovery.value = RecoveryOffer(game, minutesBefore(app, r.savedAt))
+        }
+    }
+
+    /** Minutes from the recovery state to the close Android recorded (ApplicationExitInfo), or to now. */
+    private fun minutesBefore(app: Application, savedAt: Long): Int {
+        val closedAt = try {
+            app.getSystemService(android.app.ActivityManager::class.java)
+                ?.getHistoricalProcessExitReasons(app.packageName, 0, 1)?.firstOrNull()?.timestamp
+        } catch (e: Exception) { null }
+        val end = closedAt?.takeIf { it >= savedAt } ?: System.currentTimeMillis()
+        return ((end - savedAt) / 60_000L).toInt()
+    }
+
+    /**
+     * The recovery popup's answer: Continue (true) starts the game from the recovery state; Not now
+     * (false) drops it; B (null) only closes the popup, and the next [checkStates] offers it again.
+     */
+    fun recoveryAnswered(carryOn: Boolean?, start: (Intent) -> Unit) {
+        val offer = _recovery.value ?: return
+        _recovery.value = null
+        if (carryOn == null) return
+        if (carryOn) play(offer.game, com.joeysretro.joey64.MainActivity.STATE_RECOVERY, start)
+        else viewModelScope.launch(Dispatchers.IO) { GameStates.Recovery.clear(getApplication()) }
+    }
+
+    /** Continue: the last game, from its auto slot. */
+    fun continuePlaying(start: (Intent) -> Unit) {
+        val g = _continueGame.value ?: return
+        play(g, com.joeysretro.joey64.MainActivity.STATE_AUTO, start)
+    }
+
     /** The launcher is in front again: a game it started has ended. */
     fun resumed() {
         val p = plays
-        if (!p.contains("game")) return
+        if (!p.contains("game")) { checkStates(); return }
         val id = p.getLong("game", 0); val up = p.getLong("uptime", 0); val wall = p.getLong("wall", 0)
         p.edit().clear().apply()
         val ms = android.os.SystemClock.uptimeMillis() - up
         // Negative: the device restarted since (uptime begins again), so the length isn't known.
-        if (ms <= 0) return
+        if (ms <= 0) { checkStates(); return }
         viewModelScope.launch(Dispatchers.IO) {
             db.recordPlay(id, wall, ms / 1000)
             JLog.i(TAG, "played game $id for ${ms / 1000} s")
+            // After the play is recorded: Continue is the game just played.
+            checkStates()
         }
     }
 
@@ -175,12 +239,12 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Gets [game] ready and hands [start] its intent. One at a time: a second press while a zip unpacks does nothing. */
-    fun play(game: LibraryGame, start: (Intent) -> Unit) {
+    fun play(game: LibraryGame, loadState: String? = null, start: (Intent) -> Unit) {
         if (starting) return
         starting = true
         viewModelScope.launch {
             try {
-                val intent = withContext(Dispatchers.IO) { launcher.intentFor(game) }
+                val intent = withContext(Dispatchers.IO) { launcher.intentFor(game, loadState) }
                 if (intent != null) { started(game); start(intent) } else JLog.w(TAG, "no readable file for ${game.title}")
             } finally {
                 starting = false

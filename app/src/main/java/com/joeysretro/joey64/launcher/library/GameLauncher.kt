@@ -32,8 +32,8 @@ class GameLauncher(private val context: Context, private val db: LibraryDb) {
      * The intent that starts [game], or null when none of its files could be opened. Runs off the
      * main thread (unpacking reads the whole zip); the screen starts it from its activity.
      */
-    fun intentFor(game: LibraryGame): Intent? {
-        val files = db.filesOf(game.id).filter { RomFolders.stillReadable(context, it.treeUri.toUri()) }
+    fun intentFor(game: LibraryGame, loadState: String? = null): Intent? {
+        val files = readableFiles(game)
         for (f in files) {
             val uri = try {
                 if (ArchiveReader.isZip(f.name) || ArchiveReader.is7z(f.name)) unpacked(game, f) else f.uri.toUri()
@@ -46,11 +46,22 @@ class GameLauncher(private val context: Context, private val db: LibraryDb) {
                 .setAction(Intent.ACTION_VIEW)
                 .setDataAndType(uri, "application/octet-stream")
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            JLog.i(TAG, "playing ${game.title} from ${f.name}")
+            loadState?.let { intent.putExtra(MainActivity.EXTRA_LOAD_STATE, it) }
+            JLog.i(TAG, "playing ${game.title} from ${f.name}" + (loadState?.let { ", loading the $it state" } ?: ""))
             return intent
         }
         return null
     }
+
+    private fun readableFiles(game: LibraryGame) =
+        db.filesOf(game.id).filter { RomFolders.stillReadable(context, it.treeUri.toUri()) }
+
+    /**
+     * The name [game]'s save and states go by when [intentFor] starts it: the file it would start,
+     * without extension (a zip's own name, as RetroArch names them). Null when none can be opened.
+     */
+    fun saveNameFor(game: LibraryGame): String? =
+        readableFiles(game).firstOrNull()?.let { com.joeysretro.joey64.states.GameStates.saveNameOf(it.name) }
 
     /** The ROM inside [f] (a zip or 7z), unpacked to `cache/launch/<md5>/` under the archive's name: reused only for the same ROM under the same name. */
     private fun unpacked(game: LibraryGame, f: GameFile): Uri? {

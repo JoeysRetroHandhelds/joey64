@@ -30,6 +30,8 @@ import android.view.Gravity
 import android.graphics.PixelFormat
 import android.widget.TextView
 import java.io.File
+import com.joeysretro.joey64.states.GameStates
+import com.joeysretro.joey64.states.StateSlots
 
 class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
@@ -394,7 +396,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         return dirs.map { File(it, "test.z64") }.firstOrNull { it.exists() }?.let { it.absolutePath to "" }
     }
 
-    private fun saveName(fileName: String) = fileName.substringBeforeLast('.').replace('/', '_')
+    private fun saveName(fileName: String) = GameStates.saveNameOf(fileName)
 
     private fun displayName(uri: Uri): String? =
         contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
@@ -419,8 +421,67 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (!started) {
             val (rom, saveName) = resolveRom() ?: run { JLog.e(TAG, "No ROM. Push one to ${getExternalFilesDir(null)}/test.z64"); return }
             reportGameState(loading = true)
-            if (NativeBridge.loadGame(rom, saveName)) { NativeBridge.start(); started = true; owner = this; gameLoaded = true }
+            if (NativeBridge.loadGame(rom, saveName)) {
+                NativeBridge.start(); started = true; owner = this; gameLoaded = true
+                startStates(saveName)
+            }
             reportGameState(loading = false)
+        }
+    }
+
+    // ---- save states (plan, Phase 3) ---------------------------------------------------------------
+    // Saving and loading block for a while (the core's data is ~10-20 MB, packed like RetroArch's), so
+    // they run on their own thread, one at a time, in order.
+    private var states: GameStates? = null
+    private val stateThread by lazy { android.os.HandlerThread("joey64-states").apply { start() } }
+    private val stateHandler by lazy { Handler(stateThread.looper) }
+    private var quitting = false
+    /**
+     * Continue's state didn't load, so the game started from power-on: quitting then leaves the auto
+     * slot as it was, or the place Continue would have gone back to is lost. (Only touched on [stateThread].)
+     */
+    private var startLoadFailed = false
+
+    /** The game is up: load the state the launcher asked for (Continue), and start the recovery state's timer. */
+    private fun startStates(saveName: String) {
+        if (saveName.isEmpty()) { JLog.i(TAG, "states: off for a ROM without a name (the dev path)"); return }
+        val st = GameStates(this, saveName)
+        states = st
+        when (val which = intent?.getStringExtra(EXTRA_LOAD_STATE)) {
+            null -> {}
+            STATE_AUTO -> stateHandler.post { startLoadFailed = !st.load(StateSlots.AUTO) }
+            STATE_RECOVERY -> stateHandler.post { startLoadFailed = !st.loadRecovery() }
+            else -> JLog.w(TAG, "states: unknown state to load: $which")
+        }
+        stateHandler.postDelayed(recoveryTick, RECOVERY_EVERY_MS)
+    }
+
+    /** Every few minutes while playing (not while paused or quitting), the recovery state. */
+    private val recoveryTick = object : Runnable {
+        override fun run() {
+            val st = states ?: return
+            if (resumed && !quitting) st.saveRecovery()
+            stateHandler.postDelayed(this, RECOVERY_EVERY_MS)
+        }
+    }
+
+    /**
+     * Back quits to the library (until the pause menu takes Back): the game is paused, the auto slot
+     * written (Continue starts from it) and the recovery state dropped, then the screen closes.
+     */
+    @Deprecated("Activity's own Back, kept for the controller's Back key")
+    override fun onBackPressed() {
+        val st = states
+        if (st == null || !mine) { @Suppress("DEPRECATION") super.onBackPressed(); return }
+        if (quitting) return
+        quitting = true
+        NativeBridge.pause(true)
+        stateHandler.removeCallbacks(recoveryTick)
+        stateHandler.post {
+            if (startLoadFailed) JLog.w(TAG, "states: the state asked for at start didn't load, so the auto slot is kept as it was")
+            else st.save(StateSlots.AUTO)
+            st.clearRecovery()
+            runOnUiThread { finish() }
         }
     }
 
@@ -437,6 +498,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         JLog.i(TAG, "new ROM while a game is loaded: restarting the process for it")
         owner?.let { NativeBridge.stop(); it.finish() }
         owner = null
+        // The game before is closed on purpose: nothing to recover for it.
+        GameStates.Recovery.clear(this)
         val (rom, saveName) = resolveRom() ?: run { JLog.e(TAG, "No N64 ROM in the new intent"); finish(); return }
         val next = Intent(this, MainActivity::class.java).apply {
             intent.extras?.let { putExtras(it) }
@@ -593,6 +656,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         destroyed = true
         fpsView?.let { windowManager.removeView(it) }
         if (owner === this) { NativeBridge.stop(); owner = null } else if (owner == null && !switching) NativeBridge.stop()
+        // Closed on purpose (Back, or a frontend sending the next game): no recovery state is due.
+        if (isFinishing && states != null) { stateHandler.removeCallbacks(recoveryTick); states?.clearRecovery() }
+        if (states != null) stateThread.quitSafely()
         super.onDestroy()
     }
 
@@ -645,11 +711,19 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
          * 2026-11-06). Null while no game is loaded, when any instance may set the surface.
          */
         private var owner: MainActivity? = null
+        /** A game is up in this process (the launcher offers no recovery while one is). */
+        val gameRunning get() = owner != null
         /** A game was loaded in this process; the core cannot load a second one, so a new ROM restarts the process. */
         private var gameLoaded = false
         /** switchGame -> the next process: the ROM already unpacked, and its save name. */
         const val EXTRA_ROM_PATH = "com.joeysretro.joey64.ROM_PATH"
         const val EXTRA_SAVE_NAME = "com.joeysretro.joey64.SAVE_NAME"
+        /** The launcher: load this state once the game is up, [STATE_AUTO] (Continue) or [STATE_RECOVERY] (after a crash). */
+        const val EXTRA_LOAD_STATE = "com.joeysretro.joey64.LOAD_STATE"
+        const val STATE_AUTO = "auto"
+        const val STATE_RECOVERY = "recovery"
+        /** "Every few minutes" (approved 2026-11-05). */
+        private const val RECOVERY_EVERY_MS = 2 * 60_000L
         const val TAG = "Joey64"
         // Bundled in assets/drivers/ (see assets/licenses/): Turnip (Mesa freedreno).
         const val TURNIP = "libvulkan_freedreno.so"

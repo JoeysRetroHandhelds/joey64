@@ -178,7 +178,7 @@ Comes straight after Phase 0, before the library, so every later build reaches t
   - Seven taps turn testing builds on. Then 0.1.1.1 is offered with the Testing build tag.
   - The Updated toast shows on the first start after a version change and goes after 5 s.
   - The release build (R8, 10.4 MB) runs with the updater; the private repo's 404 is logged.
-- **Not yet checked:** the install itself (Android's update screen, the launcher reopening, the toast after a real update). That needs Install unknown apps turned on for Joey64 on the Thor. It's a security setting, so Joey turns it on; then the test takes a minute.
+- **The install, checked with Joey on the Thor (2026-11-06):** Joey turned on Install unknown apps from the permission popup and came back. Android's update screen opened; 0.1 -> 0.1.1 installed with the 104 saves, settings and library kept. Android's "App installed" screen followed, and Joey64 started 1.3 s later on 0.1.1, recorded the update (the Updated toast) and checked again: up to date. The install session fallback (UpdateStatusActivity) wasn't needed, so it's still unexercised on a device.
 - **Left for later, on the tracked list:** the Open-source licences list and texts, the Source code row (with the public repo), credits for box art, the game list and cheats (with those features), the other Settings tabs, and rail labels.
 - **Differs from the mockups:** the download bar is the shared progress bar (blue), not the mockup's yellow one, since there is one progress bar for the whole app.
 

@@ -31,6 +31,14 @@ JoeyOS (`C:\GithubProjects\JoeyOS`) is the model. Its controls were rebuilt from
 - `LauncherActivity` holds the library, Settings, Controls and Achievements. Full-screen pages are drawn in the main window (`JoeyPage`), and popups are real Dialog windows (`JoeyDialog`).
 - `MainActivity` stays the game. In-game UI (pause menu, pop-ups) is Compose inside panel windows over the game, hosted in a `ComposeView` with its own lifecycle owner, the way JoeyOS's `OverlayPanel` and Joey64's FPS counter already do it.
 
+**One of each element, and the contents change** (Joey, 2026-11-05). A change to an element is made once and reaches everything built from it. Chameleon's rule is the same ("Shared UI primitives, and not repeating them").
+- **One popup:** `JoeyDialog`. Every popup is that shell with its own contents (title, text, options, a picker, a preview); only its width differs. No other kind of window, sheet or dropdown.
+- **One full-screen page:** `JoeyPage`. **One set of rows:** `JoeyRow`, `JoeyOption`, `SectionLabel`, `KeyBadge`. **One hint row.**
+- **One type scale and one set of colours:** sizes only in `theme/Type.kt`, colours only in `theme/Colors.kt`. No text sets its own size.
+- Mockups follow the same rule: a new screen reuses approved elements (the problem-screen popup, the licence text box, the load bar, the Missable tag, the achievement toast) before it adds any.
+- **Enforced by `SharedElementsTest`:** the build fails on a window other than `JoeyDialog`, a text size or colour outside the theme, or a `Text` without a theme style. When it trips, use or grow the shared element rather than deleting the check.
+- One-offs inside a screen's own contents are fine. The rule is about the shells and the type, not every spacing value.
+
 **Controller rules carried over from JoeyOS:**
 - **The activity only normalises hardware.** A and Select become DPAD centre (sent on release), and B becomes Back. Start, X, Y and the shoulder buttons become intents on one `ControlBus`, which has one owner at a time and a stack for pages. Both key edges are consumed so Android never invents a fallback. An unknown pad button is logged once.
 - **Navigation is Compose focus.** The highlight is real focus, never a remembered index, and lists are keyed by game so focus follows the item when the list re-sorts.
@@ -124,7 +132,9 @@ Comes straight after Phase 0, before the library, so every later build reaches t
   - A release build signed with Joey's key.
   - A pre-release check script like JoeyOS's `scripts/prerelease-check.sh`: permissions used vs declared, the signing key, bundled data such as the core and drivers.
   - The release is made on GitHub only on Joey's go for that build.
-- **Screens:** the update popup (version, notes, Update / Later, download progress) and the two About rows need mockups and Joey's approval first. JoeyOS's `UpdatePrompt` is the starting point, in the Joey64 look.
+- **Screens:** mocked up 2026-11-05 (scratchpad `build_update.py`), waiting for Joey's approval. All of them use approved elements only.
+  - Library: Update available (must be answered), downloading with Cancel, the Install unknown apps step, a testing build (the Missable-style tag), download failed, and the Updated toast on the next start.
+  - About: the Check for updates row (Checked N minutes ago / Checking / Up to date) and the version countdown ("4 more taps for testing builds"). Testing builds are turned off with the same seven taps, as in JoeyOS.
 
 ## Phase 1: library and first run
 

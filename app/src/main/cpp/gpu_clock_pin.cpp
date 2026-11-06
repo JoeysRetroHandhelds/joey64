@@ -1,3 +1,4 @@
+#include "joeylog.h"
 #include "gpu_clock_pin.h"
 #include <android/log.h>
 #include <cerrno>
@@ -11,7 +12,7 @@
 #include <unistd.h>
 #include "third_party/libadrenotools/src/hook/kgsl.h"
 
-#define LOGI(...) __android_log_print(getenv("N64_LOG_ERR") && *getenv("N64_LOG_ERR") == '1' ? ANDROID_LOG_ERROR : ANDROID_LOG_INFO, "joey64host", __VA_ARGS__)
+#define LOGI(...) joeyLog(ANDROID_LOG_INFO, "joey64host", __VA_ARGS__)
 
 namespace {
 // CP_NOP (opcode 0x10) with one payload word. a5xx and newer use type-7 packets: count in bits 0-14, opcode in

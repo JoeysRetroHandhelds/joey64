@@ -1,3 +1,4 @@
+#include "joeylog.h"
 #include "gpu_counters.h"
 #include <android/log.h>
 #include <cerrno>
@@ -11,7 +12,7 @@
 #include <unistd.h>
 #include "third_party/libadrenotools/src/hook/kgsl.h"
 
-#define LOGI(...) __android_log_print(getenv("N64_LOG_ERR") && *getenv("N64_LOG_ERR") == '1' ? ANDROID_LOG_ERROR : ANDROID_LOG_INFO, "joey64host", __VA_ARGS__)
+#define LOGI(...) joeyLog(ANDROID_LOG_INFO, "joey64host", __VA_ARGS__)
 
 namespace {
 constexpr unsigned kCpAlwaysOnCounterA6xx = 0x980; // CP_ALWAYS_ON_COUNTER (lo; hi = +1), a6xx/a7xx

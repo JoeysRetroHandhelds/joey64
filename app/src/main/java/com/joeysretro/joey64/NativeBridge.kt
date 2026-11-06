@@ -6,6 +6,12 @@ import android.view.Surface
 object NativeBridge {
     init { System.loadLibrary("joey64host") }
 
+    /** The session log file every native log line is also written to (LogFiles); null closes it. */
+    external fun openLog(path: String?)
+
+    /** One line from the Kotlin side into logcat and the session log (JLog). */
+    external fun log(prio: Int, tag: String, msg: String)
+
     /** dlopen the core and call retro_init. corePath = absolute path of the core .so. */
     external fun loadCore(corePath: String, systemDir: String, saveDir: String): Boolean
 

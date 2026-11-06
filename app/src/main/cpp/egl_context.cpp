@@ -1,7 +1,8 @@
+#include "joeylog.h"
 #include "egl_context.h"
 #include <android/log.h>
 #include <initializer_list>
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "joey64host", __VA_ARGS__)
+#define LOGE(...) joeyLog(ANDROID_LOG_ERROR, "joey64host", __VA_ARGS__)
 
 bool EglContext::init() {
     display_ = eglGetDisplay(EGL_DEFAULT_DISPLAY);

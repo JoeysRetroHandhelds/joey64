@@ -57,7 +57,7 @@ So Joey64 uses the **Storage Access Framework**, the way PPSSPP does on Play. Th
 - **Data, "anywhere you want":** saves, states and screenshots go in a folder the user picks, for example a `Joey64` folder on internal storage or the SD card.
   - Default subfolders: `saves/`, `states/`, `screenshots/`.
   - File names follow RetroArch, so RetroArch's files can be imported.
-  - Joey64 never points at, or writes into, RetroArch's own folders. Instead, a later **Import from RetroArch** will copy its N64 saves and states (including `saves/Mupen64Plus-Next` and `states/Mupen64Plus-Next`) into Joey64's folder and leave the originals untouched. RetroArch states already load in Joey64. Joey64 states loading in RetroArch is untested, and our core has moved a long way from RetroArch's.
+  - Joey64 never points at, or writes into, RetroArch's own folders. Instead, **Import from RetroArch** (Phase 1) copies its N64 saves and states (including `saves/Mupen64Plus-Next` and `states/Mupen64Plus-Next`) into Joey64's folder and leaves the originals untouched. RetroArch states already load in Joey64. Joey64 states loading in RetroArch is untested, and our core has moved a long way from RetroArch's.
   - Until a folder is picked, data stays in Joey64's own storage. Anything already there moves over when a folder is picked.
 - **Speed:**
   - Kotlin opens each file through the picked folder and hands the native code a file descriptor, as PPSSPP does, so the core's save writes stay native.
@@ -69,7 +69,7 @@ So Joey64 uses the **Storage Access Framework**, the way PPSSPP does on Play. Th
   Then comes one new step, "Where should Joey64 keep saves, states and screenshots?": [Choose folder] / [Keep them in Joey64]. Both screens need your approval before they're built.
 - **Can't be picked:** Android won't let the picker choose the root of storage, Download or `Android/data`. The screens should say so plainly if someone tries.
 
-**Decision 3** (OK'd): a plain Settings › Library tab holds the ROM folders, the data folder, and two switches, "Download box art" and "Download cheats" (both on by default; Joey, 2026-11-05), until the real Library tab is designed.
+**Decision 3** (OK'd): a plain Settings › Library tab holds the ROM folders, the data folder, an "Import from RetroArch" row, and two switches, "Download box art" and "Download cheats" (both on by default; Joey, 2026-11-05), until the real Library tab is designed.
 
 ## Phase 0: groundwork (no new screens yet)
 
@@ -90,6 +90,13 @@ So Joey64 uses the **Storage Access Framework**, the way PPSSPP does on Play. Th
 ## Phase 1: library and first run
 
 - **First run** with the folder pickers above, then the approved "Found N games", "several folders" and "nothing found" screens.
+- **Import from RetroArch** (approved 2026-11-05), right after the data-folder step, and again later from Settings › Library:
+  - "Copy your saves from RetroArch?" with Choose RetroArch folder or Skip. The picker opens at RetroArch's folder.
+  - "Found N saves and N states", then Copy to Joey64 or Choose another folder. Then "Copied N saves and N states" and Continue.
+  - **Copies only.** RetroArch's files are read and never changed, moved or deleted. The copies go into Joey64's own `saves/` and `states/`.
+  - **Every N64 file is copied,** not only the games in the ROM folders, so a game added later already has its save. Sources: `saves/` and `states/`, including the `Mupen64Plus-Next` subfolders. Names stay as they are (they already follow the ROM file name).
+  - **Clashes ask, one file at a time:** "Super Mario 64 already has a save in Joey64" (or "a state in slot 3"), with Keep Joey64's or Use RetroArch's, each with its date and which is newer, plus "Do the same for the other N". Nothing is ever replaced without asking.
+  - Mockups: first-run screens 5–7 and the two clash popups (scratchpad `build_first3.py`).
 - **Scan:**
   - `.z64`, `.v64` and `.n64`
   - **`.zip` and `.7z`**
@@ -205,8 +212,17 @@ So Joey64 uses the **Storage Access Framework**, the way PPSSPP does on Play. Th
 - Settings General, Video and Audio; per-game Game settings; the real Library tab.
 - Anything that needs Hardcore approval.
 - What a second screen shows.
-- Import from RetroArch (copies only; needs its own mockup).
 - Per-pop-up position and timing, the unlock sound file, and volume.
+- **Wanted, not designed yet** (Joey 2026-11-05: "all of those are worth it"). Each needs a mockup first:
+  - On-screen touch controls and their layout editor. User reviews (2026-11-05) put first: move and resize each button, reliable multi-touch, a good stick (sensitivity, walk vs run, optional floating stick), hide when a controller is used; N64: Z not above the stick, A away from the menu button, combo buttons. Base: PPSSPP-style editor, FZ-style N64 stick, Lemuroid-style look and haptics, our own Compose touch layer.
+  - Problem screens: game won't start or bad ROM, folder access lost or SD card removed, controller disconnected mid-game, data folder full.
+  - About and licences (GPLv3 text, source link, Apache notices).
+  - N64 paks per player: Controller Pak, Rumble Pak (device vibration), Transfer Pak (Game Boy ROM and save).
+  - Save manager per game: save file and states, delete, back up.
+  - Screenshot gallery.
+  - Netplay.
+  - Texture packs. Only GLideN64 loads them today. Researched for parallel-RDP 2026-11-05 (`docs/texture-packs-parallel-rdp.md`): looks doable with GLideN64-identical keys; step A (measure key matches, CPU only) needs Joey's go, a device and the emulator chat.
+  - Shaders and bezels.
 
 ## How each phase is checked
 

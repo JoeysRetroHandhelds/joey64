@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher.library
 
+import com.joeysretro.joey64.JLog
 import android.content.Context
 import android.net.Uri
 import android.os.SystemClock
@@ -48,7 +49,7 @@ class LibraryScanner(private val context: Context, private val db: LibraryDb) {
         for (tree in treeUris) {
             coroutineContext.ensureActive()
             val files = if (RomFolders.stillReadable(context, tree)) {
-                try { RomFolders.scan(resolver, tree) } catch (e: Exception) { Log.w(TAG, "can't list $tree", e); null }
+                try { RomFolders.scan(resolver, tree) } catch (e: Exception) { JLog.w(TAG, "can't list $tree" + "\n" + Log.getStackTraceString(e)); null }
             } else null
             if (files == null) { skipped++; continue }
             scanned += tree.toString()
@@ -68,7 +69,7 @@ class LibraryScanner(private val context: Context, private val db: LibraryDb) {
             val info = try {
                 readFile(f)
             } catch (e: Exception) {   // IOException, SecurityException (grant gone mid-scan)
-                Log.w(TAG, "can't read ${f.name}", e)
+                JLog.w(TAG, "can't read ${f.name}" + "\n" + Log.getStackTraceString(e))
                 failed++
                 onProgress(i + 1, toRead.size)
                 continue
@@ -82,7 +83,7 @@ class LibraryScanner(private val context: Context, private val db: LibraryDb) {
             folders = treeUris.size, foldersSkipped = skipped, files = found.size, read = read, notRoms = notRoms,
             unchanged = plan.unchanged.size, gone = plan.gone.size, waiting7z = plan.toRead.size - toRead.size,
             failed = failed, games = db.gameCount(), listMillis = t1 - t0, readMillis = t2 - t1,
-        ).also { Log.i(TAG, "scan: $it") }
+        ).also { JLog.i(TAG, "scan: $it") }
     }
 
     /** Null = not an N64 ROM (recorded so it isn't read again). Throws when the file can't be opened. */

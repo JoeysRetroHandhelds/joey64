@@ -1,10 +1,10 @@
 package com.joeysretro.joey64.launcher.settings
 
+import com.joeysretro.joey64.JLog
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
-import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
@@ -95,7 +95,7 @@ internal object KeystoreBox {
         cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, raw, 1, 12))
         cipher.doFinal(raw, 13, raw.size - 13)
     } catch (e: Exception) {
-        Log.w(TAG, "stored sign-in can't be read (restored from another device?): $e")
+        JLog.w(TAG, "stored sign-in can't be read (restored from another device?): $e")
         null
     }
 }

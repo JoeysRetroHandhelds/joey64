@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher
 
+import com.joeysretro.joey64.JLog
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
@@ -60,7 +61,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                     if (done % 6 == 0 || done == total) _games.value = db.libraryGames()
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "library read failed", e)
+                JLog.w(TAG, "library read failed" + "\n" + Log.getStackTraceString(e))
             } finally {
                 _reading.value = null
                 _games.value = withContext(Dispatchers.IO) { db.libraryGames() }
@@ -75,7 +76,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 val intent = withContext(Dispatchers.IO) { launcher.intentFor(game) }
-                if (intent != null) start(intent) else Log.w(TAG, "no readable file for ${game.title}")
+                if (intent != null) start(intent) else JLog.w(TAG, "no readable file for ${game.title}")
             } finally {
                 starting = false
             }
@@ -99,7 +100,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         } finally {
             pool.shutdown()
         }
-        Log.i(TAG, "look: ${roms.size} of ${files.size} files are N64 games, ${android.os.SystemClock.elapsedRealtime() - t0} ms")
+        JLog.i(TAG, "look: ${roms.size} of ${files.size} files are N64 games, ${android.os.SystemClock.elapsedRealtime() - t0} ms")
         val name = FolderNames.of(app, tree)
         // The N64 folder the scan went into, when there is one ("ROMs" picked, "n64" inside).
         val subs = roms.filter { it.path.size > 1 }.map { it.path.first() }.distinct()

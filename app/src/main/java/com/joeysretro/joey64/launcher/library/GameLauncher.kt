@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher.library
 
+import com.joeysretro.joey64.JLog
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -36,15 +37,15 @@ class GameLauncher(private val context: Context, private val db: LibraryDb) {
             val uri = try {
                 if (ArchiveReader.isZip(f.name)) unpacked(game, f) else f.uri.toUri()
             } catch (e: IOException) {
-                Log.w(TAG, "can't open ${f.name}", e); null
+                JLog.w(TAG, "can't open ${f.name}" + "\n" + Log.getStackTraceString(e)); null
             } catch (e: SecurityException) {
-                Log.w(TAG, "can't open ${f.name}", e); null
+                JLog.w(TAG, "can't open ${f.name}" + "\n" + Log.getStackTraceString(e)); null
             } ?: continue
             val intent = Intent(context, MainActivity::class.java)
                 .setAction(Intent.ACTION_VIEW)
                 .setDataAndType(uri, "application/octet-stream")
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            Log.i(TAG, "playing ${game.title} from ${f.name}")
+            JLog.i(TAG, "playing ${game.title} from ${f.name}")
             return intent
         }
         return null

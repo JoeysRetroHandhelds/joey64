@@ -1,11 +1,11 @@
 package com.joeysretro.joey64.launcher.storage
 
+import com.joeysretro.joey64.JLog
 import android.content.ContentResolver
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
-import android.util.Log
 import java.io.InputStream
 import java.io.OutputStream
 
@@ -69,7 +69,7 @@ class TreeSpace(
             }
         } catch (e: Exception) {
             // A folder deleted under us, or the permission was revoked in system settings.
-            Log.w(TAG, "listing $docId failed: $e")
+            JLog.w(TAG, "listing $docId failed: $e")
         }
         return out
     }
@@ -109,7 +109,7 @@ class TreeSpace(
         DocumentsContract.createDocument(resolver, documentUri(parentId), mime, name)
             ?.let { DocumentsContract.getDocumentId(it) }
     } catch (e: Exception) {
-        Log.w(TAG, "creating $name failed: $e")
+        JLog.w(TAG, "creating $name failed: $e")
         null
     } finally {
         changed(parentId)
@@ -154,7 +154,7 @@ class TreeSpace(
         return try {
             DocumentsContract.renameDocument(resolver, documentUri(child.docId), newName) != null
         } catch (e: Exception) {
-            Log.w(TAG, "renaming ${child.entry.name} failed: $e")
+            JLog.w(TAG, "renaming ${child.entry.name} failed: $e")
             false
         } finally {
             parent?.let(::changed)
@@ -168,7 +168,7 @@ class TreeSpace(
         return try {
             DocumentsContract.deleteDocument(resolver, documentUri(child.docId))
         } catch (e: Exception) {
-            Log.w(TAG, "deleting ${child.entry.name} failed: $e")
+            JLog.w(TAG, "deleting ${child.entry.name} failed: $e")
             false
         } finally {
             parent?.let(::changed)

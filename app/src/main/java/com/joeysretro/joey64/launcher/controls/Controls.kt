@@ -1,6 +1,6 @@
 package com.joeysretro.joey64.launcher.controls
 
-import android.util.Log
+import com.joeysretro.joey64.JLog
 import android.view.KeyEvent
 
 /**
@@ -103,7 +103,7 @@ object ControlBus {
     fun dispatch(control: Control): Boolean {
         val handler = handlers.lastOrNull()
         if (handler == null) {
-            if (!loggedNoHandler) { loggedNoHandler = true; Log.w(TAG, "$control pressed but nothing is handling buttons") }
+            if (!loggedNoHandler) { loggedNoHandler = true; JLog.w(TAG, "$control pressed but nothing is handling buttons") }
             return false
         }
         return handler(control)
@@ -148,7 +148,7 @@ class KeyNormaliser(private val superDispatch: (KeyEvent) -> Boolean) {
         }
         if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 &&
             KeyEvent.isGamepadButton(event.keyCode) && loggedUnknownKeys.add(event.keyCode)) {
-            Log.i("Joey64Controls", "Unmapped gamepad button ${KeyEvent.keyCodeToString(event.keyCode)} " +
+            JLog.i("Joey64Controls", "Unmapped gamepad button ${KeyEvent.keyCodeToString(event.keyCode)} " +
                 "from ${event.device?.name ?: "unknown device"}")
         }
         return superDispatch(event)

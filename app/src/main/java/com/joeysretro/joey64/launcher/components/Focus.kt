@@ -1,6 +1,6 @@
 package com.joeysretro.joey64.launcher.components
 
-import android.util.Log
+import com.joeysretro.joey64.JLog
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -89,7 +89,7 @@ fun Modifier.landFocus(landing: FocusLanding?, enabled: Boolean = true): Modifie
             if (requester.requestFocus(FocusDirection.Enter)) landing.landedAt = generation
             // Refused (not focusable now, or another window has focus): logged, since the only
             // symptom is "nothing highlighted".
-            else Log.i(TAG, "A focus request was refused (landing $generation)")
+            else JLog.i(TAG, "A focus request was refused (landing $generation)")
         }
     }
     this.focusRequester(requester)

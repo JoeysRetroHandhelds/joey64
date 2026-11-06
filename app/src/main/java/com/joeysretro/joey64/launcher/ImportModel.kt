@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher
 
+import com.joeysretro.joey64.JLog
 import android.app.Application
 import android.net.Uri
 import android.provider.DocumentsContract
@@ -86,12 +87,12 @@ class ImportModel(app: Application) : AndroidViewModel(app) {
                     val subs = listOf("saves", "states").filter { it in top }.joinToString(" · ").ifEmpty { null }
                     val found = RetroArchImport.find(ra, threads = THREADS)
                     val plan = RetroArchImport.plan(ra, found, DataFolder.of(app, dataFolder).space)
-                    Log.i(TAG, "found ${found.saves.size} saves, ${found.states.size} states in ${android.os.SystemClock.elapsedRealtime() - t0} ms; ${plan.toCopy.size} new, " +
+                    JLog.i(TAG, "found ${found.saves.size} saves, ${found.states.size} states in ${android.os.SystemClock.elapsedRealtime() - t0} ms; ${plan.toCopy.size} new, " +
                         "${plan.alreadyThere.size} already there, ${plan.clashes.size} clashes, ${found.olderCopies.size} older copies, " +
                         "${found.otherFormatSaves.size} other-format saves")
                     ImportStep.Found(tree, name.place, name.folders, subs, found, plan, RetroArchImport.onlyKindOf(name.folders))
                 } catch (e: Exception) {
-                    Log.w(TAG, "can't read $tree", e)
+                    JLog.w(TAG, "can't read $tree" + "\n" + Log.getStackTraceString(e))
                     ImportStep.Found(tree, name.place, name.folders, null, RaFound(emptyList(), emptyList(), emptyList(), emptyList()),
                         RaImportPlan(emptyList(), emptyList(), emptyList()))
                 }
@@ -135,14 +136,14 @@ class ImportModel(app: Application) : AndroidViewModel(app) {
                         val r = RetroArchImport.copy(ra, joey, group, replace, threads = THREADS, onFile = onFile)
                         if (kind == DataKind.Saves) saves += r.copied else states += r.copied
                         failed += r.failed.size
-                        r.failed.forEach { Log.w(TAG, "not copied: $it") }
+                        r.failed.forEach { JLog.w(TAG, "not copied: $it") }
                     }
                 }
                 run(f.plan.toCopy, replace = false)
                 run(replace, replace = true)
                 saves += f.plan.alreadyThere.count { it.kind == DataKind.Saves }
                 states += f.plan.alreadyThere.count { it.kind == DataKind.States }
-                Log.i(TAG, "copied in ${android.os.SystemClock.elapsedRealtime() - t0} ms: $saves saves, $states states in Joey64, $failed failed, " +
+                JLog.i(TAG, "copied in ${android.os.SystemClock.elapsedRealtime() - t0} ms: $saves saves, $states states in Joey64, $failed failed, " +
                     "${replace.size} replaced, ${f.plan.clashes.size - replace.size} kept")
                 ImportStep.Done(saves, states, failed)
             }

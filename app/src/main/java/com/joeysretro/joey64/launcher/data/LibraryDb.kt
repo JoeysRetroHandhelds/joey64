@@ -5,6 +5,9 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import androidx.core.database.sqlite.transaction
+import com.joeysretro.joey64.launcher.library.FoundRom
+import com.joeysretro.joey64.launcher.library.KnownFile
+import com.joeysretro.joey64.launcher.library.RomInfo
 
 /**
  * The library's tables (plan, Phase 0: SQLite for games, hashes, play time, collections and the
@@ -150,6 +153,66 @@ class LibraryDb private constructor(context: Context) :
             )
         }
     }
+
+    /** Every file the library knows, for the scan to compare against (ScanPlanner). */
+    fun knownFiles(): List<KnownFile> =
+        readableDatabase.rawQuery("SELECT uri, tree_uri, size, modified, game_id FROM files", null).use { c ->
+            buildList {
+                while (c.moveToNext()) add(KnownFile(c.getString(0), c.getString(1), c.getLong(2), c.getLong(3), if (c.isNull(4)) null else c.getLong(4)))
+            }
+        }
+
+    /**
+     * Records a file the scan read: its game, added by MD5 when the library hasn't seen it (any
+     * copy of a game, zipped or not, in any byte order, is the same game), then the file's row.
+     * [info] null = not an N64 ROM: the file is still recorded, so it isn't read again until it
+     * changes. Returns the game's id. (No UPSERT: Android 10 ships SQLite 3.22.)
+     */
+    fun saveRead(file: FoundRom, info: RomInfo?, title: String, now: Long): Long? {
+        var gameId: Long? = null
+        writableDatabase.transaction {
+            if (info != null) {
+                insertWithOnConflict("games", null, ContentValues().apply {
+                    put("md5", info.md5)
+                    put("crc32", info.crc32)
+                    put("header_id", info.header.gameCode)
+                    put("title", title)
+                    put("added_at", now)
+                }, SQLiteDatabase.CONFLICT_IGNORE)
+                gameId = rawQuery("SELECT id FROM games WHERE md5 = ?", arrayOf(info.md5)).use { c -> if (c.moveToFirst()) c.getLong(0) else null }
+            }
+            val row = ContentValues().apply {
+                put("uri", file.uri)
+                put("tree_uri", file.treeUri)
+                put("name", file.name)
+                put("size", file.size)
+                put("modified", file.modified)
+                put("game_id", gameId)
+                put("seen_at", now)
+            }
+            if (update("files", row, "uri = ?", arrayOf(file.uri)) == 0) insertOrThrow("files", null, row)
+        }
+        return gameId
+    }
+
+    fun markSeen(uris: Collection<String>, now: Long) {
+        if (uris.isEmpty()) return
+        writableDatabase.transaction {
+            for (u in uris) execSQL("UPDATE files SET seen_at = ? WHERE uri = ?", arrayOf<Any>(now, u))
+        }
+    }
+
+    /** Files that left their folder. Their games stay (play time and collections can't be scanned back); the library lists games with a file. */
+    fun forgetFiles(uris: Collection<String>) {
+        if (uris.isEmpty()) return
+        writableDatabase.transaction {
+            for (u in uris) delete("files", "uri = ?", arrayOf(u))
+        }
+    }
+
+    /** Games with at least one file in a ROM folder: the library. */
+    fun gameCount(): Int =
+        readableDatabase.rawQuery("SELECT COUNT(DISTINCT game_id) FROM files WHERE game_id IS NOT NULL", null).use { c -> c.moveToFirst(); c.getInt(0) }
 
     /** Sign-out: the cached progress belonged to that account. */
     fun clearAchievementCache() {

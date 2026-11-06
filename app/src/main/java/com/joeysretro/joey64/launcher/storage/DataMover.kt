@@ -1,7 +1,5 @@
 package com.joeysretro.joey64.launcher.storage
 
-import java.io.InputStream
-
 /**
  * The data Joey64 keeps, one subfolder each in the data folder (plan: Storage). [hiddenFromGallery]
  * folders get a `.nomedia` file, so covers and texture PNGs stay out of the photo gallery;
@@ -49,7 +47,7 @@ data class MoveResult(
  * Must not run while a game is running: the core writes saves while it plays.
  */
 object DataMover {
-    const val PART_SUFFIX = ".joey64-part"
+    const val PART_SUFFIX = FileCopy.PART_SUFFIX
 
     fun move(from: FileSpace, to: FileSpace, kinds: Collection<DataKind> = DataKind.entries): MoveResult {
         var moved = 0
@@ -69,11 +67,11 @@ object DataMover {
                     // A copy this move left half done in the old place is junk.
                     e.name.endsWith(PART_SUFFIX) -> from.delete(path)
                     to.exists(path) -> {
-                        if (sameContent(from, to, path, path)) {
+                        if (FileCopy.sameContent(from, path, to, path)) {
                             if (from.delete(path)) already++ else failed += shown
                         } else conflicts += shown
                     }
-                    else -> if (copyChecked(from, to, path)) {
+                    else -> if (FileCopy.copyChecked(from, path, to, path)) {
                         if (from.delete(path)) moved++ else failed += shown
                     } else failed += shown
                 }
@@ -86,51 +84,5 @@ object DataMover {
             if (from.list(root).isEmpty()) from.delete(root)
         }
         return MoveResult(moved, already, conflicts, failed)
-    }
-
-    private fun copyChecked(from: FileSpace, to: FileSpace, path: List<String>): Boolean {
-        val part = path.dropLast(1) + (path.last() + PART_SUFFIX)
-        return try {
-            to.delete(part)
-            val input = from.openRead(path) ?: return false
-            input.use { i -> to.openWrite(part).use { o -> i.copyTo(o) } }
-            if (!sameContent(from, to, path, part)) {
-                to.delete(part)
-                return false
-            }
-            to.rename(part, path.last()) || run { to.delete(part); false }
-        } catch (e: Exception) {
-            runCatching { to.delete(part) }
-            false
-        }
-    }
-
-    private fun sameContent(a: FileSpace, b: FileSpace, pathA: List<String>, pathB: List<String>): Boolean {
-        val ia = a.openRead(pathA) ?: return false
-        val ib = b.openRead(pathB) ?: run { ia.close(); return false }
-        ia.use { x -> ib.use { y -> return streamsEqual(x, y) } }
-    }
-
-    private fun streamsEqual(a: InputStream, b: InputStream): Boolean {
-        val ba = ByteArray(64 * 1024)
-        val bb = ByteArray(64 * 1024)
-        while (true) {
-            val na = a.readNBytesCompat(ba)
-            val nb = b.readNBytesCompat(bb)
-            if (na != nb) return false
-            if (na == 0) return true
-            for (i in 0 until na) if (ba[i] != bb[i]) return false
-        }
-    }
-
-    /** Fills [buf] unless the stream ends first (InputStream.readNBytes is API 33). */
-    private fun InputStream.readNBytesCompat(buf: ByteArray): Int {
-        var n = 0
-        while (n < buf.size) {
-            val r = read(buf, n, buf.size - n)
-            if (r < 0) break
-            n += r
-        }
-        return n
     }
 }

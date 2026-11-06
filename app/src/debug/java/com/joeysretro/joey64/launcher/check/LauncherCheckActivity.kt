@@ -46,6 +46,7 @@ import com.joeysretro.joey64.launcher.components.SectionLabel
 import com.joeysretro.joey64.launcher.components.initialFocus
 import com.joeysretro.joey64.launcher.controls.KeyNormaliser
 import com.joeysretro.joey64.launcher.data.LibraryDb
+import com.joeysretro.joey64.launcher.library.LibraryScanner
 import com.joeysretro.joey64.launcher.layout.LocalScreenLayout
 import com.joeysretro.joey64.launcher.layout.ProvideScreenLayout
 import com.joeysretro.joey64.launcher.settings.KeystoreBox
@@ -213,7 +214,19 @@ private fun CheckScreen(onClose: () -> Unit) {
                             }
                         }
                     }
-                    JoeyRow("Where the ROMs picker opens", value = results["see"]) { run("see") { pickerStart(context) } }
+                    JoeyRow("Read the saved ROM folders into the library", value = results["library"]) {
+                        run("library") {
+                            val folders = settings.settings.first().romFolders.map { it.toUri() }
+                            if (folders.isEmpty()) return@run "no ROM folders saved"
+                            val r = LibraryScanner(context, LibraryDb.get(context)).scan(folders) { done, total ->
+                                if (done % 10 == 0 || done == total) results["library"] = "reading $done of $total"
+                            }
+                            "${r.games} games; ${r.files} files: ${r.read} read, ${r.unchanged} unchanged, ${r.notRoms} not ROMs, " +
+                                "${r.gone} gone, ${r.waiting7z} 7z, ${r.failed} failed; ${r.foldersSkipped} of ${r.folders} folders skipped; " +
+                                "list ${r.listMillis} ms, read ${r.readMillis} ms"
+                        }
+                    }
+                    JoeyRow("Where the ROMs picker opens",value = results["see"]) { run("see") { pickerStart(context) } }
 
                     SectionLabel("Data folder")
                     JoeyRow("Pick a data folder", value = results["data"] ?: dataTree?.let { DocumentsContract.getTreeDocumentId(it) }) {

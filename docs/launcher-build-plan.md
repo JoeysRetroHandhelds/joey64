@@ -176,6 +176,25 @@ Comes straight after Phase 0, before the library, so every later build reaches t
 - **Details popup.**
 - **Test on:** the Portal's 81 zipped games, the Flip, and the Duo's empty ROMs folder.
 
+**Phase 1 status (2026-11-06, branch `launcher/phase0`): the parts without screens.**
+
+- **ROM reading** (`launcher/library/RomReader`, `ArchiveReader`): `.z64`, `.v64` and `.n64` by their first four bytes, not their names, and the first ROM inside a `.zip`, streamed, nothing unpacked. One pass gives the header (name, game code, region, revision, CRCs), the RetroAchievements hash (MD5 of the first 64 MiB in z64 order) and the CRC-32 No-Intro lists. Region names come from ares (ISC); NTSC or PAL follows the core's own rule, so Scandinavia reads NTSC.
+  - Checked against the 2,440 No-Intro test zips in both byte orders (`RealRomsCheck`, run by hand, about 3 minutes). In each set, 1,056 match the DAT's MD5 and CRC, 157 aren't in this DAT, and no serial differs from the header. Three are older 32 MiB overdumps of prototypes the DAT now lists trimmed (Frogger 2 Proto 1 and 2, Taz Express); their CRC matches the zip's own. The BIOS and cheat-cart dumps are rightly turned down.
+  - `.7z` files are listed and left unread until a 7z decoder is in (a library download, waiting on Joey's go).
+- **Scan cache** (`ScanPlanner`, `LibraryScanner`, `LibraryDb`): a game is its MD5, so any copy, zipped or not, in any byte order or folder, is the same game. A file is read again only when its size or date changes. A file that isn't a ROM is remembered and not read again. A folder that can't be read (permission gone, card out) keeps its games, so pulling the SD card doesn't empty the library.
+  - Checked on the Thor (check page row "Read the saved ROM folders into the library"), SD card `ROMs` with 82 zips:
+    - **First read:** 80 s, about 1 s a game (each zip inflated through the picked folder, up to 64 MiB). It runs in the background with progress, but the first-run screen will need to show it.
+    - **Second read:** 40 ms, 82 unchanged, nothing opened.
+    - **Hashes:** in the database copied off the device, 63 games match the No-Intro DAT's MD5 and CRC, and 18 are hacks and translations not in it.
+    - **Resident Evil 2 (USA):** another 64 MiB file, dated 2026-11-03, not the No-Intro dump. The zip's own CRC (49E3964E) agrees with the reader.
+- **Import from RetroArch** (`RetroArchImport`, `FileCopy`): RetroArch's folder is wrapped read-only, so the import can't write, rename or delete there. N64 files are told by content, not folder names:
+  - a `.srm` of exactly 296,960 bytes (the mupen64plus save RAM)
+  - a state holding the core's `M64+SAVE` data, inside RZIP and RASTATE or bare
+
+  This covers every way RetroArch sorts its folders, or a saves folder picked by itself. The same name in two folders: the newest is used. Syncthing conflict copies and `.stversions` are skipped. A state's `.png` goes with it. Copies are checked; a clash is replaced only when the user says so, and the old file goes only once the new one is in place.
+  - Checked read-only on Joey's own RetroArch folder (PC): 104 saves (3 flat older copies of names also in `Mupen64Plus-Next` left out), 107 states, 11 with a picture. One more file holds N64 data but has a name RetroArch never loads ("Pokemon Stadium (USA).state (2).auto", a Windows copy).
+  - Four `.eep`/`.sra` saves sit in the old `Mupen64Plus` folders. They're listed, not copied: converting them into `.srm` is Joey's call.
+
 ## Phase 2: box art
 
 - Hash match from a compact table built from libretro-database, then title fallback (1,003 + 106 of the 1,220 test sets).

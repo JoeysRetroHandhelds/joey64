@@ -4,3 +4,6 @@ local.properties
 *.so
 .cxx/
 devtools/testdata/
+keystore.properties
+*.jks
+*.keystore

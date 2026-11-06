@@ -265,6 +265,7 @@ Accuracy fallbacks for problem games
 - [ ] Page-level smart sync (`N64_RDP_SMART_PRECISE=0`): more waits, for games that break with the precise version
 - [ ] Present every refresh (`N64_SKIP_DUPES=0`): for games where skipping repeated frames looks wrong
 - [ ] GPU driver per game: faux123 Turnip / Turnip Gen8 / system driver (`--es driver`)
+- [ ] faux123 Turnip v1.2.7 (2026-11-06; we bundle v1.2.5): v1.2.6 adds Adreno 710/720, v1.2.7 splits submits of more than 256 command buffers (they crashed or hung before); settings for the 722 unchanged, author measured no speed change. Parked, Joey 2026-11-06: "Not now". When picked up: download the 2.6 MB adpkg, check the SHA-256 from the release, Duo compat 82 + quick bench vs v1.2.5, and see whether the 4x geometry drops change
 - [ ] Renderer per game: GLideN64 for widescreen hacks, texture packs or cheap upscaling on weak GPUs (`--es renderer gliden64`); kept, no work on it. Parked with it (no measurements planned): ROCKNIX's GLideN64 "performance" profile for weak GPUs, and an A/B of the `NEON_OPT`/`CRC_ARMV8` build flags, which are built into our core (f0a7d10) but were never measured.
 
 Display (already switches)

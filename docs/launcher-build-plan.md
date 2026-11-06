@@ -17,6 +17,20 @@ Goals Joey set:
 - **Native host gaps:** save states aren't wired in (only a dev load), and there are no screenshots and no RetroAchievements.
 - **Controls** are a fixed positional mapping.
 
+## Joey's decisions, 2026-11-06
+
+Asked one at a time; each is also written where it applies below.
+
+1. **Rubik body text:** download Rubik Regular, Medium and Bold (OFL, google/fonts) and bundle them for body text.
+2. **The same RetroArch save in two folders:** the newest wins, as built.
+3. **Old `.eep`/`.sra` saves** in RetroArch's `Mupen64Plus` folders: left as they are, still listed and skipped.
+4. **Updater:** build all of it now, tested on the Thor against a stand-in release feed on the PC. The repo stays private for now; making it public stays Joey's step.
+5. **Signing key:** a new Joey64 key. Joey runs keytool and chooses the password; the build reads a gitignored `keystore.properties`, as JoeyOS does.
+6. **RAOfflineProxy PR:** with Phase 7, after the receiver is built and tested.
+7. **RetroAchievements status-line mockup:** with Phase 7.
+8. **Save backups:** `Joey64/backups/` next to `saves/`, one file per backup named "<game> <date time>.srm", with a `.nomedia`.
+9. **Netplay online server:** left for now (still open).
+
 ## Built the way JoeyOS is built
 
 JoeyOS (`C:\GithubProjects\JoeyOS`) is the model. Its controls were rebuilt from scratch on the Android TV controller and navigation guides and the Compose focus guide; the notes are in `JoeyOS/docs/input-rewrite.md`. Joey64 copies its stack and its rules rather than inventing new ones.
@@ -119,7 +133,7 @@ So Joey64 uses the **Storage Access Framework**, the way PPSSPP does on Play. Th
 - Still to do:
   - The 4:3, square and portrait previews come with the first screens (Phase 1); there is nothing to preview yet.
   - Dropping forced landscape is a manifest change on `MainActivity`, which belongs to the emulator side.
-  - Rubik's other weights are not bundled yet (needs a download); body text uses the system sans until then.
+  - Rubik Regular, Medium and Bold: download approved (Joey, 2026-11-06), bundled for body text.
   - The core still opens saves by path in `files/saves`. It needs to take file descriptors before data can move to a picked folder, so nothing calls the move yet.
 - Build changes, which reach the emulator build when this merges: Android Gradle plugin 8.5.2 → 8.13.2, Kotlin 2.0.20 → 2.2.21 with the Compose plugin, compileSdk 34 → 35 (targetSdk unchanged).
 
@@ -142,10 +156,11 @@ Comes straight after Phase 0, before the library, so every later build reaches t
   - Downloads to the cache under a temporary name, with its size checked, then hands it to Android's PackageInstaller. Android shows its own confirmation and refuses an APK signed with another key, so nothing installs silently.
   - Android sometimes never answers an install session (seen with JoeyOS on the Thor). The fallback is Android's own install screen, opened while Joey64 is on screen.
   - If "Install unknown apps" is off for Joey64, the updater opens that switch for it.
+- **Build it now** (Joey, 2026-11-06): the whole updater is built and tested on the Thor against a stand-in release feed served from the PC. The repo stays private until Joey makes it public.
 - **Releases live on the joey64 repo, made public** (Joey, 2026-11-05: "We will go open source soon"; most emulators are open source). The app reads that repo's GitHub releases with no token. That also settles the GPL source offer and the About › Source code row. Making the repo public is Joey's step, before the first build goes out through the updater.
 - **Google Play is a far-future goal** (Joey, 2026-11-05), not planned for now. Play doesn't allow self-updating apps or `REQUEST_INSTALL_PACKAGES` for self-updates (Device and Network Abuse policy), so a Play build would one day have to leave the updater out and let Play update it. Nothing is built for that now.
 - **Releasing:**
-  - A release build signed with Joey's key.
+  - A release build signed with Joey's key: a new Joey64 key (Joey, 2026-11-06). Joey runs keytool and picks the password; the build reads the gitignored `keystore.properties`.
   - A pre-release check script like JoeyOS's `scripts/prerelease-check.sh`: permissions used vs declared, the signing key, bundled data such as the core and drivers.
   - The release is made on GitHub only on Joey's go for that build.
 - **Screens APPROVED** (Joey, 2026-11-05; scratchpad `build_update.py`). All of them use approved elements only.
@@ -236,7 +251,7 @@ The parts without screens:
 
   This covers every way RetroArch sorts its folders, or a saves folder picked by itself. The same name in two folders: the newest is used. Syncthing conflict copies and `.stversions` are skipped. A state's `.png` goes with it. Copies are checked; a clash is replaced only when the user says so, and the old file goes only once the new one is in place.
   - Checked read-only on Joey's own RetroArch folder (PC): 104 saves (3 flat older copies of names also in `Mupen64Plus-Next` left out), 107 states, 11 with a picture. One more file holds N64 data but has a name RetroArch never loads ("Pokemon Stadium (USA).state (2).auto", a Windows copy).
-  - Four `.eep`/`.sra` saves sit in the old `Mupen64Plus` folders. They're listed, not copied: converting them into `.srm` is Joey's call.
+  - Four `.eep`/`.sra` saves sit in the old `Mupen64Plus` folders. They're listed, not copied: converting them into `.srm` is Joey's call. Joey, 2026-11-06: leave them.
 
 ## Phase 2: box art
 

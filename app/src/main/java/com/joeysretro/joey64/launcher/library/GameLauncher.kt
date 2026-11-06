@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher.library
 
+import com.joeysretro.joey64.launcher.storage.withChannel
 import com.joeysretro.joey64.JLog
 import android.content.Context
 import android.content.Intent
@@ -21,7 +22,7 @@ import java.util.zip.ZipInputStream
  * Starts a game from the library (plan, Phase 1: Launch). The game screen ([MainActivity]) takes a
  * ROM the way a frontend hands one over, as a VIEW intent, so the library and ES-DE-style
  * frontends start games the same way. A `.z64`/`.v64`/`.n64` goes as its document in the picked
- * folder. A `.zip` is unpacked to the cache first (the core reads no archives), named after the
+ * folder. A `.zip` or `.7z` is unpacked to the cache first (the core reads no archives), named after the
  * zip as RetroArch does, so its save gets the same name; the last [KEEP] unpacked games stay, so
  * playing one again starts at once.
  */
@@ -35,7 +36,7 @@ class GameLauncher(private val context: Context, private val db: LibraryDb) {
         val files = db.filesOf(game.id).filter { RomFolders.stillReadable(context, it.treeUri.toUri()) }
         for (f in files) {
             val uri = try {
-                if (ArchiveReader.isZip(f.name)) unpacked(game, f) else f.uri.toUri()
+                if (ArchiveReader.isZip(f.name) || ArchiveReader.is7z(f.name)) unpacked(game, f) else f.uri.toUri()
             } catch (e: IOException) {
                 JLog.w(TAG, "can't open ${f.name}" + "\n" + Log.getStackTraceString(e)); null
             } catch (e: SecurityException) {
@@ -51,35 +52,51 @@ class GameLauncher(private val context: Context, private val db: LibraryDb) {
         return null
     }
 
-    /** The ROM inside [f], unpacked to `cache/launch/<md5>/`: the hash names it, so a copy is only reused for the same ROM. */
+    /** The ROM inside [f] (a zip or 7z), unpacked to `cache/launch/<md5>/` under the archive's name: reused only for the same ROM under the same name. */
     private fun unpacked(game: LibraryGame, f: GameFile): Uri? {
         val root = File(context.cacheDir, LAUNCH_DIR)
         val dir = File(root, game.md5)
-        dir.listFiles()?.firstOrNull { it.isFile && !it.name.endsWith(PART) }?.let { done ->
+        // Reused only under this archive's name: the same ROM in two archives named apart has two saves.
+        val title = ScanPlanner.titleOf(f.name)
+        dir.listFiles()?.firstOrNull { it.isFile && !it.name.endsWith(PART) && it.nameWithoutExtension == title }?.let { done ->
             dir.setLastModified(System.currentTimeMillis())
             return uriOf(done)
         }
-        val input = context.contentResolver.openInputStream(f.uri.toUri()) ?: return null
-        var out: File? = null
-        ZipInputStream(input.buffered(256 * 1024)).use { zip ->
-            while (out == null) {
-                val e = zip.nextEntry ?: break
-                if (e.isDirectory || e.name.substringAfterLast('/').startsWith("._") || e.name.startsWith("__MACOSX/")) continue
-                // The first entry that starts like an N64 ROM, as the scan's ArchiveReader picks it.
-                val head = ByteArray(4)
-                if (zip.readNBytesCompat(head) < 4 || RomByteOrder.of(head) == null) continue
-                dir.mkdirs()
-                val ext = e.name.substringAfterLast('.', "z64").lowercase()
-                val target = File(dir, ScanPlanner.titleOf(f.name) + "." + ext)
-                val part = File(dir, target.name + PART)
-                part.outputStream().use { o -> o.write(head); zip.copyTo(o) }
-                if (!part.renameTo(target)) { part.delete(); throw IOException("can't unpack ${f.name}") }
-                out = target
+        // The first entry that starts like an N64 ROM, as the scan's ArchiveReader picks it.
+        val done = if (ArchiveReader.is7z(f.name)) {
+            context.contentResolver.withChannel(f.uri.toUri()) { ch ->
+                ArchiveReader.firstIn7z(ch) { name, input -> unpackEntry(name, input, dir, f) }
             }
-        }
-        val done = out ?: return null
+        } else {
+            val input = context.contentResolver.openInputStream(f.uri.toUri()) ?: return null
+            var out: File? = null
+            ZipInputStream(input.buffered(256 * 1024)).use { zip ->
+                while (out == null) {
+                    val e = zip.nextEntry ?: break
+                    if (e.isDirectory || ArchiveReader.skip(e.name)) continue
+                    out = unpackEntry(e.name, zip, dir, f)
+                }
+            }
+            out
+        } ?: return null
         trim(root)
         return uriOf(done)
+    }
+
+    /**
+     * Writes [input] to [dir] when it starts like an N64 ROM, named after the archive [f] (so its save
+     * is named as RetroArch names it) with the entry's extension. Null when it isn't a ROM.
+     */
+    private fun unpackEntry(entry: String, input: java.io.InputStream, dir: File, f: GameFile): File? {
+        val head = ByteArray(4)
+        if (input.readNBytesCompat(head) < 4 || RomByteOrder.of(head) == null) return null
+        dir.mkdirs()
+        val ext = entry.substringAfterLast('.', "z64").lowercase()
+        val target = File(dir, ScanPlanner.titleOf(f.name) + "." + ext)
+        val part = File(dir, target.name + PART)
+        part.outputStream().use { o -> o.write(head); input.copyTo(o, 256 * 1024) }
+        if (!part.renameTo(target)) { part.delete(); throw IOException("can't unpack ${f.name}") }
+        return target
     }
 
     /** Keeps the [KEEP] most recently played unpacked games. */

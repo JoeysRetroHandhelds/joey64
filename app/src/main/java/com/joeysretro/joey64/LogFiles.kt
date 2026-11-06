@@ -55,9 +55,12 @@ object LogFiles {
 
     fun dir(ctx: Context) = File(ctx.filesDir, "logs").apply { mkdirs() }
 
-    /** Once per process, before anything else logs. */
+    /**
+     * Once per process, before anything else logs: the launcher's screen or the game's, whichever opens first. A later
+     * call (the game started from the launcher) adds only its intent line to the session already open.
+     */
     fun start(ctx: Context, intent: Intent?) {
-        if (started) return
+        if (started) { logIntent(intent); return }
         started = true
         val dir = dir(ctx)
         session = "${stamp.format(Date())}-${Process.myPid()}"
@@ -128,10 +131,13 @@ object LogFiles {
         @Suppress("DEPRECATION") val display = (ctx.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager).defaultDisplay
         JLog.i(TAG, "display: ${display.mode.physicalWidth}x${display.mode.physicalHeight} at ${display.mode.refreshRate} Hz, modes " +
             display.supportedModes.joinToString { "%.0f".format(it.refreshRate) })
-        if (intent != null) {
-            val extras = intent.extras?.keySet()?.joinToString { k -> "$k=${@Suppress("DEPRECATION") intent.extras?.get(k)}" } ?: "none"
-            JLog.i(TAG, "intent: action ${intent.action}, data ${intent.data}, type ${intent.type}, extras $extras")
-        }
+        logIntent(intent)
+    }
+
+    private fun logIntent(intent: Intent?) {
+        if (intent == null) return
+        val extras = intent.extras?.keySet()?.joinToString { k -> "$k=${@Suppress("DEPRECATION") intent.extras?.get(k)}" } ?: "none"
+        JLog.i(TAG, "intent: action ${intent.action}, data ${intent.data}, type ${intent.type}, extras $extras")
     }
 
     private fun cpuMaxFreqs(): String {

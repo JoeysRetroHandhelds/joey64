@@ -222,7 +222,7 @@ private fun CheckScreen(onClose: () -> Unit) {
                                 if (done % 10 == 0 || done == total) results["library"] = "reading $done of $total"
                             }
                             "${r.games} games; ${r.files} files: ${r.read} read, ${r.unchanged} unchanged, ${r.notRoms} not ROMs, " +
-                                "${r.gone} gone, ${r.waiting7z} 7z, ${r.failed} failed; ${r.foldersSkipped} of ${r.folders} folders skipped; " +
+                                "${r.gone} gone, ${r.failed} failed; ${r.foldersSkipped} of ${r.folders} folders skipped; " +
                                 "list ${r.listMillis} ms, read ${r.readMillis} ms"
                         }
                     }

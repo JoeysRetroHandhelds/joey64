@@ -1,5 +1,7 @@
 package com.joeysretro.joey64.launcher
 
+import com.joeysretro.joey64.launcher.storage.withChannel
+import com.joeysretro.joey64.launcher.library.ArchiveReader
 import com.joeysretro.joey64.JLog
 import android.app.Application
 import android.content.Intent
@@ -93,7 +95,10 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         val roms = try {
             val n64 = files.map { f ->
                 pool.submit<Boolean> {
-                    try { app.contentResolver.openInputStream(f.uri)?.use { RomCheck.isN64(f.name, it) } ?: false } catch (e: Exception) { false }
+                    try {
+                        if (ArchiveReader.is7z(f.name)) app.contentResolver.withChannel(f.uri) { RomCheck.isN64In7z(it) }
+                        else app.contentResolver.openInputStream(f.uri)?.use { RomCheck.isN64(f.name, it) } ?: false
+                    } catch (e: Exception) { false }
                 }
             }
             files.filterIndexed { i, _ -> n64[i].get() }

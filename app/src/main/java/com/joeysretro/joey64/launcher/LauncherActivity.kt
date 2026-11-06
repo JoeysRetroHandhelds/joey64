@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher
 
+import com.joeysretro.joey64.LogFiles
 import android.annotation.SuppressLint
 import android.os.Bundle
 import android.view.KeyEvent
@@ -62,6 +63,9 @@ class LauncherActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // The session log (files/logs) starts here when the app opens to the launcher, so first run, the
+        // import and library reads are in what a tester sends, not only what happens once a game is up.
+        LogFiles.start(this, intent)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).apply {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE

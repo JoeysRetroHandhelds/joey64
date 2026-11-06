@@ -123,8 +123,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     // value twice is ignored by View, hence NONE first.
     private fun requestUnbufferedJoystick(late: Boolean = true) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
-        // dev, until measured on the Flip (unbuf.sh): N64_UNBUF_LATE=1 makes the late requests; default onCreate only, as before
-        if (late && android.system.Os.getenv("N64_UNBUF_LATE") != "1") return
+        // Default since 2026-11-06 (Flip, unbuf.sh: stick moves 15.5 -> 1.6 ms, window source 0 -> 10; compat 82/82).
+        // N64_UNBUF_LATE=0 goes back to the onCreate request alone.
+        if (late && android.system.Os.getenv("N64_UNBUF_LATE") == "0") return
         val decor = window.decorView
         decor.requestUnbufferedDispatch(InputDevice.SOURCE_CLASS_NONE)
         decor.requestUnbufferedDispatch(InputDevice.SOURCE_CLASS_JOYSTICK)

@@ -132,7 +132,7 @@ Comes straight after Phase 0, before the library, so every later build reaches t
   - A release build signed with Joey's key.
   - A pre-release check script like JoeyOS's `scripts/prerelease-check.sh`: permissions used vs declared, the signing key, bundled data such as the core and drivers.
   - The release is made on GitHub only on Joey's go for that build.
-- **Screens:** mocked up 2026-11-05 (scratchpad `build_update.py`), waiting for Joey's approval. All of them use approved elements only.
+- **Screens APPROVED** (Joey, 2026-11-05; scratchpad `build_update.py`). All of them use approved elements only.
   - Library: Update available (must be answered), downloading with Cancel, the Install unknown apps step, a testing build (the Missable-style tag), download failed, and the Updated toast on the next start.
   - About: the Check for updates row (Checked N minutes ago / Checking / Up to date) and the version countdown ("4 more taps for testing builds"). Testing builds are turned off with the same seven taps, as in JoeyOS.
 

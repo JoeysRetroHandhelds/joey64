@@ -71,6 +71,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // Driver and renderer by GPU (setupGpu). Override with: am start ... --es renderer parallel|gliden64
         val renderer = setupGpu()
         NativeBridge.setRenderer(renderer == "parallel")
+        // Early acquire on Mali (Flip) by default (Joey 2026-11-05): after 30 new frames in a row the next frame
+        // acquires its swapchain image early. Flip compat 82/82 (flip-early30); no gain on the 120 Hz Adrenos
+        // (Duo, Odin 3, Portal), where GoldenEye judders with it, so it stays off there. --es env wins.
+        if ("Mali" in gpuName && android.system.Os.getenv("N64_EARLY_ACQUIRE") == null)
+            android.system.Os.setenv("N64_EARLY_ACQUIRE", "30", true)
         // parallel-RDP synchronous by default on Adreno: async there gives black screens (Yoshi's Story,
         // Resident Evil 2, Cruis'n USA) or halts (New Tetris), and sync costs ~1-2 ms a frame (Odin 3, Duo).
         // On Mali (Flip) sync can cost a third of the frame rate, so async plus kSyncRdpGames. --es opts wins.

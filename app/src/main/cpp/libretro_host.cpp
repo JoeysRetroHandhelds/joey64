@@ -557,11 +557,10 @@ void setEmuThreadPriority() {
 void runLoop() {
     pinToBigCores();
     setEmuThreadPriority();
-    // EXPERIMENT: Adreno GPU clocks held at max while running (Dolphin's "Force max GPU clocks")
-    // N64_GPU_TURBO=2: KGSL power constraint held by a keep-alive context instead (DroidDeck's way, gpu_clock_pin.cpp)
+    // DEV (N64_GPU_TURBO=2): Adreno GPU clock pinned by a KGSL power constraint held by a keep-alive context
+    // (DroidDeck's way, gpu_clock_pin.cpp); kept for the Portal slow-mode check (GPU stuck at 220 MHz). Mode 1
+    // (adrenotools max clocks) was removed 2026-11-05 (Joey): no fps gain on the Odin 3 or Duo, more heat.
     const char* turboEnv = getenv("N64_GPU_TURBO");
-    const bool turbo = turboEnv && *turboEnv == '1';
-    if (turbo) { adrenotools_set_turbo(true); LOGI("GPU turbo on"); }
     GpuClockPin clockPin;
     if (turboEnv && *turboEnv == '2') LOGI("GPU clock pin %s", clockPin.start() ? "on" : "failed");
     // DEV (N64_GPU_COUNTERS=1): Adreno GPU clock and busy % every 5 s, read through a KGSL context of our own
@@ -736,7 +735,6 @@ void runLoop() {
             if (hintMode == 2 && !hintThreadsAdded) { perfHint.addThreads(coreWorkerThreads()); hintThreadsAdded = true; }
         }
     }
-    if (turbo) adrenotools_set_turbo(false);
     flushSave();
     if (g_hw.context_destroy) g_hw.context_destroy();
     core.unload_game();

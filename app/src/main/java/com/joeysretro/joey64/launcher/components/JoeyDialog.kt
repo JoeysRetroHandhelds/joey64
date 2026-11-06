@@ -5,9 +5,8 @@ import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.focusGroup
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,15 +22,18 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -153,16 +155,18 @@ fun JoeyDialog(
         val c = JoeyTheme.colors
         val s = JoeyTheme.spacing
 
+        val tapOutside by rememberUpdatedState { if (dismissible) requestClose() }
         Column(Modifier.fillMaxSize()) {
-            // The dim: everything above the hint row. A tap on it is "outside".
+            // The dim: everything above the hint row. A tap on it is "outside". A tap handler,
+            // not a clickable: a clickable is a focus target, and since it holds the card, a tap
+            // on it left focus on the dim with the D-pad unable to reach an option (found on the
+            // Thor in a popup that must be answered).
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
                     .background(c.scrim)
-                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
-                        if (dismissible) requestClose()
-                    },
+                    .pointerInput(Unit) { detectTapGestures { tapOutside() } },
                 contentAlignment = Alignment.Center,
             ) {
                 val shape = RoundedCornerShape(s.popupCorner)
@@ -173,10 +177,15 @@ fun JoeyDialog(
                         .then(if (c.isDark) Modifier else Modifier.shadow(18.dp, shape))
                         .background(c.surface, shape)
                         .border(1.dp, c.border, shape)
-                        // Taps on the card mustn't count as outside.
-                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, enabled = false) {}
+                        // Taps on the card mustn't count as outside (the options take their own first).
+                        .pointerInput(Unit) { detectTapGestures { } }
                         .padding(horizontal = 10.dp, vertical = 12.dp)
                         .focusRequester(body)
+                        // Compose turns a Back key it sees into a focus move out of the group
+                        // (FocusDirection.Exit). In a popup that must be answered nothing closes,
+                        // so focus fell out of the card and the D-pad was dead (found on the Thor:
+                        // Android's Back; the pad's B is handled above and never gets there).
+                        .focusProperties { onExit = { cancelFocusChange() } }
                         .focusGroup()
                         .onPreviewKeyEvent { event ->
                             val native = event.nativeKeyEvent

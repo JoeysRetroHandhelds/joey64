@@ -58,7 +58,18 @@ class TreeSpace(
         return out
     }
 
+    /**
+     * Forgets the cached ids of [dir] and every folder inside it, after it was deleted or
+     * renamed. Never the root: clearing the whole cache once dropped the root's own entry, and
+     * the next lookup recursed until the stack overflowed (found on the Thor, moving data back).
+     */
+    private fun forgetDirs(dir: List<String>) {
+        if (dir.isEmpty()) return
+        dirIds.keys.removeAll { it.size >= dir.size && it.subList(0, dir.size) == dir }
+    }
+
     private fun dirId(dir: List<String>, create: Boolean): String? {
+        if (dir.isEmpty()) return rootDocId
         dirIds[dir]?.let { return it }
         val parent = dirId(dir.dropLast(1), create) ?: return null
         val name = dir.last()
@@ -121,7 +132,7 @@ class TreeSpace(
             Log.w(TAG, "renaming ${child.entry.name} failed: $e")
             false
         } finally {
-            if (child.entry.isDir) dirIds.clear()
+            if (child.entry.isDir) forgetDirs(path)
         }
     }
 
@@ -133,7 +144,7 @@ class TreeSpace(
             Log.w(TAG, "deleting ${child.entry.name} failed: $e")
             false
         } finally {
-            if (child.entry.isDir) dirIds.clear()
+            if (child.entry.isDir) forgetDirs(path)
         }
     }
 

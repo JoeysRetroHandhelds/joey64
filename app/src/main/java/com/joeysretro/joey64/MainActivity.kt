@@ -451,7 +451,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             null -> {}
             STATE_AUTO -> stateHandler.post { startLoadFailed = !st.load(StateSlots.AUTO) }
             STATE_RECOVERY -> stateHandler.post { startLoadFailed = !st.loadRecovery() }
-            else -> JLog.w(TAG, "states: unknown state to load: $which")
+            else -> JLog.e(TAG, "states: unknown state to load: $which")
         }
         stateHandler.postDelayed(recoveryTick, RECOVERY_EVERY_MS)
     }
@@ -478,7 +478,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         NativeBridge.pause(true)
         stateHandler.removeCallbacks(recoveryTick)
         stateHandler.post {
-            if (startLoadFailed) JLog.w(TAG, "states: the state asked for at start didn't load, so the auto slot is kept as it was")
+            if (startLoadFailed) JLog.e(TAG, "states: the state asked for at start didn't load, so the auto slot is kept as it was")
             else st.save(StateSlots.AUTO)
             st.clearRecovery()
             runOnUiThread { finish() }

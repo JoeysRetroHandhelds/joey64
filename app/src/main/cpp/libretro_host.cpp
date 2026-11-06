@@ -508,7 +508,7 @@ void serveStateRequest(bool ready, bool failEarly) {
         r->ok = core.unserialize(r->data.data(), r->data.size());
     }
     if (ready)
-        LOGI("state: %s %s, %zu bytes, %.1f ms", r->save ? "save" : "load", r->ok ? "done" : "FAILED", r->data.size(),
+        joeyLog(r->ok ? ANDROID_LOG_INFO : ANDROID_LOG_ERROR, "joey64host", "state: %s %s, %zu bytes, %.1f ms", r->save ? "save" : "load", r->ok ? "done" : "FAILED", r->data.size(),
              std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
     r->done = true;
     g_stateReq = nullptr;

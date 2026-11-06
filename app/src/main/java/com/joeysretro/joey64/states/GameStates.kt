@@ -36,7 +36,7 @@ class GameStates(
     /** Saves the game as it is now into [slot]. False if the core's state couldn't be taken or written. */
     fun save(slot: Int): Boolean {
         val t0 = SystemClock.elapsedRealtime()
-        val data = NativeBridge.saveState(TIMEOUT_MS) ?: return false.also { JLog.w(TAG, "slot $slot: the core gave no state") }
+        val data = NativeBridge.saveState(TIMEOUT_MS) ?: return false.also { JLog.e(TAG, "slot $slot: the core gave no state") }
         val t1 = SystemClock.elapsedRealtime()
         return try {
             val file = StateFormat.wrap(data)
@@ -48,21 +48,21 @@ class GameStates(
                 "taking it ${t1 - t0} ms, packing and writing ${SystemClock.elapsedRealtime() - t1} ms")
             true
         } catch (e: IOException) {
-            JLog.w(TAG, "can't write slot $slot" + "\n" + Log.getStackTraceString(e)); false
+            JLog.e(TAG, "can't write slot $slot" + "\n" + Log.getStackTraceString(e)); false
         }
     }
 
     /** Loads [slot] into the running game; right after start it waits for the core to be ready. */
     fun load(slot: Int): Boolean {
         val name = StateSlots.fileName(saveName, slot)
-        val bytes = readWhole(name) ?: return false.also { JLog.w(TAG, "no $name") }
+        val bytes = readWhole(name) ?: return false.also { JLog.e(TAG, "no $name") }
         return loadBytes(name, bytes)
     }
 
     private fun loadBytes(name: String, bytes: ByteArray): Boolean {
-        val data = StateFormat.unwrap(bytes) ?: return false.also { JLog.w(TAG, "$name isn't a state Joey64 can read (${bytes.size} bytes)") }
+        val data = StateFormat.unwrap(bytes) ?: return false.also { JLog.e(TAG, "$name isn't a state Joey64 can read (${bytes.size} bytes)") }
         val ok = NativeBridge.loadState(data, TIMEOUT_MS)
-        JLog.i(TAG, "load $name: ${if (ok) "done" else "FAILED"} (${data.size} bytes)")
+        if (ok) JLog.i(TAG, "load $name: done (${data.size} bytes)") else JLog.e(TAG, "load $name: FAILED (${data.size} bytes)")
         return ok
     }
 
@@ -89,13 +89,13 @@ class GameStates(
             JLog.i(TAG, "recovery state written (${file.length()} bytes)")
             true
         } catch (e: IOException) {
-            JLog.w(TAG, "can't write the recovery state" + "\n" + Log.getStackTraceString(e)); false
+            JLog.e(TAG, "can't write the recovery state" + "\n" + Log.getStackTraceString(e)); false
         }
     }
 
     fun loadRecovery(): Boolean {
         val f = File(recoveryDir, RECOVERY_STATE)
-        val bytes = try { f.readBytes() } catch (e: IOException) { return false.also { JLog.w(TAG, "no recovery state") } }
+        val bytes = try { f.readBytes() } catch (e: IOException) { return false.also { JLog.e(TAG, "no recovery state") } }
         return loadBytes("recovery state", bytes)
     }
 

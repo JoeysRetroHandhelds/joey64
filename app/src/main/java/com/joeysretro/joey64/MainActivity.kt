@@ -31,6 +31,8 @@ import android.graphics.PixelFormat
 import android.widget.TextView
 import java.io.File
 import androidx.compose.ui.graphics.asImageBitmap
+import com.joeysretro.joey64.launcher.ingame.InGamePopup
+import kotlinx.coroutines.flow.first
 import com.joeysretro.joey64.states.GameStates
 import com.joeysretro.joey64.states.StateSlots
 
@@ -452,6 +454,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             it.title = saveName
             it.saveSlotName = slotName(currentSlot())
         }
+        stateHandler.post {
+            hotkeyEnable = try {
+                kotlinx.coroutines.runBlocking { com.joeysretro.joey64.launcher.settings.SettingsStore(this@MainActivity).settings.first().hotkeyEnable }
+            } catch (e: Exception) { JLog.e(TAG, "hotkeys: can't read the settings: $e"); KeyEvent.KEYCODE_BUTTON_SELECT }
+        }
         // The pause menu's title: the game's name in the library, else the ROM's (a frontend's game).
         stateHandler.post {
             val title = try {
@@ -532,8 +539,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         override fun reset() {
             overlay?.screen = null
             stateHandler.post {
-                if (!NativeBridge.resetGame(STATE_TIMEOUT_MS)) JLog.e(TAG, "pause menu: reset wasn't served")
-                runOnUiThread { closeMenu() }
+                val ok = resetNow()
+                runOnUiThread { closeMenu(); popReset(ok) }
             }
         }
         override fun quit() {
@@ -544,12 +551,14 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             val st = states ?: return
             overlay?.screen = null
             stateHandler.post {
+                val savedAt = if (save) null else st.savedAt(slot)
                 val ok = if (save) st.save(slot) else st.load(slot)
                 // A state loaded by hand: the game is somewhere real again, so quitting writes the auto slot.
                 if (ok && !save) startLoadFailed = false
                 runOnUiThread {
                     if (ok && slot != StateSlots.AUTO) setCurrentSlot(slot)
                     closeMenu()
+                    if (save) popSaved(slot, ok) else popLoaded(slot, ok, savedAt)
                 }
             }
         }
@@ -566,6 +575,119 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
                 if (menuOpen && overlay?.screen != null) overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Picker(save, views, focus)
             }
         }
+    }
+
+    // ---- hotkeys (approved Hotkeys design, 2026-11-05) ----------------------------------------------
+    // Back: the pause menu. Hold the hotkey button (the user's choice, Settings: Select by default, the N64 has none; Joey,
+    // 2026-11-06: not Back) + R1 save state, L1 load state (both
+    // the current slot), Left / Right change the slot, Y screenshot, Start reset, B quit to library.
+    // (R3 fast-forward needs no hold.) The game never sees the hotkey button. Choosing it and
+    // remapping the rest is Controls › Hotkeys (Phase 4).
+    private var hotkeyHeld = false
+    /** Read from the settings when the game starts (they're changed in the launcher, not in game). */
+    @Volatile private var hotkeyEnable = KeyEvent.KEYCODE_BUTTON_SELECT
+    private var hotkeyHatX = 0
+
+    private fun isHotkey(keyCode: Int) = when (keyCode) {
+        KeyEvent.KEYCODE_BUTTON_R1, KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
+        KeyEvent.KEYCODE_BUTTON_Y, KeyEvent.KEYCODE_BUTTON_START, KeyEvent.KEYCODE_BUTTON_B -> true
+        else -> false
+    }
+
+    private fun hotkey(keyCode: Int) {
+        when (keyCode) {
+            KeyEvent.KEYCODE_BUTTON_R1 -> hotkeySave()
+            KeyEvent.KEYCODE_BUTTON_L1 -> hotkeyLoad()
+            KeyEvent.KEYCODE_DPAD_LEFT -> stepSlot(-1)
+            KeyEvent.KEYCODE_DPAD_RIGHT -> stepSlot(1)
+            KeyEvent.KEYCODE_BUTTON_Y -> hotkeyScreenshot()
+            KeyEvent.KEYCODE_BUTTON_START -> stateHandler.post { val ok = resetNow(); runOnUiThread { popReset(ok) } }
+            KeyEvent.KEYCODE_BUTTON_B -> quitToLibrary()
+        }
+    }
+
+    /** Back is held: the D-pad on a hat axis changes the slot as the D-pad keys do. */
+    private fun hotkeyHat(event: MotionEvent) {
+        val hx = event.getAxisValue(MotionEvent.AXIS_HAT_X)
+        val x = if (hx < -0.5f) -1 else if (hx > 0.5f) 1 else 0
+        if (x != 0 && x != hotkeyHatX) stepSlot(x)
+        hotkeyHatX = x
+    }
+
+    private fun hotkeySave() {
+        val st = states ?: return
+        val slot = currentSlot()
+        stateHandler.post { val ok = st.save(slot); runOnUiThread { popSaved(slot, ok) } }
+    }
+
+    private fun hotkeyLoad() {
+        val st = states ?: return
+        val slot = currentSlot()
+        stateHandler.post {
+            val savedAt = st.savedAt(slot)
+            if (savedAt == null) { runOnUiThread { popEmpty(slot) }; return@post }
+            val ok = st.load(slot)
+            if (ok) startLoadFailed = false
+            runOnUiThread { popLoaded(slot, ok, savedAt) }
+        }
+    }
+
+    private fun stepSlot(by: Int) {
+        val st = states ?: return
+        val slot = (currentSlot() - 1 + by).mod(StateSlots.COUNT) + 1
+        setCurrentSlot(slot)
+        stateHandler.post {
+            val savedAt = st.savedAt(slot)
+            runOnUiThread {
+                pop("state", InGamePopup.Kind.Slot, "Save state", slotName(slot),
+                    savedAt?.let { "Saved " + slotDate(it) } ?: "Empty")
+            }
+        }
+    }
+
+    private fun hotkeyScreenshot() {
+        val st = states ?: return
+        stateHandler.post {
+            val name = st.screenshot()
+            runOnUiThread {
+                if (name != null) pop("screenshot", InGamePopup.Kind.Screenshot, "Screenshot", "Saved", "In the screenshots folder")
+                else pop("screenshot", InGamePopup.Kind.Problem, "Screenshot", "Not saved", "The log has the details")
+            }
+        }
+    }
+
+    /** The console's reset button, between frames. On the state thread. */
+    private fun resetNow(): Boolean {
+        val ok = NativeBridge.resetGame(STATE_TIMEOUT_MS)
+        if (!ok) JLog.e(TAG, "reset wasn't served")
+        return ok
+    }
+
+    private fun slotDate(at: Long) = com.joeysretro.joey64.launcher.ingame.SlotDates.label(at, System.currentTimeMillis())
+
+    // Every state pop-up (slot, saved, loaded, empty) has the key "state": the newest takes the place
+    // of the one showing, so "Slot 3 saved" doesn't wait behind "Slot 3, Empty".
+    private fun pop(key: String, kind: InGamePopup.Kind, label: String, name: String, line: String) {
+        if (destroyed) return
+        overlay?.show(InGamePopup(key, kind, label, name, line))
+    }
+
+    private fun popSaved(slot: Int, ok: Boolean) {
+        if (ok) pop("state", InGamePopup.Kind.Saved, "Save state", "${slotName(slot)} saved", overlay?.title ?: "")
+        else pop("state", InGamePopup.Kind.Problem, "Save state", "${slotName(slot)} wasn't saved", "The log has the details")
+    }
+
+    private fun popLoaded(slot: Int, ok: Boolean, savedAt: Long?) {
+        if (ok) pop("state", InGamePopup.Kind.Loaded, "Load state", "${slotName(slot)} loaded", savedAt?.let { "Saved " + slotDate(it) } ?: "")
+        else pop("state", InGamePopup.Kind.Problem, "Load state", "${slotName(slot)} didn't load", "The log has the details")
+    }
+
+    private fun popEmpty(slot: Int) =
+        pop("state", InGamePopup.Kind.Problem, "Load state", "${slotName(slot)} is empty", "Nothing was loaded")
+
+    private fun popReset(ok: Boolean) {
+        if (ok) pop("reset", InGamePopup.Kind.Reset, "Reset", "Game reset", overlay?.title ?: "")
+        else pop("reset", InGamePopup.Kind.Problem, "Reset", "The game wasn't reset", "The log has the details")
     }
 
     /** Back opens the pause menu over the paused game (Back again, or B, resumes). */
@@ -682,6 +804,25 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private fun pushButtons() = NativeBridge.setButtons(keyMask or hatMask or triggerMask)
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val inGame = states != null && overlay != null && mine
+        // Back opens the pause menu, on release (the menu's window would get the release otherwise).
+        if (event.keyCode == KeyEvent.KEYCODE_BACK && inGame) {
+            if (event.action == KeyEvent.ACTION_UP && !event.isCanceled && !quitting && !menuOpen) openMenu()
+            return true
+        }
+        // The hotkey button held makes the next button a hotkey.
+        if (event.keyCode == hotkeyEnable && inGame) {
+            when (event.action) {
+                KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) { hotkeyHeld = true; hotkeyHatX = 0 }
+                KeyEvent.ACTION_UP -> hotkeyHeld = false
+            }
+            return true
+        }
+        if (hotkeyHeld && isHotkey(event.keyCode)) {
+            // Both edges are the hotkey's: the game never sees them.
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 && !quitting) hotkey(event.keyCode)
+            return true
+        }
         if (event.keyCode == KeyEvent.KEYCODE_BUTTON_THUMBR) { // R3: not an N64 input, so fast-forward
             if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) toggleFastForward()
             return true
@@ -702,6 +843,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (event.source and InputDevice.SOURCE_JOYSTICK != InputDevice.SOURCE_JOYSTICK ||
             event.action != MotionEvent.ACTION_MOVE) return super.dispatchGenericMotionEvent(event)
         usePad(event.device, event.deviceId)
+        if (hotkeyHeld) hotkeyHat(event)
         if (inputLat) noteInputLat(if (event.historySize > 0) event.getHistoricalEventTime(0) else event.eventTime, false, event.historySize)
         val cal = stickCal!!
         fun axis(v: Float) = (v.coerceIn(-1f, 1f) * 32767).toInt()

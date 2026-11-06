@@ -59,6 +59,12 @@ class GameStates(
     /** A slot as the slot picker shows it: when it was saved (null: empty) and the picture beside it. */
     class SlotFile(val slot: Int, val savedAt: Long?, val picture: ByteArray?)
 
+    /** When [slot] was saved, or null if it's empty. */
+    fun savedAt(slot: Int): Long? {
+        val name = StateSlots.fileName(saveName, slot)
+        return space.list(listOf(DataKind.States.dir)).firstOrNull { it.name == name }?.modified
+    }
+
     /** Auto, then Slots 1-10, read from the folder in one listing. */
     fun slotFiles(): List<SlotFile> {
         val entries = space.list(listOf(DataKind.States.dir)).associateBy { it.name }

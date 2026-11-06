@@ -20,11 +20,20 @@ import com.joeysretro.joey64.launcher.theme.JoeyTheme
 
 /**
  * The one toast, in the top right corner with nothing to press: the achievement pop-up's shape
- * (approved 2026-11-05), also used for "Updated, Joey64 is now 0.3.0". A badge, a small grey
+ * (approved 2026-11-05), also used for "Updated, Joey64 is now 0.3.0" and the in-game pop-ups
+ * ("Slot 3 saved", top left over the game). A badge, a small grey
  * label, a name and a line. The caller decides how long it stays.
  */
 @Composable
-fun JoeyToast(@DrawableRes icon: Int, label: String, name: String, line: String, modifier: Modifier = Modifier) {
+fun JoeyToast(
+    @DrawableRes icon: Int,
+    label: String,
+    name: String,
+    line: String,
+    modifier: Modifier = Modifier,
+    /** The badge's colour: green by default; the error colour when something didn't work. */
+    iconTint: androidx.compose.ui.graphics.Color? = null,
+) {
     val c = JoeyTheme.colors
     val shape = RoundedCornerShape(8.dp)
     Row(
@@ -36,7 +45,7 @@ fun JoeyToast(@DrawableRes icon: Int, label: String, name: String, line: String,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(40.dp).background(c.chip, RoundedCornerShape(5.dp)), contentAlignment = Alignment.Center) {
-            Icon(painterResource(icon), contentDescription = null, tint = c.good, modifier = Modifier.size(22.dp))
+            Icon(painterResource(icon), contentDescription = null, tint = iconTint ?: c.good, modifier = Modifier.size(22.dp))
         }
         Column(Modifier.padding(start = 10.dp)) {
             Text(label, style = JoeyTheme.type.label, color = c.textDim)

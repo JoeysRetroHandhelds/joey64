@@ -11,9 +11,11 @@ namespace {
 std::mutex g_mutex;
 FILE* g_file = nullptr;
 
+// Read on every line, not cached: the first lines (LogFiles' header) are logged before MainActivity sets the
+// intent's --es env, and a cached answer kept N64_LOG_ERR off for the whole run (Duo bench lost its stats, 2026-11-06)
 bool raiseInfo() {
-    static const bool on = [] { const char* e = getenv("N64_LOG_ERR"); return e && *e == '1'; }();
-    return on;
+    const char* e = getenv("N64_LOG_ERR");
+    return e && *e == '1';
 }
 
 char prioChar(int prio) {

@@ -9,7 +9,7 @@
       ],
       "issues": [
         {"status": "open", "devices": "all", "what": "Oak's Mark photo check not yet checked under smart sync (Snap moved from plain sync to smart sync)", "evidence": "README Pokemon Snap photo check item"},
-        {"status": "parked", "renderer": "GLideN64", "what": "Oak's Mark fix (upstream PRs gonetz/GLideN64#2991, libretro #674) not rechecked after the gonetz update, core 2f73718", "evidence": "README parked-with-GLideN64 item"}
+        {"status": "parked", "renderer": "GLideN64", "what": "Oak's Mark fix (upstream PRs gonetz/GLideN64#2991, libretro #674) not rechecked after the gonetz update, core d8f51f5", "evidence": "README parked-with-GLideN64 item"}
       ],
       "notes": ["VI filters off: +20% speed on the Flip, the biggest gain of the 14 bench games (2026-11-05, vifilt)"]
     },
@@ -19,7 +19,7 @@
         {"what": "synchronous parallel-RDP, also in fast-forward", "where": "kSyncRdpGames", "why": "async: halts on a 'secret cheat, power off' screen after ~10 s"}
       ],
       "fixed": [
-        {"what": "ran at 121 fps on 120 Hz screens (audio did not pace it)", "fix": "speed cap when audio does not pace, app c642e3e"}
+        {"what": "ran at 121 fps on 120 Hz screens (audio did not pace it)", "fix": "speed cap when audio does not pace, app 0985fb0"}
       ]
     },
     {
@@ -41,17 +41,17 @@
         {"status": "open", "what": "bench state stops on the Controller Pak notice, so its bench numbers are a static menu (150-1190 fps swings); needs a state in a race", "evidence": "README bench states item"}
       ],
       "fixed": [
-        {"what": "RSP looped on the boot screen with precise smart sync", "fix": "copies (DMA, RSP, C code) always wait, core c3713bb"}
+        {"what": "RSP looped on the boot screen with precise smart sync", "fix": "copies (DMA, RSP, C code) always wait, core 2938164"}
       ]
     },
     {
       "id": "NYS", "title": "Yoshi's Story",
       "settings": [
         {"what": "synchronous parallel-RDP on every GPU, also in fast-forward", "where": "kSyncRdpGames (was kAdrenoSyncGames, Adreno fast-forward only, until 2026-11-05)", "why": "async: intro draws, then black (Odin 3 and Duo 2026-11-03, every Flip run since 2026-11-05)"},
-        {"what": "save type 16K EEPROM for hacks (header ID)", "where": "core rom.c, 8e8f5c7", "why": "hacks not in the database got 4K and could not save"}
+        {"what": "save type 16K EEPROM for hacks (header ID)", "where": "core rom.c, 67a1fcd", "why": "hacks not in the database got 4K and could not save"}
       ],
       "fixed": [
-        {"devices": "Flip (Mali)", "what": "draws its intro, then every frame black from ~25 s with async parallel-RDP (repeat skip off: still black, so not the skip; sync: plays)", "fix": "added to kSyncRdpGames, app 6e33c8e; flip-blk-def/noskip/sync; default build checked: draws to the end (flip-sync6)"}
+        {"devices": "Flip (Mali)", "what": "draws its intro, then every frame black from ~25 s with async parallel-RDP (repeat skip off: still black, so not the skip; sync: plays)", "fix": "added to kSyncRdpGames, app f6b99e6; flip-blk-def/noskip/sync; default build checked: draws to the end (flip-sync6)"}
       ]
     },
     {
@@ -60,7 +60,7 @@
         {"what": "synchronous parallel-RDP on every GPU, also in fast-forward", "where": "kSyncRdpGames", "why": "async: intro draws, then black (Portal 2026-11-03, every Flip run since 2026-11-05)"}
       ],
       "fixed": [
-        {"devices": "Flip (Mali)", "what": "intro, then every frame black from ~25 s with async parallel-RDP; sync plays it", "fix": "added to kSyncRdpGames, app 6e33c8e; flip-blk-*; default build checked: draws to the end (flip-sync6)"}
+        {"devices": "Flip (Mali)", "what": "intro, then every frame black from ~25 s with async parallel-RDP; sync plays it", "fix": "added to kSyncRdpGames, app f6b99e6; flip-blk-*; default build checked: draws to the end (flip-sync6)"}
       ],
       "notes": ["Flip with sync: 58.4-58.6 emu fps average, lowest 5 s window 49.3-53.5 (flip-blk-sync, flip-sync6)"]
     },
@@ -76,7 +76,7 @@
     {
       "id": "NPD", "title": "Perfect Dark",
       "fixed": [
-        {"devices": "120 Hz screens (Duo, Portal, Odin 3)", "what": "judder at 60 fps: audio every other frame (0, then 1474 samples) made audio sync start frames 5 then 28 ms apart, ~240 of 300 frames uneven per 5 s", "fix": "smoothed audio wait, automatic above 60 Hz, app 22121e2. Duo: uneven 244 -> 39, lag 20.2 -> 18.6 ms; Odin 3: 246 -> 28, lag 18.3 -> 15.7 ms; 0 underruns; same-build underrun A/B clean (chain72)"},
+        {"devices": "120 Hz screens (Duo, Portal, Odin 3)", "what": "judder at 60 fps: audio every other frame (0, then 1474 samples) made audio sync start frames 5 then 28 ms apart, ~240 of 300 frames uneven per 5 s", "fix": "smoothed audio wait, automatic above 60 Hz, app 6de8bb8. Duo: uneven 244 -> 39, lag 20.2 -> 18.6 ms; Odin 3: 246 -> 28, lag 18.3 -> 15.7 ms; 0 underruns; same-build underrun A/B clean (chain72)"},
         {"what": "Portal: menu background shifted down (async build of 2026-11-03)", "fix": "current build, portal-prdp 2026-11-05"}
       ],
       "notes": [
@@ -108,7 +108,7 @@
         {"status": "open", "devices": "Flip", "what": "first launch stutters while shaders compile: 93-108 ms worst frames, 40 slow frames per window (warm 40-43 ms)", "evidence": "hitch bench; shader pre-build list is item 20"},
         {"status": "open", "devices": "Flip", "what": "white glow over the floor in one of two runs with the new parallel-RDP; check in the next Flip screenshots", "evidence": "screenshot review 2026-11-04"}
       ],
-      "notes": ["HLE audio: +14-19% on the Flip", "mixes louder than SM64, as on hardware", "intro at ~30 s: a short burst of audio underruns on the Duo, 12-13 with the smoothed audio wait (default above 60 Hz since 22121e2) vs 5-6 without (chain72)"]
+      "notes": ["HLE audio: +14-19% on the Flip", "mixes louder than SM64, as on hardware", "intro at ~30 s: a short burst of audio underruns on the Duo, 12-13 with the smoothed audio wait (default above 60 Hz since 6de8bb8) vs 5-6 without (chain72)"]
     },
     {
       "id": "NMW", "title": "Mario Party 2",
@@ -127,14 +127,14 @@
     {
       "id": "NDO", "title": "Donkey Kong 64",
       "settings": [
-        {"what": "save type from the header ID for hacks", "where": "core rom.c, 8e8f5c7", "why": "hacks not in the database got 4K EEPROM and could not save"}
+        {"what": "save type from the header ID for hacks", "where": "core rom.c, 67a1fcd", "why": "hacks not in the database got 4K EEPROM and could not save"}
       ],
       "notes": ["breaks with plain async parallel-RDP (no smart sync); fine on the default"]
     },
     {
       "id": "NB7", "title": "Banjo-Tooie",
       "settings": [
-        {"what": "save type from the header ID for hacks", "where": "core rom.c, 8e8f5c7", "why": "hacks not in the database got 4K EEPROM and could not save"}
+        {"what": "save type from the header ID for hacks", "where": "core rom.c, 67a1fcd", "why": "hacks not in the database got 4K EEPROM and could not save"}
       ],
       "issues": [
         {"status": "open", "devices": "all", "what": "music problem (M6 core fixes list)", "evidence": "README core emulation fixes item"}
@@ -143,7 +143,7 @@
     {
       "id": "NSM", "crc": "DC493C8DE033E6F2", "title": "SM64 Last Impact (hack)",
       "settings": [
-        {"what": "PI DMA keeps bit 0 of the cart address (all ROMs not in the database)", "where": "core afa156c", "why": "ERET crash at boot in every libretro build; upstream PR libretro #675"}
+        {"what": "PI DMA keeps bit 0 of the cart address (all ROMs not in the database)", "where": "core 22aa47a", "why": "ERET crash at boot in every libretro build; upstream PR libretro #675"}
       ],
       "issues": [
         {"status": "open", "devices": "all", "what": "file-select screen: thin purple/yellow line across the platform, 'FILE 1' half drawn, floor bulging; may be how the hack looks: compare with M64Plus FZ / a console video", "evidence": "every compat run since 2026-11-03"}
@@ -152,7 +152,7 @@
     {
       "id": "NSM", "crc": "9CC44345D6DF4426", "title": "Super Mario Star Road Final Deluxe (hack)",
       "settings": [
-        {"what": "PI DMA keeps bit 0 of the cart address", "where": "core afa156c", "why": "crashed in every libretro build"}
+        {"what": "PI DMA keeps bit 0 of the cart address", "where": "core 22aa47a", "why": "crashed in every libretro build"}
       ],
       "issues": [
         {"status": "open", "devices": "Duo, Odin 3, Flip", "what": "in the game only Mario, Yoshi and the HUD on black in the compat screenshots; may be a black opening cutscene: check live and against FZ", "evidence": "README Star Road item"},

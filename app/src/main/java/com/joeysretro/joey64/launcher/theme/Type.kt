@@ -65,6 +65,8 @@ data class JoeyType(
     val small: TextStyle,
     /** Hashes and codes, in a fixed-width face (Details: RA hash). */
     val code: TextStyle,
+    /** A state slot's name on its picture, and an empty slot's name (the slot picker). */
+    val thumbLabel: TextStyle,
 )
 
 val DefaultType = JoeyType(
@@ -84,6 +86,7 @@ val DefaultType = JoeyType(
     tile = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Bold, fontSize = 14.sp, lineHeight = 18.sp),
     small = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Normal, fontSize = 12.5.sp),
     code = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Normal, fontSize = 13.sp),
+    thumbLabel = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Bold, fontSize = 12.sp),
 )
 
 val LocalJoeyType = staticCompositionLocalOf { DefaultType }

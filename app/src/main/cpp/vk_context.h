@@ -49,6 +49,9 @@ public:
     // linearly to the screen (sharp-bilinear), instead of one linear scale. Pixels keep crisp edges
     // without the uneven widths of plain nearest. Can be switched while running.
     void setSharp(bool on) { sharp_ = on; }
+    // The last picture the core handed over, at its own size, as top-down RGBA8 (screenshots, state
+    // pictures). Between frames on the emulation thread only; waits for the GPU. False if there's none.
+    bool capture(std::vector<uint8_t>& rgba, unsigned& w, unsigned& h);
 
     // Latency (VK_GOOGLE_display_timing, when the driver has it): notePoll() at each input poll;
     // takeLatency() returns the mean and max ms from the last poll before a present to that image

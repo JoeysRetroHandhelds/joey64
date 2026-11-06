@@ -62,6 +62,7 @@ struct Core {
     bool (*unserialize)(const void*, size_t);
     size_t (*serialize_size)();
     bool (*serialize)(void*, size_t);
+    void (*reset)();
 } core;
 
 std::string g_systemDir, g_saveDir;
@@ -465,6 +466,12 @@ void flushSave() {
 // game is paused (a pause menu saves with the game paused).
 struct StateRequest {
     bool save = true;
+    // A picture instead of a state: the last frame the core drew, top-down RGBA8 in [data], [w] x [h]
+    // (screenshots, the picture beside a state slot).
+    bool capture = false;
+    // The pause menu's Reset: the core's retro_reset, between frames like the rest.
+    bool reset = false;
+    unsigned w = 0, h = 0;
     std::vector<uint8_t> data;   // filled by a save, read by a load
     bool done = false, ok = false;
 };
@@ -488,9 +495,18 @@ void serveStateRequest(bool ready, bool failEarly) {
     if (!r) { g_statePending = false; return; }
     if (!ready && !failEarly) return;
     auto t0 = std::chrono::steady_clock::now();
+    const char* what = r->reset ? "reset" : r->capture ? "capture" : r->save ? "save" : "load";
     if (!ready) {
         r->ok = false;
-        LOGE("state: %s asked for before the core was ready", r->save ? "save" : "load");
+        LOGE("state: %s asked for before the core was ready", what);
+    } else if (r->reset) {
+        core.reset();
+        r->ok = true;
+    } else if (r->capture) {
+        r->ok = g_vulkan ? g_vk.capture(r->data, r->w, r->h)
+                         : g_egl.capture((int)g_lastW, (int)g_lastH, g_hw.bottom_left_origin, r->data);
+        if (!g_vulkan) { r->w = g_lastW; r->h = g_lastH; }
+        if (!r->ok) r->data.clear();
     } else if (r->save) {
         size_t n = core.serialize_size();
         r->data.resize(n);
@@ -508,7 +524,7 @@ void serveStateRequest(bool ready, bool failEarly) {
         r->ok = core.unserialize(r->data.data(), r->data.size());
     }
     if (ready)
-        joeyLog(r->ok ? ANDROID_LOG_INFO : ANDROID_LOG_ERROR, "joey64host", "state: %s %s, %zu bytes, %.1f ms", r->save ? "save" : "load", r->ok ? "done" : "FAILED", r->data.size(),
+        joeyLog(r->ok ? ANDROID_LOG_INFO : ANDROID_LOG_ERROR, "joey64host", "state: %s %s, %zu bytes, %.1f ms", what, r->ok ? "done" : "FAILED", r->data.size(),
              std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
     r->done = true;
     g_stateReq = nullptr;
@@ -527,7 +543,7 @@ bool runStateRequest(StateRequest& req, int timeoutMs) {
     bool served = g_stateCv.wait_for(lk, std::chrono::milliseconds(timeoutMs), [&] { return req.done || !g_running; });
     if (!req.done) {
         if (g_stateReq == &req) { g_stateReq = nullptr; g_statePending = false; }
-        LOGE("state: %s not served (%s)", req.save ? "save" : "load", served ? "game stopped" : "timed out");
+        LOGE("state: %s not served (%s)", req.reset ? "reset" : req.capture ? "capture" : req.save ? "save" : "load", served ? "game stopped" : "timed out");
         return false;
     }
     return true;
@@ -904,7 +920,8 @@ JNIEXPORT jboolean JNICALL JNI(loadCore)(JNIEnv* env, jobject, jstring path, jst
         && sym(core.cheat_set, "retro_cheat_set")
         && sym(core.unserialize, "retro_unserialize")
         && sym(core.serialize_size, "retro_serialize_size")
-        && sym(core.serialize, "retro_serialize");
+        && sym(core.serialize, "retro_serialize")
+        && sym(core.reset, "retro_reset");
     if (!ok) return JNI_FALSE;
 
     core.set_environment(environment);
@@ -1129,8 +1146,31 @@ JNIEXPORT jbyteArray JNICALL JNI(saveState)(JNIEnv* env, jobject, jint timeoutMs
     return out;
 }
 
+// The last frame the core drew, between frames (paused or not): 8 bytes of width and height (little-endian
+// u32 each), then top-down RGBA8 rows. Null if there's none or it took over [timeoutMs].
+JNIEXPORT jbyteArray JNICALL JNI(captureFrame)(JNIEnv* env, jobject, jint timeoutMs) {
+    StateRequest req;
+    req.capture = true;
+    if (!runStateRequest(req, timeoutMs) || !req.ok || req.data.size() != (size_t)req.w * req.h * 4) return nullptr;
+    jbyteArray out = env->NewByteArray((jsize)(req.data.size() + 8));
+    if (!out) return nullptr;
+    uint8_t head[8];
+    for (int i = 0; i < 4; ++i) { head[i] = (uint8_t)(req.w >> (8 * i)); head[4 + i] = (uint8_t)(req.h >> (8 * i)); }
+    env->SetByteArrayRegion(out, 0, 8, reinterpret_cast<const jbyte*>(head));
+    env->SetByteArrayRegion(out, 8, (jsize)req.data.size(), reinterpret_cast<const jbyte*>(req.data.data()));
+    return out;
+}
+
 // Puts [data] (the core's state, unwrapped) back between frames. Waits for the core to be ready, so
 // it can be called right after start(); false if it failed or wasn't served in [timeoutMs].
+// The pause menu's Reset (the console's reset button), between frames; also while paused. False if
+// it wasn't served in [timeoutMs].
+JNIEXPORT jboolean JNICALL JNI(resetGame)(JNIEnv*, jobject, jint timeoutMs) {
+    StateRequest req;
+    req.reset = true;
+    return runStateRequest(req, timeoutMs) && req.ok ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT jboolean JNICALL JNI(loadState)(JNIEnv* env, jobject, jbyteArray data, jint timeoutMs) {
     StateRequest req;
     req.save = false;

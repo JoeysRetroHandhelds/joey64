@@ -2,6 +2,7 @@
 #include "egl_context.h"
 #include <android/log.h>
 #include <initializer_list>
+#include <cstring>
 #define LOGE(...) joeyLog(ANDROID_LOG_ERROR, "joey64host", __VA_ARGS__)
 
 bool EglContext::init() {
@@ -100,6 +101,24 @@ void EglContext::present(int srcW, int srcH, bool bottomLeftOrigin) {
         glBlitFramebuffer(0, srcH, srcW, 0, x, y, x + dstW, y + dstH, GL_COLOR_BUFFER_BIT, GL_LINEAR);
     if (!eglSwapBuffers(display_, window_) && swapFails++ % 600 == 0)
         LOGE("egl: swap failed: 0x%x (%d times)", eglGetError(), swapFails);
+}
+
+bool EglContext::capture(int srcW, int srcH, bool bottomLeftOrigin, std::vector<uint8_t>& rgba) {
+    if (!fbo_ || srcW <= 0 || srcH <= 0 || srcW > fboW_ || srcH > fboH_) return false;
+    std::vector<uint8_t> raw((size_t)srcW * srcH * 4);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo_);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, srcW, srcH, GL_RGBA, GL_UNSIGNED_BYTE, raw.data());
+    if (GLenum e = glGetError()) { LOGE("egl: capture: glReadPixels 0x%x", e); return false; }
+    // glReadPixels starts at the bottom row; a bottom-left-origin frame is then upright when flipped.
+    rgba.resize(raw.size());
+    size_t row = (size_t)srcW * 4;
+    for (int y = 0; y < srcH; ++y) {
+        int from = bottomLeftOrigin ? srcH - 1 - y : y;
+        memcpy(&rgba[y * row], &raw[from * row], row);
+    }
+    for (size_t i = 3; i < rgba.size(); i += 4) rgba[i] = 255;
+    return true;
 }
 
 void EglContext::destroy() {

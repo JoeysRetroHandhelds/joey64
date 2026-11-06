@@ -30,6 +30,7 @@ import android.view.Gravity
 import android.graphics.PixelFormat
 import android.widget.TextView
 import java.io.File
+import androidx.compose.ui.graphics.asImageBitmap
 import com.joeysretro.joey64.states.GameStates
 import com.joeysretro.joey64.states.StateSlots
 
@@ -447,6 +448,17 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (saveName.isEmpty()) { JLog.i(TAG, "states: off for a ROM without a name (the dev path)"); return }
         val st = GameStates(this, saveName)
         states = st
+        overlay = GameOverlay(this, pauseActions).also {
+            it.title = saveName
+            it.saveSlotName = slotName(currentSlot())
+        }
+        // The pause menu's title: the game's name in the library, else the ROM's (a frontend's game).
+        stateHandler.post {
+            val title = try {
+                com.joeysretro.joey64.launcher.data.LibraryDb.get(this).gameWithFile(saveName, GameStates::saveNameOf)?.title
+            } catch (e: Exception) { JLog.e(TAG, "pause menu: can't read the library: $e"); null }
+            if (title != null) runOnUiThread { overlay?.title = title }
+        }
         when (val which = intent?.getStringExtra(EXTRA_LOAD_STATE)) {
             null -> {}
             STATE_AUTO -> stateHandler.post { startLoadFailed = !st.load(StateSlots.AUTO) }
@@ -460,19 +472,116 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private val recoveryTick = object : Runnable {
         override fun run() {
             val st = states ?: return
-            if (resumed && !quitting) st.saveRecovery()
+            if (resumed && !quitting && !menuOpen) st.saveRecovery()
             stateHandler.postDelayed(this, RECOVERY_EVERY_MS)
         }
     }
 
-    /**
-     * Back quits to the library (until the pause menu takes Back): the game is paused, the auto slot
-     * written (Continue starts from it) and the recovery state dropped, then the screen closes.
-     */
+    // ---- pause menu (plan, Phase 3) ------------------------------------------------------------------
+    // Back pauses the game and opens the menu over it. The game stays paused until the menu closes,
+    // and through a save, load or reset picked from it (they run on the state thread, then it resumes).
+    private var overlay: GameOverlay? = null
+    private var menuOpen = false
+    private val slotPrefs by lazy { getSharedPreferences("states", Context.MODE_PRIVATE) }
+
+    /** The slot Save state saves to: the last one saved to or loaded, per game; Slot 1 at first. */
+    private fun currentSlot(): Int = states?.let { slotPrefs.getInt("slot/" + it.saveName, 1) }?.coerceIn(1, StateSlots.COUNT) ?: 1
+    private fun setCurrentSlot(slot: Int) {
+        val st = states ?: return
+        if (slot !in 1..StateSlots.COUNT) return
+        slotPrefs.edit().putInt("slot/" + st.saveName, slot).apply()
+        overlay?.saveSlotName = slotName(slot)
+    }
+    private fun slotName(slot: Int) = if (slot == StateSlots.AUTO) "Auto" else "Slot $slot"
+
+    private fun openMenu() {
+        val o = overlay ?: return
+        menuOpen = true
+        NativeBridge.pause(true)
+        // Held buttons and sticks are let go: the menu's window takes the pad from here.
+        keyMask = 0; hatMask = 0; triggerMask = 0
+        pushButtons()
+        NativeBridge.setAnalog(0, 0, 0); NativeBridge.setAnalog(1, 0, 0)
+        o.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Menu()
+    }
+
+    /** The menu is done: the game carries on (unless the screen is in the background). */
+    private fun closeMenu() {
+        overlay?.screen = null
+        menuOpen = false
+        if (resumed && !quitting) NativeBridge.pause(false)
+    }
+
+    /** The picker's cells: each slot's date and its picture, shrunk for a 100 x 75 dp cell. */
+    private fun slotViews(st: GameStates): List<com.joeysretro.joey64.launcher.ingame.SlotView> =
+        st.slotFiles().map { f ->
+            val bmp = f.picture?.let {
+                android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size, android.graphics.BitmapFactory.Options().apply { inSampleSize = 2 })
+            }
+            com.joeysretro.joey64.launcher.ingame.SlotView(f.slot, slotName(f.slot), f.savedAt,
+                bmp?.asImageBitmap())
+        }
+
+    private val pauseActions = object : com.joeysretro.joey64.launcher.ingame.PauseActions {
+        override fun resume() = closeMenu()
+        override fun openSave() = openPicker(save = true)
+        override fun openLoad() = openPicker(save = false)
+        override fun backToMenu(from: com.joeysretro.joey64.launcher.ingame.MenuRow) {
+            overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Menu(from)
+        }
+        override fun reset() {
+            overlay?.screen = null
+            stateHandler.post {
+                if (!NativeBridge.resetGame(STATE_TIMEOUT_MS)) JLog.e(TAG, "pause menu: reset wasn't served")
+                runOnUiThread { closeMenu() }
+            }
+        }
+        override fun quit() {
+            overlay?.screen = null
+            quitToLibrary()
+        }
+        override fun pick(save: Boolean, slot: Int) {
+            val st = states ?: return
+            overlay?.screen = null
+            stateHandler.post {
+                val ok = if (save) st.save(slot) else st.load(slot)
+                // A state loaded by hand: the game is somewhere real again, so quitting writes the auto slot.
+                if (ok && !save) startLoadFailed = false
+                runOnUiThread {
+                    if (ok && slot != StateSlots.AUTO) setCurrentSlot(slot)
+                    closeMenu()
+                }
+            }
+        }
+    }
+
+    private fun openPicker(save: Boolean) {
+        val st = states ?: return
+        stateHandler.post {
+            val views = slotViews(st)
+            // Save: the slot it saves to. Load: the newest state (the one most likely wanted), else that slot.
+            val focus = if (save) currentSlot()
+                else views.filter { it.savedAt != null }.maxByOrNull { it.savedAt!! }?.slot ?: currentSlot()
+            runOnUiThread {
+                if (menuOpen && overlay?.screen != null) overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Picker(save, views, focus)
+            }
+        }
+    }
+
+    /** Back opens the pause menu over the paused game (Back again, or B, resumes). */
     @Deprecated("Activity's own Back, kept for the controller's Back key")
     override fun onBackPressed() {
-        val st = states
-        if (st == null || !mine) { @Suppress("DEPRECATION") super.onBackPressed(); return }
+        if (states == null || overlay == null || !mine) { @Suppress("DEPRECATION") super.onBackPressed(); return }
+        if (quitting || menuOpen) return
+        openMenu()
+    }
+
+    /**
+     * Quit to library: the game is paused, the auto slot written (Continue starts from it) and the
+     * recovery state dropped, then the screen closes.
+     */
+    private fun quitToLibrary() {
+        val st = states ?: run { finish(); return }
         if (quitting) return
         quitting = true
         NativeBridge.pause(true)
@@ -626,7 +735,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     override fun onResume() {
         super.onResume()
         if (!mine) return
-        NativeBridge.pause(false)
+        if (!menuOpen) NativeBridge.pause(false)
         if (started) reportGameState(loading = false)
         fpsLastTime = 0L
         fpsHandler.post(fpsTick)
@@ -655,6 +764,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         debugLogs?.let { unregisterReceiver(it) }
         destroyed = true
         fpsView?.let { windowManager.removeView(it) }
+        overlay?.destroy()
         if (owner === this) { NativeBridge.stop(); owner = null } else if (owner == null && !switching) NativeBridge.stop()
         // Closed on purpose (Back, or a frontend sending the next game): no recovery state is due.
         if (isFinishing && states != null) { stateHandler.removeCallbacks(recoveryTick); states?.clearRecovery() }
@@ -724,6 +834,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         const val STATE_RECOVERY = "recovery"
         /** "Every few minutes" (approved 2026-11-05). */
         private const val RECOVERY_EVERY_MS = 2 * 60_000L
+        private const val STATE_TIMEOUT_MS = 10_000
         const val TAG = "Joey64"
         // Bundled in assets/drivers/ (see assets/licenses/): Turnip (Mesa freedreno).
         const val TURNIP = "libvulkan_freedreno.so"

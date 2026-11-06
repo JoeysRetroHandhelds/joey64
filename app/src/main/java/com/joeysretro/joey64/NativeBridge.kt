@@ -73,6 +73,15 @@ object NativeBridge {
     external fun saveState(timeoutMs: Int): ByteArray?
 
     /**
+     * The last frame the core drew, between frames (also while paused): 8 bytes of width and height
+     * (little-endian u32), then top-down RGBA8 rows (Screenshots). Null if there's none yet.
+     */
+    external fun captureFrame(timeoutMs: Int): ByteArray?
+
+    /** The console's reset button (pause menu, Reset), between frames, also while paused. */
+    external fun resetGame(timeoutMs: Int): Boolean
+
+    /**
      * Puts a state taken by [saveState] (or unwrapped from a RetroArch state) back, between frames.
      * Right after [start] it waits until the core can take it (about half a second of boot).
      */

@@ -21,7 +21,7 @@ int64_t monoNs() {
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
 }
-#define VK_FUNCS(X) X(vkAcquireNextImageKHR) X(vkAllocateCommandBuffers) X(vkBeginCommandBuffer) X(vkCmdBlitImage) X(vkCmdClearColorImage) X(vkCmdPipelineBarrier) X(vkCreateAndroidSurfaceKHR) X(vkCreateCommandPool) X(vkCreateDevice) X(vkCreateFence) X(vkCreateSemaphore) X(vkCreateSwapchainKHR) X(vkDestroyCommandPool) X(vkDestroyDevice) X(vkDestroyFence) X(vkDestroyInstance) X(vkDestroySemaphore) X(vkDestroySurfaceKHR) X(vkDestroySwapchainKHR) X(vkDeviceWaitIdle) X(vkEndCommandBuffer) X(vkEnumerateDeviceExtensionProperties) X(vkEnumeratePhysicalDevices) X(vkFreeCommandBuffers) X(vkGetDeviceQueue) X(vkGetPhysicalDeviceFeatures2) X(vkGetPhysicalDeviceProperties) X(vkGetPhysicalDeviceQueueFamilyProperties) X(vkGetPhysicalDeviceSurfaceCapabilitiesKHR) X(vkGetPhysicalDeviceSurfaceFormatsKHR) X(vkGetPhysicalDeviceSurfacePresentModesKHR) X(vkGetPhysicalDeviceSurfaceSupportKHR) X(vkGetSwapchainImagesKHR) X(vkQueuePresentKHR) X(vkQueueSubmit) X(vkResetCommandBuffer) X(vkResetFences) X(vkWaitForFences) X(vkGetDeviceProcAddr) X(vkCreateImage) X(vkDestroyImage) X(vkGetImageMemoryRequirements) X(vkAllocateMemory) X(vkFreeMemory) X(vkBindImageMemory) X(vkGetPhysicalDeviceMemoryProperties) X(vkQueueWaitIdle)
+#define VK_FUNCS(X) X(vkAcquireNextImageKHR) X(vkAllocateCommandBuffers) X(vkBeginCommandBuffer) X(vkCmdBlitImage) X(vkCmdClearColorImage) X(vkCmdPipelineBarrier) X(vkCreateAndroidSurfaceKHR) X(vkCreateCommandPool) X(vkCreateDevice) X(vkCreateFence) X(vkCreateSemaphore) X(vkCreateSwapchainKHR) X(vkDestroyCommandPool) X(vkDestroyDevice) X(vkDestroyFence) X(vkDestroyInstance) X(vkDestroySemaphore) X(vkDestroySurfaceKHR) X(vkDestroySwapchainKHR) X(vkDeviceWaitIdle) X(vkEndCommandBuffer) X(vkEnumerateDeviceExtensionProperties) X(vkEnumeratePhysicalDevices) X(vkFreeCommandBuffers) X(vkGetDeviceQueue) X(vkGetPhysicalDeviceFeatures2) X(vkGetPhysicalDeviceProperties) X(vkGetPhysicalDeviceQueueFamilyProperties) X(vkGetPhysicalDeviceSurfaceCapabilitiesKHR) X(vkGetPhysicalDeviceSurfaceFormatsKHR) X(vkGetPhysicalDeviceSurfacePresentModesKHR) X(vkGetPhysicalDeviceSurfaceSupportKHR) X(vkGetSwapchainImagesKHR) X(vkQueuePresentKHR) X(vkQueueSubmit) X(vkResetCommandBuffer) X(vkResetFences) X(vkWaitForFences) X(vkGetDeviceProcAddr) X(vkCreateImage) X(vkDestroyImage) X(vkGetImageMemoryRequirements) X(vkAllocateMemory) X(vkFreeMemory) X(vkBindImageMemory) X(vkGetPhysicalDeviceMemoryProperties) X(vkQueueWaitIdle) X(vkCreateBuffer) X(vkDestroyBuffer) X(vkGetBufferMemoryRequirements) X(vkBindBufferMemory) X(vkMapMemory) X(vkUnmapMemory) X(vkCmdCopyImageToBuffer) X(vkInvalidateMappedMemoryRanges)
 #define VK_DECLARE(f) PFN_##f f = nullptr;
 VK_FUNCS(VK_DECLARE)
 PFN_vkCreateInstance vkCreateInstance = nullptr;
@@ -777,6 +777,95 @@ void VkContext::destroy() {
     vkDestroyInstance(instance_, nullptr);
     lib_ = nullptr; // stays loaded for the process (see systemLibrary)
     surface_ = VK_NULL_HANDLE; pool_ = VK_NULL_HANDLE; device_ = VK_NULL_HANDLE; instance_ = VK_NULL_HANDLE;
+}
+
+// ---- screenshots ------------------------------------------------------------
+
+bool VkContext::capture(std::vector<uint8_t>& rgba, unsigned& w, unsigned& h) {
+    if (!device_ || !haveImage_ || !imageW_ || !imageH_) return false;
+    VkFormat fmt = image_.create_info.format;
+    bool bgra = fmt == VK_FORMAT_B8G8R8A8_UNORM || fmt == VK_FORMAT_B8G8R8A8_SRGB;
+    if (!bgra && fmt != VK_FORMAT_R8G8B8A8_UNORM && fmt != VK_FORMAT_R8G8B8A8_SRGB) {
+        LOGE("vulkan: capture: the core's image format %d isn't 8-bit RGBA/BGRA", fmt);
+        return false;
+    }
+    w = imageW_; h = imageH_;
+    VkDeviceSize size = (VkDeviceSize)w * h * 4;
+    VkBuffer buf = VK_NULL_HANDLE;
+    VkDeviceMemory mem = VK_NULL_HANDLE;
+    VkCommandBuffer cmd = VK_NULL_HANDLE;
+    VkFence fence = VK_NULL_HANDLE;
+    bool ok = false;
+    do {
+        VkBufferCreateInfo bci{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+        bci.size = size; bci.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT; bci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        if (vkCreateBuffer(device_, &bci, nullptr, &buf) != VK_SUCCESS) break;
+        VkMemoryRequirements req;
+        vkGetBufferMemoryRequirements(device_, buf, &req);
+        VkPhysicalDeviceMemoryProperties mp;
+        vkGetPhysicalDeviceMemoryProperties(gpu_, &mp);
+        uint32_t type = UINT32_MAX;
+        for (uint32_t t = 0; t < mp.memoryTypeCount && type == UINT32_MAX; ++t)
+            if ((req.memoryTypeBits & (1u << t)) && (mp.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) type = t;
+        VkMemoryAllocateInfo mai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+        mai.allocationSize = req.size; mai.memoryTypeIndex = type;
+        if (type == UINT32_MAX || vkAllocateMemory(device_, &mai, nullptr, &mem) != VK_SUCCESS) break;
+        vkBindBufferMemory(device_, buf, mem, 0);
+
+        VkCommandBufferAllocateInfo ai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+        ai.commandPool = pool_; ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY; ai.commandBufferCount = 1;
+        if (vkAllocateCommandBuffers(device_, &ai, &cmd) != VK_SUCCESS) { cmd = VK_NULL_HANDLE; break; }
+        VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+        if (vkCreateFence(device_, &fci, nullptr, &fence) != VK_SUCCESS) { fence = VK_NULL_HANDLE; break; }
+
+        VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+        bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(cmd, &bi);
+        VkImage src = image_.create_info.image;
+        VkImageLayout layout = image_.image_layout;
+        VkImageSubresourceRange range = image_.create_info.subresourceRange;
+        range.levelCount = 1; range.layerCount = 1;
+        VkImageLayout copyLayout = layout == VK_IMAGE_LAYOUT_GENERAL ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        // The queue already ran the frame's present (same queue, in order); the barrier orders the copy after it.
+        imageBarrier(cmd, src, range, layout, copyLayout,
+                     VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT,
+                     VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+        VkBufferImageCopy region{};
+        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, range.baseMipLevel, range.baseArrayLayer, 1};
+        region.imageExtent = {w, h, 1};
+        vkCmdCopyImageToBuffer(cmd, src, copyLayout, buf, 1, &region);
+        imageBarrier(cmd, src, range, copyLayout, layout, VK_ACCESS_TRANSFER_READ_BIT, 0,
+                     VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+        VkBufferMemoryBarrier bb{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+        bb.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT; bb.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+        bb.srcQueueFamilyIndex = bb.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        bb.buffer = buf; bb.size = VK_WHOLE_SIZE;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, 1, &bb, 0, nullptr);
+        vkEndCommandBuffer(cmd);
+        VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        si.commandBufferCount = 1; si.pCommandBuffers = &cmd;
+        {
+            std::lock_guard<std::mutex> lk(queueMutex_);
+            if (vkQueueSubmit(queue_, 1, &si, fence) != VK_SUCCESS) break;
+        }
+        if (vkWaitForFences(device_, 1, &fence, VK_TRUE, 2000000000ull) != VK_SUCCESS) { LOGE("vulkan: capture: GPU didn't finish"); break; }
+        void* p = nullptr;
+        if (vkMapMemory(device_, mem, 0, VK_WHOLE_SIZE, 0, &p) != VK_SUCCESS) break;
+        VkMappedMemoryRange mr{VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};
+        mr.memory = mem; mr.size = VK_WHOLE_SIZE;
+        vkInvalidateMappedMemoryRanges(device_, 1, &mr);
+        rgba.assign((const uint8_t*)p, (const uint8_t*)p + size);
+        vkUnmapMemory(device_, mem);
+        if (bgra) for (size_t i = 0; i < rgba.size(); i += 4) std::swap(rgba[i], rgba[i + 2]);
+        for (size_t i = 3; i < rgba.size(); i += 4) rgba[i] = 255;   // the N64 picture has no meaningful alpha
+        ok = true;
+    } while (false);
+    if (fence) vkDestroyFence(device_, fence, nullptr);
+    if (cmd) vkFreeCommandBuffers(device_, pool_, 1, &cmd);
+    if (buf) vkDestroyBuffer(device_, buf, nullptr);
+    if (mem) vkFreeMemory(device_, mem, nullptr);
+    if (!ok) LOGE("vulkan: capture failed (%ux%u)", w, h);
+    return ok;
 }
 
 // ---- sharp display prescale image -----------------------------------------

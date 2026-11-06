@@ -37,18 +37,38 @@ class GameStates(
     fun save(slot: Int): Boolean {
         val t0 = SystemClock.elapsedRealtime()
         val data = NativeBridge.saveState(TIMEOUT_MS) ?: return false.also { JLog.e(TAG, "slot $slot: the core gave no state") }
+        // The same moment's picture (the game is paused or between frames, so it's the frame the state holds).
+        val png = FramePicture.capturePng()
         val t1 = SystemClock.elapsedRealtime()
         return try {
             val file = StateFormat.wrap(data)
             writeWhole(StateSlots.fileName(saveName, slot), file)
-            // A picture beside it (RetroArch's, or ours) shows the moment before: it goes. Screenshots
-            // (Phase 3, next) will write a new one here.
-            space.delete(path(StateSlots.thumbnailName(saveName, slot)))
-            JLog.i(TAG, "saved ${StateSlots.fileName(saveName, slot)}: ${data.size} bytes, ${file.size} written; " +
+            // The picture beside it, as RetroArch names it. The old one (RetroArch's, or ours) shows the
+            // moment before, so it goes even when there's no new one.
+            val thumb = StateSlots.thumbnailName(saveName, slot)
+            if (png != null) writeWhole(thumb, png)
+            else { space.delete(path(thumb)); JLog.e(TAG, "slot $slot: no picture from the core") }
+            JLog.i(TAG, "saved ${StateSlots.fileName(saveName, slot)}: ${data.size} bytes, ${file.size} written, picture ${png?.size ?: 0}; " +
                 "taking it ${t1 - t0} ms, packing and writing ${SystemClock.elapsedRealtime() - t1} ms")
             true
         } catch (e: IOException) {
             JLog.e(TAG, "can't write slot $slot" + "\n" + Log.getStackTraceString(e)); false
+        }
+    }
+
+    /** A slot as the slot picker shows it: when it was saved (null: empty) and the picture beside it. */
+    class SlotFile(val slot: Int, val savedAt: Long?, val picture: ByteArray?)
+
+    /** Auto, then Slots 1-10, read from the folder in one listing. */
+    fun slotFiles(): List<SlotFile> {
+        val entries = space.list(listOf(DataKind.States.dir)).associateBy { it.name }
+        return (listOf(StateSlots.AUTO) + (1..StateSlots.COUNT)).map { slot ->
+            val state = entries[StateSlots.fileName(saveName, slot)]
+            val thumb = StateSlots.thumbnailName(saveName, slot)
+            val picture = if (state != null && thumb in entries) {
+                try { space.openRead(path(thumb))?.use { it.readBytes() } } catch (e: IOException) { null }
+            } else null
+            SlotFile(slot, state?.modified, picture)
         }
     }
 
@@ -64,6 +84,25 @@ class GameStates(
         val ok = NativeBridge.loadState(data, TIMEOUT_MS)
         if (ok) JLog.i(TAG, "load $name: done (${data.size} bytes)") else JLog.e(TAG, "load $name: FAILED (${data.size} bytes)")
         return ok
+    }
+
+    /**
+     * A screenshot into `screenshots/`, named like RetroArch's (`<save name>-yyMMdd-HHmmss.png`).
+     * The file name, or null if the core had no picture or it couldn't be written.
+     */
+    fun screenshot(): String? {
+        val png = FramePicture.capturePng() ?: return null.also { JLog.e(TAG, "screenshot: no picture from the core") }
+        val stamp = java.text.SimpleDateFormat("yyMMdd-HHmmss", java.util.Locale.US).format(java.util.Date())
+        var name = "$saveName-$stamp.png"
+        var n = 1
+        while (space.exists(listOf(DataKind.Screenshots.dir, name))) name = "$saveName-$stamp-${n++}.png"
+        return try {
+            space.openWrite(listOf(DataKind.Screenshots.dir, name)).use { it.write(png) }
+            JLog.i(TAG, "screenshot $name (${png.size} bytes)")
+            name
+        } catch (e: IOException) {
+            JLog.e(TAG, "can't write screenshot $name" + "\n" + Log.getStackTraceString(e)); null
+        }
     }
 
     // ---- recovery state (approved 2026-11-05) ----------------------------------------------------

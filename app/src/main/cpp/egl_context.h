@@ -2,6 +2,8 @@
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
 #include <android/native_window.h>
+#include <cstdint>
+#include <vector>
 
 // Owns the EGL display/context and an offscreen FBO the core renders into.
 // Each frame the FBO is blitted to the window surface (handles scaling/letterbox).
@@ -14,6 +16,8 @@ public:
     void ensureFbo(int w, int h);             // (re)create FBO at core's max size
     GLuint fbo() const { return fbo_; }
     void present(int srcW, int srcH, bool bottomLeftOrigin);
+    // The FBO's last frame ([srcW] x [srcH], as presented) as top-down RGBA8. Context must be current.
+    bool capture(int srcW, int srcH, bool bottomLeftOrigin, std::vector<uint8_t>& rgba);
     void destroy();
     bool hasWindow() const { return window_ != EGL_NO_SURFACE; }
 

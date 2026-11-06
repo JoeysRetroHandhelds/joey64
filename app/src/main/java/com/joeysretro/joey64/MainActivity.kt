@@ -72,6 +72,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // (Duo, Odin 3, Portal), where GoldenEye judders with it, so it stays off there. --es env wins.
         if ("Mali" in gpuName && android.system.Os.getenv("N64_EARLY_ACQUIRE") == null)
             android.system.Os.setenv("N64_EARLY_ACQUIRE", "30", true)
+        // Single-threaded RDP command processing on Mali (README item 36, 2026-11-06): parallel-RDP handles commands
+        // on the emulation thread instead of handing them to a worker through a ring. Flip +3.7% uncapped (14 games x
+        // 2, none slower), compat 82/82 with nothing drawn wrong (flip-st). Adreno keeps the ring (Duo mixed:
+        // Banjo -6.4%, Paper Mario -5.7%). --es env PARALLEL_RDP_SINGLE_THREADED_COMMAND=0 turns it off.
+        if ("Mali" in gpuName && android.system.Os.getenv("PARALLEL_RDP_SINGLE_THREADED_COMMAND") == null)
+            android.system.Os.setenv("PARALLEL_RDP_SINGLE_THREADED_COMMAND", "1", true)
         // parallel-RDP synchronous by default on Adreno: async there gives black screens (Yoshi's Story,
         // Resident Evil 2, Cruis'n USA) or halts (New Tetris), and sync costs ~1-2 ms a frame (Odin 3, Duo).
         // On Mali (Flip) sync can cost a third of the frame rate, so async plus kSyncRdpGames. --es opts wins.

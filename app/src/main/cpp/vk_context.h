@@ -16,8 +16,7 @@
 // Vulkan frontend for libretro cores that render with RETRO_HW_CONTEXT_VULKAN (parallel-RDP).
 // Owns the instance, surface and swapchain; the device comes from the core's negotiation
 // interface when it offers one. Each frame the core's image is blitted (4:3 letterbox) into
-// the acquired swapchain image. All calls except setWindow happen on the emulation thread
-// (in presenter mode the swapchain itself is driven by the presenter thread).
+// the acquired swapchain image. All calls except setWindow happen on the emulation thread.
 class VkContext {
 public:
     // Optional custom driver (e.g. Turnip) loaded through libadrenotools. Call before init.
@@ -66,7 +65,7 @@ public:
 
 private:
     bool createSwapchain();
-    void startSwapchain(); // createSwapchain plus, in presenter mode, staging images and the thread
+    void startSwapchain();
     void destroySwapchain();
     void present(bool newImage);
     bool acquireImage();
@@ -120,7 +119,7 @@ private:
     // Default (N64_SKIP_DUPES=0 turns it off): frames start without a swapchain image; present acquires one only for a new frame
     // (or repaint_: the last image must go on a new swapchain), so repeat frames aren't presented.
     bool skipDupes_ = false, needAcquire_ = false, repaint_ = true;
-    // EXPERIMENT (N64_EARLY_ACQUIRE=<n>): with skipDupes_, once n frames in a row were new images the next one acquires
+    // N64_EARLY_ACQUIRE=<n> (default 30 on Mali, set by MainActivity; off elsewhere): with skipDupes_, once n frames in a row were new images the next one acquires
     // at frame start like the plain path, so a blocking acquire waits before the input poll (games that draw every
     // refresh, e.g. Smash on the Flip: poll->display 58 ms skipping vs 40 ms not). A repeat ends the streak.
     int earlyAcquire_ = 0;
@@ -155,24 +154,8 @@ private:
     int shownFor_[4] = {};
     int64_t lastCallNs_ = 0; double callSum_ = 0, callSq_ = 0; int callN_ = 0;
     void collectTiming();
-    std::mutex timingMutex_; // presenter mode: collectTiming runs on the presenter thread
+    std::mutex timingMutex_;
 
-    // EXPERIMENT, presenter mode (dev env N64_PRESENTER=1): the emulation thread blits each frame
-    // into a staging image (one per sync index) and hands its index over; a presenter thread
-    // acquires, copies and presents the newest one, so swapchain waits (~5 ms a frame on the Flip
-    // even with the GPU idle) no longer stall emulation. Audio sync paces emulation instead.
-    bool presenter_ = false;
-    bool acquireFirst_ = false; // N64_PRESENTER=2/3: acquire, then take the newest frame
-    bool lockstep_ = false;     // N64_PRESENTER=3/4: start a frame once the presenter took the last one (4: claim, then acquire)
-    std::thread presThread_;
-    std::mutex presMutex_;
-    std::condition_variable presCv_;
-    bool presStop_ = false;
-    int presLatest_ = -1, presClaimed_ = -1; // staging index handed over / being read
-    int64_t stagingPoll_[kSyncFrames] = {};
-    VkImage staging_[kSyncFrames] = {};
-    VkDeviceMemory stagingMem_[kSyncFrames] = {};
-    VkExtent2D stagingExtent_{};
     VkFormat format_ = VK_FORMAT_UNDEFINED;
     // Sharp display: the whole-number prescale target, made (or remade) when the size or format changes.
     std::atomic<bool> sharp_{false};
@@ -182,17 +165,6 @@ private:
     VkFormat sharpFormat_ = VK_FORMAT_UNDEFINED;
     bool ensureSharpImage(uint32_t w, uint32_t h, VkFormat format);
     void destroySharpImage();
-    VkCommandPool presPool_ = VK_NULL_HANDLE;
-    VkCommandBuffer presCmd_ = VK_NULL_HANDLE;
-    VkFence presFence_ = VK_NULL_HANDLE;
-    bool createStaging();
-    void destroyStaging();
-    void startPresenter();
-    void stopPresenter();
-    void presenterLoop();
-    bool acquireImage(VkSemaphore& sem, uint32_t& index);
-    void presentStaging(int s, int64_t poll, VkSemaphore acquire, uint32_t index);
-    void rebuildSwapchainLocked();
 
     // State handed over by the core for the next video_refresh.
     retro_vulkan_image image_{};

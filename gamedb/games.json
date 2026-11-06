@@ -1,6 +1,6 @@
 {
   "about": "Joey64 per-game database: what each game needs, what is wrong with it and where, and what was fixed. Seed for the M3 profile DB. Rules: gamedb/README.md. Update this file in the same commit as any change to a game's status (new problem found, fixed, regressed, setting added or dropped).",
-  "updated": "2026-11-05",
+  "updated": "2026-11-06",
   "games": [
     {
       "id": "NPF", "title": "Pokemon Snap",
@@ -167,8 +167,8 @@
     },
     {
       "id": "NAL", "crc": "FB8169896F442541", "title": "Smash Remix 0.9.4 (hack)",
-      "issues": [
-        {"status": "open", "what": "Project64 marks it Unaligned DMA=1, our ini aligns it: test both ways (item 26)", "evidence": "README unaligned PI DMA item"}
+      "notes": [
+        "Project64 marks it Unaligned DMA=1, our ini aligns it (item 26). Flip 2026-11-06, N64_PI_DMA_DEBUG=1, aligned and kept odd: no PI DMA from an odd cart address through boot, the menus and into a 1P match (Ness, 60 fps), same screens either way, so the setting cannot matter and the ini entry stays (results/pialign/flip1, flip2)"
       ]
     },
     {

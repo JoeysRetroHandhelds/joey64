@@ -35,8 +35,16 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     private var started = false
 
+
+    /** This instance only hands its game over (switchGame): it must not touch the native side. */
+    private var switching = false
+    private val mine get() = !switching && (owner == null || owner === this)
+
+    private fun hasRom(i: Intent?) = i?.data != null || i?.getStringExtra("rom") != null || i?.getStringExtra(EXTRA_ROM_PATH) != null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (gameLoaded && hasRom(intent)) { switching = true; switchGame(); return }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // Dev check (2026-11-05 recheck): whether this device offers sustained performance mode (checked before only on the Flip and Portal)
         Log.w(TAG, "sustained performance mode supported: " +
@@ -48,11 +56,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // games and runs a 120 Hz vsync loop in our process (Duo: ~17 ms of CPU a second). The window's
         // views no longer draw, so the FPS counter is its own panel window (showFpsCounter).
         window.takeSurface(this)
-        // Android batches joystick moves (sticks, hat D-pads, analog triggers) to the next frame:
-        // Odin 2 Portal 10 ms -> 0.5 ms from event to dispatch. Requested on the decor view because
-        // only the focused-view chain counts and nothing here takes focus. No effect on Android 11.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
-            window.decorView.requestUnbufferedDispatch(InputDevice.SOURCE_CLASS_JOYSTICK)
+        requestUnbufferedJoystick(late = false)
         registerDebugStick()
 
         // The bundled core (devtools/bundle-core.sh); older test builds still carry it under upstream's file names.
@@ -71,6 +75,17 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // Driver and renderer by GPU (setupGpu). Override with: am start ... --es renderer parallel|gliden64
         val renderer = setupGpu()
         NativeBridge.setRenderer(renderer == "parallel")
+        // Early acquire on Mali (Flip) by default (Joey 2026-11-05): after 30 new frames in a row the next frame
+        // acquires its swapchain image early. Flip compat 82/82 (flip-early30); no gain on the 120 Hz Adrenos
+        // (Duo, Odin 3, Portal), where GoldenEye judders with it, so it stays off there. --es env wins.
+        if ("Mali" in gpuName && android.system.Os.getenv("N64_EARLY_ACQUIRE") == null)
+            android.system.Os.setenv("N64_EARLY_ACQUIRE", "30", true)
+        // Single-threaded RDP command processing on Mali (README item 36, 2026-11-06): parallel-RDP handles commands
+        // on the emulation thread instead of handing them to a worker through a ring. Flip +3.7% uncapped (14 games x
+        // 2, none slower), compat 82/82 with nothing drawn wrong (flip-st). Adreno keeps the ring (Duo mixed:
+        // Banjo -6.4%, Paper Mario -5.7%). --es env PARALLEL_RDP_SINGLE_THREADED_COMMAND=0 turns it off.
+        if ("Mali" in gpuName && android.system.Os.getenv("PARALLEL_RDP_SINGLE_THREADED_COMMAND") == null)
+            android.system.Os.setenv("PARALLEL_RDP_SINGLE_THREADED_COMMAND", "1", true)
         // parallel-RDP synchronous by default on Adreno: async there gives black screens (Yoshi's Story,
         // Resident Evil 2, Cruis'n USA) or halts (New Tetris), and sync costs ~1-2 ms a frame (Odin 3, Duo).
         // On Mali (Flip) sync can cost a third of the frame rate, so async plus kSyncRdpGames. --es opts wins.
@@ -107,8 +122,46 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private var fpsLastDrawn = 0
     private var fpsLastTime = 0L
 
+    // Android batches joystick moves (sticks, hat D-pads, analog triggers) to the next frame:
+    // Odin 2 Portal 10 ms -> 0.5 ms from event to dispatch. Requested on the decor view because
+    // only the focused-view chain counts and nothing here takes focus. The window (ViewRootImpl) only
+    // takes the request when it is made while the decor view is attached: made in onCreate alone, the
+    // Flip (Android 11) never got it (dumpsys: mUnbufferedInputSource=0; the Portal showed 10). So it
+    // is made again once attached and on every focus gain (a focus change recomputes it). The same
+    // value twice is ignored by View, hence NONE first.
+    private fun requestUnbufferedJoystick(late: Boolean = true) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        // Default since 2026-11-06 (Flip, unbuf.sh: stick moves 15.5 -> 1.6 ms, window source 0 -> 10; compat 82/82).
+        // N64_UNBUF_LATE=0 goes back to the onCreate request alone.
+        if (late && android.system.Os.getenv("N64_UNBUF_LATE") == "0") return
+        val decor = window.decorView
+        decor.requestUnbufferedDispatch(InputDevice.SOURCE_CLASS_NONE)
+        decor.requestUnbufferedDispatch(InputDevice.SOURCE_CLASS_JOYSTICK)
+    }
+
+    // Dev (--es env N64_INPUT_LAT=1): every 5 s, how long joystick moves and key presses took from
+    // the kernel event to our dispatch (uptime ms), and how many moves came batched (with history).
+    private val inputLat by lazy { android.system.Os.getenv("N64_INPUT_LAT") == "1" } // env is set in onCreate
+    private var latStart = 0L
+    private var latMoves = 0; private var latMoveSum = 0L; private var latMoveMax = 0L; private var latBatched = 0
+    private var latKeys = 0; private var latKeySum = 0L; private var latKeyMax = 0L
+    private fun noteInputLat(eventTime: Long, key: Boolean, history: Int) {
+        val now = android.os.SystemClock.uptimeMillis()
+        val d = now - eventTime
+        if (key) { latKeys++; latKeySum += d; latKeyMax = maxOf(latKeyMax, d) }
+        else { latMoves++; latMoveSum += d; latMoveMax = maxOf(latMoveMax, d); if (history > 0) latBatched++ }
+        if (latStart == 0L) latStart = now
+        if (now - latStart < 5000) return
+        Log.e(TAG, "input lat: moves $latMoves mean " + "%.1f".format(latMoveSum.toDouble() / maxOf(latMoves, 1)) +
+            " max $latMoveMax ms batched $latBatched; keys $latKeys mean " +
+            "%.1f".format(latKeySum.toDouble() / maxOf(latKeys, 1)) + " max $latKeyMax ms")
+        latStart = now
+        latMoves = 0; latMoveSum = 0; latMoveMax = 0; latBatched = 0; latKeys = 0; latKeySum = 0; latKeyMax = 0
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        requestUnbufferedJoystick()
         if (fpsView != null) return
         val dp = resources.displayMetrics.density
         val view = TextView(this).apply {
@@ -315,14 +368,25 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
      * is named by content hash since different games get pushed there. M5 replaces this with a game list.
      */
     private fun resolveRom(): Pair<String, String>? {
-        intent?.data?.let { uri -> return copyToCache(uri) to saveName(displayName(uri) ?: "") }
+        // Handed over by switchGame from the process before this one: the ROM is already unpacked.
+        intent?.getStringExtra(EXTRA_ROM_PATH)?.let { return it to (intent.getStringExtra(EXTRA_SAVE_NAME) ?: "") }
+        intent?.data?.let { uri ->
+            val inner = copyToCache(uri) ?: run { Log.e(TAG, "No N64 ROM in $uri"); return null }
+            if (inner.isNotEmpty()) Log.i(TAG, "ROM $inner from archive $uri")
+            return romCache.absolutePath to saveName(displayName(uri) ?: inner)
+        }
         // Some Android 11 devices (Retroid Pocket Flip) block adb from Android/data: there, copy the
         // ROM into internal storage with run-as instead.
         val dirs = listOfNotNull(getExternalFilesDir(null), filesDir)
         intent?.getStringExtra("rom")?.let { name ->
             val rom = dirs.map { File(it, "roms/$name") }.firstOrNull { it.exists() }
                 ?: run { Log.e(TAG, "ROM $name not found in roms/"); return null }
-            return rom.absolutePath to saveName(rom.name)
+            if (!RomFiles.isArchive(rom.inputStream().use { i -> ByteArray(4).also { i.read(it) } }))
+                return rom.absolutePath to saveName(rom.name)
+            val inner = rom.inputStream().use { RomFiles.extract(it, romCache) }
+                ?: run { Log.e(TAG, "No N64 ROM in $name"); return null }
+            Log.i(TAG, "ROM $inner from archive $name")
+            return romCache.absolutePath to saveName(rom.name)
         }
         return dirs.map { File(it, "test.z64") }.firstOrNull { it.exists() }?.let { it.absolutePath to "" }
     }
@@ -334,24 +398,52 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             if (c.moveToFirst()) c.getString(0) else null
         } ?: uri.lastPathSegment?.substringAfterLast('/')
 
-    private fun copyToCache(uri: Uri): String {
-        val out = File(cacheDir, "current.rom")
-        contentResolver.openInputStream(uri)!!.use { i -> out.outputStream().use { i.copyTo(it) } }
-        return out.absolutePath
-    }
+    private val romCache get() = File(cacheDir, "current.rom")
+
+    /**
+     * Copies the ROM behind [uri] to [romCache], unpacking a zip or 7z (RomFiles). Returns the ROM's own name inside an
+     * archive (logged only: saves are named after the archive, as RetroArch names them, checked on the Thor 2026-11-06:
+     * "Paper Mario - TTYD64.zip" holding "Paper Mario (USA) (patched).z64" has "Paper Mario - TTYD64.srm"; the inner
+     * name would also let a hack that keeps the original file name overwrite the real game's save), "" for a plain
+     * ROM, or null when it holds no N64 ROM.
+     */
+    private fun copyToCache(uri: Uri): String? =
+        contentResolver.openInputStream(uri)?.use { RomFiles.extract(it, romCache) }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
+        if (!mine) return
         NativeBridge.setSurface(holder.surface)
         if (!started) {
             val (rom, saveName) = resolveRom() ?: run { Log.e(TAG, "No ROM. Push one to ${getExternalFilesDir(null)}/test.z64"); return }
             reportGameState(loading = true)
-            if (NativeBridge.loadGame(rom, saveName)) { NativeBridge.start(); started = true }
+            if (NativeBridge.loadGame(rom, saveName)) { NativeBridge.start(); started = true; owner = this; gameLoaded = true }
             reportGameState(loading = false)
         }
     }
 
-    override fun surfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) = NativeBridge.surfaceResized()
-    override fun surfaceDestroyed(holder: SurfaceHolder) = NativeBridge.setSurface(null)
+    override fun surfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) { if (mine) NativeBridge.surfaceResized() }
+    override fun surfaceDestroyed(holder: SurfaceHolder) { if (mine) NativeBridge.setSurface(null) }
+
+    /**
+     * A ROM arrived while a game is loaded in this process (a frontend sending a second game). The core cannot load
+     * another one, so: stop the running game (its save is written on exit), unpack the new ROM here, and start the
+     * game screen again in a fresh process (RestartActivity), passing the unpacked path and save name so no URI grant
+     * has to survive the restart. The intent's other extras (env, opts, renderer, ...) go along.
+     */
+    private fun switchGame() {
+        Log.i(TAG, "new ROM while a game is loaded: restarting the process for it")
+        owner?.let { NativeBridge.stop(); it.finish() }
+        owner = null
+        val (rom, saveName) = resolveRom() ?: run { Log.e(TAG, "No N64 ROM in the new intent"); finish(); return }
+        val next = Intent(this, MainActivity::class.java).apply {
+            intent.extras?.let { putExtras(it) }
+            removeExtra("rom")
+            putExtra(EXTRA_ROM_PATH, rom)
+            putExtra(EXTRA_SAVE_NAME, saveName)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        }
+        RestartActivity.restart(this, next)
+    }
     override fun surfaceRedrawNeeded(holder: SurfaceHolder) {}
 
     // Immersive: hide status + nav bars so the surface is the whole screen. Re-applied on focus
@@ -359,6 +451,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (!hasFocus) return
+        requestUnbufferedJoystick()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.setDecorFitsSystemWindows(false)
             window.insetsController?.let {
@@ -421,6 +514,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (event.deviceId != padDeviceId && KeyEvent.isGamepadButton(event.keyCode)) usePad(event.device, event.deviceId)
         val id = retroId(event.keyCode)
         if (id < 0) return super.dispatchKeyEvent(event)
+        if (inputLat && event.action == KeyEvent.ACTION_DOWN) noteInputLat(event.eventTime, true, 0)
         when (event.action) {
             KeyEvent.ACTION_DOWN -> keyMask = keyMask or (1 shl id)
             KeyEvent.ACTION_UP -> keyMask = keyMask and (1 shl id).inv()
@@ -433,6 +527,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (event.source and InputDevice.SOURCE_JOYSTICK != InputDevice.SOURCE_JOYSTICK ||
             event.action != MotionEvent.ACTION_MOVE) return super.dispatchGenericMotionEvent(event)
         usePad(event.device, event.deviceId)
+        if (inputLat) noteInputLat(if (event.historySize > 0) event.getHistoricalEventTime(0) else event.eventTime, false, event.historySize)
         val cal = stickCal!!
         fun axis(v: Float) = (v.coerceIn(-1f, 1f) * 32767).toInt()
         val (lx, ly) = cal.apply(0, event.getAxisValue(MotionEvent.AXIS_X), event.getAxisValue(MotionEvent.AXIS_Y))
@@ -454,6 +549,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     override fun onPause() {
         super.onPause()
+        if (!mine) return
         NativeBridge.pause(true)
         reportGameState(loading = false, playing = false)
         fpsHandler.removeCallbacks(fpsTick)
@@ -463,6 +559,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
     override fun onResume() {
         super.onResume()
+        if (!mine) return
         NativeBridge.pause(false)
         if (started) reportGameState(loading = false)
         fpsLastTime = 0L
@@ -491,7 +588,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         debugDump?.let { unregisterReceiver(it) }
         destroyed = true
         fpsView?.let { windowManager.removeView(it) }
-        NativeBridge.stop(); super.onDestroy()
+        if (owner === this) { NativeBridge.stop(); owner = null } else if (owner == null && !switching) NativeBridge.stop()
+        super.onDestroy()
     }
 
     /**
@@ -528,6 +626,18 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     companion object {
+        /**
+         * The instance whose surface, pause and stop calls reach the native side: the one that loaded the game. A ROM
+         * handed over while the game screen is already open makes a second instance; the first one's surfaceDestroyed,
+         * onPause and onDestroy used to take the surface and the game away from it (black screen at 0 fps, Thor
+         * 2026-11-06). Null while no game is loaded, when any instance may set the surface.
+         */
+        private var owner: MainActivity? = null
+        /** A game was loaded in this process; the core cannot load a second one, so a new ROM restarts the process. */
+        private var gameLoaded = false
+        /** switchGame -> the next process: the ROM already unpacked, and its save name. */
+        const val EXTRA_ROM_PATH = "com.joeysretro.joey64.ROM_PATH"
+        const val EXTRA_SAVE_NAME = "com.joeysretro.joey64.SAVE_NAME"
         const val TAG = "Joey64"
         // Bundled in assets/drivers/ (see assets/licenses/): Turnip (Mesa freedreno).
         const val TURNIP = "libvulkan_freedreno.so"

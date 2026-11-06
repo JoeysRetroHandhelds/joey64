@@ -249,21 +249,11 @@ bool VkContext::init(const retro_hw_render_context_negotiation_interface_vulkan*
     VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
     fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
     for (auto& f : frameFences_) vkCreateFence(device_, &fci, nullptr, &f);
-    const char* pres = getenv("N64_PRESENTER");
-    presenter_ = pres && *pres >= '1' && *pres <= '4';
-    acquireFirst_ = pres && (*pres == '2' || *pres == '3');
-    lockstep_ = pres && (*pres == '3' || *pres == '4');
     const char* dupes = getenv("N64_SKIP_DUPES");
     skipDupes_ = !(dupes && *dupes == '0');
     const char* early = getenv("N64_EARLY_ACQUIRE");
     earlyAcquire_ = early ? atoi(early) : 0; // new frames in a row before acquiring early (2 = first try)
-    if (presenter_) { // command pools are used by one thread at a time
-        vkCreateCommandPool(device_, &pci, nullptr, &presPool_);
-        ai.commandPool = presPool_; ai.commandBufferCount = 1;
-        vkAllocateCommandBuffers(device_, &ai, &presCmd_);
-        vkCreateFence(device_, &fci, nullptr, &presFence_);
-    }
-    LOGI("vulkan: presenter thread %s", !presenter_ ? "off" : lockstep_ ? "on, lockstep" : acquireFirst_ ? "on, acquire first" : "on");
+    if (earlyAcquire_ > 0) LOGI("vulkan: early acquire after %d new frames in a row", earlyAcquire_);
 
     iface_.interface_type = RETRO_HW_RENDER_INTERFACE_VULKAN;
     iface_.interface_version = RETRO_HW_RENDER_INTERFACE_VULKAN_VERSION;
@@ -287,7 +277,6 @@ bool VkContext::init(const retro_hw_render_context_negotiation_interface_vulkan*
 }
 
 void VkContext::attachWindow(ANativeWindow* win) {
-    stopPresenter();
     if (surface_) {
         vkDeviceWaitIdle(device_);
         destroySwapchain();
@@ -308,15 +297,11 @@ void VkContext::attachWindow(ANativeWindow* win) {
 }
 
 void VkContext::startSwapchain() {
-    if (createSwapchain() && presenter_) {
-        destroyStaging();
-        if (createStaging()) startPresenter();
-    }
+    createSwapchain();
 }
 
 void VkContext::resizeSwapchain() {
     if (!surface_) return;
-    stopPresenter();
     vkDeviceWaitIdle(device_);
     destroySwapchain();
     startSwapchain();
@@ -430,20 +415,14 @@ void VkContext::destroySwapchain() {
     renderDone_.clear(); acquireSems_.clear(); images_.clear();
     vkDestroySwapchainKHR(device_, swapchain_, nullptr);
     swapchain_ = VK_NULL_HANDLE;
-    if (!presenter_) acquired_ = false; // presenter mode: the emulation thread never holds an image
+    acquired_ = false;
 }
 
 bool VkContext::beginFrame(bool show) {
     if (!swapchain_) return false;
-    if (!presenter_ && wantUnthrottled_ != unthrottled_) { vkDeviceWaitIdle(device_); destroySwapchain(); createSwapchain(); }
+    if (wantUnthrottled_ != unthrottled_) { vkDeviceWaitIdle(device_); destroySwapchain(); createSwapchain(); }
     skip_ = !show;
-    if (presenter_ && lockstep_ && !skip_ && presThread_.joinable()) {
-        // Keep emulation in step with the display: frames that finish at an arbitrary point in
-        // the refresh wait for the next slot. The presenter acquires while the next frame runs.
-        std::unique_lock<std::mutex> lk(presMutex_);
-        presCv_.wait(lk, [&] { return presStop_ || presLatest_ < 0; });
-    }
-    if (skip_ || presenter_) { // run the core's work without touching the swapchain
+    if (skip_) { // run the core's work without touching the swapchain
         sync_ = (sync_ + 1) % kSyncFrames;
         vkWaitForFences(device_, 1, &frameFences_[sync_], VK_TRUE, UINT64_MAX);
         acquired_ = true;
@@ -532,7 +511,7 @@ void VkContext::paceFrame() {
 void VkContext::endFrame() {
     bool begun = acquired_;
     if (acquired_ && !presented_) present(false); // an acquired image must be presented
-    bool shown = begun && !skip_ && !presenter_ && swapMode_ == 1 && !needAcquire_; // not a skipped repeat
+    bool shown = begun && !skip_ && swapMode_ == 1 && !needAcquire_; // not a skipped repeat
     acquired_ = false;
     needAcquire_ = false;
     // Swap interval: present the frame again, so with FIFO each one is shown for swapInterval_
@@ -562,13 +541,8 @@ void VkContext::present(bool newImage) {
     newStreak_ = newImage ? newStreak_ + 1 : 0;
     repaint_ = false;
     VkCommandBuffer cmd = frameCmds_[sync_];
-    VkImage dst = presenter_ ? staging_[sync_] : images_[index_];
-    VkExtent2D dstExtent = presenter_ ? stagingExtent_ : extent_;
-    if (presenter_) { // don't overwrite the staging image the presenter is reading
-        std::unique_lock<std::mutex> lk(presMutex_);
-        presCv_.wait(lk, [&] { return presClaimed_ != (int)sync_; });
-        if (presLatest_ == (int)sync_) presLatest_ = -1;
-    }
+    VkImage dst = images_[index_];
+    VkExtent2D dstExtent = extent_;
     vkResetFences(device_, 1, &frameFences_[sync_]);
     vkResetCommandBuffer(cmd, 0);
     VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
@@ -637,38 +611,6 @@ void VkContext::present(bool newImage) {
                      VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, toFam, fromFam);
     }
 
-    if (presenter_) {
-        // The barrier also orders the presenter's later copy (same queue, later submission).
-        imageBarrier(cmd, dst, kColorRange, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                     VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                     VK_PIPELINE_STAGE_TRANSFER_BIT);
-        vkEndCommandBuffer(cmd);
-        std::vector<VkCommandBuffer> cmds;
-        std::vector<VkSemaphore> waits;
-        if (newImage) {
-            cmds = coreCmds_;
-            if (coreCmds_.empty()) waits = waitSems_;
-        }
-        cmds.push_back(cmd);
-        std::vector<VkPipelineStageFlags> stages(waits.size(), VK_PIPELINE_STAGE_TRANSFER_BIT);
-        VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-        si.waitSemaphoreCount = (uint32_t)waits.size(); si.pWaitSemaphores = waits.data(); si.pWaitDstStageMask = stages.data();
-        si.commandBufferCount = (uint32_t)cmds.size(); si.pCommandBuffers = cmds.data();
-        si.signalSemaphoreCount = signalSem_ ? 1 : 0; si.pSignalSemaphores = &signalSem_;
-        {
-            std::lock_guard<std::mutex> lk(queueMutex_);
-            vkQueueSubmit(queue_, 1, &si, frameFences_[sync_]);
-        }
-        waitSems_.clear(); coreCmds_.clear(); signalSem_ = VK_NULL_HANDLE;
-        presented_ = true;
-        {
-            std::lock_guard<std::mutex> lk(presMutex_);
-            presLatest_ = (int)sync_;
-            stagingPoll_[sync_] = pollNs_;
-        }
-        presCv_.notify_all();
-        return;
-    }
     imageBarrier(cmd, dst, kColorRange, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
                  VK_ACCESS_TRANSFER_WRITE_BIT, 0, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
     vkEndCommandBuffer(cmd);
@@ -823,12 +765,8 @@ void VkContext::submitSkipped(bool newImage) {
 
 void VkContext::destroy() {
     if (!instance_) return;
-    stopPresenter();
     if (device_) vkDeviceWaitIdle(device_);
-    destroyStaging();
     destroySharpImage();
-    if (presFence_) { vkDestroyFence(device_, presFence_, nullptr); presFence_ = VK_NULL_HANDLE; }
-    if (presPool_) { vkDestroyCommandPool(device_, presPool_, nullptr); presPool_ = VK_NULL_HANDLE; }
     destroySwapchain();
     if (surface_) vkDestroySurfaceKHR(instance_, surface_, nullptr);
     for (auto& f : frameFences_) if (f) { vkDestroyFence(device_, f, nullptr); f = VK_NULL_HANDLE; }
@@ -840,34 +778,7 @@ void VkContext::destroy() {
     surface_ = VK_NULL_HANDLE; pool_ = VK_NULL_HANDLE; device_ = VK_NULL_HANDLE; instance_ = VK_NULL_HANDLE;
 }
 
-// ---- presenter thread (N64_PRESENTER=1) --------------------------------------
-
-bool VkContext::createStaging() {
-    VkPhysicalDeviceMemoryProperties mp;
-    vkGetPhysicalDeviceMemoryProperties(gpu_, &mp);
-    stagingExtent_ = extent_;
-    for (uint32_t i = 0; i < kSyncFrames; ++i) {
-        VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-        ci.imageType = VK_IMAGE_TYPE_2D; ci.format = format_; ci.extent = {extent_.width, extent_.height, 1};
-        ci.mipLevels = 1; ci.arrayLayers = 1; ci.samples = VK_SAMPLE_COUNT_1_BIT; ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-        ci.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-        ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE; ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        if (vkCreateImage(device_, &ci, nullptr, &staging_[i]) != VK_SUCCESS) { LOGE("vulkan: staging image failed"); return false; }
-        VkMemoryRequirements req;
-        vkGetImageMemoryRequirements(device_, staging_[i], &req);
-        uint32_t type = UINT32_MAX;
-        for (uint32_t t = 0; t < mp.memoryTypeCount && type == UINT32_MAX; ++t)
-            if ((req.memoryTypeBits & (1u << t)) && (mp.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) type = t;
-        VkMemoryAllocateInfo mai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
-        mai.allocationSize = req.size; mai.memoryTypeIndex = type;
-        if (type == UINT32_MAX || vkAllocateMemory(device_, &mai, nullptr, &stagingMem_[i]) != VK_SUCCESS) {
-            LOGE("vulkan: staging memory failed"); return false;
-        }
-        vkBindImageMemory(device_, staging_[i], stagingMem_[i], 0);
-    }
-    presLatest_ = presClaimed_ = -1;
-    return true;
-}
+// ---- sharp display prescale image -----------------------------------------
 
 bool VkContext::ensureSharpImage(uint32_t w, uint32_t h, VkFormat format) {
     if (sharpImage_ && w == sharpW_ && h == sharpH_ && format == sharpFormat_) return true;
@@ -904,132 +815,6 @@ void VkContext::destroySharpImage() {
     if (sharpImage_) vkDestroyImage(device_, sharpImage_, nullptr);
     if (sharpMem_) vkFreeMemory(device_, sharpMem_, nullptr);
     sharpImage_ = VK_NULL_HANDLE; sharpMem_ = VK_NULL_HANDLE; sharpW_ = sharpH_ = 0;
-}
-
-void VkContext::destroyStaging() {
-    for (uint32_t i = 0; i < kSyncFrames; ++i) {
-        if (staging_[i]) vkDestroyImage(device_, staging_[i], nullptr);
-        if (stagingMem_[i]) vkFreeMemory(device_, stagingMem_[i], nullptr);
-        staging_[i] = VK_NULL_HANDLE; stagingMem_[i] = VK_NULL_HANDLE;
-    }
-}
-
-void VkContext::startPresenter() {
-    presStop_ = false;
-    presLatest_ = presClaimed_ = -1;
-    presThread_ = std::thread(&VkContext::presenterLoop, this);
-}
-
-// Called on the emulation thread, so it never waits in present() while this joins.
-void VkContext::stopPresenter() {
-    if (!presThread_.joinable()) return;
-    {
-        std::lock_guard<std::mutex> lk(presMutex_);
-        presStop_ = true;
-    }
-    presCv_.notify_all();
-    presThread_.join();
-}
-
-void VkContext::presenterLoop() {
-    for (;;) {
-        int s;
-        int64_t poll;
-        VkSemaphore sem = VK_NULL_HANDLE;
-        uint32_t index = 0;
-        // Acquiring first means the frame taken is the newest one once an image is free, rather
-        // than one that then waits out the acquire (~10 ms more poll->display on the Flip).
-        if (acquireFirst_) {
-            {
-                std::lock_guard<std::mutex> lk(presMutex_);
-                if (presStop_) return;
-            }
-            if (!acquireImage(sem, index)) continue;
-        }
-        {
-            std::unique_lock<std::mutex> lk(presMutex_);
-            presCv_.wait(lk, [&] { return presStop_ || presLatest_ >= 0; });
-            if (presStop_) return; // an acquired image may stay unpresented: the swapchain is rebuilt or destroyed next
-            s = presLatest_; presLatest_ = -1; presClaimed_ = s; poll = stagingPoll_[s];
-        }
-        if (acquireFirst_ || acquireImage(sem, index)) presentStaging(s, poll, sem, index);
-        {
-            std::lock_guard<std::mutex> lk(presMutex_);
-            presClaimed_ = -1;
-        }
-        presCv_.notify_all();
-    }
-}
-
-// Swapchain rebuild from the presenter thread; the core may be submitting meanwhile.
-void VkContext::rebuildSwapchainLocked() {
-    {
-        std::lock_guard<std::mutex> lk(queueMutex_);
-        vkQueueWaitIdle(queue_);
-    }
-    destroySwapchain();
-    createSwapchain();
-}
-
-bool VkContext::acquireImage(VkSemaphore& sem, uint32_t& index) {
-    if (wantUnthrottled_ != unthrottled_) rebuildSwapchainLocked();
-    if (!swapchain_) return false;
-    sem = acquireSems_[acquireSlot_];
-    acquireSlot_ = (acquireSlot_ + 1) % (uint32_t)acquireSems_.size();
-    VkResult r = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX, sem, VK_NULL_HANDLE, &index);
-    if (r == VK_ERROR_OUT_OF_DATE_KHR) { rebuildSwapchainLocked(); return false; }
-    if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) { LOGE("vkAcquireNextImageKHR: %d", r); return false; }
-    return true;
-}
-
-void VkContext::presentStaging(int s, int64_t poll, VkSemaphore acquire, uint32_t index) {
-    VkResult r;
-
-    VkImage dst = images_[index];
-    vkResetFences(device_, 1, &presFence_);
-    vkResetCommandBuffer(presCmd_, 0);
-    VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(presCmd_, &bi);
-    imageBarrier(presCmd_, dst, kColorRange, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                 0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-    VkImageBlit blit{}; // same size unless the swapchain was rebuilt at another size
-    blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    blit.srcOffsets[1] = {(int32_t)stagingExtent_.width, (int32_t)stagingExtent_.height, 1};
-    blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    blit.dstOffsets[1] = {(int32_t)extent_.width, (int32_t)extent_.height, 1};
-    vkCmdBlitImage(presCmd_, staging_[s], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                   1, &blit, VK_FILTER_NEAREST);
-    imageBarrier(presCmd_, dst, kColorRange, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-                 VK_ACCESS_TRANSFER_WRITE_BIT, 0, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
-    vkEndCommandBuffer(presCmd_);
-
-    VkPipelineStageFlags stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-    si.waitSemaphoreCount = 1; si.pWaitSemaphores = &acquire; si.pWaitDstStageMask = &stage;
-    si.commandBufferCount = 1; si.pCommandBuffers = &presCmd_;
-    si.signalSemaphoreCount = 1; si.pSignalSemaphores = &renderDone_[index];
-
-    VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
-    pi.waitSemaphoreCount = 1; pi.pWaitSemaphores = &renderDone_[index];
-    pi.swapchainCount = 1; pi.pSwapchains = &swapchain_; pi.pImageIndices = &index;
-    VkPresentTimeGOOGLE when{0, 0};
-    VkPresentTimesInfoGOOGLE times{VK_STRUCTURE_TYPE_PRESENT_TIMES_INFO_GOOGLE};
-    if (getPastTiming_) {
-        std::lock_guard<std::mutex> lk(timingMutex_);
-        when.presentID = ++presentId_;
-        presentPollNs_[presentId_ % kTimingRing] = poll;
-        times.swapchainCount = 1; times.pTimes = &when;
-        pi.pNext = &times;
-    }
-    {
-        std::lock_guard<std::mutex> lk(queueMutex_);
-        vkQueueSubmit(queue_, 1, &si, presFence_);
-        r = vkQueuePresentKHR(queue_, &pi);
-    }
-    collectTiming();
-    vkWaitForFences(device_, 1, &presFence_, VK_TRUE, UINT64_MAX); // staging s is free again
-    if (r == VK_ERROR_OUT_OF_DATE_KHR) rebuildSwapchainLocked();
 }
 
 // ---- interface callbacks ---------------------------------------------------

@@ -76,7 +76,7 @@
     {
       "id": "NPD", "title": "Perfect Dark",
       "fixed": [
-        {"devices": "120 Hz screens (Duo, Portal, Odin 3)", "what": "judder at 60 fps: audio every other frame (0, then 1474 samples) made audio sync start frames 5 then 28 ms apart, ~240 of 300 frames uneven per 5 s", "fix": "smoothed audio wait, automatic above 60 Hz, app ab29e41. Duo: uneven 244 -> 39, lag 20.2 -> 18.6 ms; Odin 3: 246 -> 28, lag 18.3 -> 15.7 ms; 0 underruns; same-build underrun A/B clean (chain72)"},
+        {"devices": "120 Hz screens (Duo, Portal, Odin 3)", "what": "judder at 60 fps: audio every other frame (0, then 1474 samples) made audio sync start frames 5 then 28 ms apart, ~240 of 300 frames uneven per 5 s", "fix": "smoothed audio wait, automatic above 60 Hz, app 22121e2. Duo: uneven 244 -> 39, lag 20.2 -> 18.6 ms; Odin 3: 246 -> 28, lag 18.3 -> 15.7 ms; 0 underruns; same-build underrun A/B clean (chain72)"},
         {"what": "Portal: menu background shifted down (async build of 2026-11-03)", "fix": "current build, portal-prdp 2026-11-05"}
       ],
       "notes": [
@@ -108,7 +108,7 @@
         {"status": "open", "devices": "Flip", "what": "first launch stutters while shaders compile: 93-108 ms worst frames, 40 slow frames per window (warm 40-43 ms)", "evidence": "hitch bench; shader pre-build list is item 20"},
         {"status": "open", "devices": "Flip", "what": "white glow over the floor in one of two runs with the new parallel-RDP; check in the next Flip screenshots", "evidence": "screenshot review 2026-11-04"}
       ],
-      "notes": ["HLE audio: +14-19% on the Flip", "mixes louder than SM64, as on hardware", "intro at ~30 s: a short burst of audio underruns on the Duo, 12-13 with the smoothed audio wait (default above 60 Hz since ab29e41) vs 5-6 without (chain72)"]
+      "notes": ["HLE audio: +14-19% on the Flip", "mixes louder than SM64, as on hardware", "intro at ~30 s: a short burst of audio underruns on the Duo, 12-13 with the smoothed audio wait (default above 60 Hz since 22121e2) vs 5-6 without (chain72)"]
     },
     {
       "id": "NMW", "title": "Mario Party 2",

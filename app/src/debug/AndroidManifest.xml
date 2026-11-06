@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Debug builds only: the Phase 0 device checks (docs/launcher-build-plan.md, Phase 0 status).
+             No launcher icon; started with
+             adb shell am start -n com.joeysretro.joey64/.launcher.check.LauncherCheckActivity -->
+        <activity
+            android:name=".launcher.check.LauncherCheckActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|uiMode|density|keyboard|keyboardHidden|navigation" />
+    </application>
+</manifest>

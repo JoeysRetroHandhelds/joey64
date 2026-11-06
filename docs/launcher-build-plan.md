@@ -97,11 +97,25 @@ So Joey64 uses the **Storage Access Framework**, the way PPSSPP does on Play. Th
 - **Storage layer:** picked folders, file descriptors to native code, and moving data when the folder changes.
 - **SQLite** (built into Android) for games, hashes, play time, collections and the achievement progress cache. The sign-in key is encrypted with the Android Keystore.
 
-**Phase 0 status (2026-11-05, branch `launcher/phase0`, built without a device):**
+**Phase 0 status (2026-11-05, branch `launcher/phase0`; device checks 2026-11-06):**
 
 - Built: Compose and the theme (`launcher/theme`), the control layer carried over from JoeyOS (`launcher/controls`, `launcher/components`: `JoeyDialog`, `JoeyPage`, rows, hint row, `ControllerTextField`), layout by screen shape (`launcher/layout`), the storage layer (`launcher/storage`: picked folders, ROM scan, data folder, file descriptors, data move), SQLite (`launcher/data`), DataStore settings and the Keystore-sealed sign-in (`launcher/settings`).
 - Tested on the JVM: the screen-shape rules, the ROM folder rules, overlapping data folders, and the data move (copy, check, never overwrite, resume after a cut-off move, a failed copy keeps the original). The schema was run through SQLite with its foreign keys.
-- Still to check on a device: focus and keys in a page and a popup, the popup blur, the picker opening at `ROMs`, a scan of a real ROMs folder, a data move into a picked folder, the Keystore round trip, and the database on Android 10's SQLite.
+- Checked on the AYN Thor (Android 13, 2026-11-06) with a debug-only check page (`src/debug`, `launcher.check.LauncherCheckActivity`, started by `am start`; built from the shared page, popup and rows; every result logged as `Joey64Check`). Keys were sent as gamepad events by adb.
+  - Screen: the top screen reads as Wide, 832 x 468 dp, 4 box-art columns, two-column Settings.
+  - Page: focus on the marked row at open; A runs, B closes; Start, X, Y, L1, R1, L2 and R2 each reach the page as their control.
+  - Popup: background blur and dim, hint row lit with the popup's hints, focus on the marked option, the D-pad can't leave the card, a locked option is a stop that A ignores, Start reaches the popup, B / Back / a tap outside close it, a tap on the card doesn't. Both themes.
+  - Must-answer popup: B, Back and a tap outside do nothing. Two bugs found and fixed in `JoeyDialog`: Android's Back moved focus out of the card (Compose turns Back into a focus exit), and a tap on the dim left focus on the dim (it was a clickable, so a focus target holding the card); after either, the D-pad was dead.
+  - Picker: opens at internal `ROMs`. Picking the SD card's `ROMs` (an ES-DE layout) found its `n64` folder: 82 ROMs in 79 ms; after a force-stop the grant held and the saved folder scanned again (82 in 38 ms).
+  - Data move into a picked folder and back: 6 kinds copied and read back equal, a half-written copy replaced, a taken name left alone in both places, `.nomedia` in `boxart`, `cheats`, `textures` only, a save opened as a descriptor with the right size. Bug found and fixed in `TreeSpace`: deleting a folder cleared the whole folder cache, root included, and the next lookup recursed until the stack overflowed (moving back crashed after one file). The move run again after the fix picked up the rest.
+  - Keystore: token sealed and read back, a tampered one refused, a fresh IV per seal.
+  - Database: SQLite 3.32.2, WAL, foreign keys on, play time summed, a deleted game's sessions gone.
+- Found on the device, for later:
+  - On the Thor the ROMs are on the SD card and internal `ROMs` is empty, so the picker opening at `primary:ROMs` still needs a trip to the SD card. Opening at whichever volume has a `ROMs` folder with something in it would save it; to look at before Phase 1's first-run screens.
+  - Each file through the picked folder costs about 300 ms (6 small files in 1.9 s), so a move of a few hundred saves and states takes minutes: the move screen needs progress, and must not block.
+  - After a tap, the next D-pad press puts focus on the page's first row, not the row tapped (touch mode drops focus). The library grid should land on the tapped or last game (Phase 1).
+  - A move back into Joey64's own storage brings the `.nomedia` files along; harmless (they're empty, and a later move writes its own).
+- Still to check on a device: the database on Android 10's SQLite 3.22 (no Android 10 device here; the Flip is Android 11 and carries the emulator's test builds, so the check page wasn't installed there), and the real pad of each handheld rather than adb's gamepad events.
 - Still to do:
   - The 4:3, square and portrait previews come with the first screens (Phase 1); there is nothing to preview yet.
   - Dropping forced landscape is a manifest change on `MainActivity`, which belongs to the emulator side.

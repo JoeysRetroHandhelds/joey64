@@ -341,6 +341,20 @@ Each needs a mockup from Joey first.
   - Separate leaderboard pop-up places
 - **Already there:** the game-start summary.
 
+**10. Shaders and overlays** (added after Joey asked; beyond the approved Picture panel).
+- **Keep:**
+  - Your own RetroArch .slangp presets: check a runtime such as librashader for both renderers
+  - Shader settings as live sliders
+  - Stack several shaders, under Advanced
+  - Shader scale, under Advanced
+  - More built-ins: NTSC composite, CRT light and heavy, colour-blind modes
+  - An overlay image over the game, with opacity
+  - Bezels that follow the aspect
+  - Place and size the game inside a bezel, under Advanced
+  - An auto shader by screen, as a default you can change
+  - Named shader presets for any game
+- **Drop again:** downloadable bezel packs (licences unclear, decided 2026-11-05).
+
 ## Kept list, in suggested build order
 
 Each item needs Joey's mockup first. The order puts what players miss most first, and what shares a screen together.
@@ -418,7 +432,7 @@ Each item needs Joey's mockup first. The order puts what players miss most first
     - turbo, with its hotkey
     - undo, with its hotkey
     - slow motion, frame advance and rewind, each with hotkeys (rewind: measure first)
-    - Picture shaders, with their hotkeys
+    - Picture shaders and bezels, with their hotkeys, and tab 10's additions
     - rumble strength and Transfer Pak
     - touch controls
     - unlock sound

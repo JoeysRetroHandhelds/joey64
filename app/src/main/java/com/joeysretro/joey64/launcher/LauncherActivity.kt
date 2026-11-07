@@ -217,7 +217,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                                     com.joeysretro.joey64.launcher.screens.GameAchievementsScreen(achievementsFor!!, onHints = { settingsHints = it }) { model.closeAchievements() }
                                 }
                                 place == RailPlace.Achievements -> com.joeysretro.joey64.launcher.screens.AchievementsScreen(onHints = { settingsHints = it }) { place = RailPlace.Library }
-                                place == RailPlace.Settings -> SettingsScreen(updates, onHints = { settingsHints = it }, startTab = settingsTab,
+                                place == RailPlace.Settings -> SettingsScreen(updates, model, onHints = { settingsHints = it }, startTab = settingsTab,
                                     startRow = if (settingsTab == com.joeysretro.joey64.launcher.screens.SettingsTab.Saves) "import" else null,
                                     onImport = { importModel.restart(); settingsTab = com.joeysretro.joey64.launcher.screens.SettingsTab.Saves; importAgain = true }) {
                                     settingsTab = com.joeysretro.joey64.launcher.screens.SettingsTab.entries.first(); place = RailPlace.Library

@@ -9,21 +9,21 @@ Every phase in `docs/launcher-build-plan.md`, checked against the code on `launc
 | 0 Groundwork | Built | Forced landscape still on MainActivity; 4:3 / square / portrait never checked; Android 10 SQLite unchecked |
 | 0b Updater | Built, install checked with Joey | Licences list, Source code row, credits (approved mockup); install-session fallback never exercised; repo still private |
 | 1 Library, first run | Built | First-run screens 3-4 (where saves go): the reason they waited is gone; "You can do this later in Settings" line; not on the other four devices |
-| 2 Box art | Built | Download box art and Download cheats switches have no row anywhere (Decision 3's stop-gap Library tab was never built) |
+| 2 Box art | Built | (The download switches' row: built 2026-11-07, Settings › Library) |
 | 3 In game, states | Built | Rail label "Continue · game"; states loading in RetroArch untested |
 | 4 Controls | Built | Rumble reaches Player 1 only (host drops ports 1-3); Transfer Pak; real N64 pads; Switch Online N64 over USB |
 | 5 Collections | Built | "Has achievements" filter (approved; RetroAchievements is now built); 4-player hacks |
 | 6 Cheats | Built | Widescreen and 60 fps spots (Video's Aspect ratio still says Auto = 4:3 until they have one); unplaced libretro files; offline and Download cheats off unchecked |
 | 7 RetroAchievements | Built, softcore | Unlock sound and volume; RAOfflineProxy status line (needs mockup) and PR (Joey posts); tap "Sign-in expired"; progress in save states; Joey's own sign-in and a real unlock through the queue; Hardcore and Leaderboards wait for Joey |
-| 8 Settings | Appearance, Video, Audio, On screen, Saves, RA, About built | Library tab, Emulation tab, General; rows 8-12 of the settings build order |
+| 8 Settings | Appearance, Video, Audio, On screen, Saves, the stop-gap Library, RA, About built | Library tab, Emulation tab, General; rows 8-12 of the settings build order |
 
 Tests: 245 unit tests pass. The branch is 9 commits ahead of main and 9 behind (merge is Joey's go).
 
 ## Found in this audit
 
 **Gaps in what's built:**
-1. **No way to turn box art or cheat downloads off or on.** The settings exist and are obeyed, but no screen shows them since Phase 2. The Cheats page even says "Downloading cheats is off in Settings › Library", a tab that doesn't exist (reachable only by restoring a backup with it off). Decision 3 already OK'd a stop-gap Library tab: ROM folders, the two switches (the data folder and Import now live in Saves).
-2. **ROM folders can't be changed after first run.** No screen adds or removes a ROM folder once setup is done (same stop-gap tab).
+1. **Built 2026-11-07 (Settings › Library).** **No way to turn box art or cheat downloads off or on.** The settings exist and are obeyed, but no screen shows them since Phase 2. The Cheats page even says "Downloading cheats is off in Settings › Library", a tab that doesn't exist (reachable only by restoring a backup with it off). Decision 3 already OK'd a stop-gap Library tab: ROM folders, the two switches (the data folder and Import now live in Saves).
+2. **Built 2026-11-07 (Settings › Library).** **ROM folders can't be changed after first run.** No screen adds or removes a ROM folder once setup is done (same stop-gap tab).
 3. **No licence list.** About shows only "GPL 3.0 or later". The APK ships Compose/AndroidX/Kotlin (Apache-2.0), Commons Compress and XZ, rcheevos (MIT), libadrenotools (BSD-2), FidelityFX (MIT), Turnip/Mesa (MIT), the core (GPL-2.0-or-later parts, parallel-RDP MIT, ares-derived ISC) and Rubik (OFL). Only six licence texts are in `assets/licenses` (FidelityFX, Commons, libretro-database, Mesa, Rubik, XZ), and none is shown in the app. The About and licences mockup is approved. Needed before any public build.
 4. **Has achievements** filter in Show: approved with Phase 5, waiting on Phase 7, which is now built.
 5. **Rumble for players 2-4**: `setRumble` returns false for any port but 0.

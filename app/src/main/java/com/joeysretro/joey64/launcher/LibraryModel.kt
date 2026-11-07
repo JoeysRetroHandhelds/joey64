@@ -329,6 +329,24 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Settings › Library: how many games each ROM folder (tree URI) holds. */
+    suspend fun folderCounts(): Map<String, Int> = withContext(Dispatchers.IO) { db.gamesPerFolder() }
+
+    /** How many games leave the library when [tree] is removed (games another folder has stay). */
+    suspend fun gamesOnlyIn(tree: String): Int = withContext(Dispatchers.IO) { db.gamesOnlyIn(tree) }
+
+    /**
+     * Settings › Library › Remove: the folder's files leave the library (a read under way stops
+     * first, so it can't put them back). The games' own rows (play time, favourites, collections)
+     * stay, and the folder's files find them again if it comes back.
+     */
+    fun removeFolder(tree: String) {
+        scan?.cancel()
+        viewModelScope.launch {
+            _games.value = withContext(Dispatchers.IO) { db.forgetFolder(tree); db.libraryGames() }
+        }
+    }
+
     /** Brings the library up to date with [folders]: quick when nothing changed (sizes and dates only). */
     fun refresh(folders: List<Uri>) {
         if (scan?.isActive == true || folders.isEmpty()) return

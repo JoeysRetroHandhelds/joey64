@@ -410,6 +410,24 @@ class LibraryDb private constructor(context: Context) :
     }
 
     /** Files that left their folder. Their games stay (play time and collections can't be scanned back); the library lists games with a file. */
+    /** Games per ROM folder (tree URI), files not read yet or not ROMs left out. */
+    fun gamesPerFolder(): Map<String, Int> =
+        readableDatabase.rawQuery("SELECT tree_uri, COUNT(DISTINCT game_id) FROM files WHERE game_id IS NOT NULL GROUP BY tree_uri", null).use { c ->
+            buildMap { while (c.moveToNext()) put(c.getString(0), c.getInt(1)) }
+        }
+
+    /** Games in [treeUri] that no other folder has: the ones that leave the library with it. */
+    fun gamesOnlyIn(treeUri: String): Int =
+        readableDatabase.rawQuery("SELECT COUNT(DISTINCT f.game_id) FROM files f WHERE f.tree_uri = ? AND f.game_id IS NOT NULL" +
+            " AND NOT EXISTS (SELECT 1 FROM files o WHERE o.game_id = f.game_id AND o.tree_uri <> ?)", arrayOf(treeUri, treeUri)).use { c ->
+            if (c.moveToFirst()) c.getInt(0) else 0
+        }
+
+    /** A ROM folder taken off the list: its files go, its games stay (play time, favourites). */
+    fun forgetFolder(treeUri: String) {
+        writableDatabase.delete("files", "tree_uri = ?", arrayOf(treeUri))
+    }
+
     fun forgetFiles(uris: Collection<String>) {
         if (uris.isEmpty()) return
         writableDatabase.transaction {

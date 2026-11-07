@@ -1,5 +1,8 @@
 package com.joeysretro.joey64.launcher.screens
 
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -62,7 +65,7 @@ import com.joeysretro.joey64.launcher.update.UpdateModel.RowState
 import kotlinx.coroutines.delay
 
 /** The Settings tabs built so far, in the approved order (General, Audio and Library come with their pages). */
-enum class SettingsTab(val label: String) { Appearance("Appearance"), Video("Video"), Audio("Audio"), OnScreen("On screen"), Saves("Saves"), RetroAchievements("RetroAchievements"), About("About") }
+enum class SettingsTab(val label: String) { Appearance("Appearance"), Video("Video"), Audio("Audio"), OnScreen("On screen"), Saves("Saves"), Library("Library"), RetroAchievements("RetroAchievements"), About("About") }
 
 /**
  * Settings (approved Settings mockups, 2026-11-05). The tabs that are built, L1/R1 (or a tap)
@@ -71,7 +74,7 @@ enum class SettingsTab(val label: String) { Appearance("Appearance"), Video("Vid
  * own settings), opening the same popups as Controls'.
  */
 @Composable
-fun SettingsScreen(updates: UpdateModel, onHints: (List<Hint>) -> Unit, onImport: () -> Unit = {}, startTab: SettingsTab = SettingsTab.entries.first(), startRow: String? = null, onClose: () -> Unit) {
+fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher.LibraryModel, onHints: (List<Hint>) -> Unit, onImport: () -> Unit = {}, startTab: SettingsTab = SettingsTab.entries.first(), startRow: String? = null, onClose: () -> Unit) {
     BackHandler(onBack = onClose)
     val landing = LocalFocusLanding.current
     val c = JoeyTheme.colors
@@ -115,6 +118,7 @@ fun SettingsScreen(updates: UpdateModel, onHints: (List<Hint>) -> Unit, onImport
                 SettingsTab.Audio -> AudioTab(target, onHints, { tabControl = it }, Modifier.weight(1f))
                 SettingsTab.OnScreen -> OnScreenTab(onHints, { tabControl = it }, Modifier.weight(1f))
                 SettingsTab.Saves -> SavesTab(onHints, onImport, Modifier.weight(1f), startRow ?: "quit")
+                SettingsTab.Library -> LibraryTab(library, onHints, Modifier.weight(1f))
                 SettingsTab.RetroAchievements -> RaTab(onHints, Modifier.weight(1f))
                 SettingsTab.About -> AboutTab(updates, { onHints(it.dropLast(1) + Hint("L/R", "Tab") + it.last()) }, Modifier.weight(1f))
             }
@@ -139,10 +143,15 @@ fun SettingsScreen(updates: UpdateModel, onHints: (List<Hint>) -> Unit, onImport
 @Composable
 internal fun SettingsTabs(labels: List<String>, on: Int, onTap: (Int) -> Unit) {
     val c = JoeyTheme.colors
-    Row(Modifier.padding(top = 6.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    // More tabs than the width holds (eight since Library): the row scrolls, keeping the one in use
+    // in view, and a label never wraps or shrinks.
+    val bring = remember(labels.size) { List(labels.size) { androidx.compose.foundation.relocation.BringIntoViewRequester() } }
+    LaunchedEffect(on) { bring.getOrNull(on)?.bringIntoView() }
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 6.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         labels.forEachIndexed { i, label ->
-            Text(label, style = JoeyTheme.type.tab, color = if (i == on) c.text else c.textSecondary,
+            Text(label, style = JoeyTheme.type.tab, color = if (i == on) c.text else c.textSecondary, maxLines = 1, softWrap = false,
                 modifier = Modifier
+                    .bringIntoViewRequester(bring[i])
                     .then(if (i == on) Modifier.background(c.chip, RoundedCornerShape(6.dp)) else Modifier)
                     .pointerInput(i) { detectTapGestures { onTap(i) } }
                     .padding(horizontal = 12.dp, vertical = 4.dp))

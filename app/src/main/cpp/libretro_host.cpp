@@ -32,6 +32,7 @@
 #include "egl_context.h"
 #include "vk_context.h"
 #include "audio_out.h"
+#include "achievements.h"
 
 // Dev env N64_LOG_ERR=1 logs info at error level, for devices whose logd drops everything
 // below error (Retroid Pocket Duo).
@@ -530,6 +531,7 @@ void serveStateRequest(bool ready, bool failEarly) {
         LOGE("state: %s asked for before the core was ready", what);
     } else if (r->reset) {
         core.reset();
+        Cheevos::reset();
         r->ok = true;
     } else if (r->capture) {
         r->ok = g_vulkan ? g_vk.capture(r->data, r->w, r->h)
@@ -551,6 +553,8 @@ void serveStateRequest(bool ready, bool failEarly) {
         // Note: retro_unserialize returns true even when the core turns the state down (another ROM,
         // an incompatible version); the core logs why.
         r->ok = core.unserialize(r->data.data(), r->data.size());
+        // Achievements start over from the loaded state (their progress isn't in the state yet).
+        if (r->ok) Cheevos::stateLoaded();
     }
     if (ready)
         joeyLog(r->ok ? ANDROID_LOG_INFO : ANDROID_LOG_ERROR, "joey64host", "state: %s %s, %zu bytes, %.1f ms", what, r->ok ? "done" : "FAILED", r->data.size(),
@@ -724,7 +728,11 @@ void runLoop() {
         {
             std::unique_lock<std::mutex> lk(g_pauseMutex);
             for (;;) {
-                g_pauseCv.wait(lk, [] { return !g_paused || !g_running || g_statePending; });
+                // Wakes once a second while paused so rc_client can keep the session alive (pings, retries).
+                if (!g_pauseCv.wait_for(lk, std::chrono::seconds(1), [] { return !g_paused || !g_running || g_statePending; })) {
+                    lk.unlock(); Cheevos::idle(); lk.lock();
+                    continue;
+                }
                 if (!g_paused || !g_running) break;
                 // Paused with a state request (the pause menu): served without running a frame.
                 lk.unlock();
@@ -828,6 +836,7 @@ void runLoop() {
             g_statRunMs += ms;
             noteFrameTime(ms);
         }
+        Cheevos::doFrame();
         logStats();
         if (stateWait > 0 && --stateWait == 0) {
             std::vector<char> s;
@@ -873,6 +882,7 @@ void runLoop() {
     }
     serveStateRequest(false, true);   // a request that came too late fails now, not at its timeout
     flushSave();
+    Cheevos::gameUnloaded();
     if (g_hw.context_destroy) g_hw.context_destroy();
     core.unload_game();
     core.deinit();
@@ -1067,6 +1077,8 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
         g_saveFallbackPath = g_saveDir + hashName;
     }
     loadSave();
+    Cheevos::gameLoaded(buf.data(), buf.size(), static_cast<uint8_t*>(core.get_memory_data(RETRO_MEMORY_SYSTEM_RAM)),
+                        core.get_memory_size(RETRO_MEMORY_SYSTEM_RAM));
     core.get_system_av_info(&g_av);
     LOGI("game loaded: %ux%u max, %.2f fps, %.0f Hz", g_av.geometry.max_width, g_av.geometry.max_height,
          g_av.timing.fps, g_av.timing.sample_rate);

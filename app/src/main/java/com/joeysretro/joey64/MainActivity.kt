@@ -460,6 +460,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             reportGameState(loading = true)
             applyControls(rom, saveName)
             applyCheats(rom, saveName)
+            // RetroAchievements: signs in with the kept account first, so the game is identified as it loads.
+            com.joeysretro.joey64.achievements.RaBridge.init(this)
             if (NativeBridge.loadGame(rom, saveName)) {
                 NativeBridge.start(); started = true; owner = this; gameLoaded = true
                 startStates(saveName)

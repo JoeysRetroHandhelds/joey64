@@ -322,6 +322,21 @@ fun PopupInfoNote(text: String) {
     }
 }
 
+/** A warning in a popup, in a box with the warning triangle: what a choice takes away ("L2 is Z for Player 1 ..."). */
+@Composable
+fun PopupWarnNote(text: String) {
+    val c = JoeyTheme.colors
+    androidx.compose.foundation.layout.Row(
+        Modifier.padding(horizontal = 6.dp).padding(top = 4.dp, bottom = 2.dp).fillMaxWidth()
+            .background(c.warnBg, RoundedCornerShape(8.dp)).padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        androidx.compose.material3.Icon(androidx.compose.ui.res.painterResource(com.joeysretro.joey64.R.drawable.ic_alert_triangle), contentDescription = null,
+            tint = c.warn, modifier = Modifier.padding(end = 8.dp, top = 1.dp).size(16.dp))
+        Text(text, style = JoeyTheme.type.small, color = c.warn)
+    }
+}
+
 /** A prompt popup's text, with its bold parts (a version number) as the caller marks them. */
 @Composable
 fun PromptText(text: androidx.compose.ui.text.AnnotatedString) {

@@ -173,8 +173,12 @@ class GameOverlay(private val activity: Activity, private val actions: PauseActi
      * Ends the pop-up with [key] now if it's the one showing (rcheevos hides a progress one itself). One
      * still waiting behind an unlock stays: its count is still news when its turn comes. Main thread.
      */
-    fun hide(key: String) {
-        if (popups.current?.key != key) return
+    fun hide(key: String, waiting: Boolean = false) {
+        if (popups.current?.key != key) {
+            // [waiting]: one waiting behind newer pop-ups goes too (Paused, under a volume pop-up).
+            if (waiting) popups.remove(key, SystemClock.uptimeMillis())
+            return
+        }
         popups.remove(key, SystemClock.uptimeMillis())
         popup = popups.current
         handler.removeCallbacks(popupTick)

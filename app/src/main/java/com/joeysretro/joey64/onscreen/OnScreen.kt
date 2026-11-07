@@ -54,6 +54,8 @@ data class OnScreen(
     val popStates: Boolean = true,
     val popScreenshots: Boolean = true,
     val popReset: Boolean = true,
+    /** The volume, mute, resolution and stats overlay pop-ups when their hotkeys are used (approved hotkeys mockup 2026-11-07). */
+    val popHotkeys: Boolean = true,
 ) {
     /** The lines the overlay shows now (none when Off). */
     val lines: Set<StatsLine> get() = when (stats) {
@@ -82,7 +84,7 @@ data class OnScreen(
         put("version", 1)
         put("stats", stats.name); put("corner", corner.name); put("size", size.name)
         put("custom", JSONArray(StatsLine.entries.filter { it in custom }.map { it.name }))
-        put("popStates", popStates); put("popScreenshots", popScreenshots); put("popReset", popReset)
+        put("popStates", popStates); put("popScreenshots", popScreenshots); put("popReset", popReset); put("popHotkeys", popHotkeys)
     }
 
     companion object {
@@ -98,6 +100,7 @@ data class OnScreen(
                 popStates = o.optBoolean("popStates", d.popStates),
                 popScreenshots = o.optBoolean("popScreenshots", d.popScreenshots),
                 popReset = o.optBoolean("popReset", d.popReset),
+                popHotkeys = o.optBoolean("popHotkeys", d.popHotkeys),
             )
         }
     }

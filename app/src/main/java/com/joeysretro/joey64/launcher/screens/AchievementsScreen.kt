@@ -115,7 +115,7 @@ fun GameAchievementsScreen(game: AchievementsGame, onHints: (List<Hint>) -> Unit
 
 /** The pause menu's Achievements: the same page as a panel over the paused game, rc_client's live list. */
 @Composable
-fun InGameAchievements(title: String, focusId: Int? = null, onClose: () -> Unit) {
+fun InGameAchievements(title: String, focusId: Int? = null, backLabel: String = "Back to pause menu", onClose: () -> Unit) {
     var hints by remember { mutableStateOf(emptyList<Hint>()) }
     var showing by remember { mutableStateOf(false) }
     val data = remember {
@@ -126,7 +126,7 @@ fun InGameAchievements(title: String, focusId: Int? = null, onClose: () -> Unit)
     }
     JoeyDialog(onDismiss = onClose, hints = hints, width = 780.dp) {
         Box(Modifier.heightIn(max = 520.dp)) {
-            GameAchievementsContent(title, data, live = true, onHints = { hints = it.map { h -> if (h.key == "B") Hint("B", "Back to pause menu") else h } },
+            GameAchievementsContent(title, data, live = true, onHints = { hints = it.map { h -> if (h.key == "B") Hint("B", backLabel) else h } },
                 showing = showing, onShow = { showing = it }, focusId = focusId, inPanel = true)
         }
     }

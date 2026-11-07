@@ -6,6 +6,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
@@ -62,6 +64,8 @@ fun JoeyToast(
     compact: Boolean = false,
     framed: Boolean = false,
     extra: String? = null,
+    /** 0 to 1: a bar under the lines (the volume pop-up, approved hotkeys mockup 2026-11-07). */
+    bar: Float? = null,
 ) {
     val c = JoeyTheme.colors
     val shape = RoundedCornerShape(8.dp)
@@ -87,6 +91,9 @@ fun JoeyToast(
             Text(name, style = if (framed) JoeyTheme.type.button.copy(fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic) else JoeyTheme.type.button,
                 color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (!compact && line.isNotEmpty()) Text(line, style = JoeyTheme.type.small, color = c.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (bar != null) Box(Modifier.padding(top = 4.dp).size(170.dp, 5.dp).background(c.chip, RoundedCornerShape(3.dp))) {
+                Box(Modifier.fillMaxHeight().fillMaxWidth(bar.coerceIn(0f, 1f)).background(c.gold, RoundedCornerShape(3.dp)))
+            }
             if (extra != null) Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(painterResource(R.drawable.ic_wifi_off), contentDescription = null, tint = c.textDim, modifier = Modifier.size(13.dp))
                 Text(extra, style = JoeyTheme.type.small, color = c.textDim, modifier = Modifier.padding(start = 5.dp))

@@ -51,6 +51,9 @@ data class JoeyColors(
     val tagMissableBg: Color,
     val tagChallenge: Color,
     val tagChallengeBg: Color,
+    /** A popup's warning box (approved hotkeys mockup 2026-11-07: "L2 is Z for Player 1 ..."). */
+    val warn: Color,
+    val warnBg: Color,
 )
 
 private val Yellow = Color(0xFFF9D036)
@@ -82,6 +85,8 @@ val DarkColors = JoeyColors(
     tagMissableBg = Color(0xFF2E2A3E),
     tagChallenge = Color(0xFF7FA8FF),
     tagChallengeBg = Color(0xFF1E2A55),
+    warn = Color(0xFFF2D27A),
+    warnBg = Color(0xFF2A2412),
 )
 
 val LightColors = JoeyColors(
@@ -111,6 +116,8 @@ val LightColors = JoeyColors(
     tagMissableBg = Color(0xFFFBE9D7),
     tagChallenge = Color(0xFF2747B8),
     tagChallengeBg = Color(0xFFE1E8FB),
+    warn = Color(0xFF7A5600),
+    warnBg = Color(0xFFFFF3D1),
 )
 
 val LocalJoeyColors = staticCompositionLocalOf { DarkColors }

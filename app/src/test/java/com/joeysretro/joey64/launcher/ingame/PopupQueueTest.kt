@@ -50,6 +50,22 @@ class PopupQueueTest {
         assertEquals(7_000, q.until)
     }
 
+    @Test fun onlyHidingEndsPausedAndNewerOnesShowOverIt() {
+        val q = PopupQueue(5_000)
+        q.add(InGamePopup("paused", InGamePopup.Kind.Paused, "Paused", "Press Pause again to go on", "", stayMs = PopupQueue.UNTIL_HIDDEN), 0)
+        assertFalse(q.tick(1_000_000_000))
+        q.add(p("volume"), 100)
+        assertEquals("volume", q.current?.key)
+        assertTrue(q.tick(5_100))
+        assertEquals("paused", q.current?.key)
+        // Hidden while a newer one shows: it doesn't come back.
+        q.add(p("volume"), 6_000)
+        q.remove("paused", 6_500)
+        assertEquals("volume", q.current?.key)
+        q.tick(11_000)
+        assertNull(q.current)
+    }
+
     @Test fun removeTakesTheOneShowingAwayAndShowsTheNext() {
         val q = PopupQueue(5_000)
         q.add(p("progress"), 0)

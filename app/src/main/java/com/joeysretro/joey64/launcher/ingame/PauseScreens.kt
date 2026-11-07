@@ -55,7 +55,8 @@ sealed interface PauseScreen {
     data class Controls(val saveName: String) : PauseScreen
     /** Cheats over the paused game (Phase 6) for [game]. B goes back to the menu; the game takes the changes on resume. */
     /** The game's achievements over the paused game (Phase 7), on the row with [focusId] when a tap opened it. B goes back to the menu. */
-    data class Achievements(val focusId: Int? = null) : PauseScreen
+    /** [toGame]: opened by the Achievements hotkey, so B goes back to the game. */
+    data class Achievements(val focusId: Int? = null, val toGame: Boolean = false) : PauseScreen
     data class Cheats(val game: com.joeysretro.joey64.launcher.screens.CheatsGame, /** "Select + L3", or null with no hotkey for it. */ val gameSharkKeys: String? = null) : PauseScreen
     /** Game settings over the paused game (approved mockup 2026-11-07, screen 9) for [saveName]. B goes back to the menu. */
     data class GameSettings(val saveName: String) : PauseScreen
@@ -125,7 +126,8 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
         return
     }
     if (screen is PauseScreen.Achievements) {
-        com.joeysretro.joey64.launcher.screens.InGameAchievements(title, screen.focusId) { actions.closeAchievements() }
+        com.joeysretro.joey64.launcher.screens.InGameAchievements(title, screen.focusId,
+            backLabel = if (screen.toGame) "Back to the game" else "Back to pause menu") { actions.closeAchievements() }
         return
     }
     val picker = screen as? PauseScreen.Picker

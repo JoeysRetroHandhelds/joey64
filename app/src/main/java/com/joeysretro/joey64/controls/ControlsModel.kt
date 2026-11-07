@@ -174,18 +174,30 @@ data class ControlsSet(val players: List<PlayerSetup>) {
     }
 }
 
-/** What a hotkey does (approved Hotkeys page). */
-enum class HotkeyAction(val label: String, /** null: not set until the user picks a button. */ val default: Int?, /** Pressed on its own, without the hotkey button. */ val alone: Boolean = false) {
+/** What a hotkey does (approved Hotkeys page; seven more in the approved hotkeys mockup, 2026-11-07). */
+enum class HotkeyAction(val label: String, /** null: not set until the user picks a button. */ val default: Int?, /** Pressed on its own by default, without the hotkey button ([Hotkeys.alone] has the user's choice). */ val aloneByDefault: Boolean = false) {
     Save("Save state", KeyEvent.KEYCODE_BUTTON_R1),
     Load("Load state", KeyEvent.KEYCODE_BUTTON_L1),
     NextSlot("Next slot", KeyEvent.KEYCODE_DPAD_RIGHT),
     PrevSlot("Previous slot", KeyEvent.KEYCODE_DPAD_LEFT),
-    PauseMenu("Pause menu", KeyEvent.KEYCODE_BACK, alone = true),
+    /** 5% steps, saved as Settings › Audio's Volume (the game's own if it has one). */
+    VolumeUp("Volume up", KeyEvent.KEYCODE_DPAD_UP),
+    VolumeDown("Volume down", KeyEvent.KEYCODE_DPAD_DOWN),
+    /** Settings › Audio's All games Mute. */
+    Mute("Mute", null),
+    /** Resolution one step up or down for this play only, parallel-RDP only. */
+    UpscaleUp("Upscale up", null),
+    UpscaleDown("Upscale down", null),
+    PauseMenu("Pause menu", KeyEvent.KEYCODE_BACK, aloneByDefault = true),
+    /** Stops the game with no menu until pressed again. */
+    Pause("Pause", null),
     /** Hotkey button + R2 (Joey 2026-11-07; was R3 on its own). */
     FastForward("Fast-forward", KeyEvent.KEYCODE_BUTTON_R2),
     Screenshot("Screenshot", KeyEvent.KEYCODE_BUTTON_Y),
     /** Steps Settings › On screen › Stats: Off, Simple, Full, Custom (approved Stats overlay mockup, 2026-11-07). */
     Stats("Stats overlay", KeyEvent.KEYCODE_BUTTON_X),
+    /** Opens the pause menu's Achievements page; B goes back to the game. */
+    Achievements("Achievements", null),
     /** Held for as long as the buttons are (approved 2026-11-07). */
     GameShark("GameShark button", KeyEvent.KEYCODE_BUTTON_THUMBL),
     /** Not set by default (Joey 2026-11-07). */
@@ -215,16 +227,31 @@ data class Hotkeys(
     /** Fast-forward's top speed in percent, one of [FF_SPEEDS]. */
     val ffSpeed: Int = FF_SPEED_DEFAULT,
     val quitTo: QuitTo = QuitTo.Library,
+    /** The hotkeys pressed on their own, without [button] ("Needs the hotkey button" Off). */
+    val alone: Set<HotkeyAction> = ALONE_DEFAULT,
 ) {
+    fun isAlone(a: HotkeyAction) = a in alone
+
     /** Adaptive needs a button with pressure (an analog trigger); on any other it works like Hold. */
     val ffAdaptive: Boolean get() = ffMode == FastForwardMode.Adaptive && hasPressure(keys[HotkeyAction.FastForward])
 
     fun actionFor(keyCode: Int, alone: Boolean): HotkeyAction? =
-        HotkeyAction.entries.firstOrNull { it.alone == alone && keys[it] == keyCode }
+        HotkeyAction.entries.firstOrNull { isAlone(it) == alone && keys[it] == keyCode }
+
+    /** [a] gets [code]; a hotkey that had the same press (same button, same need for the hotkey button) goes to Not set. */
+    fun withKey(a: HotkeyAction, code: Int?): Hotkeys =
+        copy(keys = keys.mapValues { (b, v) -> if (b == a) code else if (code != null && v == code && isAlone(b) == isAlone(a)) null else v })
+
+    /** [a] pressed on its own, or with the hotkey button; a hotkey that then has the same press goes to Not set. */
+    fun withAlone(a: HotkeyAction, on: Boolean): Hotkeys {
+        val h = copy(alone = if (on) alone + a else alone - a)
+        return h.withKey(a, keys[a])
+    }
 
     fun toJson(): JSONObject = JSONObject().put("version", VERSION).put("button", button)
         .put("ffMode", ffMode.name).put("ffSpeed", ffSpeed).put("quitTo", quitTo.name)
         .put("keys", JSONObject().apply { for (a in HotkeyAction.entries) put(a.name, keys[a] ?: -1) })
+        .put("alone", org.json.JSONArray().apply { for (a in HotkeyAction.entries) if (a in alone) put(a.name) })
 
     companion object {
         /**
@@ -232,7 +259,8 @@ data class Hotkeys(
          * Quit + Start (was + B), Reset not set (was + Start). Files before it saved every default, so
          * those old defaults are moved; anything else the user picked stays.
          */
-        const val VERSION = 3
+        const val VERSION = 4
+        val ALONE_DEFAULT: Set<HotkeyAction> = HotkeyAction.entries.filter { it.aloneByDefault }.toSet()
         val FF_SPEEDS = (125..400 step 25).toList()
         const val FF_SPEED_DEFAULT = 400
 
@@ -255,20 +283,25 @@ data class Hotkeys(
         fun fromJson(o: JSONObject): Hotkeys {
             val d = Hotkeys()
             val k = o.optJSONObject("keys")
-            val old = o.optInt("version", 1) < VERSION
+            // Version 4 only added actions and "alone"; the moves are for files before 3.
+            val old = o.optInt("version", 1) < 3
+            val aloneArr = o.optJSONArray("alone")
+            val alone = if (aloneArr == null) ALONE_DEFAULT
+                else (0 until aloneArr.length()).mapNotNull { i -> HotkeyAction.entries.firstOrNull { it.name == aloneArr.optString(i) } }.toSet()
             val keys = HotkeyAction.entries.associateWith { a ->
                 if (k == null || !k.has(a.name)) a.default else k.optInt(a.name, -1).takeIf { it >= 0 }
             }
             var picked = if (!old || k == null) keys else keys.mapValues { (a, v) -> if (k.has(a.name)) migrated(a, v) else v }
             // A file from before an action existed gets its default, unless the user already gave that button to another.
             if (k != null) for (a in HotkeyAction.entries) if (!k.has(a.name) && a.default != null &&
-                picked.any { (b, v) -> b != a && b.alone == a.alone && v == a.default }) picked = picked + (a to null)
+                picked.any { (b, v) -> b != a && (b in alone) == (a in alone) && v == a.default }) picked = picked + (a to null)
             return Hotkeys(
                 button = o.optInt("button", d.button),
                 keys = picked,
                 ffMode = FastForwardMode.entries.firstOrNull { it.name == o.optString("ffMode") } ?: d.ffMode,
                 ffSpeed = o.optInt("ffSpeed", d.ffSpeed).takeIf { it in FF_SPEEDS } ?: d.ffSpeed,
                 quitTo = QuitTo.entries.firstOrNull { it.name == o.optString("quitTo") } ?: d.quitTo,
+                alone = alone,
             )
         }
     }

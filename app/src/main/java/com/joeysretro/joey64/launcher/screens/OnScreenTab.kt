@@ -67,6 +67,7 @@ fun OnScreenTab(onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean
         "st" -> set(o.copy(popStates = d.popStates))
         "sh" -> set(o.copy(popScreenshots = d.popScreenshots))
         "rs" -> set(o.copy(popReset = d.popReset))
+        "hk" -> set(o.copy(popHotkeys = d.popHotkeys))
         "ach" -> setRa { it.copy(popUnlocks = dr.popUnlocks) }
         "pr" -> setRa { it.copy(popProgress = dr.popProgress) }
         else -> setRa { it.copy(popSummary = dr.popSummary) }
@@ -106,6 +107,7 @@ fun OnScreenTab(onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean
                 toggle("st", "Save states", o.popStates) { set(o.copy(popStates = !o.popStates)) }
                 toggle("sh", "Screenshots", o.popScreenshots) { set(o.copy(popScreenshots = !o.popScreenshots)) }
                 toggle("rs", "Reset", o.popReset) { set(o.copy(popReset = !o.popReset)) }
+                toggle("hk", "Hotkey changes", o.popHotkeys) { set(o.copy(popHotkeys = !o.popHotkeys)) }
                 toggle("ach", "Achievement unlocks", r.popUnlocks) { setRa { it.copy(popUnlocks = !it.popUnlocks) } }
                 toggle("pr", "Achievement progress", r.popProgress) { setRa { it.copy(popProgress = !it.popProgress) } }
                 toggle("gm", "Game start banner", r.popSummary) { setRa { it.copy(popSummary = !it.popSummary) } }
@@ -137,6 +139,7 @@ private fun describe(row: String): Pair<String, String> = when (row) {
     "st" -> "Save states" to "Saved, loaded and the slot when you change it. A state that didn't save or load always shows."
     "sh" -> "Screenshots" to "Screenshot saved. One that wasn't saved always shows."
     "rs" -> "Reset" to "Game reset."
+    "hk" -> "Hotkey changes" to "Volume, mute, resolution and stats overlay pop-ups when you use their hotkeys."
     "ach" -> "Achievement unlocks" to "Unlocks, Beaten and Mastered. The same as Settings › RetroAchievements › Unlocks."
     "pr" -> "Achievement progress" to "The small box with how far you are on an achievement (e.g. 7 of 10 stars)."
     else -> "Game start banner" to "The game's achievements as it starts. The same as Settings › RetroAchievements › Game start summary."

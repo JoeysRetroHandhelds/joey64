@@ -23,7 +23,7 @@ DuckStation's settings file can't be read (permission denied). Cemu's has little
 - **RetroAchievements:** Hardcore, Leaderboards, Encore, Spectator, Unofficial, Rich presence, Challenge badges, Progress, Screenshot on unlock, Save badges for offline, Pop-up place and time, Badge place, Sign in and out.
 - **About:** updates, device info.
 - **Controls, per player and per game:** controller, buttons, D-pad, C buttons, stick, dead zone, pak.
-- **Hotkeys:** hotkey button, Save, Load, Next and Previous slot, Pause menu, Fast-forward (mode, speed), Screenshot, GameShark, Reset, Quit (to library or exit).
+- **Hotkeys:** hotkey button, Save, Load, Next and Previous slot, Volume up and down, Mute, Upscale up and down, Pause menu, Pause, Fast-forward (mode, speed), Screenshot, Stats overlay, Achievements, GameShark, Reset, Quit (to library or exit); each with the hotkey button or on its own.
 - **Other:** cheats, collections, save states with slots, the pause menu.
 
 Video, audio and emulation have no user settings. They're automatic, or dev switches only: renderer, upscale, aspect, swap interval, smoother timing.
@@ -395,7 +395,7 @@ Each item needs Joey's mockup first. The order puts what players miss most first
    - from the pause menu and from the library
    - changed marks with Reset to All games
    - copy to another game
-6. **New hotkeys and single-button hotkeys:**
+6. **New hotkeys and single-button hotkeys.** **Built 2026-11-07** (launcher/phase0), as the approved hotkeys mockup:
    - cycle the overlay
    - volume and mute
    - open achievements

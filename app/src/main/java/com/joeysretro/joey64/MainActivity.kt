@@ -135,6 +135,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // The stats overlay's "parallel-RDP 2x" (after the Duo's cap; a dev --es opts upscale isn't shown).
         statsRenderer = if (renderer == "parallel") "parallel-RDP " + capUpscaling("mupen64plus-parallel-rdp-upscaling",
             vApply.coreOptions["mupen64plus-parallel-rdp-upscaling"] ?: "1x") else "GLideN64 " + (vApply.coreOptions["mupen64plus-EnableNativeResFactor"] ?: "1") + "x"
+        if (renderer == "parallel") playUpscale = capUpscaling(UPSCALE_KEY, vApply.coreOptions[UPSCALE_KEY] ?: "1x")
         if (vApply.sharpScale) NativeBridge.setSharp(true)
         applyVideoDisplay()
         devSharp = intent?.getBooleanExtra("sharp2", false) == true || intent?.getBooleanExtra("sharp", false) == true
@@ -233,7 +234,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         onScreen = onScreenStore.update { it.copy(stats = it.stats.next) }
         overlay?.onScreen = onScreen
         stats?.apply(onScreen)
-        overlay?.show(InGamePopup("stats", InGamePopup.Kind.Stats, "Stats overlay", onScreen.stats.label, onScreen.stats.detail, stayMs = 2_000))
+        if (onScreen.popHotkeys) overlay?.show(InGamePopup("stats", InGamePopup.Kind.Stats, "Stats overlay", onScreen.stats.label, onScreen.stats.detail, stayMs = 2_000))
     }
 
     // ---- Rumble Pak ---------------------------------------------------------------------------
@@ -463,9 +464,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             }
             if (now.sharpScale != was.sharpScale) NativeBridge.setSharp(now.sharpScale)
         }
-        val a = com.joeysretro.joey64.audio.AudioStore(this).forGame(saveName)
+        val a = applyAudioNow(saveName)
         val start = audioAtStart ?: a
-        NativeBridge.setAudio(a.volume, a.on(com.joeysretro.joey64.audio.AudioKey.Mute), a.on(com.joeysretro.joey64.audio.AudioKey.Mono), a.ffMode, start.latencyMode)
         JLog.i(TAG, "game settings: audio volume ${a.volume}, mute ${a.on(com.joeysretro.joey64.audio.AudioKey.Mute)}, ff sound ${a.ffMode}, latency kept ${start.latencyMode}; video aspect ${next[com.joeysretro.joey64.video.VideoKey.Aspect]}")
     }
 
@@ -780,7 +780,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private val recoveryTick = object : Runnable {
         override fun run() {
             val st = states ?: return
-            if (resumed && !quitting && !menuOpen) st.saveRecovery()
+            if (resumed && !quitting && !menuOpen && !hotkeyPaused) st.saveRecovery()
             stateHandler.postDelayed(this, RECOVERY_EVERY_MS)
         }
     }
@@ -807,9 +807,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private fun openMenu() {
         val o = overlay ?: return
         menuOpen = true
+        achievementsDirect = false
         NativeBridge.pause(true)
         // Held buttons and sticks are let go: the menu's window takes the pad from here.
         hotkeyHeld = false
+        volumeKey(0, false)
         gameSharkButton(false)
         releaseAll()
         o.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Menu()
@@ -883,6 +885,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private fun closeMenu() {
         overlay?.screen = null
         menuOpen = false
+        achievementsDirect = false
+        // Resume goes on after the Pause hotkey too (approved hotkeys mockup 2026-11-07).
+        if (hotkeyPaused) { hotkeyPaused = false; overlay?.hide("paused", waiting = true) }
         if (resumed && !quitting) NativeBridge.pause(false)
     }
 
@@ -934,6 +939,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Achievements()
         }
         override fun closeAchievements() {
+            // Opened by the Achievements hotkey: B goes back to the game, not the menu.
+            if (achievementsDirect) { closeMenu(); return }
             if (menuOpen) overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Menu(com.joeysretro.joey64.launcher.ingame.MenuRow.Achievements)
         }
         override fun pressGameShark() {
@@ -1001,6 +1008,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     /** Read when the game starts (Controls are changed in the launcher, or in the pause menu with the game paused). */
     private var hotkeys = Hotkeys()
     private var hotkeyHatX = 0
+    private var hotkeyHatY = 0
 
     private fun hotkey(action: HotkeyAction) {
         when (action) {
@@ -1015,16 +1023,165 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             HotkeyAction.PauseMenu -> if (!menuOpen) openMenu()
             HotkeyAction.FastForward -> toggleFastForward()
             HotkeyAction.GameShark -> {}  // both edges, in dispatchKeyEvent
+            HotkeyAction.VolumeUp -> stepVolume(5)
+            HotkeyAction.VolumeDown -> stepVolume(-5)
+            HotkeyAction.Mute -> toggleMute()
+            HotkeyAction.UpscaleUp -> stepUpscale(1)
+            HotkeyAction.UpscaleDown -> stepUpscale(-1)
+            HotkeyAction.Pause -> togglePause()
+            HotkeyAction.Achievements -> openAchievementsHotkey()
         }
     }
 
-    /** The hotkey button is held: a hat D-pad's left / right are the D-pad keys' hotkeys. */
+    /**
+     * A hotkey's press or release (with the hotkey button, or on its own): fast-forward, GameShark and
+     * the volume use both edges, the pause menu opens on release (its window would get the release
+     * otherwise), the rest fire on the press. The game sees neither edge.
+     */
+    private fun hotkeyEdge(action: HotkeyAction, event: KeyEvent, down: Boolean) {
+        val up = event.action == KeyEvent.ACTION_UP
+        if (quitting) return
+        when (action) {
+            HotkeyAction.GameShark -> if (down) { fpsHandler.removeCallbacks(gameSharkUp); gameSharkButton(true) } else if (up) gameSharkRelease()
+            HotkeyAction.FastForward -> if (down || up) fastForwardKey(down)
+            HotkeyAction.VolumeUp, HotkeyAction.VolumeDown -> if (down || up) volumeKey(if (action == HotkeyAction.VolumeUp) 5 else -5, down)
+            HotkeyAction.PauseMenu -> if (up && !event.isCanceled && !menuOpen) openMenu()
+            else -> if (down) hotkey(action)
+        }
+    }
+
+    // ---- Sound, Picture, Pause and Achievements hotkeys (approved hotkeys mockup, 2026-11-07) ----------
+    /** The volume hotkey held: 5% now, then every [VOLUME_REPEAT_MS] after [VOLUME_FIRST_REPEAT_MS]. 0: none held. */
+    private var volumeHeld = 0
+    private val volumeRepeat = object : Runnable {
+        override fun run() {
+            if (volumeHeld == 0 || destroyed) return
+            stepVolume(volumeHeld)
+            fpsHandler.postDelayed(this, VOLUME_REPEAT_MS)
+        }
+    }
+    private fun volumeKey(step: Int, down: Boolean) {
+        fpsHandler.removeCallbacks(volumeRepeat)
+        if (!down) { volumeHeld = 0; return }
+        if (volumeHeld == step) return
+        volumeHeld = step
+        stepVolume(step)
+        fpsHandler.postDelayed(volumeRepeat, VOLUME_FIRST_REPEAT_MS)
+    }
+
+    /** Settings › Audio's sound for this game, now (volume, mute, mono, fast-forward sound; latency stays as started). */
+    private fun applyAudioNow(saveName: String): com.joeysretro.joey64.audio.AudioSettings {
+        val a = com.joeysretro.joey64.audio.AudioStore(this).forGame(saveName)
+        val start = audioAtStart ?: a
+        NativeBridge.setAudio(a.volume, a.on(com.joeysretro.joey64.audio.AudioKey.Mute), a.on(com.joeysretro.joey64.audio.AudioKey.Mono), a.ffMode, start.latencyMode)
+        return a
+    }
+
+    /** 5% louder or quieter, saved where Settings › Audio would: the game's own Volume if it has one, else All games'. */
+    private fun stepVolume(step: Int) {
+        val save = states?.saveName ?: return
+        val store = com.joeysretro.joey64.audio.AudioStore(this)
+        val own = store.game(save)
+        val gameHas = own?.containsKey(com.joeysretro.joey64.audio.AudioKey.Volume) == true
+        val now = store.forGame(save).volume
+        // To the next 5% step (a volume set between steps lands on one).
+        val next = (if (step > 0) (now / 5 + 1) * 5 else ((now + 4) / 5 - 1) * 5).coerceIn(0, 100)
+        if (next != now) {
+            if (gameHas) store.saveGame(save, own!! + (com.joeysretro.joey64.audio.AudioKey.Volume to next.toString()))
+            else store.saveAll(store.all() + (com.joeysretro.joey64.audio.AudioKey.Volume to next.toString()))
+            applyAudioNow(save)
+        }
+        JLog.i(TAG, "volume hotkey: $now -> $next (${if (gameHas) "this game" else "All games"})")
+        pop("volume", InGamePopup.Kind.Volume, "Volume", "$next%", "Settings › Audio, " + if (gameHas) "this game" else "All games", bar = next / 100f)
+    }
+
+    /** Settings › Audio's Mute (All games), off or on. */
+    private fun toggleMute() {
+        val save = states?.saveName ?: return
+        val store = com.joeysretro.joey64.audio.AudioStore(this)
+        val muted = !store.forGame(save).on(com.joeysretro.joey64.audio.AudioKey.Mute)
+        store.saveAll(store.all() + (com.joeysretro.joey64.audio.AudioKey.Mute to if (muted) "on" else "off"))
+        applyAudioNow(save)
+        JLog.i(TAG, "mute hotkey: ${if (muted) "sound off" else "sound on"}")
+        pop("mute", InGamePopup.Kind.Mute, "Mute", if (muted) "Sound off" else "Sound on", if (muted) "Stays off until you press it again" else "")
+    }
+
+    /** parallel-RDP's Resolution in this play (Settings › Video's at the start, after the Duo's cap); null on GLideN64. */
+    private var playUpscale: String? = null
+
+    /** Resolution one step up or down for this play only: parallel-RDP reads it between frames; GLideN64 only at start. */
+    private fun stepUpscale(step: Int) {
+        val now = playUpscale
+        if (!parallel || now == null) {
+            pop("upscale", InGamePopup.Kind.Problem, "Resolution", "Can't change while playing", "GLideN64 reads it when the game starts: Settings › Video")
+            return
+        }
+        val top = UPSCALES.indexOf(capUpscaling(UPSCALE_KEY, UPSCALES.last()))
+        val i = UPSCALES.indexOf(now).coerceAtLeast(0) + step
+        if (i > top) { pop("upscale", InGamePopup.Kind.Resolution, "Resolution", "Already the highest", ""); return }
+        if (i < 0) { pop("upscale", InGamePopup.Kind.Resolution, "Resolution", "Already the lowest", ""); return }
+        val next = UPSCALES[i]
+        playUpscale = next
+        NativeBridge.setOptionsLive(arrayOf(UPSCALE_KEY), arrayOf(next))
+        statsRenderer = "parallel-RDP $next"
+        stats?.renderer = statsRenderer
+        val kept = com.joeysretro.joey64.video.VideoChoices.label(com.joeysretro.joey64.video.VideoKey.Resolution,
+            videoAtStart[com.joeysretro.joey64.video.VideoKey.Resolution])
+        JLog.i(TAG, "upscale hotkey: $now -> $next for this play")
+        pop("upscale", InGamePopup.Kind.Resolution, "Resolution", if (i == 0) "Native (1x)" else next, "This play only. Settings › Video keeps $kept")
+    }
+
+    /** Stopped by the Pause hotkey: no menu, the pop-up stays until it's pressed again (or the menu's Resume). */
+    private var hotkeyPaused = false
+    private fun togglePause() {
+        if (menuOpen) return
+        hotkeyPaused = !hotkeyPaused
+        if (hotkeyPaused) {
+            NativeBridge.pause(true)
+            releaseAll()
+            overlay?.show(InGamePopup("paused", InGamePopup.Kind.Paused, "Paused", "Press Pause again to go on", "", stayMs = com.joeysretro.joey64.launcher.ingame.PopupQueue.UNTIL_HIDDEN))
+        } else {
+            overlay?.hide("paused", waiting = true)
+            if (resumed) NativeBridge.pause(false)
+        }
+        JLog.i(TAG, "pause hotkey: ${if (hotkeyPaused) "paused" else "going on"}")
+    }
+
+    /** The Achievements hotkey opened the page (B goes back to the game). */
+    private var achievementsDirect = false
+    private fun openAchievementsHotkey() {
+        if (menuOpen) return
+        val ra = com.joeysretro.joey64.achievements.RaBridge
+        if (ra.gameInfo() == "null" && ra.debugCache == null) {
+            if (ra.account.value == null) pop("achievements", InGamePopup.Kind.NoAchievements, "Achievements", "Signed out", "Sign in at Settings › RetroAchievements")
+            else pop("achievements", InGamePopup.Kind.NoAchievements, "Achievements", "None for this game", "RetroAchievements has no set for it")
+            return
+        }
+        openMenu()
+        achievementsDirect = true
+        overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Achievements(toGame = true)
+    }
+
+    /** The hotkey button is held: a hat D-pad's directions are the D-pad keys' hotkeys (Up / Down hold for the volume). */
     private fun hotkeyHat(event: MotionEvent) {
         val hx = event.getAxisValue(MotionEvent.AXIS_HAT_X)
         val x = if (hx < -0.5f) -1 else if (hx > 0.5f) 1 else 0
         if (x != 0 && x != hotkeyHatX && !quitting)
             hotkeys.actionFor(if (x < 0) KeyEvent.KEYCODE_DPAD_LEFT else KeyEvent.KEYCODE_DPAD_RIGHT, alone = false)?.let { hotkey(it) }
         hotkeyHatX = x
+        val hy = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
+        val y = if (hy < -0.5f) -1 else if (hy > 0.5f) 1 else 0
+        if (y != hotkeyHatY) {
+            if (volumeHeld != 0) volumeKey(0, false)
+            if (y != 0 && !quitting) hotkeys.actionFor(if (y < 0) KeyEvent.KEYCODE_DPAD_UP else KeyEvent.KEYCODE_DPAD_DOWN, alone = false)?.let {
+                when (it) {
+                    HotkeyAction.VolumeUp -> volumeKey(5, true)
+                    HotkeyAction.VolumeDown -> volumeKey(-5, true)
+                    else -> hotkey(it)
+                }
+            }
+        }
+        hotkeyHatY = y
     }
 
     private fun hotkeySave() {
@@ -1080,17 +1237,18 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     // Every state pop-up (slot, saved, loaded, empty) has the key "state": the newest takes the place
     // of the one showing, so "Slot 3 saved" doesn't wait behind "Slot 3, Empty".
-    private fun pop(key: String, kind: InGamePopup.Kind, label: String, name: String, line: String) {
+    private fun pop(key: String, kind: InGamePopup.Kind, label: String, name: String, line: String, bar: Float? = null) {
         if (destroyed) return
         // Settings › On screen › Pop-ups (problems always show).
         val off = when (kind) {
             InGamePopup.Kind.Saved, InGamePopup.Kind.Loaded, InGamePopup.Kind.Slot -> !onScreen.popStates
             InGamePopup.Kind.Screenshot -> !onScreen.popScreenshots
             InGamePopup.Kind.Reset -> !onScreen.popReset
+            InGamePopup.Kind.Volume, InGamePopup.Kind.Mute, InGamePopup.Kind.Resolution -> !onScreen.popHotkeys
             else -> false
         }
         if (off) return
-        overlay?.show(InGamePopup(key, kind, label, name, line))
+        overlay?.show(InGamePopup(key, kind, label, name, line, bar = bar))
     }
 
     private fun popSaved(slot: Int, ok: Boolean) {
@@ -1339,16 +1497,16 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val inGame = states != null && overlay != null && mine
         val code = event.keyCode
         val down = event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0
-        // The pause menu's button (Back by default) opens it on release (the menu's window would get the release otherwise).
-        if (inGame && code == hotkeys.keys[HotkeyAction.PauseMenu]) {
+        // The pause menu's button on its own (Back by default) opens it on release (the menu's window would get the release otherwise).
+        if (inGame && hotkeys.isAlone(HotkeyAction.PauseMenu) && code == hotkeys.keys[HotkeyAction.PauseMenu]) {
             if (event.action == KeyEvent.ACTION_UP && !event.isCanceled && !quitting && !menuOpen) openMenu()
             return true
         }
         // The hotkey button held makes the next button a hotkey.
         if (inGame && code == hotkeys.button) {
             when (event.action) {
-                KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) { hotkeyHeld = true; hotkeyHatX = 0 }
-                KeyEvent.ACTION_UP -> { hotkeyHeld = false; gameSharkRelease(); fastForwardRelease() }
+                KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) { hotkeyHeld = true; hotkeyHatX = 0; hotkeyHatY = 0 }
+                KeyEvent.ACTION_UP -> { hotkeyHeld = false; gameSharkRelease(); fastForwardRelease(); volumeKey(0, false) }
             }
             return true
         }
@@ -1356,28 +1514,17 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             gameSharkRelease()
             return true
         }
+        // A volume hotkey let go after the hotkey button: the repeat stops.
+        if (volumeHeld != 0 && event.action == KeyEvent.ACTION_UP &&
+            (code == hotkeys.keys[HotkeyAction.VolumeUp] || code == hotkeys.keys[HotkeyAction.VolumeDown])) volumeKey(0, false)
         if (hotkeyHeld && inGame) {
-            hotkeys.actionFor(code, alone = false)?.let { action ->
-                if (action == HotkeyAction.GameShark) {
-                    if (down && !quitting) { fpsHandler.removeCallbacks(gameSharkUp); gameSharkButton(true) }
-                    return true
-                }
-                if (action == HotkeyAction.FastForward) {
-                    if (!quitting && (down || event.action == KeyEvent.ACTION_UP)) fastForwardKey(down)
-                    return true
-                }
-                // Both edges are the hotkey's: the game never sees them.
-                if (down && !quitting) hotkey(action)
-                return true
-            }
+            // Both edges are the hotkey's: the game never sees them.
+            hotkeys.actionFor(code, alone = false)?.let { action -> hotkeyEdge(action, event, down); return true }
         }
         val p = playerFor(event.device, event.deviceId)
         if (KeyEvent.isGamepadButton(code) || p >= 0) usePad(event.device, event.deviceId)
-        // A button on its own (Back for the pause menu), unless this player plays with it.
-        if (p < 0 || !players[p].uses(code)) hotkeys.actionFor(code, alone = true)?.let { action ->
-            if (down && !quitting) hotkey(action)
-            return true
-        }
+        // A hotkey on its own wins over the game's use of the button (the Hotkeys popup says so).
+        if (inGame) hotkeys.actionFor(code, alone = true)?.let { action -> hotkeyEdge(action, event, down); return true }
         if (p < 0 || !players[p].uses(code)) return super.dispatchKeyEvent(event)
         if (inputLat && event.action == KeyEvent.ACTION_DOWN) noteInputLat(event.eventTime, true, 0)
         when (event.action) {
@@ -1401,7 +1548,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val (rx, ry) = cal.apply(1, event.getAxisValue(MotionEvent.AXIS_Z), event.getAxisValue(MotionEvent.AXIS_RZ))
         input.setAxes(lx, ly, rx, ry)
         // With the hotkey button held, left / right change the slot and don't reach the game (as the D-pad keys).
-        input.setHat(if (hotkeyHeld) 0f else event.getAxisValue(MotionEvent.AXIS_HAT_X), event.getAxisValue(MotionEvent.AXIS_HAT_Y))
+        input.setHat(if (hotkeyHeld) 0f else event.getAxisValue(MotionEvent.AXIS_HAT_X), if (hotkeyHeld) 0f else event.getAxisValue(MotionEvent.AXIS_HAT_Y))
         // Analog triggers (Thor reports both keys and BRAKE/GAS axes).
         val lt = maxOf(event.getAxisValue(MotionEvent.AXIS_LTRIGGER), event.getAxisValue(MotionEvent.AXIS_BRAKE))
         val rt = maxOf(event.getAxisValue(MotionEvent.AXIS_RTRIGGER), event.getAxisValue(MotionEvent.AXIS_GAS))
@@ -1458,6 +1605,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         resumed = false
         hotkeyHeld = false
         fastForwardRelease()
+        volumeKey(0, false)
         fpsHandler.removeCallbacks(gameSharkUp)
         gameSharkButton(false)
         setRumbling(false)
@@ -1466,7 +1614,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     override fun onResume() {
         super.onResume()
         if (!mine) return
-        if (!menuOpen) NativeBridge.pause(false)
+        if (!menuOpen && !hotkeyPaused) NativeBridge.pause(false)
         if (started) { reportGameState(loading = false); requestAudioFocus() }
         resumed = true
         stats?.start()
@@ -1592,6 +1740,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         private const val GAMESHARK_PRESS_MS = 1_000L
         /** The hotkey's shortest hold: a few frames, so a quick tap reaches the game. */
         private const val GAMESHARK_MIN_MS = 200L
+        private const val UPSCALE_KEY = "mupen64plus-parallel-rdp-upscaling"
+        /** parallel-RDP's Resolution steps for the Upscale hotkeys (the Duo stops at 2x, [capUpscaling]). */
+        private val UPSCALES = listOf("1x", "2x", "4x", "8x")
+        private const val VOLUME_FIRST_REPEAT_MS = 400L
+        private const val VOLUME_REPEAT_MS = 150L
         private const val STATE_TIMEOUT_MS = 10_000
         const val TAG = "Joey64"
         // Bundled in assets/drivers/ (see assets/licenses/): Turnip (Mesa freedreno).

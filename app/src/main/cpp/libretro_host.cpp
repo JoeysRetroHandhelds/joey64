@@ -127,6 +127,11 @@ std::atomic<bool> g_cheatsChanged{false};
 std::vector<std::pair<std::string, std::string>> g_liveOptions;
 std::mutex g_liveOptionsMutex;
 std::atomic<bool> g_liveOptionsChanged{false};
+// Upscaling costs the GPU most of the fast-forward headroom (Odin 3 at 4x: Peach's Fury 1.5x, GoldenEye 1.03x),
+// so fast-forward renders at 1x. The setting in use before is restored after ("" = none was overridden).
+constexpr const char* kUpscaleKey = "mupen64plus-parallel-rdp-upscaling";
+std::string g_upscaleBeforeFf;
+bool g_upscaleFfApplied = false;
 static void applyLiveOptions() {
     std::vector<std::pair<std::string, std::string>> next;
     {
@@ -134,6 +139,12 @@ static void applyLiveOptions() {
         next.swap(g_liveOptions);
     }
     for (auto& [k, v] : next) {
+        // The upscale hotkeys during fast-forward: it keeps 1x, and the new value is the one it restores.
+        if (k == kUpscaleKey && g_upscaleFfApplied) {
+            g_upscaleBeforeFf = v;
+            LOGI("option override (live, after fast-forward): %s = %s", k.c_str(), v.c_str());
+            continue;
+        }
         g_optionOverrides[k] = v;
         LOGI("option override (live): %s = %s", k.c_str(), v.c_str());
     }
@@ -142,11 +153,6 @@ static void applyLiveOptions() {
 // Debug: RDRAM dump requested from the UI thread, written by the emulation thread between frames.
 std::mutex g_dumpMutex;
 std::string g_dumpPath;
-// Upscaling costs the GPU most of the fast-forward headroom (Odin 3 at 4x: Peach's Fury 1.5x, GoldenEye 1.03x),
-// so fast-forward renders at 1x. The setting in use before is restored after ("" = none was overridden).
-constexpr const char* kUpscaleKey = "mupen64plus-parallel-rdp-upscaling";
-std::string g_upscaleBeforeFf;
-bool g_upscaleFfApplied = false;
 
 // Per N64 port (Controls, Phase 4: up to four players).
 constexpr int kPorts = 4;

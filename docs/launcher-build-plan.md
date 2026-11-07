@@ -428,6 +428,67 @@ Also agreed: for an ID shared by more than one layout, Auto map first asks for o
 
 ## Phase 6: cheats
 
+**Built (2026-11-06, branch `launcher/phase0`), to the approved mockups** (Joey 2026-11-06; the 2026-11-04 cheats.html, menus_a.html and menus_p.html with Start for Hold A and the menus listing only what's built, scratchpad build_p6show.py):
+- **`joey64-cheats` repo, built locally** (`C:\GithubProjects\joey64-cheats`, local commits only, branches `main` and `release`). It isn't on GitHub yet.
+  - Each source sits in its own folder under its own licence, as planned: `sources/project64` (GPL-2.0-only, 671 files), `sources/rmg-custom` (GPL-3.0, 38), `sources/fz-retroben` (GPL-3.0, retroben's 21 cheats in 15 games, pulled out by `tools/extract-retroben.py`), `sources/libretro` (CC BY-SA 4.0, 1,345 files), and `joey64/` (ours, empty for now).
+  - `tools/convert.py` writes `dist/index.json` and `dist/<source>/<key>.json`. The key is the header's checksums and country byte, `CRC1-CRC2-CC`.
+  - libretro's files are placed by name, through mupen64plus.ini and the box-art table. 367 of them match no game (listed in `tools/unplaced-libretro.txt`).
+  - Bulk lists (more than 40 cheats differing only in numbers) are left out: 130,807 cheats.
+  - Totals: 895 games, Project64 10,802 cheats, libretro 88,159, RMG 519.
+  - `tools/update-sources.sh` pulls the sources again. Each folder's `SOURCE.md` names the commit it was copied from.
+- **App, `cheats/`:**
+  - `CheatLists` reads the `release` branch's `dist/` from raw.githubusercontent.com and keeps it in `files/cheatlists/`. It reads the index again after 7 days; when the index changed, it drops the kept lists. Debug builds read `files/dev_cheats_base` (the PC through `adb reverse`).
+  - The scan's pass fetches every game's lists when Download cheats is on. On the Thor: 129 lists for 82 games.
+  - `CheatLogic` merges the sources in order (joey64, Project64, RMG, FZ, libretro). It drops a name already given and a cheat with the same codes. It hides codes that need the GameShark button (3,048) and values with nothing to pick (372). It drops a source's own "Off" choice, and a cheat with one choice left becomes plain On / Off.
+  - `GameCheats` keeps what's on, with values filled in, and the user's own codes, in the data folder's `cheats/<save name>.json` (with `.nomedia`).
+- **Library:** the schema is now V4, which adds `games.header_key`. The upgrade reads the files again, as V3's did (about a minute for the Thor's 82).
+- **Native:** `NativeBridge.setCheats` replaces the core's cheats between frames (`g_cheatsChanged`). At start, MainActivity gives the core the game's codes before `loadGame` and reads the header's key from the ROM.
+- **Screens:**
+  - A game's options: Play, Details, then Cheats ›, then Add to collection ›.
+  - The pause menu: Cheats › after Controls.
+  - The Cheats page, in the launcher (in place of the library or Search results; B goes back there) and over the paused game (full screen):
+    - **Header:** Cheats, the game chip, "N on".
+    - **Folders:** "6 cheats ›" (or "1 cheat"), with a breadcrumb inside.
+    - **Plain cheats:** On / Off.
+    - **Cheats with choices:** show the choice. A opens a popup with Off and a tick on the one in use.
+    - **Boot codes:** a "Takes effect after a reset" line.
+    - **Y, Add code:** a name, the GameShark codes one per line (monospace), Save. "Codes look like 8018ED10 0001, one per line" when they don't read.
+    - **Your codes** come first. Start on one gives Edit / Delete.
+    - **The Hardcore lock** (banner, list locked, B Back) is built but never on until Phase 7.
+  - Hints follow the focused row.
+- **Tests:** `CheatLogicTest` covers values, tidy, merge, folders, typed codes, keys, parsing, the choices file and the repo's format.
+- **Checked on the Thor (Mario Kart 64):**
+  - Cheats opens from Search results, and folders and the breadcrumb show.
+  - Ghost was picked for Infinite Items › 2 player Mode › Player 1, No Laps to Race was turned on, and Add code made "Test code", with Edit / Delete on Start. All of it survived a restart.
+  - The game started with the 3 cheats. Turning one off in the pause menu gave the core 2 on resume.
+  - RDRAM dump: Player 1's item bytes were 0x0B (Ghost) and the lap count was 2.
+  - Joey's saves, states and play time were unchanged. The test cheats file was removed, the downloaded lists kept.
+- **Fixed while testing:**
+  - Cheats opened from Search didn't show, since it only replaced the library.
+  - The hint didn't follow a toggle.
+  - Focus didn't reach a row the list hadn't scrolled to: a code added at the top, or a folder far down. The list now scrolls first.
+  - "1 cheats" now reads "1 cheat".
+
+**Still to do, tracked:**
+- **Put `joey64-cheats` on GitHub, public:** Joey's call. Until then the app's download gets nothing: no index, so "Go online to get this game's cheats". The lists kept on the Thor came from the PC.
+- **The weekly GitHub Action** that runs update-sources and convert and opens a change: written when the repo is on GitHub.
+- **libretro's lists are messy, a decision for Joey** (Mario Kart 64 has 776 libretro entries against Project64's 16):
+  - German header lines ("Benutze nur einen der folgenden", "use only one of the following")
+  - numbered repeats of Project64's codes ("No Laps To Race P1")
+  - one item per cheat where Project64 has a picker
+
+  Options:
+  - keep them mixed in (now)
+  - put them in their own "More from libretro" folder
+  - use libretro only for games Project64 lacks
+  - clean them up in `joey64/`
+- **The Hardcore lock** waits for Phase 7.
+- **Cheat notes** (Project64's `Note=`, for example "Press L to stop") aren't shown. Where they go is Joey's design.
+- **Codes needing the GameShark button are hidden.** A button for it is Joey's call: the core has `event_set_gameshark`.
+- **367 libretro files are unplaced.** They're named after the ROM's internal name or dumps the tables lack, and could be matched with ROMs.
+- **The Search box's Enter** drops focus on the result under the field, not the first. Phase 5, seen here.
+- **Not checked** on the Portal, Flip, Duo and Odin 3. Not checked offline with nothing kept, or with Download cheats off.
+
 - **Nothing bundled** (decided 2026-11-05). Every list comes from `joey64-cheats`, fetched with the box art (Phase 2), so the app carries no cheat licences. This phase is the Cheats screens and turning codes on in the core.
 
 - **Licence (checked 2026-11-05):** FZ's `mupencheat.default` is upstream mupen64plus-core's `mupencheat.txt` with extra codes added.

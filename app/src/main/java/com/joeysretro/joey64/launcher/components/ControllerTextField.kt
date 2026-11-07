@@ -60,6 +60,8 @@ fun ControllerTextField(
     startTyping: Boolean = false,
     /** The keyboard's Done: when set, it's handed the press instead of typing stopping and focus moving on. */
     onSubmit: (() -> Unit)? = null,
+    /** GameShark codes (Add code): monospace, capitals, several lines; Enter starts a new line and B stops typing. */
+    code: Boolean = false,
 ) {
     val c = JoeyTheme.colors
     var typing by remember { mutableStateOf(startTyping) }
@@ -115,15 +117,21 @@ fun ControllerTextField(
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
-                singleLine = true,
+                singleLine = !code,
+                minLines = if (code) 2 else 1,
                 interactionSource = fieldSource,
                 visualTransformation = if (isPassword && !showPassword) PasswordVisualTransformation() else VisualTransformation.None,
-                keyboardOptions = KeyboardOptions(
+                keyboardOptions = if (code) KeyboardOptions(
+                    keyboardType = KeyboardType.Ascii,
+                    capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Characters,
+                    autoCorrectEnabled = false,
+                    imeAction = ImeAction.Default,
+                ) else KeyboardOptions(
                     keyboardType = if (isPassword) KeyboardType.Password else KeyboardType.Text,
                     imeAction = ImeAction.Done,
                 ),
                 keyboardActions = KeyboardActions(onDone = { if (onSubmit != null) onSubmit() else stopTyping(moveOn = true) }),
-                textStyle = JoeyTheme.type.row.copy(color = textColor),
+                textStyle = (if (code) JoeyTheme.type.code else JoeyTheme.type.row).copy(color = textColor),
                 cursorBrush = SolidColor(if (c.isDark) c.accent else c.navy),
                 decorationBox = { inner ->
                     if (value.isEmpty()) Text(placeholder, style = JoeyTheme.type.row,

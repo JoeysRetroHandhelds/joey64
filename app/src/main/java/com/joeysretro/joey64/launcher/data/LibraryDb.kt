@@ -19,7 +19,7 @@ import com.joeysretro.joey64.launcher.library.RomInfo
  * the file is renamed or moved, or the same ROM sits in two folders.
  */
 object LibrarySchema {
-    const val VERSION = 3
+    const val VERSION = 4
 
     val V1 = listOf(
         // md5: RetroAchievements' N64 hash, the MD5 of the ROM in big-endian (.z64) byte order.
@@ -139,6 +139,15 @@ object LibrarySchema {
         "ALTER TABLE games ADD COLUMN rom_size INTEGER",
     )
 
+    /**
+     * Version 4 (Phase 6, cheats): the header's checksums and country byte, "CRC1-CRC2-CC", the
+     * key cheat lists are filed under (CheatLogic.keyOf). Set by every read; the upgrade has the
+     * files read again, as V3's did.
+     */
+    val V4 = listOf(
+        "ALTER TABLE games ADD COLUMN header_key TEXT",
+    )
+
     /** Tables the cache owns; emptied on sign-out. */
     val RA_CACHE = listOf("ra_achievements", "ra_sets")
 }
@@ -154,6 +163,8 @@ data class LibraryGame(
     val played: Boolean = false,
     /** In Favourites (games.favorite). */
     val favourite: Boolean = false,
+    /** The header's "CRC1-CRC2-CC", the cheat lists' key; null until the ROM is read again (V4). */
+    val headerKey: String? = null,
 )
 
 /** A collection the user made (Phase 5). Favourites isn't one: it's games.favorite, always first. */
@@ -212,7 +223,7 @@ class LibraryDb private constructor(context: Context) :
     }
 
     override fun onCreate(db: SQLiteDatabase) {
-        for (sql in LibrarySchema.V1 + LibrarySchema.V2 + LibrarySchema.V3) db.execSQL(sql)
+        for (sql in LibrarySchema.V1 + LibrarySchema.V2 + LibrarySchema.V3 + LibrarySchema.V4) db.execSQL(sql)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -223,6 +234,10 @@ class LibraryDb private constructor(context: Context) :
             for (sql in LibrarySchema.V3) db.execSQL(sql)
             // Read every file again (a size no file has), so the new columns fill in. Games, play
             // time and covers stay: they're keyed by MD5.
+            db.execSQL("UPDATE files SET size = -1")
+        }
+        if (oldVersion < 4) {
+            for (sql in LibrarySchema.V4) db.execSQL(sql)
             db.execSQL("UPDATE files SET size = -1")
         }
     }
@@ -273,6 +288,7 @@ class LibraryDb private constructor(context: Context) :
                     put("region", info.header.region.code.code)
                     put("revision", info.header.revision)
                     put("rom_size", info.size)
+                    put("header_key", com.joeysretro.joey64.cheats.CheatLogic.keyOf(info.header))
                 }, "md5 = ?", arrayOf(info.md5))
             }
             val row = ContentValues().apply {
@@ -307,13 +323,13 @@ class LibraryDb private constructor(context: Context) :
     /** The library: every game with at least one file in a ROM folder, by title. */
     fun libraryGames(): List<LibraryGame> =
         readableDatabase.rawQuery(
-            "SELECT g.id, g.title, g.md5, a.kind, g.crc32, g.last_played_at IS NOT NULL, g.favorite FROM games g LEFT JOIN box_art a ON a.game_id = g.id" +
+            "SELECT g.id, g.title, g.md5, a.kind, g.crc32, g.last_played_at IS NOT NULL, g.favorite, g.header_key FROM games g LEFT JOIN box_art a ON a.game_id = g.id" +
                 " WHERE EXISTS (SELECT 1 FROM files f WHERE f.game_id = g.id) ORDER BY g.title COLLATE NOCASE",
             null,
         ).use { c ->
             buildList {
                 while (c.moveToNext()) add(LibraryGame(c.getLong(0), c.getString(1), c.getString(2), ArtKind.of(c.getString(3)),
-                    crc32 = c.getString(4), played = c.getInt(5) != 0, favourite = c.getInt(6) != 0))
+                    crc32 = c.getString(4), played = c.getInt(5) != 0, favourite = c.getInt(6) != 0, headerKey = c.getString(7)))
             }
         }
 

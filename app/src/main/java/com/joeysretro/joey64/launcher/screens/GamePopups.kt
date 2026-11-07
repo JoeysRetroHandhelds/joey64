@@ -60,8 +60,8 @@ enum class GamePopup { Options, Details, Collections }
  * A game's popups over the library, in one window whose contents change (as the update popups:
  * closing one window to open the next let the undimmed library flash through).
  *  - **Options** (Start, or a long-press): the approved list (2026-11-04, details2.html) shows only
- *    what's built: Play, Details and Add to collection (Phase 5). States, Game settings, Controls
- *    and Achievements come with their phases.
+ *    what's built: Play, Details, Cheats (Phase 6, opens [CheatsScreen] in the library's place) and
+ *    Add to collection (Phase 5). States, Game settings, Controls and Achievements come with their phases.
  *  - **Collections** (Add to collection, approved 2026-11-04, coll.html): see [AddToCollectionBody].
  *    B goes back to Options.
  *  - **Details** (approved 2026-11-04, details2.html): the cover, then Last played, Play time,
@@ -95,7 +95,10 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
                 GamePopup.Options -> {
                     JoeyOption("Play", modifier = Modifier.initialFocus()) { onPopup(null); onPlay() }
                     JoeyOption("Details") { onPopup(GamePopup.Details) }
-                    JoeyOption("Add to collection") { onPopup(GamePopup.Collections) }
+                    com.joeysretro.joey64.launcher.components.PopupDivider()
+                    JoeyOption("Cheats", value = "›") { onPopup(null); model.openCheats(game) }
+                    com.joeysretro.joey64.launcher.components.PopupDivider()
+                    JoeyOption("Add to collection", value = "›") { onPopup(GamePopup.Collections) }
                 }
                 GamePopup.Details -> details?.let { d -> DetailsBody(game, d, model) { boxArt = true } }
                 GamePopup.Collections -> {}

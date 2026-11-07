@@ -117,6 +117,9 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             var place by remember { mutableStateOf(RailPlace.Library) }
             var settingsHints by remember { mutableStateOf(listOf(Hint("B", "Back"))) }
             var onRail by remember { mutableStateOf(false) }
+            val cheatsFor by model.cheatsFor.collectAsStateWithLifecycle()
+            // Cheats opens over the library or Search results (a game's options), and B goes back there; going anywhere on the rail closes it.
+            LaunchedEffect(place) { model.closeCheats() }
             if (home) UpdateChecks(updates)
             Row(Modifier.weight(1f).fillMaxWidth()) {
                 val continueGame by model.continueGame.collectAsStateWithLifecycle()
@@ -138,6 +141,9 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                                 }
                                 // Then Import from RetroArch, offered once; Skip or Continue finishes first run.
                                 !s.setupDone -> ImportScreen(importModel, s.dataFolder) { scope.launch { store.setSetupDone() } }
+                                cheatsFor != null -> androidx.compose.runtime.key(cheatsFor) {
+                                    com.joeysretro.joey64.launcher.screens.CheatsScreen(cheatsFor!!, onHints = { settingsHints = it }) { model.closeCheats() }
+                                }
                                 place == RailPlace.Settings -> SettingsScreen(updates, onHints = { settingsHints = it }) { place = RailPlace.Library }
                                 place == RailPlace.Controls -> ControlsScreen(onHints = { settingsHints = it }) { place = RailPlace.Library }
                                 place == RailPlace.Search -> com.joeysretro.joey64.launcher.screens.SearchScreen(model, onHints = { settingsHints = it }) { place = RailPlace.Library }
@@ -151,7 +157,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             HintRow(when {
                 !home -> listOf(Hint("A", "Select"))
                 onRail -> listOf(Hint("A", "Open"))
-                place == RailPlace.Settings || place == RailPlace.Controls || place == RailPlace.Search -> settingsHints
+                place == RailPlace.Settings || place == RailPlace.Controls || place == RailPlace.Search || cheatsFor != null -> settingsHints
                 else -> listOf(Hint("A", "Play"), Hint("Start", "Options"), Hint("Y", "Search"))
             })
             if (home) updates.prompt.collectAsStateWithLifecycle().value?.let { UpdatePopup(it, updates) }

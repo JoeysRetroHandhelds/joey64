@@ -409,6 +409,26 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     private fun saveName(fileName: String) = GameStates.saveNameOf(fileName)
 
+    /** The running game's cheat-list keys (CheatLogic.keys), read from its header at start. */
+    private var cheatKeys: List<String> = emptyList()
+
+    /** The cheats the user left on for this game ([GameCheats]), given to the core before it loads the game. */
+    private fun applyCheats(rom: String, saveName: String) {
+        cheatKeys = try {
+            val buf = File(rom).inputStream().use { i -> ByteArray(0x40).also { b -> if (i.read(b) < b.size) throw java.io.IOException("short ROM") } }
+            val order = com.joeysretro.joey64.launcher.library.RomByteOrder.of(buf) ?: throw java.io.IOException("not an N64 ROM")
+            order.toBigEndian(buf, buf.size)
+            com.joeysretro.joey64.cheats.CheatLogic.keys(com.joeysretro.joey64.cheats.CheatLogic.keyOf(
+                com.joeysretro.joey64.launcher.library.RomReader.parseHeader(buf)))
+        } catch (e: Exception) {
+            JLog.e(TAG, "cheats: can't read the ROM header: $e"); emptyList()
+        }
+        if (saveName.isEmpty()) return
+        val lines = com.joeysretro.joey64.cheats.GameCheats(this, saveName).read().codeLines()
+        for (l in lines) NativeBridge.addCheat(l)
+        JLog.i(TAG, "cheats: ${lines.size} on, keys ${cheatKeys.joinToString()}")
+    }
+
     private fun displayName(uri: Uri): String? =
         contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
             if (c.moveToFirst()) c.getString(0) else null
@@ -433,6 +453,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             val (rom, saveName) = resolveRom() ?: run { JLog.e(TAG, "No ROM. Push one to ${getExternalFilesDir(null)}/test.z64"); return }
             reportGameState(loading = true)
             applyControls(rom, saveName)
+            applyCheats(rom, saveName)
             if (NativeBridge.loadGame(rom, saveName)) {
                 NativeBridge.start(); started = true; owner = this; gameLoaded = true
                 startStates(saveName)
@@ -564,6 +585,20 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         override fun openControls() {
             val st = states ?: return
             overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Controls(st.saveName)
+        }
+        override fun openCheats() {
+            val st = states ?: return
+            overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Cheats(
+                com.joeysretro.joey64.launcher.screens.CheatsGame(overlay?.title ?: st.saveName, st.saveName, cheatKeys))
+        }
+        override fun closeCheats() {
+            val st = states
+            if (st != null) stateHandler.post {
+                val lines = com.joeysretro.joey64.cheats.GameCheats(this@MainActivity, st.saveName).read().codeLines()
+                NativeBridge.setCheats(lines.toTypedArray())
+                JLog.i(TAG, "cheats: ${lines.size} on")
+            }
+            if (menuOpen) overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Menu(com.joeysretro.joey64.launcher.ingame.MenuRow.Cheats)
         }
         override fun closeControls() {
             reloadControls()

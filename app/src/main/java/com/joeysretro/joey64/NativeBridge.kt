@@ -50,6 +50,9 @@ object NativeBridge {
     /** Before loadGame: GameShark code ("ADDRESS VALUE" pairs, any separator), applied at load. */
     external fun addCheat(code: String)
 
+    /** Every cheat at once, one per string (its codes joined): a running game takes them between frames, a paused one on resume. */
+    external fun setCheats(codes: Array<String>)
+
     /** Debug: write RDRAM (as the core stores it) to path after the current frame. */
     external fun dumpRam(path: String)
 

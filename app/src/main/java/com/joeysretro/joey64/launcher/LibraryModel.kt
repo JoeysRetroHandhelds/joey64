@@ -310,8 +310,38 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                 _games.value = withContext(Dispatchers.IO) { db.libraryGames() }
             }
             fetchArt(newGames)
+            fetchCheats()
         }
     }
+
+    private val cheatLists = com.joeysretro.joey64.cheats.CheatLists(app)
+    private var cheats: Job? = null
+
+    /** The scan's pass for cheats (plan: "cheats come in the same pass"): every game's lists, when Download cheats is on. */
+    private suspend fun fetchCheats() {
+        if (cheats?.isActive == true) return
+        if (!settings.settings.first().downloadCheats) return
+        val keys = _games.value.orEmpty().mapNotNull { g -> com.joeysretro.joey64.cheats.CheatLogic.keys(g.headerKey).takeIf { it.isNotEmpty() } }
+        if (keys.isEmpty()) return
+        cheats = viewModelScope.launch { cheatLists.prefetch(keys) }
+    }
+
+    private val _cheatsFor = MutableStateFlow<com.joeysretro.joey64.launcher.screens.CheatsGame?>(null)
+    /** The game whose Cheats page is open in the library's place (a game's options › Cheats), or null. */
+    val cheatsFor: StateFlow<com.joeysretro.joey64.launcher.screens.CheatsGame?> = _cheatsFor
+
+    fun openCheats(game: LibraryGame) {
+        viewModelScope.launch {
+            // Named like the game's save, so the game finds them; a game with no readable file has no save name to file them under.
+            val saveName = withContext(Dispatchers.IO) { launcher.saveNameFor(game) } ?: run {
+                JLog.e(TAG, "cheats: no readable file for ${game.title}"); return@launch
+            }
+            _cheatsFor.value = com.joeysretro.joey64.launcher.screens.CheatsGame(game.title, saveName,
+                com.joeysretro.joey64.cheats.CheatLogic.keys(game.headerKey))
+        }
+    }
+
+    fun closeCheats() { _cheatsFor.value = null }
 
     /** Gets [game] ready and hands [start] its intent. One at a time: a second press while a zip unpacks does nothing. */
     fun play(game: LibraryGame, loadState: String? = null, start: (Intent) -> Unit) {

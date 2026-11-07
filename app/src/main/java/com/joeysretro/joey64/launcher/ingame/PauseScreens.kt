@@ -53,9 +53,11 @@ sealed interface PauseScreen {
     data class Picker(val save: Boolean, val slots: List<SlotView>, val focus: Int) : PauseScreen
     /** Controls over the paused game (Phase 4, mockup 11), set to the game [saveName]. B goes back to the menu. */
     data class Controls(val saveName: String) : PauseScreen
+    /** Cheats over the paused game (Phase 6) for [game]. B goes back to the menu; the game takes the changes on resume. */
+    data class Cheats(val game: com.joeysretro.joey64.launcher.screens.CheatsGame) : PauseScreen
 }
 
-enum class MenuRow { Resume, Save, Load, Controls }
+enum class MenuRow { Resume, Save, Load, Controls, Cheats }
 
 /** One cell of the slot picker. [savedAt] null: nothing in the slot. [picture]: the PNG beside the state, if any. */
 data class SlotView(val slot: Int, val name: String, val savedAt: Long?, val picture: ImageBitmap?)
@@ -68,6 +70,9 @@ interface PauseActions {
     fun openControls()
     /** Back from Controls to the menu; what changed there takes effect when the game resumes. */
     fun closeControls()
+    fun openCheats()
+    /** Back from Cheats to the menu; the cheats on now are what the game runs. */
+    fun closeCheats()
     fun reset()
     fun quit()
     /** Back from the picker to the menu. */
@@ -91,6 +96,10 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
         com.joeysretro.joey64.launcher.screens.InGameControls(screen.saveName, title) { actions.closeControls() }
         return
     }
+    if (screen is PauseScreen.Cheats) {
+        com.joeysretro.joey64.launcher.screens.InGameCheats(screen.game) { actions.closeCheats() }
+        return
+    }
     val picker = screen as? PauseScreen.Picker
     val hints = if (picker == null) listOf(Hint("A", "Select"), Hint("B", "Resume"))
         else listOf(Hint("A", if (picker.save) "Save" else "Load"), Hint("D-pad", "Move"), Hint("B", "Back"))
@@ -110,12 +119,13 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
                 JoeyOption("Load state", Modifier.initialFocus(screen.from == MenuRow.Load), value = "›") { actions.openLoad() }
                 PopupDivider()
                 JoeyOption("Controls", Modifier.initialFocus(screen.from == MenuRow.Controls), value = "›") { actions.openControls() }
+                JoeyOption("Cheats", Modifier.initialFocus(screen.from == MenuRow.Cheats), value = "›") { actions.openCheats() }
                 PopupDivider()
                 JoeyOption("Reset") { actions.reset() }
                 JoeyOption("Quit to library") { actions.quit() }
             }
             is PauseScreen.Picker -> SlotGrid(screen, now) { actions.pick(screen.save, it) }
-            is PauseScreen.Controls -> {}
+            is PauseScreen.Controls, is PauseScreen.Cheats -> {}
         }
     }
 }

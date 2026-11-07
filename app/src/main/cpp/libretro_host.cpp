@@ -107,8 +107,11 @@ bool g_rdpSync = false;
 // Games whose CPU reads what the RDP drew and that break with async parallel-RDP: they stay synchronous
 // in fast-forward too (async there gave black screens or the New Tetris halt). Set in loadGame.
 bool g_ffKeepSync = false;
-// GameShark codes applied after load_game (M3: per-game compatibility fixes from the profile DB).
+// GameShark codes, one cheat per string (its codes joined by any separator): applied after
+// load_game, and again between frames when the Cheats page changes them (setCheats).
 std::vector<std::string> g_cheats;
+std::mutex g_cheatsMutex;
+std::atomic<bool> g_cheatsChanged{false};
 // Debug: RDRAM dump requested from the UI thread, written by the emulation thread between frames.
 std::mutex g_dumpMutex;
 std::string g_dumpPath;
@@ -127,6 +130,17 @@ std::atomic<int> g_analog[kPorts][2][2] = {};
 // Ports with a controller plugged in (bit per port), applied after load_game. Default: player 1 only.
 std::atomic<int> g_portsPresent{1};
 std::atomic<bool> g_portsChanged{false}; // set while a game runs: applied between frames
+
+// Gives the core the cheats in g_cheats, replacing what it had. On the emulation thread (or before it starts).
+void applyCheats() {
+    std::lock_guard<std::mutex> lk(g_cheatsMutex);
+    core.cheat_reset();
+    for (size_t i = 0; i < g_cheats.size(); ++i) {
+        core.cheat_set((unsigned)i, true, g_cheats[i].c_str());
+        LOGI("cheat %zu: %s", i, g_cheats[i].c_str());
+    }
+    if (g_cheats.empty()) LOGI("cheats: none");
+}
 
 void applyPorts() {
     int m = g_portsPresent.load();
@@ -719,6 +733,7 @@ void runLoop() {
         if (!g_running) break;
         serveStateRequest(g_framesRun >= (uint32_t)stateReadyFrames(), false);
         if (g_portsChanged.exchange(false)) applyPorts(); // a controller given to a player mid-game
+        if (g_cheatsChanged.exchange(false)) applyCheats(); // the Cheats page, from the pause menu
         applySurfaceIfChanged();
         bool hasWindow = g_vulkan ? g_vk.hasWindow() : g_egl.hasWindow();
         if (!hasWindow) { std::this_thread::sleep_for(std::chrono::milliseconds(16)); continue; }
@@ -1025,11 +1040,8 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
 
     g_portsChanged = false;
     applyPorts();
-    core.cheat_reset();
-    for (size_t i = 0; i < g_cheats.size(); ++i) {
-        core.cheat_set((unsigned)i, true, g_cheats[i].c_str());
-        LOGI("cheat %zu: %s", i, g_cheats[i].c_str());
-    }
+    g_cheatsChanged = false;
+    applyCheats();
 
     uint64_t hash = 1469598103934665603ull; // FNV-1a of the ROM
     for (uint8_t b : buf) hash = (hash ^ b) * 1099511628211ull;
@@ -1093,8 +1105,29 @@ JNIEXPORT void JNICALL JNI(setOption)(JNIEnv* env, jobject, jstring key, jstring
 
 JNIEXPORT void JNICALL JNI(addCheat)(JNIEnv* env, jobject, jstring code) {
     const char* c = env->GetStringUTFChars(code, nullptr);
-    g_cheats.emplace_back(c);
+    {
+        std::lock_guard<std::mutex> lk(g_cheatsMutex);
+        g_cheats.emplace_back(c);
+    }
     env->ReleaseStringUTFChars(code, c);
+}
+
+// Replaces every cheat; a running game takes them between frames (a paused one when it resumes).
+JNIEXPORT void JNICALL JNI(setCheats)(JNIEnv* env, jobject, jobjectArray codes) {
+    std::vector<std::string> next;
+    jsize n = env->GetArrayLength(codes);
+    for (jsize i = 0; i < n; ++i) {
+        auto s = (jstring)env->GetObjectArrayElement(codes, i);
+        const char* c = env->GetStringUTFChars(s, nullptr);
+        next.emplace_back(c);
+        env->ReleaseStringUTFChars(s, c);
+        env->DeleteLocalRef(s);
+    }
+    {
+        std::lock_guard<std::mutex> lk(g_cheatsMutex);
+        g_cheats.swap(next);
+    }
+    g_cheatsChanged = true;
 }
 
 JNIEXPORT void JNICALL JNI(dumpRam)(JNIEnv* env, jobject, jstring path) {

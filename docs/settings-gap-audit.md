@@ -369,7 +369,7 @@ Each item needs Joey's mockup first. The order puts what players miss most first
    - cutout
    - black frame insertion
    - Advanced: renderer, parallel-RDP VI options, frame pacing, GPU driver
-2. **Settings › Audio.** **Built 2026-11-07** (launcher/phase0), all but time stretch, which was tested and waits on Joey (README):
+2. **Settings › Audio.** **Built 2026-11-07** (launcher/phase0), all but time stretch: tested, not now (Joey 2026-11-07), tracked in the README:
    - volume
    - mute
    - fast-forward sound

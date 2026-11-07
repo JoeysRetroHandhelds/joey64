@@ -196,7 +196,19 @@ double g_statAudioWaitMs = 0;                             // audio sync before e
 // Hitches: the slowest frame (beginFrame + retro_run + endFrame; no speed cap, audio wait or pause) and the
 // frames over 33 ms, which skip a frame even at normal speed: what averages hide, such as a shader compile.
 double g_statSlowestMs = 0; int g_statSlowFrames = 0;
+// Settings › On screen's frame times graph: each frame's work (noteFrameTime: acquire, emulation and
+// present, without the speed cap's or audio's waits; GLideN64's includes its vsync wait), the last
+// kFrameRing of them. Written by the emulation thread, read by the UI (a torn read bends one bar).
+// The time between frames was tried first: on the Thor's 120 Hz screen audio sync spreads it 8-37 ms
+// at full speed, so half the bars looked slow while no frame was.
+constexpr uint32_t kFrameRing = 128;
+float g_frameRing[kFrameRing];
+std::atomic<uint32_t> g_frameRingCount{0};
+
 void noteFrameTime(double ms) {
+    uint32_t n = g_frameRingCount.load(std::memory_order_relaxed);
+    g_frameRing[n % kFrameRing] = (float)ms;
+    g_frameRingCount.store(n + 1, std::memory_order_release);
     if (ms > g_statSlowestMs) g_statSlowestMs = ms;
     if (ms > 33.0) ++g_statSlowFrames;
 }
@@ -1265,6 +1277,15 @@ JNIEXPORT jint JNICALL JNI(framesDrawn)(JNIEnv*, jobject) {
 }
 JNIEXPORT jdouble JNICALL JNI(contentFps)(JNIEnv*, jobject) {
     return g_av.timing.fps;
+}
+// The newest frame times (ms), oldest first, into out; returns how many were written.
+JNIEXPORT jint JNICALL JNI(frameTimes)(JNIEnv* env, jobject, jfloatArray out) {
+    uint32_t n = g_frameRingCount.load(std::memory_order_acquire);
+    uint32_t want = std::min<uint32_t>({n, kFrameRing, (uint32_t)env->GetArrayLength(out)});
+    float tmp[kFrameRing];
+    for (uint32_t i = 0; i < want; ++i) tmp[i] = g_frameRing[(n - want + i) % kFrameRing];
+    env->SetFloatArrayRegion(out, 0, (jsize)want, tmp);
+    return (jint)want;
 }
 
 // The session log file (LogFiles.kt), and lines from the Kotlin side so both halves land in one file in order

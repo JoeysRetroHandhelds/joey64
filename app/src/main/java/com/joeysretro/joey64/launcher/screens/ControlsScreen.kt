@@ -497,13 +497,14 @@ private fun HotkeysPage(editor: ControlsEditor, version: Int, focused: String, o
         }
         Column(Modifier.weight(1f)) {
             SectionLabel("Game")
-            for (a in listOf(HotkeyAction.PauseMenu, HotkeyAction.FastForward, HotkeyAction.Screenshot, HotkeyAction.GameShark, HotkeyAction.Reset, HotkeyAction.Quit)) row(a)
+            for (a in listOf(HotkeyAction.PauseMenu, HotkeyAction.FastForward, HotkeyAction.Screenshot, HotkeyAction.Stats, HotkeyAction.GameShark, HotkeyAction.Reset, HotkeyAction.Quit)) row(a)
         }
     }
     Spacer(Modifier.weight(1f))
     when (focused) {
         "hkFastForward" -> DescriptionLine("Fast-forward", "Speeds the game up. Pick its button, Toggle, Hold or Adaptive, and how fast.")
         "hkQuit" -> DescriptionLine("Quit game", "Saves to the auto slot, then goes to the library or exits Joey64.")
+        "hkStats" -> DescriptionLine("Stats overlay", "Steps through Off, Simple, Full and Custom. Settings › On screen sets the rest.")
     }
     }
 }

@@ -383,7 +383,7 @@ Each item needs Joey's mockup first. The order puts what players miss most first
    - D-pad as the stick
    - invert and swap axes
    - Advanced: anti-dead zone, trigger threshold
-4. **Stats overlay:**
+4. **Stats overlay.** **Built 2026-11-07** (launcher/phase0, Settings › On screen), as the approved mockup:
    - presets: Off, Simple, Full, Custom
    - FPS, speed %, VPS, frame times
    - CPU and GPU load, battery, RAM

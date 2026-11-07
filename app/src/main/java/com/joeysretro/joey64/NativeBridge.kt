@@ -73,6 +73,8 @@ object NativeBridge {
     external fun framesDrawn(): Int
     /** The game's native frame rate (NTSC ~60, PAL 50), for the speed percentage. */
     external fun contentFps(): Double
+    /** The newest frame times in ms (each frame's work, without waits), oldest first, into [out]; returns how many. */
+    external fun frameTimes(out: FloatArray): Int
 
     /** Player 1 Rumble Pak strength, 0 (off) to 65535. */
     external fun rumble(): Int

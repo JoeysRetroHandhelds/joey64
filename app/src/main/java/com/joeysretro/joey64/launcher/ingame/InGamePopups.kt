@@ -47,7 +47,7 @@ data class InGamePopup(
     val extra: String? = null,
     val stayMs: Long? = null,
 ) {
-    enum class Kind { Saved, Loaded, Slot, Screenshot, Reset, Problem, Account, Achievement, Progress, ChallengeFailed, Game }
+    enum class Kind { Saved, Loaded, Slot, Screenshot, Reset, Problem, Account, Achievement, Progress, ChallengeFailed, Game, Stats }
 }
 
 /**
@@ -100,6 +100,7 @@ fun InGamePopupCard(p: InGamePopup) {
         InGamePopup.Kind.Account -> R.drawable.ic_user_alert
         InGamePopup.Kind.Achievement, InGamePopup.Kind.Progress, InGamePopup.Kind.Game -> R.drawable.ic_trophy
         InGamePopup.Kind.ChallengeFailed -> R.drawable.ic_target_off
+        InGamePopup.Kind.Stats -> R.drawable.ic_sliders
     }
     JoeyToast(icon, p.label, p.name, p.line, iconTint = when (p.kind) {
         InGamePopup.Kind.Problem, InGamePopup.Kind.ChallengeFailed -> JoeyTheme.colors.error

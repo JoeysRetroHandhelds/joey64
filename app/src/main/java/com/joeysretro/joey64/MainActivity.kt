@@ -109,6 +109,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // Driver and renderer by GPU (setupGpu), or Settings › Video's choice. Override with: am start ... --es renderer parallel|gliden64
         val renderer = setupGpu()
         NativeBridge.setRenderer(renderer == "parallel")
+        onScreen = onScreenStore.read()
         // Settings > About shows the renderer the last game started with (the launcher can't probe Vulkan itself).
         getSharedPreferences("device", MODE_PRIVATE).edit().putString("renderer", renderer).apply()
         // Early acquire on Mali (Flip) by default (Joey 2026-11-05): after 30 new frames in a row the next frame
@@ -136,6 +137,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // scaling, black frames, colour and sharpening. The dev switches below still win.
         val vApply = com.joeysretro.joey64.video.VideoApply.of(video, renderer == "parallel")
         for ((k, v) in vApply.coreOptions) NativeBridge.setOption(k, capUpscaling(k, v))
+        // The stats overlay's "parallel-RDP 2x" (after the Duo's cap; a dev --es opts upscale isn't shown).
+        statsRenderer = if (renderer == "parallel") "parallel-RDP " + capUpscaling("mupen64plus-parallel-rdp-upscaling",
+            vApply.coreOptions["mupen64plus-parallel-rdp-upscaling"] ?: "1x") else "GLideN64 " + (vApply.coreOptions["mupen64plus-EnableNativeResFactor"] ?: "1") + "x"
         if (vApply.sharpScale) NativeBridge.setSharp(true)
         applyVideoDisplay()
         // Sharp display (opt-in; the native look stays the default): the VI's anti-aliasing and bilinear
@@ -162,13 +166,13 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         }
     }
 
-    // ---- FPS counter ----------------------------------------------------------------------------
-    // Top-left: new frames presented per second, sampled twice a second.
+    // ---- Stats overlay (Settings › On screen, approved mockup 2026-11-07) ---------------------------
     private val fpsHandler = Handler(Looper.getMainLooper())
-    private var fpsView: TextView? = null
-    private var fpsLastFrames = 0
-    private var fpsLastDrawn = 0
-    private var fpsLastTime = 0L
+    private var stats: StatsOverlay? = null
+    private val onScreenStore by lazy { com.joeysretro.joey64.onscreen.OnScreenStore(this) }
+    private var onScreen = com.joeysretro.joey64.onscreen.OnScreen()
+    private var statsDriver = ""
+    private var statsRenderer = ""
 
     // Android batches joystick moves (sticks, hat D-pads, analog triggers) to the next frame:
     // Odin 2 Portal 10 ms -> 0.5 ms from event to dispatch. Requested on the decor view because
@@ -210,48 +214,30 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         requestUnbufferedJoystick()
-        if (fpsView != null) return
-        val dp = resources.displayMetrics.density
-        val view = TextView(this).apply {
-            textSize = 14f
-            setTextColor(Color.WHITE)
-            setShadowLayer(3 * dp, 0f, 0f, Color.BLACK)
-            includeFontPadding = false // the text's top sits at the window edge, not a line gap below it
+        if (stats != null || destroyed) return
+        stats = StatsOverlay(this, windowManager).also {
+            it.device = statsDevice()
+            it.driver = statsDriver
+            it.renderer = statsRenderer
+            it.apply(onScreen)
+            if (resumed) it.start()
         }
-        val lp = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_PANEL,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.END // top left is for RetroAchievements popups
-            x = (4 * dp).toInt(); y = (2 * dp).toInt() // tucked into the corner (Joey, 2026-11-04)
-            token = window.decorView.windowToken
-            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-        }
-        windowManager.addView(view, lp)
-        fpsView = view
     }
 
-    private val fpsTick = object : Runnable {
-        override fun run() {
-            val now = SystemClock.elapsedRealtime()
-            val frames = NativeBridge.framesRun()
-            val drawn = NativeBridge.framesDrawn()
-            if (fpsLastTime != 0L && now > fpsLastTime) {
-                // FPS = emulated frames (the game's speed), DL/s = frames the game drew (OoT: 20)
-                val fps = (frames - fpsLastFrames) * 1000.0 / (now - fpsLastTime)
-                val dls = (drawn - fpsLastDrawn) * 1000.0 / (now - fpsLastTime)
-                val target = NativeBridge.contentFps()
-                val speed = if (target > 0) fps * 100 / target else 0.0
-                fpsView?.text = "%.0f FPS | %.0f DL/s | %.0f%% SPEED".format(fps, dls, speed)
-            }
-            fpsLastFrames = frames
-            fpsLastDrawn = drawn
-            fpsLastTime = now
-            fpsHandler.postDelayed(this, 500)
-        }
+    /** "AYN Thor · SM8550 · Adreno 740": the device, its chip (Android 12+) and GPU. */
+    private fun statsDevice(): String {
+        val name = if (Build.MODEL.startsWith(Build.MANUFACTURER, ignoreCase = true)) Build.MODEL
+            else Build.MANUFACTURER.replaceFirstChar { it.uppercase() } + " " + Build.MODEL
+        val soc = if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL.takeIf { it.isNotBlank() && it != Build.UNKNOWN } else null
+        return listOfNotNull(name, soc, gpuName.replace("(TM) ", "").takeIf { it.isNotEmpty() }).joinToString(" · ")
+    }
+
+    /** The stats hotkey: the next of Off, Simple, Full, Custom, saved, with a pop-up naming it. */
+    private fun stepStats() {
+        onScreen = onScreenStore.update { it.copy(stats = it.stats.next) }
+        overlay?.onScreen = onScreen
+        stats?.apply(onScreen)
+        overlay?.show(InGamePopup("stats", InGamePopup.Kind.Stats, "Stats overlay", onScreen.stats.label, onScreen.stats.detail, stayMs = 2_000))
     }
 
     // ---- Rumble Pak ---------------------------------------------------------------------------
@@ -343,7 +329,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     // Dev: --es driver system|turnip
 
     // storage16: 16-bit storage buffers, which parallel-RDP requires (1 yes, 0 no, -1 not asked: before Vulkan 1.1)
-    private class VkGpu(val vendor: Int, val major: Int, val minor: Int, val storage16: Int, val name: String) {
+    private class VkGpu(val vendor: Int, val major: Int, val minor: Int, val storage16: Int, val name: String, val driver: String = "") {
         val vulkan11 get() = major > 1 || (major == 1 && minor >= 1)
         val adreno get() = vendor == 0x5143
         val mali get() = vendor == 0x13B5
@@ -351,9 +337,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     private fun parseGpu(s: String): VkGpu? {
-        val p = s.split('|', limit = 4).takeIf { it.size == 4 } ?: return null
+        val p = s.split('|', limit = 5).takeIf { it.size >= 4 } ?: return null
         val v = p[1].split('.').mapNotNull { it.toIntOrNull() }.takeIf { it.size == 2 } ?: return null
-        return VkGpu(p[0].toIntOrNull() ?: return null, v[0], v[1], p[2].toIntOrNull() ?: -1, p[3])
+        return VkGpu(p[0].toIntOrNull() ?: return null, v[0], v[1], p[2].toIntOrNull() ?: -1, p[3], p.getOrNull(4).orEmpty())
     }
 
     /** Picks and installs the Vulkan driver; returns the renderer, "parallel" or "gliden64". */
@@ -387,6 +373,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         }
         val gpu = custom ?: system
         gpuName = gpu?.name ?: ""
+        statsDriver = statsDriverName(lib?.takeIf { custom != null }, dev != null, gpu?.driver.orEmpty())
         // parallel-RDP also needs 16-bit storage buffers: without them it fails to start and the core crashes
         // (Adreno 610, Snapdragon 665: missing on both drivers, so GLideN64 there)
         val parallel = gpu != null && gpu.vulkan11 && gpu.storage16 == 1 && (custom != null || gpu.mali)
@@ -417,6 +404,17 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     private var gpuName = ""
+
+    /**
+     * The stats overlay's driver: the bundled ones by their release (devtools/drivers/bundled.json, keep these
+     * in step when a driver is updated), a dev driver by its file, the system's by what it reports.
+     */
+    private fun statsDriverName(lib: File?, dev: Boolean, reported: String): String = when {
+        lib == null -> "System driver" + reported.substringAfter(", ", "").takeIf { it.isNotEmpty() && it.length <= 24 }?.let { " $it" }.orEmpty()
+        dev -> "Dev driver ${lib.name}"
+        lib.parentFile?.name == "faux123" -> "Turnip faux123 v1.2.7"
+        else -> "Turnip Gen8 V38"
+    }
 
     /** Settings › Video for the game this screen was started for (onCreate). */
     private var video = com.joeysretro.joey64.video.VideoSettings.DEFAULTS
@@ -590,6 +588,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         overlay = GameOverlay(this, pauseActions).also {
             it.title = givenTitle ?: saveName
             it.saveSlotName = slotName(currentSlot())
+            it.onScreen = onScreen
         }
         // RetroAchievements no longer takes the kept sign-in (the password changed on the website): say so
         // once the game is up (approved sign-in mockup g). Signing in again is in Settings › RetroAchievements.
@@ -866,6 +865,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             HotkeyAction.NextSlot -> stepSlot(1)
             HotkeyAction.PrevSlot -> stepSlot(-1)
             HotkeyAction.Screenshot -> hotkeyScreenshot()
+            HotkeyAction.Stats -> stepStats()
             HotkeyAction.Reset -> stateHandler.post { val ok = resetNow(); runOnUiThread { popReset(ok) } }
             HotkeyAction.Quit -> quitToLibrary()
             HotkeyAction.PauseMenu -> if (!menuOpen) openMenu()
@@ -938,6 +938,14 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     // of the one showing, so "Slot 3 saved" doesn't wait behind "Slot 3, Empty".
     private fun pop(key: String, kind: InGamePopup.Kind, label: String, name: String, line: String) {
         if (destroyed) return
+        // Settings › On screen › Pop-ups (problems always show).
+        val off = when (kind) {
+            InGamePopup.Kind.Saved, InGamePopup.Kind.Loaded, InGamePopup.Kind.Slot -> !onScreen.popStates
+            InGamePopup.Kind.Screenshot -> !onScreen.popScreenshots
+            InGamePopup.Kind.Reset -> !onScreen.popReset
+            else -> false
+        }
+        if (off) return
         overlay?.show(InGamePopup(key, kind, label, name, line))
     }
 
@@ -1301,7 +1309,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // Leaving the game (quit, home, another app): its progress is kept while rc_client still has it.
         raCache?.keepNow()
         reportGameState(loading = false, playing = false)
-        fpsHandler.removeCallbacks(fpsTick)
+        stats?.stop()
         resumed = false
         hotkeyHeld = false
         fastForwardRelease()
@@ -1315,9 +1323,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (!mine) return
         if (!menuOpen) NativeBridge.pause(false)
         if (started) { reportGameState(loading = false); requestAudioFocus() }
-        fpsLastTime = 0L
-        fpsHandler.post(fpsTick)
         resumed = true
+        stats?.start()
         setRumbling(NativeBridge.rumble() > 0)
         if (!rumbleWatcher.isAlive) rumbleWatcher.start()
     }
@@ -1343,7 +1350,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         debugLogs?.let { unregisterReceiver(it) }
         debugRaEvent?.let { unregisterReceiver(it) }
         destroyed = true
-        fpsView?.let { windowManager.removeView(it) }
+        stats?.destroy()
         raPopups?.stop()
         raCache?.stop()
         overlay?.destroy()

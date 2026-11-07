@@ -62,7 +62,7 @@ import com.joeysretro.joey64.launcher.update.UpdateModel.RowState
 import kotlinx.coroutines.delay
 
 /** The Settings tabs built so far, in the approved order (General, Audio and Library come with their pages). */
-enum class SettingsTab(val label: String) { Appearance("Appearance"), Video("Video"), Audio("Audio"), RetroAchievements("RetroAchievements"), About("About") }
+enum class SettingsTab(val label: String) { Appearance("Appearance"), Video("Video"), Audio("Audio"), OnScreen("On screen"), RetroAchievements("RetroAchievements"), About("About") }
 
 /**
  * Settings (approved Settings mockups, 2026-11-05). The tabs that are built, L1/R1 (or a tap)
@@ -117,11 +117,12 @@ fun SettingsScreen(updates: UpdateModel, onHints: (List<Hint>) -> Unit, onClose:
             }
         }
         key(tab, target) {
-            if (!perGame) tabControl = null
+            if (!perGame && tab != SettingsTab.OnScreen) tabControl = null
             when (tab) {
                 SettingsTab.Appearance -> AppearanceTab(onHints, Modifier.weight(1f))
                 SettingsTab.Video -> VideoTab(target, onHints, { tabControl = it }, Modifier.weight(1f))
                 SettingsTab.Audio -> AudioTab(target, onHints, { tabControl = it }, Modifier.weight(1f))
+                SettingsTab.OnScreen -> OnScreenTab(onHints, { tabControl = it }, Modifier.weight(1f))
                 SettingsTab.RetroAchievements -> RaTab(onHints, Modifier.weight(1f))
                 SettingsTab.About -> AboutTab(updates, { onHints(it.dropLast(1) + Hint("L/R", "Tab") + it.last()) }, Modifier.weight(1f))
             }

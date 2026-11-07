@@ -184,6 +184,8 @@ enum class HotkeyAction(val label: String, /** null: not set until the user pick
     /** Hotkey button + R2 (Joey 2026-11-07; was R3 on its own). */
     FastForward("Fast-forward", KeyEvent.KEYCODE_BUTTON_R2),
     Screenshot("Screenshot", KeyEvent.KEYCODE_BUTTON_Y),
+    /** Steps Settings › On screen › Stats: Off, Simple, Full, Custom (approved Stats overlay mockup, 2026-11-07). */
+    Stats("Stats overlay", KeyEvent.KEYCODE_BUTTON_X),
     /** Held for as long as the buttons are (approved 2026-11-07). */
     GameShark("GameShark button", KeyEvent.KEYCODE_BUTTON_THUMBL),
     /** Not set by default (Joey 2026-11-07). */
@@ -257,9 +259,13 @@ data class Hotkeys(
             val keys = HotkeyAction.entries.associateWith { a ->
                 if (k == null || !k.has(a.name)) a.default else k.optInt(a.name, -1).takeIf { it >= 0 }
             }
+            var picked = if (!old || k == null) keys else keys.mapValues { (a, v) -> if (k.has(a.name)) migrated(a, v) else v }
+            // A file from before an action existed gets its default, unless the user already gave that button to another.
+            if (k != null) for (a in HotkeyAction.entries) if (!k.has(a.name) && a.default != null &&
+                picked.any { (b, v) -> b != a && b.alone == a.alone && v == a.default }) picked = picked + (a to null)
             return Hotkeys(
                 button = o.optInt("button", d.button),
-                keys = if (!old || k == null) keys else keys.mapValues { (a, v) -> if (k.has(a.name)) migrated(a, v) else v },
+                keys = picked,
                 ffMode = FastForwardMode.entries.firstOrNull { it.name == o.optString("ffMode") } ?: d.ffMode,
                 ffSpeed = o.optInt("ffSpeed", d.ffSpeed).takeIf { it in FF_SPEEDS } ?: d.ffSpeed,
                 quitTo = QuitTo.entries.firstOrNull { it.name == o.optString("quitTo") } ?: d.quitTo,

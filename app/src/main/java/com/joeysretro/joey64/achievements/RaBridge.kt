@@ -155,10 +155,17 @@ object RaBridge {
         return true
     }
 
+    /**
+     * PPSSPP's rules (its AchievementsHostOverrideReceiver.isAllowedHost, the strictest of the emulators RAOfflineProxy
+     * reaches; Joey 2026-11-07): plain http to a loopback address with a port, nothing else in it (no user info, path
+     * past "/", query or fragment). RAOfflineProxy sends "http://127.0.0.1:<port>". [::1] is taken as well.
+     */
     fun isLocalHost(host: String): Boolean {
         val uri = try { URI(host.trim()) } catch (e: Exception) { return false }
-        if (uri.scheme != "http" && uri.scheme != "https") return false
-        if (uri.userInfo != null) return false
+        if (uri.scheme != "http" || uri.isOpaque) return false
+        if (uri.rawUserInfo != null || uri.rawQuery != null || uri.rawFragment != null) return false
+        if (!uri.rawPath.isNullOrEmpty() && uri.rawPath != "/") return false
+        if (uri.port !in 0..65535) return false
         val h = uri.host ?: return false
         return h == "127.0.0.1" || h.equals("localhost", ignoreCase = true) || h == "[::1]" || h == "::1"
     }

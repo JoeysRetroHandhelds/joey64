@@ -1,7 +1,7 @@
 # The core bundled in app/src/main/jniLibs (written by devtools/bundle-core.sh; the .so itself is not committed)
 repo: JoeysRetroHandhelds/joey64-core
 branch: gliden64-update
-commit: 00448991ea5098823fb34e21585e546c94e2f493 2026-11-06 16:04:42 -0600 Save states: unlock savestates_lock when a state's magic is wrong (the emulation thread hung)
+commit: ef0928f8b6ac8414ef593479292176d5e4904054 2026-11-06 20:30:47 -0600 Merge branch 'gpu2' into gliden64-update
 uncommitted: none
-built: 2026-11-06 16:04
-md5: 9dbdbef2257ec0e43969e0c2e5ce8c71
+built: 2026-11-06 20:33
+md5: b712353db834cb7568c106af529b9bea

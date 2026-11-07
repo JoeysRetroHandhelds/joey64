@@ -48,7 +48,8 @@
       "id": "NYS", "title": "Yoshi's Story",
       "settings": [
         {"what": "synchronous parallel-RDP on every GPU, also in fast-forward", "where": "kSyncRdpGames (was kAdrenoSyncGames, Adreno fast-forward only, until 2026-11-05)", "why": "async: intro draws, then black (Odin 3 and Duo 2026-11-03, every Flip run since 2026-11-05)"},
-        {"what": "save type 16K EEPROM for hacks (header ID)", "where": "core rom.c, 67a1fcd", "why": "hacks not in the database got 4K and could not save"}
+        {"what": "save type 16K EEPROM for hacks (header ID)", "where": "core rom.c, 67a1fcd", "why": "hacks not in the database got 4K and could not save"},
+        {"what": "smoother timing, CountPerOp=1 (counter factor 1), on Adreno 730 and up (Portal, Odin 3, Thor) only", "where": "libretro_host.cpp kSmootherGames, MainActivity N64_SMOOTHER", "why": "Odin 3 28.6 -> 30.0 fps; compat with it passed on the Odin 3 and Portal (odin3-/portal-smoothc), Joey 2026-11-06. Hacks with this ID get it too"}
       ],
       "fixed": [
         {"devices": "Flip (Mali)", "what": "draws its intro, then every frame black from ~25 s with async parallel-RDP (repeat skip off: still black, so not the skip; sync: plays)", "fix": "added to kSyncRdpGames, app f6b99e6; flip-blk-def/noskip/sync; default build checked: draws to the end (flip-sync6)"}
@@ -97,6 +98,9 @@
     },
     {
       "id": "NKT", "title": "Mario Kart 64",
+      "settings": [
+        {"what": "smoother timing, CountPerOp=1 (counter factor 1), on Adreno 730 and up (Portal, Odin 3, Thor) only", "where": "libretro_host.cpp kSmootherGames, MainActivity N64_SMOOTHER", "why": "Odin 3 26.5 -> 28.1 fps; compat with it passed on the Odin 3 and Portal (odin3-/portal-smoothc), Joey 2026-11-06. Hacks with this ID get it too"}
+      ],
       "issues": [
         {"status": "open", "devices": "Flip (95 ms), Odin 3 (29 ms)", "what": "hitch the first time an area's code runs: ~2100 dynarec blocks compiled at once (not code thrown away and rebuilt). A one-off per area; fixes: compile thread (item 7) or saved block list (item 17)", "evidence": "flip-mkhitch, flip-drcinv, odin3-hitch"}
       ],
@@ -122,6 +126,9 @@
     },
     {
       "id": "NFU", "title": "Conker's Bad Fur Day",
+      "settings": [
+        {"what": "smoother timing, CountPerOp=1 (counter factor 1), on Adreno 730 and up (Portal, Odin 3, Thor) only", "where": "libretro_host.cpp kSmootherGames, MainActivity N64_SMOOTHER", "why": "Odin 3 21.4 -> 28.6 fps; compat with it passed on the Odin 3 and Portal (odin3-/portal-smoothc), Joey 2026-11-06. Hacks with this ID get it too"}
+      ],
       "notes": ["100-140 ms boot frames on the Flip", "RSP chunk cache made it 10.9% slower (dropped)", "Europe ROM (07) has no bench state; use the USA ROM (81)"]
     },
     {
@@ -187,6 +194,9 @@
     },
     {
       "id": "NGE", "title": "GoldenEye 007",
+      "settings": [
+        {"what": "smoother timing, CountPerOp=1 (counter factor 1), on Adreno 730 and up (Portal, Odin 3, Thor) only", "where": "libretro_host.cpp kSmootherGames, MainActivity N64_SMOOTHER", "why": "runs below its frame rate on hardware; Odin 3 49.7 -> 59.9 fps; compat with it passed on the Odin 3 and Portal (odin3-/portal-smoothc), Joey 2026-11-06. Hacks with this ID get it too"}
+      ],
       "notes": ["VI filters off: +9% on the Flip", "Duo 2x upscaled: 59.9 fps on faux123 Turnip vs 50.7 on the bundled Gen8"]
     }
   ]

@@ -69,22 +69,28 @@ object AppBackup {
     fun fileName(now: Long = System.currentTimeMillis()) =
         "Joey64 backup " + java.text.SimpleDateFormat("yyyy-MM-dd HHmm", java.util.Locale.US).format(java.util.Date(now)) + ".zip"
 
-    /** Writes the backup to [out]; [onFile] counts files done. The number of files written. */
-    suspend fun write(context: Context, data: FileSpace, parts: Set<BackupPart>, out: OutputStream, onFile: (Int) -> Unit = {}): Int {
+    /**
+     * Writes the backup to [out]; [onFile] counts files done. The number of files written. Every
+     * entry carries [madeAt] as its time ([SettingsMirror] fixes it, so the same settings give the
+     * same bytes); [withCheats] false leaves the cheats turned on out of the Settings part.
+     */
+    suspend fun write(context: Context, data: FileSpace, parts: Set<BackupPart>, out: OutputStream,
+                      withCheats: Boolean = true, madeAt: Long = System.currentTimeMillis(), onFile: (Int) -> Unit = {}): Int {
         var n = 0
         fun kindFiles(k: DataKind) = data.list(listOf(k.dir)).filter { !it.isDir && it.name != DataKind.NO_MEDIA && !it.name.endsWith(".part") }
         val saveFiles = if (BackupPart.Saves in parts) SAVE_KINDS.associateWith { kindFiles(it) } else emptyMap()
         val shots = if (BackupPart.Screenshots in parts) kindFiles(DataKind.Screenshots) else emptyList()
-        val info = BackupInfo(System.currentTimeMillis(), parts,
+        val info = BackupInfo(madeAt, parts,
             saves = saveFiles[DataKind.Saves]?.count { it.name.endsWith(".srm") } ?: 0,
             states = saveFiles[DataKind.States]?.count { !it.name.endsWith(".png") && !it.name.endsWith(".old") } ?: 0,
             screenshots = shots.size)
         ZipOutputStream(out.buffered()).use { zip ->
             zip.setLevel(1)
-            fun put(name: String, bytes: ByteArray) { zip.putNextEntry(ZipEntry(name)); zip.write(bytes); zip.closeEntry(); onFile(++n) }
+            fun entry(name: String) = ZipEntry(name).apply { time = madeAt }
+            fun put(name: String, bytes: ByteArray) { zip.putNextEntry(entry(name)); zip.write(bytes); zip.closeEntry(); onFile(++n) }
             fun putStream(name: String, input: InputStream?) {
                 input ?: return
-                zip.putNextEntry(ZipEntry(name)); input.use { it.copyTo(zip) }; zip.closeEntry(); onFile(++n)
+                zip.putNextEntry(entry(name)); input.use { it.copyTo(zip) }; zip.closeEntry(); onFile(++n)
             }
             put(MANIFEST, info.toJson().toString(1).toByteArray())
             for ((k, files) in saveFiles) for (f in files) putStream("data/${k.dir}/${f.name}", data.openRead(listOf(k.dir, f.name)))
@@ -96,7 +102,7 @@ object AppBackup {
                         putStream("files/$dir/" + f.relativeTo(root).invariantSeparatorsPath, f.inputStream())
                     }
                 }
-                for (f in kindFiles(DataKind.Cheats)) putStream("data/${DataKind.Cheats.dir}/${f.name}", data.openRead(listOf(DataKind.Cheats.dir, f.name)))
+                if (withCheats) for (f in kindFiles(DataKind.Cheats)) putStream("data/${DataKind.Cheats.dir}/${f.name}", data.openRead(listOf(DataKind.Cheats.dir, f.name)))
                 for (p in PREFS) put("prefs/$p.json", prefsToJson(context.getSharedPreferences(p, Context.MODE_PRIVATE).all).toString(1).toByteArray())
                 val s = SettingsStore(context).settings.first()
                 put("launcher.json", JSONObject().apply {
@@ -106,7 +112,7 @@ object AppBackup {
                 put("library.json", LibraryDb.get(context).exportLists().toString().toByteArray())
             }
         }
-        JLog.i(TAG, "backup written: $n files, parts $parts")
+        if (withCheats) JLog.i(TAG, "backup written: $n files, parts $parts")
         return n
     }
 

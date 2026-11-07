@@ -79,6 +79,19 @@ class LauncherActivity : ComponentActivity() {
     private var raFake: android.content.BroadcastReceiver? = null
     private var debugShow: android.content.BroadcastReceiver? = null
 
+    // A picked data folder holds a copy of the settings (SettingsMirror): a changed copy comes in
+    // when the launcher comes up, and changes (Settings, a game's pause menu or hotkeys) go out.
+    override fun onStart() {
+        super.onStart()
+        // Settings that came in: every screen starts again, so none keeps (and later saves) the old ones.
+        com.joeysretro.joey64.saves.SettingsMirror.sync(this) { runOnUiThread { if (!isFinishing && !isDestroyed) recreate() } }
+    }
+
+    override fun onStop() {
+        com.joeysretro.joey64.saves.SettingsMirror.pushSoon(this)
+        super.onStop()
+    }
+
     override fun onDestroy() {
         raFake?.let { unregisterReceiver(it) }
         debugShow?.let { unregisterReceiver(it) }

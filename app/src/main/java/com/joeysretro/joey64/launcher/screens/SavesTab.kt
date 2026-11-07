@@ -210,6 +210,8 @@ private fun moveData(context: android.content.Context, scope: kotlinx.coroutines
                 val old = DataFolders.treeUri(context)
                 DataFolders.set(context, tree)
                 SettingsStore(context).setDataFolder(tree)
+                // The settings' copy follows (Joey 2026-11-07: "Move settings too").
+                com.joeysretro.joey64.saves.SettingsMirror.moved(context, old)
                 if (old != null && old != tree) try { RomFolders.release(context, old.toUri()) } catch (e: Exception) {}
                 JLog.i(TAG, "data folder: moved ${res.moved}, already there ${res.alreadyThere}, kept ${res.conflicts.size}, failed ${res.failed.size}")
                 res
@@ -231,7 +233,7 @@ private fun describe(row: String, o: SavesOptions): Pair<String, String> = when 
     "backup" -> "Back up Joey64" to "One .zip of your saves, states, screenshots and settings, in a folder you pick. ROMs and box art aren't in it."
     "restore" -> "Restore a backup" to "Brings back a Joey64 backup. Files with the same name are replaced; the rest stay."
     "import" -> "Import from RetroArch" to "Copies RetroArch's N64 saves and states into Joey64. RetroArch's own files aren't changed."
-    "folder" -> "Data folder" to "Where saves, states, screenshots, cheats and save backups live."
+    "folder" -> "Data folder" to "Where saves, states, screenshots, cheats, save backups and settings live."
     else -> "Recovery state" to "Saved every few minutes while you play, and offered if Joey64 closes by itself. Off: no crash question."
 }
 
@@ -278,7 +280,7 @@ private fun RestorePopup(info: BackupInfo, onDismiss: () -> Unit, onPick: (Set<B
 private fun FolderPopup(own: Boolean, onDismiss: () -> Unit, onPick: (Boolean) -> Unit) {
     JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 470.dp) {
         Column {
-            PopupTitle("Data folder", "Saves, states, screenshots, cheats and save backups. Moving copies them all, then removes the old ones.")
+            PopupTitle("Data folder", "Saves, states, screenshots, cheats, save backups and settings. Moving copies them all, then removes the old ones.")
             JoeyRow("Joey64's own", Modifier.initialFocus(own), detail = "Internal storage. Deleted if Joey64 is uninstalled",
                 trailing = if (own) { _ -> PickerTick() } else null) { onPick(false) }
             JoeyRow("Pick a folder", Modifier.initialFocus(!own), value = "›", detail = "For example on the SD card. Kept if Joey64 is uninstalled",

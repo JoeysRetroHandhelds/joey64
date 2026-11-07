@@ -10,9 +10,10 @@ import java.io.IOException
  * screen 10), read without waiting, so the game screen and the launcher see the same one. The
  * launcher's DataStore keeps a copy ([com.joeysretro.joey64.launcher.settings.LauncherSettings.dataFolder]).
  *
- * What moves with it ([KINDS]): saves, states, screenshots, the cheats turned on, save backups.
- * Box art and texture packs stay in Joey64's own storage (box art is downloaded again; it's read as
- * plain files), and so do settings, which are read before anything else.
+ * What moves with it ([KINDS]): saves, states, screenshots, the cheats turned on, save backups, and
+ * a copy of the settings ([com.joeysretro.joey64.saves.SettingsMirror]; Joey64 reads its own, which
+ * are read before anything else). Box art and texture packs stay in Joey64's own storage (box art is
+ * downloaded again; it's read as plain files).
  */
 object DataFolders {
     private const val PREFS = "data_folder"

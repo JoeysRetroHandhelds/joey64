@@ -171,13 +171,15 @@ enum class HotkeyAction(val label: String, /** null: not set until the user pick
     NextSlot("Next slot", KeyEvent.KEYCODE_DPAD_RIGHT),
     PrevSlot("Previous slot", KeyEvent.KEYCODE_DPAD_LEFT),
     PauseMenu("Pause menu", KeyEvent.KEYCODE_BACK, alone = true),
-    /** No button by default (Joey 2026-11-07: R3 removed); the user picks one. */
-    FastForward("Fast-forward", null, alone = true),
+    /** Hotkey button + R2 (Joey 2026-11-07; was R3 on its own). */
+    FastForward("Fast-forward", KeyEvent.KEYCODE_BUTTON_R2),
     Screenshot("Screenshot", KeyEvent.KEYCODE_BUTTON_Y),
     /** Held for as long as the buttons are (approved 2026-11-07). */
     GameShark("GameShark button", KeyEvent.KEYCODE_BUTTON_THUMBL),
-    Reset("Reset game", KeyEvent.KEYCODE_BUTTON_START),
-    Quit("Quit to library", KeyEvent.KEYCODE_BUTTON_B),
+    /** Not set by default (Joey 2026-11-07). */
+    Reset("Reset game", null),
+    /** Hotkey button + Start (Joey 2026-11-07; was + B, and Start was Reset). */
+    Quit("Quit to library", KeyEvent.KEYCODE_BUTTON_START),
 }
 
 /** The hotkey button (held) and each hotkey's second button; null is cleared. */
@@ -189,19 +191,30 @@ data class Hotkeys(val button: Int = KeyEvent.KEYCODE_BUTTON_SELECT, val keys: M
         .put("keys", JSONObject().apply { for (a in HotkeyAction.entries) put(a.name, keys[a] ?: -1) })
 
     companion object {
-        /** 2: Fast-forward lost its R3 default. Files before it saved every default, R3 included. */
-        const val VERSION = 2
+        /**
+         * 3 (Joey 2026-11-07): fast-forward hotkey button + R2 (was R3 on its own; version 2 had none),
+         * Quit + Start (was + B), Reset not set (was + Start). Files before it saved every default, so
+         * those old defaults are moved; anything else the user picked stays.
+         */
+        const val VERSION = 3
+
+        private fun migrated(a: HotkeyAction, v: Int?): Int? = when (a) {
+            HotkeyAction.FastForward -> a.default  // it was a button on its own; now it's a hotkey
+            HotkeyAction.Reset -> v.takeIf { it != KeyEvent.KEYCODE_BUTTON_START }
+            HotkeyAction.Quit -> if (v == KeyEvent.KEYCODE_BUTTON_B) a.default else v
+            else -> v
+        }
 
         fun fromJson(o: JSONObject): Hotkeys {
             val d = Hotkeys()
             val k = o.optJSONObject("keys")
-            val old = o.optInt("version", 1) < 2
+            val old = o.optInt("version", 1) < VERSION
+            val keys = HotkeyAction.entries.associateWith { a ->
+                if (k == null || !k.has(a.name)) a.default else k.optInt(a.name, -1).takeIf { it >= 0 }
+            }
             return Hotkeys(
                 button = o.optInt("button", d.button),
-                keys = HotkeyAction.entries.associateWith { a ->
-                    if (k == null || !k.has(a.name)) a.default
-                    else k.optInt(a.name, -1).takeIf { it >= 0 && !(old && a == HotkeyAction.FastForward && it == KeyEvent.KEYCODE_BUTTON_THUMBR) }
-                },
+                keys = if (!old || k == null) keys else keys.mapValues { (a, v) -> if (k.has(a.name)) migrated(a, v) else v },
             )
         }
     }

@@ -129,6 +129,7 @@ class KeyNormaliser(private val superDispatch: (KeyEvent) -> Boolean) {
     private val loggedUnknownKeys = mutableSetOf<Int>()
 
     fun dispatch(event: KeyEvent): Boolean {
+        if (PadCapture.swallowRelease(event)) return true // a remap popup took this button
         Controls.translate(event.keyCode)?.let { keyCode ->
             if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER) {
                 if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) centerDownTime = event.downTime

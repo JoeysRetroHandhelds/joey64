@@ -41,7 +41,7 @@ fun HintRow(hints: List<Hint>, modifier: Modifier = Modifier) {
         ) {
             for (hint in hints) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    KeyBadge(hint.key)
+                    if (hint.key.isNotEmpty()) KeyBadge(hint.key) // a hint with no key is a line of text ("Any button you press is used")
                     Text(hint.action, style = JoeyTheme.type.hint, color = c.textSecondary)
                 }
             }

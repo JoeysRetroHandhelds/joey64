@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Auto map (a wand with sparks). Drawn here; tinted where it's used. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M4,20L15,9 M13,7L17,11 M17,3V5 M21,7H19 M19.5,3.5L18,5 M9,4V6 M8,5H10 M19,14V16 M18,15H20"/>
+</vector>

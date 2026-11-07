@@ -28,6 +28,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.joeysretro.joey64.R
 import com.joeysretro.joey64.launcher.components.JoeyToast
 import com.joeysretro.joey64.launcher.screens.SettingsScreen
+import com.joeysretro.joey64.launcher.screens.ControlsScreen
 import com.joeysretro.joey64.launcher.screens.UpdatePopup
 import com.joeysretro.joey64.launcher.update.UpdateModel
 import kotlinx.coroutines.delay
@@ -138,6 +139,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                                 // Then Import from RetroArch, offered once; Skip or Continue finishes first run.
                                 !s.setupDone -> ImportScreen(importModel, s.dataFolder) { scope.launch { store.setSetupDone() } }
                                 place == RailPlace.Settings -> SettingsScreen(updates, onHints = { settingsHints = it }) { place = RailPlace.Library }
+                                place == RailPlace.Controls -> ControlsScreen(onHints = { settingsHints = it }) { place = RailPlace.Library }
                                 else -> LibraryScreen(model)
                             }
                         }
@@ -148,7 +150,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             HintRow(when {
                 !home -> listOf(Hint("A", "Select"))
                 onRail -> listOf(Hint("A", "Open"))
-                place == RailPlace.Settings -> settingsHints
+                place == RailPlace.Settings || place == RailPlace.Controls -> settingsHints
                 else -> listOf(Hint("A", "Play"), Hint("Start", "Options"))
             })
             if (home) updates.prompt.collectAsStateWithLifecycle().value?.let { UpdatePopup(it, updates) }

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Hotkeys (a keyboard). Drawn here; tinted where it's used. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M4,6H20A2,2 0 0 1 22,8V16A2,2 0 0 1 20,18H4A2,2 0 0 1 2,16V8A2,2 0 0 1 4,6Z M6,10V10.01 M10,10V10.01 M14,10V10.01 M18,10V10.01 M6,14V14.01 M18,14V14.01 M10,14H14"/>
+</vector>

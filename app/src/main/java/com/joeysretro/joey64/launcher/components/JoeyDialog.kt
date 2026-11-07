@@ -85,6 +85,11 @@ fun JoeyDialog(
     onPadButton: ((keyCode: Int) -> Unit)? = null,
     /** The card's width; most popups are a fixed width, a picker with a preview is wider. */
     width: Dp = 360.dp,
+    /**
+     * A whole page over the paused game (Controls in game, approved mockup 11): no card, the page
+     * fills the window above the hint row, on the page colour.
+     */
+    fullScreen: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val backRegistry = remember { DialogBackRegistry() }
@@ -175,14 +180,15 @@ fun JoeyDialog(
                 val shape = RoundedCornerShape(s.popupCorner)
                 Box(
                     modifier = Modifier
-                        .widthIn(max = width)
-                        .fillMaxWidth()
-                        .then(if (c.isDark) Modifier else Modifier.shadow(18.dp, shape))
-                        .background(c.surface, shape)
-                        .border(1.dp, c.border, shape)
+                        .then(if (fullScreen) Modifier.fillMaxSize().background(c.page) else Modifier
+                            .widthIn(max = width)
+                            .fillMaxWidth()
+                            .then(if (c.isDark) Modifier else Modifier.shadow(18.dp, shape))
+                            .background(c.surface, shape)
+                            .border(1.dp, c.border, shape))
                         // Taps on the card mustn't count as outside (the options take their own first).
                         .pointerInput(Unit) { detectTapGestures { } }
-                        .padding(horizontal = 10.dp, vertical = 12.dp)
+                        .then(if (fullScreen) Modifier else Modifier.padding(horizontal = 10.dp, vertical = 12.dp))
                         .focusRequester(body)
                         // Compose turns a Back key it sees into a focus move out of the group
                         // (FocusDirection.Exit). In a popup that must be answered nothing closes,

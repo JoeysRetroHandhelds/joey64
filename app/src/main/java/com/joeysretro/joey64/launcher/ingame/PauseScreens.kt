@@ -51,9 +51,11 @@ sealed interface PauseScreen {
     data class Menu(val from: MenuRow = MenuRow.Resume) : PauseScreen
     /** The slot picker, for Save state ([save]) or Load state, over [slots] (Auto first, then Slots 1-10). */
     data class Picker(val save: Boolean, val slots: List<SlotView>, val focus: Int) : PauseScreen
+    /** Controls over the paused game (Phase 4, mockup 11), set to the game [saveName]. B goes back to the menu. */
+    data class Controls(val saveName: String) : PauseScreen
 }
 
-enum class MenuRow { Resume, Save, Load }
+enum class MenuRow { Resume, Save, Load, Controls }
 
 /** One cell of the slot picker. [savedAt] null: nothing in the slot. [picture]: the PNG beside the state, if any. */
 data class SlotView(val slot: Int, val name: String, val savedAt: Long?, val picture: ImageBitmap?)
@@ -63,6 +65,9 @@ interface PauseActions {
     fun resume()
     fun openSave()
     fun openLoad()
+    fun openControls()
+    /** Back from Controls to the menu; what changed there takes effect when the game resumes. */
+    fun closeControls()
     fun reset()
     fun quit()
     /** Back from the picker to the menu. */
@@ -82,6 +87,10 @@ interface PauseActions {
  */
 @Composable
 fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Long, actions: PauseActions) {
+    if (screen is PauseScreen.Controls) {
+        com.joeysretro.joey64.launcher.screens.InGameControls(screen.saveName, title) { actions.closeControls() }
+        return
+    }
     val picker = screen as? PauseScreen.Picker
     val hints = if (picker == null) listOf(Hint("A", "Select"), Hint("B", "Resume"))
         else listOf(Hint("A", if (picker.save) "Save" else "Load"), Hint("D-pad", "Move"), Hint("B", "Back"))
@@ -100,10 +109,13 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
                 JoeyOption("Save state", Modifier.initialFocus(screen.from == MenuRow.Save), value = "$saveSlotName  ▸") { actions.openSave() }
                 JoeyOption("Load state", Modifier.initialFocus(screen.from == MenuRow.Load), value = "›") { actions.openLoad() }
                 PopupDivider()
+                JoeyOption("Controls", Modifier.initialFocus(screen.from == MenuRow.Controls), value = "›") { actions.openControls() }
+                PopupDivider()
                 JoeyOption("Reset") { actions.reset() }
                 JoeyOption("Quit to library") { actions.quit() }
             }
             is PauseScreen.Picker -> SlotGrid(screen, now) { actions.pick(screen.save, it) }
+            is PauseScreen.Controls -> {}
         }
     }
 }

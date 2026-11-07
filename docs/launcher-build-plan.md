@@ -385,6 +385,24 @@ The parts without screens:
 
 Also agreed: for an ID shared by more than one layout, Auto map first asks for one press of A to pick the layout.
 
+**Built (2026-11-06, local commits on `launcher/phase0`), checked on the Thor:**
+- The Controls page on the rail (gamepad icon, above Settings): Player 1-4 with L / R, the Controller row, A Change, X Clear ("Not set"), Y Reset to default; a player with None greyed. The D-pad and C buttons are one row each ("D-pad", "Right stick", or "Split"); A opens the four directions under it. Dead zone ◀▶ in 5% steps (0-30). Stick and Pak open their choice popups.
+- The remap popup with its 5 s bar takes any button, even B (it hooks the popup's window: `launcher/controls/PadCapture.kt`), and stick pushes, a hat D-pad and triggers. The button's release is swallowed after, so B doesn't close the page.
+- The controller chooser lists this device's controls, the pads connected now and players' pads that aren't, with "Player N" on one another player has; picking it swaps the two players' setups. A pad picked for the first time gets Auto map's setup.
+- Auto map: the confirmation, then (an ID several layouts share) the one press of A; no press, or a button no layout has, maps by position.
+- View controller: the N64 controller drawn with each button's mapping.
+- Hotkeys: the hotkey button row (picked with the remap popup) and every hotkey; Back (pause menu) and R3 (fast-forward) on their own.
+- All games / one game: the chip opens the games with their own controls ("1 change"; X removes them) and Pick a game (the library). A game's first change saves a whole copy; rows that differ get the yellow dot; Y is Use All games. The controller rows are always All games'.
+- In game: the pause menu's Controls item opens the page over the paused game, set to it; B goes back to the menu, and the change applies then (a pak change reaches the core at the next frame; checked: Player 1 Rumble Pak in game).
+- Game input: four ports (the host had one), each player's buttons and stick from their own controller; a new pad goes to the first player with None and is kept there; Auto pak per game (973 Rumble Pak games from the core's list; Banjo-Kazooie shows "Auto · Rumble Pak").
+- Tests: `ControlsTest` (19) and `ControlsEditorTest` (6).
+
+**Still to do, tracked:**
+- Real pads: Joey has no N64-style pads yet, so no table row is checked on hardware; the Thor's own pad and adb keys were tested. A second pad as Player 2 in a game needs a pad.
+- Rumble only for Player 1 (the core's rumble for other ports is dropped); per-player rumble to each player's own pad is next.
+- Transfer Pak (needs the Game Boy game picked), the Switch Online N64 over USB (Nintendo's handshake).
+- The About page's licences: credit the controller data sources in `docs/n64-controllers.md` (SDL's GameControllerDB is Zlib, RetroArch's joypad autoconfig MIT; dish-android PR 244 gave facts only, no code, so it's thanked, not licensed) when the licences list is built.
+
 - players 1–4, the remap popup, Clear and Reset
 - Auto map, with every N64-style controller known out of the box (Joey, 2026-11-06). The research is `docs/n64-controllers.md`: a table by vendor and product ID, the Switch Online N64's two Android layouts, one press to pick between layouts sharing an ID (0079:0006, Mayflash MF103), and the position rule for the rest. Rows not marked checked need a test on a real pad. Tracked for later: the Switch Online N64 over USB (needs Nintendo's handshake through the USB host API).
 - split groups

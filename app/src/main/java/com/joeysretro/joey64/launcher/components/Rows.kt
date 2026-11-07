@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -50,6 +51,10 @@ fun JoeyRow(
     value: String? = null,
     enabled: Boolean = true,
     sideways: Boolean = false,
+    /** A grey line under the label (a popup option's "This device's own buttons and sticks"). */
+    detail: String? = null,
+    /** The yellow dot after the label: a game's row that differs from All games (Controls). */
+    dot: Boolean = false,
     onLongClick: (() -> Unit)? = null,
     onFocused: ((Boolean) -> Unit)? = null,
     leading: (@Composable RowScope.(focused: Boolean) -> Unit)? = null,
@@ -76,8 +81,17 @@ fun JoeyRow(
             else -> rowTextColor(c, focused, c.text)
         }
         leading?.invoke(this, focused)
-        Text(label, style = JoeyTheme.type.row, color = labelColor, modifier = Modifier.weight(1f),
+        if (dot) Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            Text(label, style = JoeyTheme.type.row, color = labelColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Box(Modifier.padding(start = 8.dp).size(6.dp).background(c.gold, androidx.compose.foundation.shape.CircleShape))
+        }
+        else if (detail == null) Text(label, style = JoeyTheme.type.row, color = labelColor, modifier = Modifier.weight(1f),
             maxLines = 2, overflow = TextOverflow.Ellipsis)
+        else androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
+            Text(label, style = JoeyTheme.type.row, color = labelColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(detail, style = JoeyTheme.type.small, color = if (!enabled) labelColor else rowTextColor(c, focused, c.textDim),
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
         if (value != null) {
             Text(value, style = JoeyTheme.type.rowValue,
                 color = if (!enabled) labelColor else rowValueColor(c, focused),

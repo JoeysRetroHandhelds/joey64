@@ -561,6 +561,14 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         override fun resume() = closeMenu()
         override fun openSave() = openPicker(save = true)
         override fun openLoad() = openPicker(save = false)
+        override fun openControls() {
+            val st = states ?: return
+            overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Controls(st.saveName)
+        }
+        override fun closeControls() {
+            reloadControls()
+            if (menuOpen) overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Menu(com.joeysretro.joey64.launcher.ingame.MenuRow.Controls)
+        }
         override fun backToMenu(from: com.joeysretro.joey64.launcher.ingame.MenuRow) {
             overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Menu(from)
         }
@@ -830,8 +838,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         for (i in 0..3) {
             val p = controls.players[i]
             val pak = if (p.pak == Pak.Auto) PakDb.auto(rumbleGames, md5) else p.pak
+            paks[i] = pak
             NativeBridge.setOption("mupen64plus-pak${i + 1}", pak.core!!)
         }
+        lastRom = rom
         JLog.i(TAG, "controls: " + controls.players.mapIndexed { i, p ->
             "P${i + 1} ${deviceLabel(p.device)}" + if (p.device == DeviceChoice.None) "" else " (${p.pak.name})"
         }.joinToString(", ") + if (saveName.isNotEmpty() && controlsStore.game(saveName) != null) ", the game's own" else "")
@@ -885,6 +895,31 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     private val currentSaveName get() = states?.saveName ?: ""
 
+    /**
+     * Controls changed over the paused game: the players, hotkeys and ports follow at once, and a pak
+     * change reaches the core with the next frame (it reads the pak options again when they change).
+     */
+    private fun reloadControls() {
+        val save = currentSaveName
+        controls = controlsStore.forGame(save.ifEmpty { null })
+        hotkeys = controlsStore.hotkeys()
+        for (i in 0..3) { players[i].setup = controls.players[i]; players[i].release(); push(i) }
+        playerOfDevice.clear()
+        var ports = 1
+        for (i in 1..3) if (controls.players[i].device != DeviceChoice.None) ports = ports or (1 shl i)
+        if (ports != portsPresent) { portsPresent = ports; NativeBridge.setPortsPresent(ports) }
+        val md5 by lazy { intent?.getStringExtra(EXTRA_MD5) ?: lastRom?.let { romMd5(it) } }
+        val rumbleGames by lazy { PakDb.load(this) }
+        for (i in 0..3) {
+            val p = controls.players[i]
+            val pak = if (p.pak == Pak.Auto) PakDb.auto(rumbleGames, md5) else p.pak
+            if (pak != paks[i]) { paks[i] = pak; NativeBridge.setOption("mupen64plus-pak${i + 1}", pak.core!!) }
+        }
+        JLog.i(TAG, "controls: changed in game, " + controls.players.mapIndexed { i, p -> "P${i + 1} ${deviceLabel(p.device)} (${paks[i].name})" }.joinToString(", "))
+    }
+    private val paks = Array(4) { Pak.Controller }
+    private var lastRom: String? = null
+
     /** Switches the rumble and stick calibration to the pad that sent the last input. */
     private fun usePad(dev: InputDevice?, id: Int): Controllers.StickCal {
         stickCals[id]?.let { padDeviceId = id; return it }
@@ -906,6 +941,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // The release of a button the Controls remap popup took (it closed on the press).
+        if (com.joeysretro.joey64.launcher.controls.PadCapture.swallowRelease(event)) return true
         val inGame = states != null && overlay != null && mine
         val code = event.keyCode
         val down = event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0

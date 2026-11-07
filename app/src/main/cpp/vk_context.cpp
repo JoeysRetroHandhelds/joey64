@@ -571,10 +571,16 @@ void VkContext::present(bool newImage) {
                      VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
                      fromFam, toFam);
 
-        // 4:3 letterbox, same as the GLES path. M5 adds widescreen / integer scale.
+        // 4:3 letterbox, same as the GLES path. Dev switch N64_ASPECT=16:9 (or any W:H) shows it
+        // wider, for widescreen codes, until Joey designs the menu spot.
+        static const std::pair<int32_t, int32_t> aspect = [] {
+            int w = 4, h = 3;
+            if (const char* a = getenv("N64_ASPECT")) if (sscanf(a, "%d:%d", &w, &h) != 2 || w <= 0 || h <= 0) { w = 4; h = 3; }
+            return std::pair<int32_t, int32_t>(w, h);
+        }();
         int32_t winW = (int32_t)dstExtent.width, winH = (int32_t)dstExtent.height;
-        int32_t dstH = winH, dstW = winH * 4 / 3;
-        if (dstW > winW) { dstW = winW; dstH = winW * 3 / 4; }
+        int32_t dstH = winH, dstW = winH * aspect.first / aspect.second;
+        if (dstW > winW) { dstW = winW; dstH = winW * aspect.second / aspect.first; }
         int32_t x = (winW - dstW) / 2, y = (winH - dstH) / 2;
         VkImageBlit blit{};
         blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, range.baseMipLevel, range.baseArrayLayer, 1};

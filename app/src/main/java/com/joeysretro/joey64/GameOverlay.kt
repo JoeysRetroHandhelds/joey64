@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.compose.foundation.layout.Box
@@ -64,7 +65,14 @@ class GameOverlay(private val activity: Activity, private val actions: PauseActi
 
     private val owner = OverlayOwner()
     private val popups = PopupQueue()
-    private var popup by mutableStateOf<InGamePopup?>(null)
+    /**
+     * The pop-up showing. With none the window is made invisible: at 0 px high it kept its last
+     * frame on screen ("Slot 1 loaded" stayed for minutes, Thor 2026-11-07).
+     */
+    private var popup: InGamePopup?
+        get() = popupState
+        set(v) { popupState = v; popupView.visibility = if (v == null) View.INVISIBLE else View.VISIBLE }
+    private var popupState by mutableStateOf<InGamePopup?>(null)
     private val handler = Handler(Looper.getMainLooper())
     private val popupTick = Runnable { advancePopups() }
     private val view = ComposeView(activity).apply {
@@ -88,7 +96,7 @@ class GameOverlay(private val activity: Activity, private val actions: PauseActi
         setContent {
             val store = remember { SettingsStore(context) }
             val settings by store.settings.collectAsState(initial = null)
-            val p = popup
+            val p = popupState
             if (p != null) JoeyTheme(settings?.theme ?: ThemeChoice.Dark) { Across(popupSpot) { InGamePopupCard(p) } }
         }
     }
@@ -144,6 +152,7 @@ class GameOverlay(private val activity: Activity, private val actions: PauseActi
             placeWindow(badgeView, badgeAdded, badgeSpot, spot)?.let { badgeAdded = it; if (it) badgeSpot = spot }
         }
         badgeFiles = files
+        badgeView.visibility = if (files.isEmpty()) View.INVISIBLE else View.VISIBLE
     }
 
     private fun advancePopups() {

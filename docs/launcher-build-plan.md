@@ -566,6 +566,15 @@ Also agreed: for an ID shared by more than one layout, Auto map first asks for o
   - Texture packs. UI APPROVED (2026-11-05; scratchpad build_texpacks.py): pause › Game settings › Texture pack, same side panel as Picture. Pack: None, packs found for this game (size, .hts cache or PNG folder), Add a pack (.hts/.htc file or folder). Loading: whole pack (default, smoothest) or as needed (less memory, may stutter). X Details: file, size, texture count, memory needed, the game name it matches (GLideN64 matches by ROM header name, so never claim an exact-copy match), folder; Use / Delete. Load bar before the game starts (B plays without it). Not-enough-memory popup offers Load as needed or Play without it. Only GLideN64 loads them today. Researched for parallel-RDP 2026-11-05 (`docs/texture-packs-parallel-rdp.md`): looks doable with GLideN64-identical keys; step A (measure key matches, CPU only) needs Joey's go, a device and the emulator chat.
   - Shaders and bezels APPROVED (2026-11-05; scratchpad build_picture.py): pause › Game settings › Picture is a right-side panel over the running game, every choice previewed live. This game / All games. Shader: None, Sharp pixels, Smooth, CRT (scanlines), LCD grid. Sides of the picture: None, Blurred game, Joey64 frame (navy, faint stripes, thin yellow edge, Joey64 mark), Your own image (a PNG the user picks). Drawn in the present pass after the renderer, so both renderers get it and the core is untouched. No downloadable bezel packs (licences unclear).
 
+- **From other emulators, wanted (Joey, 2026-11-06, asked one by one).** Found in the local emulator sources; each needs a mockup first:
+  - Turbo and autofire: hold a button to repeat it, per game (RetroArch, Project64, PPSSPP, DuckStation).
+  - Undo load state and undo save state (DuckStation, PCSX2).
+  - Rewind (ares, RetroArch). Measure the cost first: N64 states are large, so maybe strong devices only.
+  - Frame advance and slow motion (ares, DuckStation, PCSX2, mupen64plus).
+  - Overscan crop (RMG, ares, gopher64), likely in Game settings › Picture.
+  - Android TV: the leanback launcher entry, a banner, and checking the launcher at TV size (Dolphin, Lemuroid, Mupen64Plus AE).
+- **From other emulators, later (Joey, 2026-11-06):** ROM patch files applied at launch (.bps/.ips/.xdelta), home-screen shortcuts, Expansion Pak off per game (per-game data; mupen64plus.ini marks 3 games), cheat search (Project64's memory scanner, DuckStation), an input display overlay, clip recording of the last 30 seconds.
+
 ## How each phase is checked
 
 - The Flip, Portal, Odin 3 and the Duo.

@@ -165,13 +165,14 @@ data class ControlsSet(val players: List<PlayerSetup>) {
 }
 
 /** What a hotkey does (approved Hotkeys page). */
-enum class HotkeyAction(val label: String, val default: Int, /** Pressed on its own, without the hotkey button. */ val alone: Boolean = false) {
+enum class HotkeyAction(val label: String, /** null: not set until the user picks a button. */ val default: Int?, /** Pressed on its own, without the hotkey button. */ val alone: Boolean = false) {
     Save("Save state", KeyEvent.KEYCODE_BUTTON_R1),
     Load("Load state", KeyEvent.KEYCODE_BUTTON_L1),
     NextSlot("Next slot", KeyEvent.KEYCODE_DPAD_RIGHT),
     PrevSlot("Previous slot", KeyEvent.KEYCODE_DPAD_LEFT),
     PauseMenu("Pause menu", KeyEvent.KEYCODE_BACK, alone = true),
-    FastForward("Fast-forward", KeyEvent.KEYCODE_BUTTON_THUMBR, alone = true),
+    /** No button by default (Joey 2026-11-07: R3 removed); the user picks one. */
+    FastForward("Fast-forward", null, alone = true),
     Screenshot("Screenshot", KeyEvent.KEYCODE_BUTTON_Y),
     /** Held for as long as the buttons are (approved 2026-11-07). */
     GameShark("GameShark button", KeyEvent.KEYCODE_BUTTON_THUMBL),
@@ -184,17 +185,22 @@ data class Hotkeys(val button: Int = KeyEvent.KEYCODE_BUTTON_SELECT, val keys: M
     fun actionFor(keyCode: Int, alone: Boolean): HotkeyAction? =
         HotkeyAction.entries.firstOrNull { it.alone == alone && keys[it] == keyCode }
 
-    fun toJson(): JSONObject = JSONObject().put("button", button)
+    fun toJson(): JSONObject = JSONObject().put("version", VERSION).put("button", button)
         .put("keys", JSONObject().apply { for (a in HotkeyAction.entries) put(a.name, keys[a] ?: -1) })
 
     companion object {
+        /** 2: Fast-forward lost its R3 default. Files before it saved every default, R3 included. */
+        const val VERSION = 2
+
         fun fromJson(o: JSONObject): Hotkeys {
             val d = Hotkeys()
             val k = o.optJSONObject("keys")
+            val old = o.optInt("version", 1) < 2
             return Hotkeys(
                 button = o.optInt("button", d.button),
                 keys = HotkeyAction.entries.associateWith { a ->
-                    if (k == null || !k.has(a.name)) a.default else k.optInt(a.name, -1).takeIf { it >= 0 }
+                    if (k == null || !k.has(a.name)) a.default
+                    else k.optInt(a.name, -1).takeIf { it >= 0 && !(old && a == HotkeyAction.FastForward && it == KeyEvent.KEYCODE_BUTTON_THUMBR) }
                 },
             )
         }

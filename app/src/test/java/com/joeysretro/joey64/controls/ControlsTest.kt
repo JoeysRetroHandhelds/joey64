@@ -87,7 +87,21 @@ class ControlsTest {
         assertEquals(h, store.hotkeys())
         assertNull(store.hotkeys().actionFor(KeyEvent.KEYCODE_BUTTON_B, alone = false))
         assertEquals(HotkeyAction.Save, store.hotkeys().actionFor(KeyEvent.KEYCODE_BUTTON_R1, alone = false))
-        assertEquals(HotkeyAction.FastForward, store.hotkeys().actionFor(KeyEvent.KEYCODE_BUTTON_THUMBR, alone = true))
+        // Fast-forward has no button by default.
+        assertNull(store.hotkeys().actionFor(KeyEvent.KEYCODE_BUTTON_THUMBR, alone = true))
+    }
+
+    @Test fun fastForwardLosesTheOldR3DefaultButKeepsAPickedButton() {
+        val r3 = KeyEvent.KEYCODE_BUTTON_THUMBR
+        // A file from before version 2 saved every default, R3 for fast-forward included.
+        val old = Hotkeys.fromJson(JSONObject("""{"button":109,"keys":{"FastForward":$r3,"Save":103}}"""))
+        assertNull(old.keys[HotkeyAction.FastForward])
+        assertEquals(KeyEvent.KEYCODE_BUTTON_R1, old.keys[HotkeyAction.Save])
+        val picked = Hotkeys.fromJson(JSONObject("""{"button":109,"keys":{"FastForward":${KeyEvent.KEYCODE_BUTTON_R2}}}"""))
+        assertEquals(KeyEvent.KEYCODE_BUTTON_R2, picked.keys[HotkeyAction.FastForward])
+        // Picked again after the change, R3 stays.
+        val again = Hotkeys().copy(keys = Hotkeys().keys + (HotkeyAction.FastForward to r3))
+        assertEquals(r3, Hotkeys.fromJson(again.toJson()).keys[HotkeyAction.FastForward])
     }
 
     @Test fun unsafeSaveNamesBecomeFileNames() {

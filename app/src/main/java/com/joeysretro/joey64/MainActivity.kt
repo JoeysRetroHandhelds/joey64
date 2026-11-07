@@ -281,7 +281,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }, "RumbleWatcher").apply { isDaemon = true }
 
     // ---- Fast-forward -------------------------------------------------------------------------
-    // R3 toggles it (a hotkey on its own, Controls > Hotkeys). Runs up to 4x with audio muted.
+    // Its hotkey toggles it (a button on its own, Controls > Hotkeys; none by default since 2026-11-07,
+    // when R3 was taken off). Runs up to 4x with audio muted.
     private var fastForward = false
 
     private fun toggleFastForward() {
@@ -762,7 +763,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     // ---- hotkeys (approved Hotkeys design, 2026-11-05; Controls > Hotkeys, Phase 4) -----------------
     // Hold the hotkey button (Select by default, the N64 has none; Joey, 2026-11-06: not Back) + R1 save
     // state, L1 load state (both the current slot), Right / Left change the slot, Y screenshot, Start reset,
-    // B quit to library. On their own: Back the pause menu, R3 fast-forward. All of them are the user's
+    // B quit to library. On their own: Back the pause menu, fast-forward (no button by default). All of them are the user's
     // (`files/controls/hotkeys.json`). The game never sees the hotkey button or a hotkey.
     private var hotkeyHeld = false
     /** Read when the game starts (Controls are changed in the launcher, or in the pause menu with the game paused). */
@@ -1123,7 +1124,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         }
         val p = playerFor(event.device, event.deviceId)
         if (KeyEvent.isGamepadButton(code) || p >= 0) usePad(event.device, event.deviceId)
-        // A button on its own (R3 fast-forward), unless this player plays with it.
+        // A button on its own (Back for the pause menu, fast-forward's if set), unless this player plays with it.
         if (p < 0 || !players[p].uses(code)) hotkeys.actionFor(code, alone = true)?.let { action ->
             if (down && !quitting) hotkey(action)
             return true

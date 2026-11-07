@@ -55,6 +55,13 @@ object RaSettings {
 
     fun current(context: Context): RaOptions = options(context).value ?: RaOptions()
 
+    /** Reads them again (a restored backup wrote the prefs). */
+    fun reload(context: Context) {
+        val next = read(context)
+        state.value = next
+        RaBridge.optionsChanged(next)
+    }
+
     fun update(context: Context, change: (RaOptions) -> RaOptions) {
         val next = change(current(context))
         write(context, next)

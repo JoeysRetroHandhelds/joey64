@@ -62,7 +62,7 @@ import com.joeysretro.joey64.launcher.update.UpdateModel.RowState
 import kotlinx.coroutines.delay
 
 /** The Settings tabs built so far, in the approved order (General, Audio and Library come with their pages). */
-enum class SettingsTab(val label: String) { Appearance("Appearance"), Video("Video"), Audio("Audio"), OnScreen("On screen"), RetroAchievements("RetroAchievements"), About("About") }
+enum class SettingsTab(val label: String) { Appearance("Appearance"), Video("Video"), Audio("Audio"), OnScreen("On screen"), Saves("Saves"), RetroAchievements("RetroAchievements"), About("About") }
 
 /**
  * Settings (approved Settings mockups, 2026-11-05). The tabs that are built, L1/R1 (or a tap)
@@ -71,12 +71,12 @@ enum class SettingsTab(val label: String) { Appearance("Appearance"), Video("Vid
  * own settings), opening the same popups as Controls'.
  */
 @Composable
-fun SettingsScreen(updates: UpdateModel, onHints: (List<Hint>) -> Unit, onClose: () -> Unit) {
+fun SettingsScreen(updates: UpdateModel, onHints: (List<Hint>) -> Unit, onImport: () -> Unit = {}, startTab: SettingsTab = SettingsTab.entries.first(), startRow: String? = null, onClose: () -> Unit) {
     BackHandler(onBack = onClose)
     val landing = LocalFocusLanding.current
     val c = JoeyTheme.colors
     val s = JoeyTheme.spacing
-    var tab by remember { mutableStateOf(SettingsTab.entries.first()) }
+    var tab by remember { mutableStateOf(startTab) }
     // Video's or Audio's game ([GamesForPopup]): null = All games.
     var target by remember { mutableStateOf<String?>(null) }
     var targetTitle by remember { mutableStateOf<String?>(null) }
@@ -114,6 +114,7 @@ fun SettingsScreen(updates: UpdateModel, onHints: (List<Hint>) -> Unit, onClose:
                 SettingsTab.Video -> VideoTab(target, onHints, { tabControl = it }, Modifier.weight(1f))
                 SettingsTab.Audio -> AudioTab(target, onHints, { tabControl = it }, Modifier.weight(1f))
                 SettingsTab.OnScreen -> OnScreenTab(onHints, { tabControl = it }, Modifier.weight(1f))
+                SettingsTab.Saves -> SavesTab(onHints, onImport, Modifier.weight(1f), startRow ?: "quit")
                 SettingsTab.RetroAchievements -> RaTab(onHints, Modifier.weight(1f))
                 SettingsTab.About -> AboutTab(updates, { onHints(it.dropLast(1) + Hint("L/R", "Tab") + it.last()) }, Modifier.weight(1f))
             }

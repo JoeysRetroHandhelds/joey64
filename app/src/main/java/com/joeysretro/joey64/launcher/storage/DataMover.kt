@@ -12,6 +12,8 @@ enum class DataKind(val dir: String, val hiddenFromGallery: Boolean = false) {
     Textures("textures", hiddenFromGallery = true),
     Cheats("cheats", hiddenFromGallery = true),
     BoxArt("boxart", hiddenFromGallery = true),
+    /** Save RAM backups (Settings › Saves › Back up saves). */
+    Backups("backups", hiddenFromGallery = true),
     ;
 
     companion object {

@@ -270,6 +270,91 @@ class LibraryDb private constructor(context: Context) :
         }
     }
 
+    /**
+     * The library's lists for Settings › Saves › Back up Joey64 (approved Saves mockup 2026-11-07): every
+     * game by MD5 with its favourite mark and play times, and the collections by name. ROM files and box
+     * art aren't in it: the scan finds them again.
+     */
+    fun exportLists(): org.json.JSONObject {
+        val db = readableDatabase
+        val games = org.json.JSONArray()
+        db.rawQuery("SELECT md5, crc32, header_id, title, added_at, last_played_at, favorite FROM games", null).use { c ->
+            while (c.moveToNext()) games.put(org.json.JSONObject().apply {
+                put("md5", c.getString(0)); put("crc32", c.getString(1)); if (!c.isNull(2)) put("header_id", c.getString(2))
+                put("title", c.getString(3)); put("added_at", c.getLong(4)); if (!c.isNull(5)) put("last_played_at", c.getLong(5))
+                put("favorite", c.getInt(6) != 0)
+            })
+        }
+        val sessions = org.json.JSONArray()
+        db.rawQuery("SELECT g.md5, s.started_at, s.seconds FROM play_sessions s JOIN games g ON g.id = s.game_id", null).use { c ->
+            while (c.moveToNext()) sessions.put(org.json.JSONArray().put(c.getString(0)).put(c.getLong(1)).put(c.getLong(2)))
+        }
+        val collections = org.json.JSONArray()
+        db.rawQuery("SELECT id, name, position, created_at FROM collections ORDER BY position", null).use { c ->
+            while (c.moveToNext()) {
+                val list = org.json.JSONArray()
+                db.rawQuery("SELECT g.md5 FROM collection_games cg JOIN games g ON g.id = cg.game_id WHERE cg.collection_id = ? ORDER BY cg.position",
+                    arrayOf(c.getLong(0).toString())).use { g -> while (g.moveToNext()) list.put(g.getString(0)) }
+                collections.put(org.json.JSONObject().apply { put("name", c.getString(1)); put("position", c.getInt(2)); put("created_at", c.getLong(3)); put("games", list) })
+            }
+        }
+        return org.json.JSONObject().apply { put("games", games); put("sessions", sessions); put("collections", collections) }
+    }
+
+    /**
+     * Brings back [exportLists]' lists: games missing here are added (they show once a ROM folder has
+     * them), each game's favourite mark is the backup's, play sessions not here are added (totals worked
+     * out again), and a collection of the same name gets the backup's games. Games not in the backup stay.
+     */
+    fun importLists(o: org.json.JSONObject, now: Long = System.currentTimeMillis()) {
+        writableDatabase.transaction {
+            fun idOf(md5: String) = rawQuery("SELECT id FROM games WHERE md5 = ?", arrayOf(md5)).use { c -> if (c.moveToFirst()) c.getLong(0) else null }
+            val games = o.optJSONArray("games") ?: org.json.JSONArray()
+            for (i in 0 until games.length()) {
+                val g = games.getJSONObject(i)
+                val md5 = g.optString("md5").lowercase().takeIf { it.length == 32 } ?: continue
+                insertWithOnConflict("games", null, ContentValues().apply {
+                    put("md5", md5); put("crc32", g.optString("crc32")); if (g.has("header_id")) put("header_id", g.optString("header_id"))
+                    put("title", g.optString("title", md5)); put("added_at", g.optLong("added_at", now))
+                }, SQLiteDatabase.CONFLICT_IGNORE)
+                update("games", ContentValues().apply { put("favorite", if (g.optBoolean("favorite")) 1 else 0) }, "md5 = ?", arrayOf(md5))
+            }
+            val touched = mutableSetOf<Long>()
+            val sessions = o.optJSONArray("sessions") ?: org.json.JSONArray()
+            for (i in 0 until sessions.length()) {
+                val s = sessions.optJSONArray(i) ?: continue
+                val id = idOf(s.optString(0).lowercase()) ?: continue
+                val at = s.optLong(1); val sec = s.optLong(2)
+                val have = rawQuery("SELECT 1 FROM play_sessions WHERE game_id = ? AND started_at = ?", arrayOf(id.toString(), at.toString())).use { it.moveToFirst() }
+                if (!have && sec > 0) {
+                    insertOrThrow("play_sessions", null, ContentValues().apply { put("game_id", id); put("started_at", at); put("seconds", sec) })
+                    touched += id
+                }
+            }
+            for (id in touched) execSQL(
+                "UPDATE games SET play_seconds = (SELECT IFNULL(SUM(seconds), 0) FROM play_sessions WHERE game_id = ?1)," +
+                    " last_played_at = MAX(IFNULL(last_played_at, 0), (SELECT IFNULL(MAX(started_at + seconds * 1000), 0) FROM play_sessions WHERE game_id = ?1)) WHERE id = ?1",
+                arrayOf<Any>(id))
+            val collections = o.optJSONArray("collections") ?: org.json.JSONArray()
+            for (i in 0 until collections.length()) {
+                val c = collections.getJSONObject(i)
+                val name = c.optString("name").takeIf { it.isNotBlank() } ?: continue
+                var cid = rawQuery("SELECT id FROM collections WHERE name = ?", arrayOf(name)).use { r -> if (r.moveToFirst()) r.getLong(0) else null }
+                if (cid == null) {
+                    val pos = rawQuery("SELECT IFNULL(MAX(position), -1) + 1 FROM collections", null).use { r -> r.moveToFirst(); r.getInt(0) }
+                    cid = insertOrThrow("collections", null, ContentValues().apply { put("name", name); put("position", pos); put("created_at", c.optLong("created_at", now)) })
+                }
+                delete("collection_games", "collection_id = ?", arrayOf(cid.toString()))
+                val list = c.optJSONArray("games") ?: org.json.JSONArray()
+                var p = 0
+                for (k in 0 until list.length()) {
+                    val id = idOf(list.optString(k).lowercase()) ?: continue
+                    insertWithOnConflict("collection_games", null, ContentValues().apply { put("collection_id", cid); put("game_id", id); put("position", p++) }, SQLiteDatabase.CONFLICT_IGNORE)
+                }
+            }
+        }
+    }
+
     /** Every file the library knows, for the scan to compare against (ScanPlanner). */
     fun knownFiles(): List<KnownFile> =
         readableDatabase.rawQuery("SELECT uri, tree_uri, size, modified, game_id FROM files", null).use { c ->

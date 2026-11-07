@@ -147,13 +147,36 @@ object StateSlots {
     const val COUNT = 10
     /** The auto slot: written on Quit to library, used by Continue. */
     const val AUTO = 0
+    /**
+     * The older quit saves (Settings › Saves › Quit saves to keep, approved Saves mockup 2026-11-07):
+     * Auto 2 is slot [AUTO_OLDER], up to Auto 10, as `.state.auto2` ... `.state.auto10` (RetroArch has
+     * no such files). Each quit moves Auto to Auto 2, Auto 2 to Auto 3, and so on.
+     */
+    const val AUTO_OLDER = 11
+    const val AUTO_MAX = 10
+
+    /** Auto n (1 = [AUTO]). */
+    fun auto(n: Int): Int = if (n <= 1) AUTO else AUTO_OLDER + n - 2
+
+    fun isAuto(slot: Int) = slot == AUTO || slot in AUTO_OLDER until AUTO_OLDER + AUTO_MAX - 1
+
+    /** Which Auto [slot] is: 1 for [AUTO], 2 for Auto 2 ... */
+    fun autoNumber(slot: Int) = if (slot == AUTO) 1 else slot - AUTO_OLDER + 2
 
     /** [saveName] is the ROM's file name without extension, as saves are named. */
     fun fileName(saveName: String, slot: Int): String = when (slot) {
         AUTO -> "$saveName.state.auto"
         1 -> "$saveName.state"
         in 2..COUNT -> "$saveName.state${slot - 1}"
+        in AUTO_OLDER until AUTO_OLDER + AUTO_MAX - 1 -> "$saveName.state.auto${autoNumber(slot)}"
         else -> throw IllegalArgumentException("no slot $slot")
+    }
+
+    /** The pause menu's name for [slot]. */
+    fun label(slot: Int) = when {
+        slot == AUTO -> "Auto"
+        isAuto(slot) -> "Auto ${autoNumber(slot)}"
+        else -> "Slot $slot"
     }
 
     /** RetroArch's picture of a state sits beside it as `<state file>.png`. */

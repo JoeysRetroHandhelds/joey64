@@ -529,7 +529,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         NativeBridge.pause(true)
         stateHandler.removeCallbacks(recoveryTick)
         stateHandler.post {
-            val saved = !startLoadFailed && st.save(StateSlots.AUTO)
+            // Always saved, Save on quit or not: the restart loads it straight back.
+            val saved = !startLoadFailed && st.saveQuit(savesOpts.quitSaves)
             if (saved) st.clearRecovery()
             JLog.i(TAG, "game settings: restarting for the new settings, auto slot ${if (saved) "written" else "not written"}")
             runOnUiThread {
@@ -698,6 +699,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             applyControls(rom, saveName)
             applyCheats(rom, saveName)
             applyAudio(saveName)
+            // Settings › Saves: a copy of the save RAM before the core can write it (Back up saves).
+            savesOpts = com.joeysretro.joey64.saves.SavesStore(this).read()
+            // A picked data folder: its copy of the save RAM comes into files/saves, where the core reads it.
+            com.joeysretro.joey64.launcher.storage.SrmSync.pull(this, saveName)
+            com.joeysretro.joey64.saves.SaveBackups.maybeBackUp(com.joeysretro.joey64.launcher.storage.DataFolders.current(this).space,
+                saveName, savesOpts.backups, savesOpts.backupsKeep)
             // RetroAchievements: signs in with the kept account first, so the game is identified as it loads.
             com.joeysretro.joey64.achievements.RaBridge.init(this)
             if (NativeBridge.loadGame(rom, saveName)) {
@@ -720,6 +727,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
      * slot as it was, or the place Continue would have gone back to is lost. (Only touched on [stateThread].)
      */
     private var startLoadFailed = false
+
+    /** Settings › Saves, read when the game starts (approved Saves mockup 2026-11-07). */
+    private var savesOpts = com.joeysretro.joey64.saves.SavesOptions()
+    private val recoveryEveryMs get() = savesOpts.recoveryMinutes * 60_000L
 
     /** The game is up: load the state the launcher asked for (Continue), and start the recovery state's timer. */
     private fun startStates(saveName: String) {
@@ -763,7 +774,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             STATE_RECOVERY -> stateHandler.post { startLoadFailed = !st.loadRecovery() }
             else -> JLog.e(TAG, "states: unknown state to load: $which")
         }
-        stateHandler.postDelayed(recoveryTick, RECOVERY_EVERY_MS)
+        // A picked data folder gets the save RAM the core wrote, every 30 s when it changed (and on exit).
+        stateHandler.postDelayed(srmTick, SRM_PUSH_MS)
+        // Settings › Saves › Recovery state Off: none is written, so none is offered after a crash.
+        if (recoveryEveryMs > 0) stateHandler.postDelayed(recoveryTick, recoveryEveryMs)
+        else stateHandler.post { st.clearRecovery() }
         // Dev (--es env N64_POPUP_TEST=1): a pop-up kept on screen the whole time, renewed every 4 s,
         // to measure what one costs (plan, Phase 3: the measure).
         if (android.system.Os.getenv("N64_POPUP_TEST") == "1") fpsHandler.post(popupTest)
@@ -788,12 +803,20 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         return RecentlyPlayed.Entry(title ?: saveName, file, uri, path, saveName, System.currentTimeMillis())
     }
 
+    private val srmTick = object : Runnable {
+        override fun run() {
+            val st = states ?: return
+            com.joeysretro.joey64.launcher.storage.SrmSync.push(this@MainActivity, st.saveName)
+            stateHandler.postDelayed(this, SRM_PUSH_MS)
+        }
+    }
+
     /** Every few minutes while playing (not while paused or quitting), the recovery state. */
     private val recoveryTick = object : Runnable {
         override fun run() {
             val st = states ?: return
             if (resumed && !quitting && !menuOpen && !hotkeyPaused) st.saveRecovery()
-            stateHandler.postDelayed(this, RECOVERY_EVERY_MS)
+            stateHandler.postDelayed(this, recoveryEveryMs)
         }
     }
 
@@ -814,7 +837,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         slotPrefs.edit().putInt("slot/" + st.saveName, slot).apply()
         overlay?.saveSlotName = slotName(slot)
     }
-    private fun slotName(slot: Int) = if (slot == StateSlots.AUTO) "Auto" else "Slot $slot"
+    private fun slotName(slot: Int) = StateSlots.label(slot)
 
     private fun openMenu() {
         val o = overlay ?: return
@@ -1301,7 +1324,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         stateHandler.removeCallbacks(recoveryTick)
         stateHandler.post {
             if (startLoadFailed) JLog.e(TAG, "states: the state asked for at start didn't load, so the auto slot is kept as it was")
-            else st.save(StateSlots.AUTO)
+            else if (!savesOpts.saveOnQuit) JLog.i(TAG, "states: Save on quit is off, no quit save written")
+            else st.saveQuit(savesOpts.quitSaves)
             st.clearRecovery()
             recent?.let { RecentlyPlayed.record(this, it.copy(lastPlayed = System.currentTimeMillis())) }
             // Quit to: the library (or the frontend that started the game), or out of Joey64 altogether:
@@ -1660,6 +1684,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         raCache?.stop()
         overlay?.destroy()
         if (owner === this) { NativeBridge.stop(); owner = null } else if (owner == null && !switching) NativeBridge.stop()
+        // The save RAM written as the core stopped, into a picked data folder (small: on the main thread).
+        startSave?.let { com.joeysretro.joey64.launcher.storage.SrmSync.push(this, it) }
         // Closed on purpose (Back, or a frontend sending the next game): no recovery state is due.
         if (isFinishing && states != null) { stateHandler.removeCallbacks(recoveryTick); states?.clearRecovery() }
         if (states != null) stateThread.quitSafely()
@@ -1746,8 +1772,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         const val EXTRA_MD5 = "com.joeysretro.joey64.MD5"
         const val STATE_AUTO = "auto"
         const val STATE_RECOVERY = "recovery"
+        private const val SRM_PUSH_MS = 30_000L
         /** "Every few minutes" (approved 2026-11-05). */
-        private const val RECOVERY_EVERY_MS = 2 * 60_000L
         /** The pause menu's "Press GameShark button": how long it holds it (approved 2026-11-07: a second). */
         private const val GAMESHARK_PRESS_MS = 1_000L
         /** The hotkey's shortest hold: a few frames, so a quick tap reaches the game. */

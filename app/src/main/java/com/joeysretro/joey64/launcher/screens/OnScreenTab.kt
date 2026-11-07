@@ -147,10 +147,10 @@ private fun describe(row: String): Pair<String, String> = when (row) {
 
 /** The approved small popup: a title and the choices with their lines, the tick on the one in use. */
 @Composable
-private fun ChoiceList(title: String, choices: List<Triple<String, String?, Boolean>>, onDismiss: () -> Unit, onPick: (Int) -> Unit) {
+internal fun ChoiceList(title: String, choices: List<Triple<String, String?, Boolean>>, onDismiss: () -> Unit, sub: String? = null, onPick: (Int) -> Unit) {
     JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 470.dp) {
         Column {
-            PopupTitle(title)
+            PopupTitle(title, sub)
             choices.forEachIndexed { i, (label, detail, on) ->
                 JoeyRow(label, Modifier.initialFocus(on), detail = detail,
                     trailing = if (on) { _ -> PickerTick() } else null) { onPick(i) }

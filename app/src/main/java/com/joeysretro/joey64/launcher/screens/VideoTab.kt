@@ -294,11 +294,14 @@ private fun title2(k: VideoKey) = when (k) { VideoKey.Brightness -> "Brightness"
 @Composable
 private fun produceSource(context: Context) = androidx.compose.runtime.produceState<Bitmap?>(null) {
     value = withContext(Dispatchers.IO) {
-        val f = File(context.filesDir, "screenshots").listFiles { x -> x.isFile && x.name.endsWith(".png") }?.maxByOrNull { it.lastModified() }
+        // In the data folder in use (Settings › Saves › Data folder).
+        val space = com.joeysretro.joey64.launcher.storage.DataFolders.current(context).space
+        val dir = com.joeysretro.joey64.launcher.storage.DataKind.Screenshots.dir
+        val f = space.list(listOf(dir)).filter { !it.isDir && it.name.endsWith(".png") }.maxByOrNull { it.modified }
             ?: return@withContext null
         try {
             val o = BitmapFactory.Options().apply { inSampleSize = 2 }
-            BitmapFactory.decodeFile(f.absolutePath, o)?.let { Bitmap.createScaledBitmap(it, 240, 180, true) }
+            space.openRead(listOf(dir, f.name))?.use { BitmapFactory.decodeStream(it, null, o) }?.let { Bitmap.createScaledBitmap(it, 240, 180, true) }
         } catch (e: Exception) { null }
     }
 }

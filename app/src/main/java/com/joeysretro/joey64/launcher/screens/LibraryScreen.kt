@@ -85,6 +85,9 @@ fun LibraryScreen(model: LibraryModel, onSearch: () -> Unit) {
     model.recovery.collectAsStateWithLifecycle().value?.let { offer ->
         RecoveryPopup(offer) { carryOn -> model.recoveryAnswered(carryOn) { context.startActivity(it) } }
     }
+    model.askContinue.collectAsStateWithLifecycle().value?.let { ask ->
+        AskContinuePopup(ask) { carryOn -> model.continueAnswered(carryOn) { context.startActivity(it) } }
+    }
     var showing by remember { mutableStateOf(false) }
     if (showing) ShowPopup(model) { showing = false }
 
@@ -150,7 +153,7 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
     popup?.let { (id, which) ->
         val g = list.firstOrNull { it.id == id } ?: model.games.value?.firstOrNull { it.id == id }
         if (g == null) popup = null
-        else GamePopups(g, which, model, onPopup = { next -> popup = next?.let { id to it } }) { model.play(g) { context.startActivity(it) } }
+        else GamePopups(g, which, model, onPopup = { next -> popup = next?.let { id to it } }) { model.playAsked(g) { context.startActivity(it) } }
     }
     run {
         // Focus moving to a row half off screen scrolls it fully in with a row gap to spare, so the
@@ -169,7 +172,7 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
                 GameTile(g, model.cover(g), Modifier.initialFocus(firstFocus && i == 0)
                     .then(if (i == 0 && firstTile != null) Modifier.focusRequester(firstTile) else Modifier),
                     onFocus = { on -> if (on) focusedGame = g else if (focusedGame?.id == g.id) focusedGame = null },
-                    onOptions = { popup = g.id to GamePopup.Options }) { model.play(g) { context.startActivity(it) } }
+                    onOptions = { popup = g.id to GamePopup.Options }) { model.playAsked(g) { context.startActivity(it) } }
             }
         }
         }
@@ -234,6 +237,35 @@ private fun OfflinePopup(onOk: () -> Unit) {
             PromptText(AnnotatedString("Joey64 couldn't connect. Box art downloads by itself next time you're online."))
             JoeyOption("OK", modifier = Modifier.initialFocus(), onClick = onOk)
         }
+    }
+}
+
+/**
+ * Settings › Saves › Continue on Play is Ask (approved Saves mockup 2026-11-07, screen 4): the game's
+ * name, when it was quit, Continue or Start over. B closes it and nothing starts.
+ */
+@Composable
+internal fun AskContinuePopup(ask: LibraryModel.AskContinue, onAnswer: (Boolean?) -> Unit) {
+    JoeyDialog(onDismiss = { onAnswer(null) }, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 440.dp) {
+        Column {
+            PopupTitle(ask.game.title, "You quit this game ${quitAgo(ask.quitAt, System.currentTimeMillis())}. Go on from there?")
+            JoeyOption("Continue", modifier = Modifier.initialFocus()) { onAnswer(true) }
+            JoeyOption("Start over") { onAnswer(false) }
+        }
+    }
+}
+
+/** "2 hours ago", "yesterday" ... for the Ask popup. */
+internal fun quitAgo(at: Long, now: Long): String {
+    val min = ((now - at) / 60_000L).coerceAtLeast(0)
+    return when {
+        min < 1 -> "less than a minute ago"
+        min == 1L -> "a minute ago"
+        min < 60 -> "$min minutes ago"
+        min < 120 -> "an hour ago"
+        min < 24 * 60 -> "${min / 60} hours ago"
+        min < 48 * 60 -> "yesterday"
+        else -> "${min / (24 * 60)} days ago"
     }
 }
 

@@ -296,6 +296,7 @@ private fun testFile(kind: DataKind) = when (kind) {
     DataKind.Textures -> listOf("textures", "$TEST_NAME.hts")
     DataKind.Cheats -> listOf("cheats", "$TEST_NAME.cht")
     DataKind.BoxArt -> listOf("boxart", "$TEST_NAME.png")
+    DataKind.Backups -> listOf("backups", "$TEST_NAME 2026-01-01 1200.srm")
 }
 
 private fun testBytes(kind: DataKind) = ByteArray(40_000 + kind.ordinal * 1_000) { i -> (i * 31 + kind.ordinal).toByte() }

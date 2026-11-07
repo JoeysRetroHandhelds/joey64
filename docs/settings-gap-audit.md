@@ -401,7 +401,7 @@ Each item needs Joey's mockup first. The order puts what players miss most first
    - open achievements
    - upscale up and down
    - pause/unpause
-7. **Saves:**
+7. **Saves:** built 2026-11-07 (Settings › Saves, `docs/launcher-build-plan.md`)
    - auto-save on quit on or off
    - Continue: Ask, Always or Never
    - how many auto saves to keep

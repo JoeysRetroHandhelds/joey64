@@ -155,6 +155,9 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             var place by remember { mutableStateOf(RailPlace.Library) }
             var settingsHints by remember { mutableStateOf(listOf(Hint("B", "Back"))) }
             var onRail by remember { mutableStateOf(false) }
+            // Settings › Saves › Import from RetroArch: the first-run import pages again, then back to that tab.
+            var importAgain by remember { mutableStateOf(false) }
+            var settingsTab by remember { mutableStateOf(com.joeysretro.joey64.launcher.screens.SettingsTab.entries.first()) }
             val cheatsFor by model.cheatsFor.collectAsStateWithLifecycle()
             val gameSettingsFor by model.gameSettingsFor.collectAsStateWithLifecycle()
             val achievementsFor by model.achievementsFor.collectAsStateWithLifecycle()
@@ -187,6 +190,10 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                                 }
                                 // Then Import from RetroArch, offered once; Skip or Continue finishes first run.
                                 !s.setupDone -> ImportScreen(importModel, s.dataFolder) { scope.launch { store.setSetupDone() } }
+                                importAgain -> {
+                                    androidx.activity.compose.BackHandler { importAgain = false }
+                                    ImportScreen(importModel, s.dataFolder) { importAgain = false }
+                                }
                                 gameSettingsFor != null -> androidx.compose.runtime.key(gameSettingsFor) {
                                     com.joeysretro.joey64.launcher.screens.GameSettingsScreen(gameSettingsFor!!, onHints = { settingsHints = it }) { model.closeGameSettings() }
                                 }
@@ -197,7 +204,11 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                                     com.joeysretro.joey64.launcher.screens.GameAchievementsScreen(achievementsFor!!, onHints = { settingsHints = it }) { model.closeAchievements() }
                                 }
                                 place == RailPlace.Achievements -> com.joeysretro.joey64.launcher.screens.AchievementsScreen(onHints = { settingsHints = it }) { place = RailPlace.Library }
-                                place == RailPlace.Settings -> SettingsScreen(updates, onHints = { settingsHints = it }) { place = RailPlace.Library }
+                                place == RailPlace.Settings -> SettingsScreen(updates, onHints = { settingsHints = it }, startTab = settingsTab,
+                                    startRow = if (settingsTab == com.joeysretro.joey64.launcher.screens.SettingsTab.Saves) "import" else null,
+                                    onImport = { importModel.restart(); settingsTab = com.joeysretro.joey64.launcher.screens.SettingsTab.Saves; importAgain = true }) {
+                                    settingsTab = com.joeysretro.joey64.launcher.screens.SettingsTab.entries.first(); place = RailPlace.Library
+                                }
                                 place == RailPlace.Controls -> ControlsScreen(onHints = { settingsHints = it }) { place = RailPlace.Library }
                                 place == RailPlace.Search -> com.joeysretro.joey64.launcher.screens.SearchScreen(model, onHints = { settingsHints = it }) { place = RailPlace.Library }
                                 else -> LibraryScreen(model) { place = RailPlace.Search }
@@ -209,6 +220,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             }
             HintRow(when {
                 !home -> listOf(Hint("A", "Select"))
+                importAgain -> listOf(Hint("A", "Select"), Hint("B", "Back"))
                 onRail -> listOf(Hint("A", "Open"))
                 place == RailPlace.Settings || place == RailPlace.Controls || place == RailPlace.Search || place == RailPlace.Achievements ||
                     cheatsFor != null || achievementsFor != null || gameSettingsFor != null -> settingsHints

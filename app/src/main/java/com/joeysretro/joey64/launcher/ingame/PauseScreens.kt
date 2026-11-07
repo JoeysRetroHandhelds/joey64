@@ -106,7 +106,7 @@ interface PauseActions {
  *  - **Menu** (approved mockup, 2026-11-05): the game's name, Resume, Save state with the slot it
  *    saves to, Load state, then Reset and Quit to library. Game settings, Controls, Cheats and
  *    Achievements join it as they're built. B and Back resume.
- *  - **Slot picker** (approved mockup): Auto then Slots 1-10, four to a row as 100 x 75 dp pictures,
+ *  - **Slot picker** (approved mockup): Auto then Slots 1-10 (then Auto 2 ..., Settings › Saves), four to a row as 100 x 75 dp pictures,
  *    the selected slot's name and date at the right of the title. Saving can't go to Auto (dimmed:
  *    quitting writes it). A on an empty slot when loading does nothing. B goes back to the menu.
  */
@@ -141,7 +141,8 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
         onDismiss = { if (restart != null) actions.restartLater() else actions.resume() },
         hints = hints,
         interceptBack = { if (picker != null) { actions.backToMenu(if (picker.save) MenuRow.Save else MenuRow.Load); true } else false },
-        width = when { restart != null -> 470.dp; picker == null -> 300.dp; else -> 454.dp },
+        // Five slot pictures to a row once older quit saves make it longer than three rows of four.
+        width = when { restart != null -> 470.dp; picker == null -> 300.dp; picker.slots.size > 12 -> 564.dp; else -> 454.dp },
     ) {
         val landing = LocalFocusLanding.current
         LaunchedEffect(screen) { landing?.arm() }
@@ -197,10 +198,11 @@ private fun SlotGrid(picker: PauseScreen.Picker, now: Long, onPick: (Int) -> Uni
             }
         }
         Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 2.dp)) {
-            for (row in picker.slots.chunked(4)) {
+            // Older quit saves (Settings › Saves) make it longer than three rows of four: five to a row then.
+            for (row in picker.slots.chunked(if (picker.slots.size > 12) 5 else 4)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     for (s in row) {
-                        val off = picker.save && s.slot == 0
+                        val off = picker.save && com.joeysretro.joey64.states.StateSlots.isAuto(s.slot)
                         SlotCell(s, off, now, initial = s.slot == picker.focus, onFocused = { focused = s.slot }) {
                             if (picker.save || s.savedAt != null) onPick(s.slot)
                         }

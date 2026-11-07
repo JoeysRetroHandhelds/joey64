@@ -273,6 +273,39 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         else viewModelScope.launch(Dispatchers.IO) { GameStates.Recovery.clear(getApplication()) }
     }
 
+    /** Settings › Saves › Continue on Play is Ask, and [game] has a quit save from [quitAt]. */
+    data class AskContinue(val game: LibraryGame, val quitAt: Long)
+    private val _askContinue = MutableStateFlow<AskContinue?>(null)
+    /** "You quit this game 2 hours ago. Go on from there?" (approved Saves mockup 2026-11-07, screen 4). */
+    val askContinue: StateFlow<AskContinue?> = _askContinue
+
+    /**
+     * Play in the library or Search: Settings › Saves › Continue on Play says whether a game with a
+     * quit save starts from the beginning (Never), goes on from it (Always) or asks ([askContinue]).
+     */
+    fun playAsked(game: LibraryGame, start: (Intent) -> Unit) {
+        if (starting) return
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            val how = withContext(Dispatchers.IO) { com.joeysretro.joey64.saves.SavesStore(app).read().continueOnPlay }
+            val quitAt = if (how == com.joeysretro.joey64.saves.ContinueOnPlay.Never) null
+                else withContext(Dispatchers.IO) { launcher.saveNameFor(game)?.let { GameStates(app, it).savedAt(StateSlots.AUTO) } }
+            when {
+                quitAt == null -> play(game, null, start)
+                how == com.joeysretro.joey64.saves.ContinueOnPlay.Always -> play(game, com.joeysretro.joey64.MainActivity.STATE_AUTO, start)
+                else -> _askContinue.value = AskContinue(game, quitAt)
+            }
+        }
+    }
+
+    /** The Ask popup's answer: Continue (true), Start over (false; the quit save stays), B (null: nothing starts). */
+    fun continueAnswered(carryOn: Boolean?, start: (Intent) -> Unit) {
+        val ask = _askContinue.value ?: return
+        _askContinue.value = null
+        if (carryOn == null) return
+        play(ask.game, if (carryOn) com.joeysretro.joey64.MainActivity.STATE_AUTO else null, start)
+    }
+
     /** Continue: the last game, from its auto slot. */
     fun continuePlaying(start: (Intent) -> Unit) {
         val g = _continueGame.value ?: return

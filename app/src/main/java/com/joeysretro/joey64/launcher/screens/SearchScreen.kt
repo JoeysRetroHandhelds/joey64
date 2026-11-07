@@ -35,6 +35,11 @@ import com.joeysretro.joey64.launcher.theme.JoeyTheme
 @Composable
 fun SearchScreen(model: LibraryModel, onHints: (List<Hint>) -> Unit, onClose: () -> Unit) {
     val games = model.games.collectAsStateWithLifecycle().value.orEmpty()
+    // Play here asks too (Settings › Saves › Continue on Play).
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    model.askContinue.collectAsStateWithLifecycle().value?.let { ask ->
+        AskContinuePopup(ask) { carryOn -> model.continueAnswered(carryOn) { ctx.startActivity(it) } }
+    }
     var query by rememberSaveable { mutableStateOf("") }
     // Y on the results: back into the field, typing. Bumped to make a fresh field that starts typing.
     var edit by remember { mutableIntStateOf(0) }

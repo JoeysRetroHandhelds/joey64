@@ -655,14 +655,16 @@ std::vector<int32_t> coreWorkerThreads() {
     return out;
 }
 
-// EXPERIMENT: emulation thread priority (mupen64plus-ae's "high priority thread" uses Android's
-// THREAD_PRIORITY_URGENT_AUDIO, nice -19). N64_THREAD_PRIO=<nice> sets it, e.g. -19 (urgent audio),
-// -10 (urgent display), -4 (display); unset leaves the default (0). N64_THREAD_PRIO_ALL=1 also gives the
-// other threads already running in the process (parallel-RDP workers, audio) the same value.
+// Emulation thread priority: nice -19 (Android's THREAD_PRIORITY_URGENT_AUDIO, mupen64plus-ae's "high priority
+// thread"), the default since 2026-11-06 (Joey's decision once the Odin 3 compat run with it, odin3-priocompat2, was
+// 82/82; uncapped speed measured the same as nice 0 on all four devices).
+// Dev: N64_THREAD_PRIO=<nice> sets another value (0 = Android's normal, the old default; -10 urgent display).
+// N64_THREAD_PRIO_ALL=1 also gives the other threads already running in the process (parallel-RDP workers,
+// audio) the same value.
 void setEmuThreadPriority() {
     const char* env = getenv("N64_THREAD_PRIO");
-    if (!env || !*env) return;
-    int nice = atoi(env);
+    int nice = env && *env ? atoi(env) : -19;
+    if (nice == 0) return;
     int r = setpriority(PRIO_PROCESS, 0, nice);
     LOGI("emu thread priority %d (%s), now %d", nice, r == 0 ? "ok" : strerror(errno), getpriority(PRIO_PROCESS, 0));
     const char* all = getenv("N64_THREAD_PRIO_ALL");
@@ -1029,6 +1031,13 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
         g_optionOverrides["mupen64plus-cpucore"] =
             std::any_of(std::begin(kInterpreterGames), std::end(kInterpreterGames),
                         [&](const char* g) { return id.compare(0, 3, g) == 0; }) ? "cached_interpreter" : "dynamic_recompiler";
+    // Smoother timing: CountPerOp=1 (Project64's counter factor 1) for games that ran below their frame rate on
+    // hardware, where MainActivity sets N64_SMOOTHER=1 (strong devices). Odin 3 (odin3-smooth): GoldenEye 49.7 -> 59.9,
+    // Conker 21.4 -> 28.6, Mario Kart 64 26.5 -> 28.1, Yoshi's Story 28.6 -> 30.0 fps. --es opts wins.
+    static const char* const kSmootherGames[] = {"NGE", "NFU", "NKT", "NYS"};
+    const char* smoother = getenv("N64_SMOOTHER");
+    if (smoother && *smoother == '1' && idIn(kSmootherGames) && !g_optionOverrides.count("mupen64plus-CountPerOp"))
+        g_optionOverrides["mupen64plus-CountPerOp"] = "1";
     LOGI("game id %s, parallel-RDP %s, %s", id.c_str(), g_rdpSync ? "synchronous" : "async",
          g_optionOverrides["mupen64plus-cpucore"].c_str());
     LOGI("ROM %s: %s", p, romSummary(buf).c_str());

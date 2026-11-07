@@ -132,6 +132,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // Resident Evil 2, Cruis'n USA) or halts (New Tetris), and sync costs ~1-2 ms a frame (Odin 3, Duo).
         // On Mali (Flip) sync can cost a third of the frame rate, so async plus kSyncRdpGames. --es opts wins.
         if ("Adreno" in gpuName) NativeBridge.setOption("mupen64plus-parallel-rdp-synchronous", "True")
+        // No pipeline pre-build on Adreno (Joey 2026-11-07): with the driver cache cold (after a driver update or a
+        // cleared cache) building the saved list first stalled ~0.6 s at start in every game on the Portal
+        // (portal-pbfirst), on-demand compiling 63-170 ms; warm launches wait 0 ms either way. Mali keeps it.
+        // --es env N64_RDP_PREBUILD=1 turns it back on.
+        if ("Adreno" in gpuName && android.system.Os.getenv("N64_RDP_PREBUILD") == null)
+            android.system.Os.setenv("N64_RDP_PREBUILD", "0", true)
         // Settings › Video: resolution and the N64 video filters (core options), the picture's shape, integer
         // scaling, black frames, colour and sharpening. The dev switches below still win.
         val vApply = com.joeysretro.joey64.video.VideoApply.of(video, renderer == "parallel")

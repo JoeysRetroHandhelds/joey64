@@ -106,6 +106,18 @@ class ControlsTest {
         assertEquals(mine, Hotkeys.fromJson(mine.toJson()))
     }
 
+    @Test fun fastForwardAndQuitSettingsAreKept() {
+        val h = Hotkeys().copy(ffMode = FastForwardMode.Adaptive, ffSpeed = 250, quitTo = QuitTo.Exit)
+        assertEquals(h, Hotkeys.fromJson(h.toJson()))
+        assertTrue(h.ffAdaptive) // Select + R2: a trigger
+        assertFalse(h.copy(keys = h.keys + (HotkeyAction.FastForward to KeyEvent.KEYCODE_BUTTON_Y)).ffAdaptive)
+        // An odd speed in the file falls back to the default.
+        assertEquals(Hotkeys.FF_SPEED_DEFAULT, Hotkeys.fromJson(JSONObject("""{"version":3,"ffSpeed":333}""")).ffSpeed)
+        assertEquals(100, Hotkeys.adaptiveSpeed(0.05f, 400))
+        assertEquals(400, Hotkeys.adaptiveSpeed(1f, 400))
+        assertEquals(175, Hotkeys.adaptiveSpeed(0.525f, 250))
+    }
+
     @Test fun unsafeSaveNamesBecomeFileNames() {
         assertEquals("a_b_c", ControlsStore.safe("a/b:c"))
     }

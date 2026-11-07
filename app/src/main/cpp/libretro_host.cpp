@@ -99,6 +99,9 @@ std::condition_variable g_pauseCv;
 // Fast-forward: vsync off, audio dropped, emulation capped at 4x normal (lower while the
 // N64_THERMAL_GOV=1 governor says so: thermal.h).
 std::atomic<bool> g_fastForward{false};
+// The user's fast-forward speed (Controls > Hotkeys > Fast-forward), or Adaptive's from the trigger, in
+// percent of normal; the thermal cap still applies on top.
+std::atomic<int> g_ffSpeedPct{400};
 // Benchmark (dev env N64_BENCH=1): no speed cap, vsync off, audio dropped, settings unchanged and every frame
 // presented, so the counter shows how fast the game could run: the headroom a full-speed game has.
 bool g_bench = false;
@@ -813,7 +816,8 @@ void runLoop() {
             ffNext = std::chrono::steady_clock::now();
         }
         if (ff) {
-            ffNext += std::chrono::microseconds((long long)(1e6 / (g_av.timing.fps * Thermal::fastForwardSpeed())));
+            const double speed = std::min(std::max(g_ffSpeedPct.load(), 100) / 100.0, (double)Thermal::fastForwardSpeed());
+            ffNext += std::chrono::microseconds((long long)(1e6 / (g_av.timing.fps * speed)));
             auto now = std::chrono::steady_clock::now();
             if (ffNext > now) std::this_thread::sleep_until(ffNext);
             else if (now - ffNext > std::chrono::milliseconds(100)) ffNext = now; // don't sprint to catch up
@@ -1198,6 +1202,10 @@ JNIEXPORT void JNICALL JNI(dumpRam)(JNIEnv* env, jobject, jstring path) {
 
 JNIEXPORT void JNICALL JNI(setFastForward)(JNIEnv*, jobject, jboolean on) {
     g_fastForward = on;
+}
+
+JNIEXPORT void JNICALL JNI(setFastForwardSpeed)(JNIEnv*, jobject, jint percent) {
+    g_ffSpeedPct = std::clamp((int)percent, 100, 400);
 }
 
 JNIEXPORT jint JNICALL JNI(rumble)(JNIEnv*, jobject) {

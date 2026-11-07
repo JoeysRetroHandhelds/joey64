@@ -9,6 +9,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.DialogWindowProvider
+import com.joeysretro.joey64.controls.AxisPicker
 import com.joeysretro.joey64.controls.PadInput
 
 /**
@@ -43,30 +44,34 @@ object PadCapture {
         return PadInput.Key(e.keyCode)
     }
 
-    /** A stick pushed past 70%, a hat D-pad or a trigger, as the binding it makes; null for small moves. */
-    fun motionInput(e: MotionEvent): PadInput? {
-        if (e.source and InputDevice.SOURCE_JOYSTICK != InputDevice.SOURCE_JOYSTICK) return null
+    /** A hat D-pad press, as the D-pad key it is (no rest or release wait: it's a button). */
+    fun hatInput(e: MotionEvent): PadInput? {
         val hx = e.getAxisValue(MotionEvent.AXIS_HAT_X); val hy = e.getAxisValue(MotionEvent.AXIS_HAT_Y)
-        when {
-            hy < -0.5f -> return PadInput.Key(KeyEvent.KEYCODE_DPAD_UP)
-            hy > 0.5f -> return PadInput.Key(KeyEvent.KEYCODE_DPAD_DOWN)
-            hx < -0.5f -> return PadInput.Key(KeyEvent.KEYCODE_DPAD_LEFT)
-            hx > 0.5f -> return PadInput.Key(KeyEvent.KEYCODE_DPAD_RIGHT)
+        return when {
+            hy < -0.5f -> PadInput.Key(KeyEvent.KEYCODE_DPAD_UP)
+            hy > 0.5f -> PadInput.Key(KeyEvent.KEYCODE_DPAD_DOWN)
+            hx < -0.5f -> PadInput.Key(KeyEvent.KEYCODE_DPAD_LEFT)
+            hx > 0.5f -> PadInput.Key(KeyEvent.KEYCODE_DPAD_RIGHT)
+            else -> null
         }
-        if (maxOf(e.getAxisValue(MotionEvent.AXIS_LTRIGGER), e.getAxisValue(MotionEvent.AXIS_BRAKE)) > 0.5f) return PadInput.Key(KeyEvent.KEYCODE_BUTTON_L2)
-        if (maxOf(e.getAxisValue(MotionEvent.AXIS_RTRIGGER), e.getAxisValue(MotionEvent.AXIS_GAS)) > 0.5f) return PadInput.Key(KeyEvent.KEYCODE_BUTTON_R2)
-        for (axis in intArrayOf(MotionEvent.AXIS_Z, MotionEvent.AXIS_RZ, MotionEvent.AXIS_X, MotionEvent.AXIS_Y)) {
-            val v = e.getAxisValue(axis)
-            if (v > 0.7f || v < -0.7f) return PadInput.Axis(axis, v > 0)
-        }
-        return null
     }
+
+    /** A stick or trigger reading, for [AxisPicker] (its guards: seen at rest first, biggest move, given on release). */
+    fun feed(picker: AxisPicker, e: MotionEvent): PadInput? = picker.feed(
+        STICK_AXES.associateWith { e.getAxisValue(it) },
+        maxOf(e.getAxisValue(MotionEvent.AXIS_LTRIGGER), e.getAxisValue(MotionEvent.AXIS_BRAKE)),
+        maxOf(e.getAxisValue(MotionEvent.AXIS_RTRIGGER), e.getAxisValue(MotionEvent.AXIS_GAS)),
+        android.os.SystemClock.uptimeMillis(),
+    )
+
+    private val STICK_AXES = listOf(MotionEvent.AXIS_X, MotionEvent.AXIS_Y, MotionEvent.AXIS_Z, MotionEvent.AXIS_RZ)
 }
 
 /**
  * Inside a popup ([com.joeysretro.joey64.launcher.components.JoeyDialog]): while [active], the popup's
  * window hands every key and stick move to [onInput] before anything else sees it ([keysOnly]: stick
  * pushes are ignored, as for the hotkeys, which are buttons; a hat D-pad and triggers still count).
+ * Sticks and triggers go through [AxisPicker], so the popup stays until the picked one is let go.
  */
 @Composable
 fun CaptureInput(active: Boolean, keysOnly: Boolean = false, onInput: (PadInput, KeyEvent?) -> Unit) {
@@ -75,6 +80,14 @@ fun CaptureInput(active: Boolean, keysOnly: Boolean = false, onInput: (PadInput,
     DisposableEffect(view, active, keysOnly) {
         val window = (view.parent as? DialogWindowProvider)?.window
         val original = window?.callback
+        val picker = AxisPicker(sticks = !keysOnly)
+        // A stick held still sends no events: time moves the pick on (window, release wait).
+        val ticker = object : Runnable {
+            override fun run() {
+                picker.tick(android.os.SystemClock.uptimeMillis())?.let { current.value(it, null) }
+                if (picker.waiting) view.postDelayed(this, 25)
+            }
+        }
         if (window != null && original != null && active) {
             window.callback = object : Window.Callback by original {
                 override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -84,11 +97,18 @@ fun CaptureInput(active: Boolean, keysOnly: Boolean = false, onInput: (PadInput,
                         original.dispatchKeyEvent(event) else true
                 }
                 override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
-                    PadCapture.motionInput(event)?.let { if (!keysOnly || it is PadInput.Key) current.value(it, null) }
+                    if (event.source and InputDevice.SOURCE_JOYSTICK != InputDevice.SOURCE_JOYSTICK) return true
+                    PadCapture.hatInput(event)?.let { current.value(it, null); return true }
+                    val wasWaiting = picker.waiting
+                    PadCapture.feed(picker, event)?.let { current.value(it, null) }
+                    if (picker.waiting && !wasWaiting) view.postDelayed(ticker, 25)
                     return true
                 }
             }
         }
-        onDispose { if (window != null && original != null && active) window.callback = original }
+        onDispose {
+            view.removeCallbacks(ticker)
+            if (window != null && original != null && active) window.callback = original
+        }
     }
 }

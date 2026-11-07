@@ -307,6 +307,21 @@ fun PromptHeader(@androidx.annotation.DrawableRes icon: Int, title: String, tag:
     }
 }
 
+/** A note in a popup, in a box with the info icon: how a choice will work ("Y can't sense how hard it's pressed ..."). */
+@Composable
+fun PopupInfoNote(text: String) {
+    val c = JoeyTheme.colors
+    androidx.compose.foundation.layout.Row(
+        Modifier.padding(horizontal = 6.dp).padding(top = 4.dp, bottom = 2.dp).fillMaxWidth()
+            .background(c.page, RoundedCornerShape(8.dp)).padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        androidx.compose.material3.Icon(androidx.compose.ui.res.painterResource(com.joeysretro.joey64.R.drawable.ic_info), contentDescription = null,
+            tint = c.gold, modifier = Modifier.padding(end = 8.dp).size(16.dp))
+        Text(text, style = JoeyTheme.type.small, color = c.textSecondary)
+    }
+}
+
 /** A prompt popup's text, with its bold parts (a version number) as the caller marks them. */
 @Composable
 fun PromptText(text: androidx.compose.ui.text.AnnotatedString) {

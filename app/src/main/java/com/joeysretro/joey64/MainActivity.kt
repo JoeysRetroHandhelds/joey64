@@ -39,12 +39,14 @@ import com.joeysretro.joey64.states.StateSlots
 import com.joeysretro.joey64.controls.ControlsSet
 import com.joeysretro.joey64.controls.ControlsStore
 import com.joeysretro.joey64.controls.DeviceChoice
+import com.joeysretro.joey64.controls.FastForwardMode
 import com.joeysretro.joey64.controls.HotkeyAction
 import com.joeysretro.joey64.controls.Hotkeys
 import com.joeysretro.joey64.controls.Pak
 import com.joeysretro.joey64.controls.PakDb
 import com.joeysretro.joey64.controls.PadDevices
 import com.joeysretro.joey64.controls.PlayerInput
+import com.joeysretro.joey64.controls.QuitTo
 
 class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
@@ -283,12 +285,34 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     // ---- Fast-forward -------------------------------------------------------------------------
     // Its hotkey toggles it (hotkey button + R2 by default since 2026-11-07, was R3 on its own;
     // Controls > Hotkeys). Runs up to 4x with audio muted.
+    // Its mode and speed are the user's (approved fast-forward popup, 2026-11-07): Toggle, Hold (on while
+    // the hotkey is held) or Adaptive (held, and the speed follows how far the trigger is pressed).
     private var fastForward = false
+    /** Hold / Adaptive: the hotkey is down. */
+    private var ffHeld = false
+    /** The latest trigger depths (L2, R2), so Adaptive starts at the right speed on the press. */
+    private var triggerDepth = floatArrayOf(0f, 0f)
 
-    private fun toggleFastForward() {
-        fastForward = !fastForward
-        NativeBridge.setFastForward(fastForward)
+    private fun setFastForward(on: Boolean, percent: Int = hotkeys.ffSpeed) {
+        NativeBridge.setFastForwardSpeed(percent)
+        if (on != fastForward) { fastForward = on; NativeBridge.setFastForward(on) }
     }
+
+    private fun toggleFastForward() = setFastForward(!fastForward)
+
+    /** The fast-forward hotkey went down or up (only the press counts for Toggle). */
+    private fun fastForwardKey(down: Boolean) {
+        if (hotkeys.ffMode == FastForwardMode.Toggle) { if (down) toggleFastForward(); return }
+        ffHeld = down
+        setFastForward(down, if (hotkeys.ffAdaptive) adaptivePercent() else hotkeys.ffSpeed)
+    }
+
+    /** Hold and Adaptive stop when the hotkey button is let go too, or the game loses focus. */
+    private fun fastForwardRelease() { if (ffHeld) { ffHeld = false; setFastForward(false) } }
+
+    private fun ffTrigger(): Int = if (hotkeys.keys[HotkeyAction.FastForward] == KeyEvent.KEYCODE_BUTTON_L2) 0 else 1
+
+    private fun adaptivePercent() = Hotkeys.adaptiveSpeed(triggerDepth[ffTrigger()], hotkeys.ffSpeed)
 
     // ---- GPU driver + renderer ------------------------------------------------------------------
     // Until M3's profile DB:
@@ -730,6 +754,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             overlay?.screen = null
             quitToLibrary()
         }
+        override val quitLabel: String get() = hotkeys.quitTo.menuRow
         override fun pick(save: Boolean, slot: Int) {
             val st = states ?: return
             overlay?.screen = null
@@ -893,7 +918,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             else st.save(StateSlots.AUTO)
             st.clearRecovery()
             recent?.let { RecentlyPlayed.record(this, it.copy(lastPlayed = System.currentTimeMillis())) }
-            runOnUiThread { finish() }
+            // Quit to: the library (or the frontend that started the game), or out of Joey64 altogether:
+            // every screen of ours in this task closes, so Android shows the frontend or home screen.
+            runOnUiThread { if (hotkeys.quitTo == QuitTo.Exit) finishAffinity() else finish() }
         }
     }
 
@@ -935,7 +962,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         super.onWindowFocusChanged(hasFocus)
         // The hotkey button's release goes to whichever window has focus (the menu, the notification
         // shade): let go of it here, or B alone would quit to the library afterwards.
-        if (!hasFocus) { hotkeyHeld = false; if (!menuOpen) gameSharkButton(false); return }
+        if (!hasFocus) { hotkeyHeld = false; fastForwardRelease(); if (!menuOpen) gameSharkButton(false); return }
         requestUnbufferedJoystick()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.setDecorFitsSystemWindows(false)
@@ -1103,7 +1130,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (inGame && code == hotkeys.button) {
             when (event.action) {
                 KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) { hotkeyHeld = true; hotkeyHatX = 0 }
-                KeyEvent.ACTION_UP -> { hotkeyHeld = false; gameSharkRelease() }
+                KeyEvent.ACTION_UP -> { hotkeyHeld = false; gameSharkRelease(); fastForwardRelease() }
             }
             return true
         }
@@ -1115,6 +1142,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             hotkeys.actionFor(code, alone = false)?.let { action ->
                 if (action == HotkeyAction.GameShark) {
                     if (down && !quitting) { fpsHandler.removeCallbacks(gameSharkUp); gameSharkButton(true) }
+                    return true
+                }
+                if (action == HotkeyAction.FastForward) {
+                    if (!quitting && (down || event.action == KeyEvent.ACTION_UP)) fastForwardKey(down)
                     return true
                 }
                 // Both edges are the hotkey's: the game never sees them.
@@ -1154,8 +1185,13 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // With the hotkey button held, left / right change the slot and don't reach the game (as the D-pad keys).
         input.setHat(if (hotkeyHeld) 0f else event.getAxisValue(MotionEvent.AXIS_HAT_X), event.getAxisValue(MotionEvent.AXIS_HAT_Y))
         // Analog triggers (Thor reports both keys and BRAKE/GAS axes).
-        input.setTriggers(maxOf(event.getAxisValue(MotionEvent.AXIS_LTRIGGER), event.getAxisValue(MotionEvent.AXIS_BRAKE)),
-            maxOf(event.getAxisValue(MotionEvent.AXIS_RTRIGGER), event.getAxisValue(MotionEvent.AXIS_GAS)))
+        val lt = maxOf(event.getAxisValue(MotionEvent.AXIS_LTRIGGER), event.getAxisValue(MotionEvent.AXIS_BRAKE))
+        val rt = maxOf(event.getAxisValue(MotionEvent.AXIS_RTRIGGER), event.getAxisValue(MotionEvent.AXIS_GAS))
+        triggerDepth[0] = lt; triggerDepth[1] = rt
+        // Adaptive fast-forward: the speed follows the trigger, which the game doesn't see while it's the hotkey.
+        val ffAdaptive = ffHeld && hotkeys.ffAdaptive
+        if (ffAdaptive) NativeBridge.setFastForwardSpeed(adaptivePercent())
+        input.setTriggers(if (ffAdaptive && ffTrigger() == 0) 0f else lt, if (ffAdaptive && ffTrigger() == 1) 0f else rt)
         push(p)
         return true
     }
@@ -1170,6 +1206,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         fpsHandler.removeCallbacks(fpsTick)
         resumed = false
         hotkeyHeld = false
+        fastForwardRelease()
         fpsHandler.removeCallbacks(gameSharkUp)
         gameSharkButton(false)
         setRumbling(false)

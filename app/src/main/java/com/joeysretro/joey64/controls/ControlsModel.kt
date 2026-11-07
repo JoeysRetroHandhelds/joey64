@@ -179,15 +179,39 @@ enum class HotkeyAction(val label: String, /** null: not set until the user pick
     /** Not set by default (Joey 2026-11-07). */
     Reset("Reset game", null),
     /** Hotkey button + Start (Joey 2026-11-07; was + B, and Start was Reset). */
-    Quit("Quit to library", KeyEvent.KEYCODE_BUTTON_START),
+    Quit("Quit game", KeyEvent.KEYCODE_BUTTON_START),
+}
+
+/** How the fast-forward hotkey works (approved fast-forward popup, 2026-11-07). */
+enum class FastForwardMode(val label: String, val detail: String) {
+    Toggle("Toggle", "Press once to start, again to stop"),
+    Hold("Hold", "Only while you hold the button"),
+    Adaptive("Adaptive", "Press harder to go faster. Needs a trigger, like L2 or R2"),
+}
+
+/** Where Quit game goes after the auto slot is written (approved Quit game popup, 2026-11-07). */
+enum class QuitTo(val label: String, val detail: String, val menuRow: String) {
+    Library("Library", "Back to the Joey64 library", "Quit to library"),
+    Exit("Exit Joey64", "Closes Joey64, back to your frontend or home screen", "Quit and exit Joey64"),
 }
 
 /** The hotkey button (held) and each hotkey's second button; null is cleared. */
-data class Hotkeys(val button: Int = KeyEvent.KEYCODE_BUTTON_SELECT, val keys: Map<HotkeyAction, Int?> = HotkeyAction.entries.associateWith { it.default }) {
+data class Hotkeys(
+    val button: Int = KeyEvent.KEYCODE_BUTTON_SELECT,
+    val keys: Map<HotkeyAction, Int?> = HotkeyAction.entries.associateWith { it.default },
+    val ffMode: FastForwardMode = FastForwardMode.Toggle,
+    /** Fast-forward's top speed in percent, one of [FF_SPEEDS]. */
+    val ffSpeed: Int = FF_SPEED_DEFAULT,
+    val quitTo: QuitTo = QuitTo.Library,
+) {
+    /** Adaptive needs a button with pressure (an analog trigger); on any other it works like Hold. */
+    val ffAdaptive: Boolean get() = ffMode == FastForwardMode.Adaptive && hasPressure(keys[HotkeyAction.FastForward])
+
     fun actionFor(keyCode: Int, alone: Boolean): HotkeyAction? =
         HotkeyAction.entries.firstOrNull { it.alone == alone && keys[it] == keyCode }
 
     fun toJson(): JSONObject = JSONObject().put("version", VERSION).put("button", button)
+        .put("ffMode", ffMode.name).put("ffSpeed", ffSpeed).put("quitTo", quitTo.name)
         .put("keys", JSONObject().apply { for (a in HotkeyAction.entries) put(a.name, keys[a] ?: -1) })
 
     companion object {
@@ -197,6 +221,17 @@ data class Hotkeys(val button: Int = KeyEvent.KEYCODE_BUTTON_SELECT, val keys: M
          * those old defaults are moved; anything else the user picked stays.
          */
         const val VERSION = 3
+        val FF_SPEEDS = (125..400 step 25).toList()
+        const val FF_SPEED_DEFAULT = 400
+
+        /** L2 and R2: the buttons that are analog triggers on a pad with them (BRAKE/LTRIGGER, GAS/RTRIGGER). */
+        fun hasPressure(code: Int?) = code == KeyEvent.KEYCODE_BUTTON_L2 || code == KeyEvent.KEYCODE_BUTTON_R2
+
+        /** Adaptive's speed in percent for a trigger pressed [depth] (0 to 1): normal speed up to [top] at a full press. */
+        fun adaptiveSpeed(depth: Float, top: Int): Int {
+            val d = ((depth - 0.1f) / 0.85f).coerceIn(0f, 1f)
+            return (100 + (top - 100) * d).toInt()
+        }
 
         private fun migrated(a: HotkeyAction, v: Int?): Int? = when (a) {
             HotkeyAction.FastForward -> a.default  // it was a button on its own; now it's a hotkey
@@ -215,6 +250,9 @@ data class Hotkeys(val button: Int = KeyEvent.KEYCODE_BUTTON_SELECT, val keys: M
             return Hotkeys(
                 button = o.optInt("button", d.button),
                 keys = if (!old || k == null) keys else keys.mapValues { (a, v) -> if (k.has(a.name)) migrated(a, v) else v },
+                ffMode = FastForwardMode.entries.firstOrNull { it.name == o.optString("ffMode") } ?: d.ffMode,
+                ffSpeed = o.optInt("ffSpeed", d.ffSpeed).takeIf { it in FF_SPEEDS } ?: d.ffSpeed,
+                quitTo = QuitTo.entries.firstOrNull { it.name == o.optString("quitTo") } ?: d.quitTo,
             )
         }
     }

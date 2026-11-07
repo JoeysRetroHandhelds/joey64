@@ -95,6 +95,9 @@ object NativeBridge {
     /** Fast-forward: no vsync, audio muted, capped at 4x. */
     external fun setFastForward(on: Boolean)
 
+    /** Fast-forward's speed in percent of normal (100 to 400; the thermal cap still applies). Any thread. */
+    external fun setFastForwardSpeed(percent: Int)
+
     /** RETRO_DEVICE_ID_JOYPAD_* bitmask for N64 [port] 0..3 (Controls, `PlayerInput.buttons`). */
     external fun setButtons(port: Int, mask: Int)
 

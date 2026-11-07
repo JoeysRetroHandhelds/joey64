@@ -81,6 +81,8 @@ interface PauseActions {
     fun pressGameShark()
     fun reset()
     fun quit()
+    /** The Quit row's name, from Controls > Hotkeys > Quit game ("Quit to library" or "Quit and exit Joey64"). */
+    val quitLabel: String get() = "Quit to library"
     /** Back from the picker to the menu. */
     fun backToMenu(from: MenuRow)
     fun pick(save: Boolean, slot: Int)
@@ -137,7 +139,7 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
                 if (hasSet) JoeyOption("Achievements", Modifier.initialFocus(screen.from == MenuRow.Achievements), value = "›") { actions.openAchievements() }
                 PopupDivider()
                 JoeyOption("Reset") { actions.reset() }
-                JoeyOption("Quit to library") { actions.quit() }
+                JoeyOption(actions.quitLabel) { actions.quit() }
             }
             is PauseScreen.Picker -> SlotGrid(screen, now) { actions.pick(screen.save, it) }
             is PauseScreen.Controls, is PauseScreen.Cheats, is PauseScreen.Achievements -> {}

@@ -50,6 +50,8 @@ import com.joeysretro.joey64.controls.AutoMap
 import com.joeysretro.joey64.controls.ControlsEditor
 import com.joeysretro.joey64.controls.ControlsStore
 import com.joeysretro.joey64.controls.DeviceChoice
+import com.joeysretro.joey64.controls.FastForwardMode
+import com.joeysretro.joey64.controls.Hotkeys
 import com.joeysretro.joey64.controls.HotkeyAction
 import com.joeysretro.joey64.controls.InputNames
 import com.joeysretro.joey64.controls.N64Button
@@ -58,6 +60,7 @@ import com.joeysretro.joey64.controls.PadInput
 import com.joeysretro.joey64.controls.Pak
 import com.joeysretro.joey64.controls.PakDb
 import com.joeysretro.joey64.controls.PlayerSetup
+import com.joeysretro.joey64.controls.QuitTo
 import com.joeysretro.joey64.controls.StickSource
 import com.joeysretro.joey64.launcher.components.ButtonRow
 import com.joeysretro.joey64.launcher.components.Hint
@@ -69,6 +72,8 @@ import com.joeysretro.joey64.launcher.components.PageChip
 import com.joeysretro.joey64.launcher.components.PopupDivider
 import com.joeysretro.joey64.launcher.components.PopupNote
 import com.joeysretro.joey64.launcher.components.PopupTitle
+import com.joeysretro.joey64.launcher.components.PopupInfoNote
+import com.joeysretro.joey64.launcher.components.DescriptionLine
 import com.joeysretro.joey64.launcher.components.SectionLabel
 import com.joeysretro.joey64.launcher.components.TabChip
 import com.joeysretro.joey64.launcher.components.initialFocus
@@ -135,7 +140,13 @@ private sealed interface Popup {
     data object Controller : Popup
     data object AutoConfirm : Popup
     data class OnePress(val layouts: List<AutoMap.Layout>) : Popup
-    data class Remap(val target: Target) : Popup
+    /** [back]: the popup to return to once a button is picked (Fast-forward's and Quit game's Button). */
+    data class Remap(val target: Target, val back: Popup? = null) : Popup
+    /** The Hotkeys page's Fast-forward and Quit game rows (approved popups, 2026-11-07); [row] has focus on return. */
+    data class FastForward(val row: String = "button") : Popup
+    data object FfMode : Popup
+    data class QuitGame(val row: String = "button") : Popup
+    data object QuitTo : Popup
     data object Stick : Popup
     data object PakChoice : Popup
     data object Games : Popup
@@ -214,7 +225,8 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
     val backLabel = if (inGame) "Back to the pause menu" else "Back"
     LaunchedEffect(focused, hotkeysOpen, target, off) {
         onHints(when {
-            hotkeysOpen -> listOf(Hint("A", "Change"), Hint("X", "Clear"), Hint("Y", "Reset to default"), Hint("B", "Back"))
+            hotkeysOpen -> listOf(Hint("A", if (focused == "hkFastForward" || focused == "hkQuit") "Open" else "Change"), Hint("X", "Clear"),
+                Hint("Y", "Reset to default"), Hint("B", "Back"))
             focused.startsWith("chip") -> listOf(Hint("A", "Select"), Hint("L/R", "Player"), Hint("B", backLabel))
             focused == "DeadZone" -> listOf(Hint("◀▶", "Adjust"), Hint("Y", if (target == null) "Reset to default" else "Use All games"),
                 Hint("L/R", "Player"), Hint("B", backLabel))
@@ -230,7 +242,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
 
     Column(Modifier.fillMaxSize().padding(horizontal = s.margin).padding(top = 14.dp, bottom = 6.dp)) {
         if (hotkeysOpen) {
-            HotkeysPage(editor, version, onFocused = { focused = it }) { popup = Popup.Remap(it) }
+            HotkeysPage(editor, version, focused, onFocused = { focused = it }, onOpen = { popup = it }) { popup = Popup.Remap(it) }
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Controls", style = JoeyTheme.type.pageTitle, color = c.text, modifier = Modifier.weight(1f))
@@ -320,7 +332,21 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
                     is Target.Hotkey -> keyCode?.let { editor.setHotkeys(editor.hotkeys.copy(keys = editor.hotkeys.keys + (t.action to it))) }
                 }
             }
-            close()
+            popup = p.back
+        }
+        is Popup.FastForward -> FastForwardPopup(editor, version, p.row, close,
+            onButton = { popup = Popup.Remap(Target.Hotkey(HotkeyAction.FastForward), Popup.FastForward("button")) },
+            onMode = { popup = Popup.FfMode }) { h -> edit { editor.setHotkeys(h) } }
+        Popup.FfMode -> ChoicePopup("Mode", null,
+            FastForwardMode.entries.map { Choice(it.label, it.detail, it == editor.hotkeys.ffMode) }, { popup = Popup.FastForward("mode") }) { i ->
+            edit { editor.setHotkeys(editor.hotkeys.copy(ffMode = FastForwardMode.entries[i])) }; popup = Popup.FastForward("mode")
+        }
+        is Popup.QuitGame -> QuitGamePopup(editor, version, p.row, close,
+            onButton = { popup = Popup.Remap(Target.Hotkey(HotkeyAction.Quit), Popup.QuitGame("button")) },
+            onQuitTo = { popup = Popup.QuitTo }) { h -> edit { editor.setHotkeys(h) } }
+        Popup.QuitTo -> ChoicePopup("Quit to", null,
+            QuitTo.entries.map { Choice(it.label, it.detail, it == editor.hotkeys.quitTo) }, { popup = Popup.QuitGame("to") }) { i ->
+            edit { editor.setHotkeys(editor.hotkeys.copy(quitTo = QuitTo.entries[i])) }; popup = Popup.QuitGame("to")
         }
         Popup.Stick -> ChoicePopup("Player ${player + 1} stick", "What moves the N64 stick.",
             StickSource.entries.map { Choice(it.label, if (it == StickSource.DPad) "Full tilt only" else null, it == setup.stick) }, close) { i ->
@@ -404,7 +430,12 @@ private fun clearHotkey(editor: ControlsEditor, row: String) {
 private fun resetHotkey(editor: ControlsEditor, row: String) {
     if (row == "hkButton") { editor.setHotkeys(editor.hotkeys.copy(button = KeyEvent.KEYCODE_BUTTON_SELECT)); return }
     val a = HotkeyAction.entries.firstOrNull { "hk" + it.name == row } ?: return
-    editor.setHotkeys(editor.hotkeys.copy(keys = editor.hotkeys.keys + (a to a.default)))
+    val d = Hotkeys()
+    var h = editor.hotkeys.copy(keys = editor.hotkeys.keys + (a to a.default))
+    // Fast-forward and Quit game: the popup's other settings go back to theirs too.
+    if (a == HotkeyAction.FastForward) h = h.copy(ffMode = d.ffMode, ffSpeed = d.ffSpeed)
+    if (a == HotkeyAction.Quit) h = h.copy(quitTo = d.quitTo)
+    editor.setHotkeys(h)
 }
 
 // ---- Hotkeys (mockups 6 and 7) ----
@@ -417,7 +448,8 @@ fun hotkeyKey(code: Int) = when (code) {
 }
 
 @Composable
-private fun HotkeysPage(editor: ControlsEditor, version: Int, onFocused: (String) -> Unit, onChange: (Target) -> Unit) {
+private fun HotkeysPage(editor: ControlsEditor, version: Int, focused: String, onFocused: (String) -> Unit, onOpen: (Popup) -> Unit,
+                        onChange: (Target) -> Unit) {
     val c = JoeyTheme.colors
     @Suppress("UNUSED_EXPRESSION") version
     val h = editor.hotkeys
@@ -425,10 +457,14 @@ private fun HotkeysPage(editor: ControlsEditor, version: Int, onFocused: (String
         val k = h.keys[a] ?: return InputNames.NOT_SET
         return if (a.alone) hotkeyKey(k) else hotkeyKey(h.button) + " + " + hotkeyKey(k)
     }
+    // Fast-forward and Quit game open their own popups (their button and how they work).
+    val popupRows = mapOf(HotkeyAction.FastForward to Popup.FastForward(), HotkeyAction.Quit to Popup.QuitGame())
     @Composable
-    fun row(a: HotkeyAction) = JoeyRow(a.label, value = value(a), sideways = true, onFocused = { if (it) onFocused("hk" + a.name) }) {
-        onChange(Target.Hotkey(a))
+    fun row(a: HotkeyAction) = JoeyRow(a.label, value = value(a) + if (a in popupRows) "  ›" else "", sideways = true,
+        onFocused = { if (it) onFocused("hk" + a.name) }) {
+        popupRows[a]?.let(onOpen) ?: onChange(Target.Hotkey(a))
     }
+    Column(Modifier.fillMaxSize()) {
     Text("Hotkeys", style = JoeyTheme.type.pageTitle, color = c.text)
     Spacer(Modifier.height(8.dp))
     Row(Modifier.fillMaxWidth().focusRestorer().focusGroup(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
@@ -442,6 +478,76 @@ private fun HotkeysPage(editor: ControlsEditor, version: Int, onFocused: (String
         Column(Modifier.weight(1f)) {
             SectionLabel("Game")
             for (a in listOf(HotkeyAction.PauseMenu, HotkeyAction.FastForward, HotkeyAction.Screenshot, HotkeyAction.GameShark, HotkeyAction.Reset, HotkeyAction.Quit)) row(a)
+        }
+    }
+    Spacer(Modifier.weight(1f))
+    when (focused) {
+        "hkFastForward" -> DescriptionLine("Fast-forward", "Speeds the game up. Pick its button, Toggle, Hold or Adaptive, and how fast.")
+        "hkQuit" -> DescriptionLine("Quit game", "Saves to the auto slot, then goes to the library or exits Joey64.")
+    }
+    }
+}
+
+/** Approved fast-forward popup (2026-11-07): Button (set like the other hotkeys), Mode, Speed (Left / Right). */
+@Composable
+private fun FastForwardPopup(editor: ControlsEditor, version: Int, startRow: String, onDismiss: () -> Unit,
+                             onButton: () -> Unit, onMode: () -> Unit, onSet: (Hotkeys) -> Unit) {
+    @Suppress("UNUSED_EXPRESSION") version
+    val h = editor.hotkeys
+    var row by remember { mutableStateOf(startRow) }
+    val button = h.keys[HotkeyAction.FastForward]
+    val buttonName = button?.let { hotkeyKey(h.button) + " + " + hotkeyKey(it) } ?: InputNames.NOT_SET
+    JoeyDialog(onDismiss = onDismiss, width = 400.dp,
+        hints = when (row) {
+            "speed" -> listOf(Hint("◀▶", "Speed"), Hint("B", "Close"))
+            "button" -> listOf(Hint("A", "Change"), Hint("X", "Clear"), Hint("B", "Close"))
+            else -> listOf(Hint("A", "Select"), Hint("B", "Close"))
+        },
+        onPadButton = { code -> if (code == KeyEvent.KEYCODE_BUTTON_X && row == "button") onSet(h.copy(keys = h.keys + (HotkeyAction.FastForward to null))) }) {
+        Column {
+            PopupTitle("Fast-forward")
+            JoeyRow("Button", Modifier.initialFocus(startRow == "button"), value = buttonName, onFocused = { if (it) row = "button" }, onClick = onButton)
+            JoeyRow("Mode", Modifier.initialFocus(startRow == "mode"), value = h.ffMode.label + "  ›", onFocused = { if (it) row = "mode" }, onClick = onMode)
+            JoeyRow("Speed", Modifier.initialFocus(startRow == "speed").onPreviewKeyEvent { e ->
+                val n = e.nativeKeyEvent
+                val step = when (n.keyCode) { KeyEvent.KEYCODE_DPAD_LEFT -> -1; KeyEvent.KEYCODE_DPAD_RIGHT -> 1; else -> 0 }
+                if (step == 0) return@onPreviewKeyEvent false
+                if (n.action == KeyEvent.ACTION_DOWN) {
+                    val i = (Hotkeys.FF_SPEEDS.indexOf(h.ffSpeed).takeIf { it >= 0 } ?: Hotkeys.FF_SPEEDS.lastIndex) + step
+                    onSet(h.copy(ffSpeed = Hotkeys.FF_SPEEDS[i.coerceIn(0, Hotkeys.FF_SPEEDS.lastIndex)]))
+                }
+                true
+            }, value = if (row == "speed") "◀ ${h.ffSpeed}% ▶" else "${h.ffSpeed}%", sideways = true, onFocused = { if (it) row = "speed" })
+            if (h.ffMode == FastForwardMode.Adaptive && button != null && !Hotkeys.hasPressure(button))
+                PopupInfoNote("${hotkeyKey(button)} can't sense how hard it's pressed, so Adaptive works like Hold.")
+            Spacer(Modifier.height(6.dp))
+            when (row) {
+                "speed" -> DescriptionLine("Speed", "The top speed. Adaptive goes from normal speed up to this as you press harder.")
+                "mode" -> DescriptionLine("Mode", "Toggle, Hold or Adaptive.")
+                else -> DescriptionLine("Button", "Held with ${hotkeyKey(h.button)}, the hotkey button.")
+            }
+        }
+    }
+}
+
+/** Approved Quit game popup (2026-11-07): Button, and Quit to (the library, or out of Joey64). */
+@Composable
+private fun QuitGamePopup(editor: ControlsEditor, version: Int, startRow: String, onDismiss: () -> Unit,
+                          onButton: () -> Unit, onQuitTo: () -> Unit, onSet: (Hotkeys) -> Unit) {
+    @Suppress("UNUSED_EXPRESSION") version
+    val h = editor.hotkeys
+    var row by remember { mutableStateOf(startRow) }
+    val buttonName = h.keys[HotkeyAction.Quit]?.let { hotkeyKey(h.button) + " + " + hotkeyKey(it) } ?: InputNames.NOT_SET
+    JoeyDialog(onDismiss = onDismiss, width = 400.dp,
+        hints = if (row == "button") listOf(Hint("A", "Change"), Hint("X", "Clear"), Hint("B", "Close")) else listOf(Hint("A", "Select"), Hint("B", "Close")),
+        onPadButton = { code -> if (code == KeyEvent.KEYCODE_BUTTON_X && row == "button") onSet(h.copy(keys = h.keys + (HotkeyAction.Quit to null))) }) {
+        Column {
+            PopupTitle("Quit game")
+            JoeyRow("Button", Modifier.initialFocus(startRow == "button"), value = buttonName, onFocused = { if (it) row = "button" }, onClick = onButton)
+            JoeyRow("Quit to", Modifier.initialFocus(startRow == "to"), value = h.quitTo.label + "  ›", onFocused = { if (it) row = "to" }, onClick = onQuitTo)
+            Spacer(Modifier.height(6.dp))
+            if (row == "to") DescriptionLine("Quit to", "Where you land after quitting. The game is saved to its auto slot either way.")
+            else DescriptionLine("Button", "Held with ${hotkeyKey(h.button)}, the hotkey button. The pause menu's Quit follows Quit to.")
         }
     }
 }

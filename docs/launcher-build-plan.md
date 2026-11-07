@@ -374,7 +374,7 @@ The parts without screens:
 ## Phase 4: Controls
 
 - players 1–4, the remap popup, Clear and Reset
-- Auto map
+- Auto map, with every N64-style controller known out of the box (Joey, 2026-11-06). The research is `docs/n64-controllers.md`: a table by vendor and product ID, the Switch Online N64's two Android layouts, one press to pick between layouts sharing an ID (0079:0006, Mayflash MF103), and the position rule for the rest. Rows not marked checked need a test on a real pad. Tracked for later: the Switch Online N64 over USB (needs Nintendo's handshake through the USB host API).
 - split groups
 - Hotkeys
 - View controller

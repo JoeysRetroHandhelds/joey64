@@ -134,7 +134,7 @@ So Joey64 uses the **Storage Access Framework**, the way PPSSPP does on Play. Th
   - The 4:3, square and portrait previews come with the first screens (Phase 1); there is nothing to preview yet.
   - Dropping forced landscape is a manifest change on `MainActivity`, which belongs to the emulator side.
   - Rubik Regular, Medium and Bold: download approved (Joey, 2026-11-06). google/fonts has only the variable font now (`Rubik[wght].ttf`, 360 KB, weights 300-900), so `res/font/rubik_variable.ttf` is bundled once and set to each weight. All body styles and Material's default text style use it. Checked on the Thor.
-  - The core still opens saves by path in `files/saves`. It needs to take file descriptors before data can move to a picked folder, so nothing calls the move yet.
+  - The core still opens saves by path in `files/saves`. It needs to take file descriptors before data can move to a picked folder, so nothing calls the move yet. Done another way 2026-11-07 (Settings › Saves › Data folder): `files/saves` stays the core's working copy and `SrmSync` copies the save RAM to and from the picked folder; states, screenshots, cheats and save backups go through the folder directly.
 - Build changes, which reach the emulator build when this merges: Android Gradle plugin 8.5.2 → 8.13.2, Kotlin 2.0.20 → 2.2.21 with the Compose plugin, compileSdk 34 → 35 (targetSdk unchanged).
 
 ## Phase 0b: in-app updater (one of the very first things, Joey 2026-11-05)
@@ -217,7 +217,7 @@ Comes straight after Phase 0, before the library, so every later build reaches t
   - The picker opens at the N64 folder in ROMs when there is one (`SD Card › ROMs › n64` on the Thor), else at ROMs (Joey, 2026-11-06).
   - The folders are a list (Joey, 2026-11-06): each row has its game count and a Remove button, then an "Add another folder" line picks one more. The button reads Use this folder or Use these folders, and every folder on the list is saved. The same folder picked twice is listed once. A folder with no N64 games isn't added, and a line under the list says so. Back takes off that line, else the last folder.
   - Games are counted by content: the first four bytes of each file, or of a zip's entries, must be an N64 ROM's (`RomCheck`), 6 files at a time. Before this, names alone counted, so an `atari2600` folder read as 190 N64 games. Thor: 82 of 82 in 240 ms, 0 of 190 in 446 ms. A `.7z` is checked by its contents too.
-  - Screens 3-4 (where saves go) wait for the core to take file descriptors, so saves stay in Joey64's own storage for now.
+  - Screens 3-4 (where saves go) wait for the core to take file descriptors, so saves stay in Joey64's own storage for now. Audit 2026-11-07: that wait is over (Settings › Saves › Data folder works without descriptors), so screens 3-4 can be built; still not built.
 - **Import from RetroArch, screens 5-7 and the clash popups** (approved 2026-11-05): first run's last step, after the ROMs folder. Skip or Continue finishes first run (`setup_done`), and the app opens to the library from then on.
   - Clashes are all asked before anything is copied, so Back in the popup cancels with nothing written. "Do the same for the other N" answers the rest.
   - The Copy screen counts a file already in Joey64 with the same contents as done; it is not copied again.
@@ -369,7 +369,7 @@ The parts without screens:
   - mupen64plus-next's libretro load returns on a wrong magic number without unlocking `savestates_lock`, and the emulation thread then hangs. The host now passes only data that starts with `M64+SAVE`.
   - `retro_unserialize` returns true even when the core turns a state down (another ROM, an incompatible version), so the host can't tell. The guard on the auto slot covers only what the host sees.
 - **Not checked:** our states loading in RetroArch. Joey64 never writes into RetroArch's folders, so that needs Joey to copy one over. The layout follows RetroArch's source, and the import's reader takes it.
-- **Still to come, tracked:** Hardcore's rules for Continue and the hotkeys (Phase 7), the pop-up settings, badge stack and tap to open (Phase 7), Controls › Hotkeys (Phase 4), the data folder when one is picked (states follow the saves, which stay in Joey64's own storage until the core opens them by descriptor), and the rail label "Continue · <game>".
+- **Still to come, tracked:** Hardcore's rules for Continue and the hotkeys (Phase 7), the pop-up settings, badge stack and tap to open (Phase 7), Controls › Hotkeys (Phase 4), the data folder when one is picked (done 2026-11-07, Settings › Saves), and the rail label "Continue · <game>".
 
 ## Phase 4: Controls
 

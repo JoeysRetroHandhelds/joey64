@@ -49,7 +49,7 @@ class GameLauncher(private val context: Context, private val db: LibraryDb) {
             loadState?.let { intent.putExtra(MainActivity.EXTRA_LOAD_STATE, it) }
             // For recently played (JoeyOS reads it): the file in the ROMs folder, not the unpacked copy, and the title.
             intent.putExtra(MainActivity.EXTRA_SOURCE_URI, f.uri).putExtra(MainActivity.EXTRA_SOURCE_NAME, f.name)
-                .putExtra(MainActivity.EXTRA_TITLE, game.title)
+                .putExtra(MainActivity.EXTRA_TITLE, game.title).putExtra(MainActivity.EXTRA_MD5, game.md5)
             JLog.i(TAG, "playing ${game.title} from ${f.name}" + (loadState?.let { ", loading the $it state" } ?: ""))
             return intent
         }

@@ -118,10 +118,22 @@ constexpr const char* kUpscaleKey = "mupen64plus-parallel-rdp-upscaling";
 std::string g_upscaleBeforeFf;
 bool g_upscaleFfApplied = false;
 
-std::atomic<int> g_buttons{0};
-std::atomic<int> g_tapped{0}; // presses not yet seen by a poll, so sub-frame taps still register
-int g_polledButtons = 0;      // emulation thread only
-std::atomic<int> g_analog[2][2] = {};
+// Per N64 port (Controls, Phase 4: up to four players).
+constexpr int kPorts = 4;
+std::atomic<int> g_buttons[kPorts] = {};
+std::atomic<int> g_tapped[kPorts] = {}; // presses not yet seen by a poll, so sub-frame taps still register
+int g_polledButtons[kPorts] = {};       // emulation thread only
+std::atomic<int> g_analog[kPorts][2][2] = {};
+// Ports with a controller plugged in (bit per port), applied after load_game. Default: player 1 only.
+std::atomic<int> g_portsPresent{1};
+std::atomic<bool> g_portsChanged{false}; // set while a game runs: applied between frames
+
+void applyPorts() {
+    int m = g_portsPresent.load();
+    for (unsigned p = 0; p < (unsigned)kPorts; ++p)
+        core.set_controller_port_device(p, (m >> p) & 1 ? RETRO_DEVICE_JOYPAD : RETRO_DEVICE_NONE);
+    LOGI("controller ports present: 0x%x", m);
+}
 unsigned g_lastW = 0, g_lastH = 0;
 int g_statRuns = 0, g_statPresents = 0, g_statDupes = 0; // emulation thread only
 double g_statRunMs = 0, g_statWaitMs = 0;                 // time in retro_run / beginFrame
@@ -317,7 +329,7 @@ void traceFrame(double audioWaitMs) {
 // Taps are held for kMinPressPolls polls: some games (Pokemon Snap's tutorial) ignore a press
 // that is visible for a single frame.
 constexpr int kMinPressPolls = 4;
-int g_tapHold[16] = {};
+int g_tapHold[kPorts][16] = {};
 // Late input: the core polls at vertical blank, at the end of retro_run, but the game reads the
 // controller during the next retro_run, after the audio and vsync waits. So the buttons are sampled
 // at the game's first read after each poll instead (sticks are always read live). Retroid Flip,
@@ -333,12 +345,14 @@ void input_poll() {
 }
 
 void sampleButtons() {
-    int taps = g_tapped.exchange(0), held = 0;
-    for (int i = 0; i < 16; ++i) {
-        if (taps & (1 << i)) g_tapHold[i] = kMinPressPolls;
-        if (g_tapHold[i] > 0) { --g_tapHold[i]; held |= 1 << i; }
+    for (int p = 0; p < kPorts; ++p) {
+        int taps = g_tapped[p].exchange(0), held = 0;
+        for (int i = 0; i < 16; ++i) {
+            if (taps & (1 << i)) g_tapHold[p][i] = kMinPressPolls;
+            if (g_tapHold[p][i] > 0) { --g_tapHold[p][i]; held |= 1 << i; }
+        }
+        g_polledButtons[p] = g_buttons[p].load() | held;
     }
-    g_polledButtons = g_buttons.load() | held;
     if (g_vulkan) {
         timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); // the clock display timing reports in
         g_vk.notePoll(ts.tv_sec * 1000000000LL + ts.tv_nsec);
@@ -346,15 +360,15 @@ void sampleButtons() {
 }
 
 int16_t input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
-    if (port != 0) return 0;
+    if (port >= (unsigned)kPorts) return 0;
     if (device == RETRO_DEVICE_JOYPAD) {
         if (g_pollPending) { g_pollPending = false; sampleButtons(); }
-        int mask = g_polledButtons;
+        int mask = g_polledButtons[port];
         if (id == RETRO_DEVICE_ID_JOYPAD_MASK) return (int16_t)mask;
         return (mask >> id) & 1;
     }
     if (device == RETRO_DEVICE_ANALOG && index < 2 && id < 2)
-        return (int16_t)g_analog[index][id].load();
+        return (int16_t)g_analog[port][index][id].load();
     return 0;
 }
 
@@ -704,6 +718,7 @@ void runLoop() {
         }
         if (!g_running) break;
         serveStateRequest(g_framesRun >= (uint32_t)stateReadyFrames(), false);
+        if (g_portsChanged.exchange(false)) applyPorts(); // a controller given to a player mid-game
         applySurfaceIfChanged();
         bool hasWindow = g_vulkan ? g_vk.hasWindow() : g_egl.hasWindow();
         if (!hasWindow) { std::this_thread::sleep_for(std::chrono::milliseconds(16)); continue; }
@@ -1008,7 +1023,8 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
     env->ReleaseStringUTFChars(rom, p);
     if (!ok) { LOGE("retro_load_game failed"); return JNI_FALSE; }
 
-    core.set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
+    g_portsChanged = false;
+    applyPorts();
     core.cheat_reset();
     for (size_t i = 0; i < g_cheats.size(); ++i) {
         core.cheat_set((unsigned)i, true, g_cheats[i].c_str());
@@ -1181,13 +1197,20 @@ JNIEXPORT jboolean JNICALL JNI(loadState)(JNIEnv* env, jobject, jbyteArray data,
     return runStateRequest(req, timeoutMs) && req.ok ? JNI_TRUE : JNI_FALSE;
 }
 
-JNIEXPORT void JNICALL JNI(setButtons)(JNIEnv*, jobject, jint mask) {
-    g_tapped |= mask & ~g_buttons.exchange(mask);
+JNIEXPORT void JNICALL JNI(setButtons)(JNIEnv*, jobject, jint port, jint mask) {
+    if (port < 0 || port >= kPorts) return;
+    g_tapped[port] |= mask & ~g_buttons[port].exchange(mask);
 }
 
-JNIEXPORT void JNICALL JNI(setAnalog)(JNIEnv*, jobject, jint i, jint x, jint y) {
-    if (i < 0 || i > 1) return;
-    g_analog[i][0] = x; g_analog[i][1] = y;
+JNIEXPORT void JNICALL JNI(setAnalog)(JNIEnv*, jobject, jint port, jint i, jint x, jint y) {
+    if (port < 0 || port >= kPorts || i < 0 || i > 1) return;
+    g_analog[port][i][0] = x; g_analog[port][i][1] = y;
+}
+
+// Which ports have a controller (bit per port); takes effect at the next loadGame.
+JNIEXPORT void JNICALL JNI(setPortsPresent)(JNIEnv*, jobject, jint mask) {
+    g_portsPresent = (mask & ((1 << kPorts) - 1)) | 1; // player 1 is always plugged in
+    g_portsChanged = true; // applied between frames if a game is running; loadGame applies it anyway
 }
 
 } // extern "C"

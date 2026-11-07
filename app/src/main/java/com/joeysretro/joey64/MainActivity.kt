@@ -32,9 +32,17 @@ import android.widget.TextView
 import java.io.File
 import androidx.compose.ui.graphics.asImageBitmap
 import com.joeysretro.joey64.launcher.ingame.InGamePopup
-import kotlinx.coroutines.flow.first
 import com.joeysretro.joey64.states.GameStates
 import com.joeysretro.joey64.states.StateSlots
+import com.joeysretro.joey64.controls.ControlsSet
+import com.joeysretro.joey64.controls.ControlsStore
+import com.joeysretro.joey64.controls.DeviceChoice
+import com.joeysretro.joey64.controls.HotkeyAction
+import com.joeysretro.joey64.controls.Hotkeys
+import com.joeysretro.joey64.controls.Pak
+import com.joeysretro.joey64.controls.PakDb
+import com.joeysretro.joey64.controls.PadDevices
+import com.joeysretro.joey64.controls.PlayerInput
 
 class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
@@ -258,7 +266,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }, "RumbleWatcher").apply { isDaemon = true }
 
     // ---- Fast-forward -------------------------------------------------------------------------
-    // R3 toggles it. Runs up to 4x with audio muted.
+    // R3 toggles it (a hotkey on its own, Controls > Hotkeys). Runs up to 4x with audio muted.
     private var fastForward = false
 
     private fun toggleFastForward() {
@@ -424,6 +432,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (!started) {
             val (rom, saveName) = resolveRom() ?: run { JLog.e(TAG, "No ROM. Push one to ${getExternalFilesDir(null)}/test.z64"); return }
             reportGameState(loading = true)
+            applyControls(rom, saveName)
             if (NativeBridge.loadGame(rom, saveName)) {
                 NativeBridge.start(); started = true; owner = this; gameLoaded = true
                 startStates(saveName)
@@ -454,11 +463,6 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         overlay = GameOverlay(this, pauseActions).also {
             it.title = givenTitle ?: saveName
             it.saveSlotName = slotName(currentSlot())
-        }
-        stateHandler.post {
-            hotkeyEnable = try {
-                kotlinx.coroutines.runBlocking { com.joeysretro.joey64.launcher.settings.SettingsStore(this@MainActivity).settings.first().hotkeyEnable }
-            } catch (e: Exception) { JLog.e(TAG, "hotkeys: can't read the settings: $e"); KeyEvent.KEYCODE_BUTTON_SELECT }
         }
         // The pause menu's title: the game's name in the library, else the ROM's (a frontend's game).
         stateHandler.post {
@@ -531,10 +535,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         menuOpen = true
         NativeBridge.pause(true)
         // Held buttons and sticks are let go: the menu's window takes the pad from here.
-        keyMask = 0; hatMask = 0; triggerMask = 0
         hotkeyHeld = false
-        pushButtons()
-        NativeBridge.setAnalog(0, 0, 0); NativeBridge.setAnalog(1, 0, 0)
+        releaseAll()
         o.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Menu()
     }
 
@@ -603,40 +605,36 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         }
     }
 
-    // ---- hotkeys (approved Hotkeys design, 2026-11-05) ----------------------------------------------
-    // Back: the pause menu. Hold the hotkey button (the user's choice, Settings: Select by default, the N64 has none; Joey,
-    // 2026-11-06: not Back) + R1 save state, L1 load state (both
-    // the current slot), Left / Right change the slot, Y screenshot, Start reset, B quit to library.
-    // (R3 fast-forward needs no hold.) The game never sees the hotkey button. Choosing it and
-    // remapping the rest is Controls › Hotkeys (Phase 4).
+    // ---- hotkeys (approved Hotkeys design, 2026-11-05; Controls > Hotkeys, Phase 4) -----------------
+    // Hold the hotkey button (Select by default, the N64 has none; Joey, 2026-11-06: not Back) + R1 save
+    // state, L1 load state (both the current slot), Right / Left change the slot, Y screenshot, Start reset,
+    // B quit to library. On their own: Back the pause menu, R3 fast-forward. All of them are the user's
+    // (`files/controls/hotkeys.json`). The game never sees the hotkey button or a hotkey.
     private var hotkeyHeld = false
-    /** Read from the settings when the game starts (they're changed in the launcher, not in game). */
-    @Volatile private var hotkeyEnable = KeyEvent.KEYCODE_BUTTON_SELECT
+    /** Read when the game starts (Controls are changed in the launcher, or in the pause menu with the game paused). */
+    private var hotkeys = Hotkeys()
     private var hotkeyHatX = 0
 
-    private fun isHotkey(keyCode: Int) = when (keyCode) {
-        KeyEvent.KEYCODE_BUTTON_R1, KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
-        KeyEvent.KEYCODE_BUTTON_Y, KeyEvent.KEYCODE_BUTTON_START, KeyEvent.KEYCODE_BUTTON_B -> true
-        else -> false
-    }
-
-    private fun hotkey(keyCode: Int) {
-        when (keyCode) {
-            KeyEvent.KEYCODE_BUTTON_R1 -> hotkeySave()
-            KeyEvent.KEYCODE_BUTTON_L1 -> hotkeyLoad()
-            KeyEvent.KEYCODE_DPAD_LEFT -> stepSlot(-1)
-            KeyEvent.KEYCODE_DPAD_RIGHT -> stepSlot(1)
-            KeyEvent.KEYCODE_BUTTON_Y -> hotkeyScreenshot()
-            KeyEvent.KEYCODE_BUTTON_START -> stateHandler.post { val ok = resetNow(); runOnUiThread { popReset(ok) } }
-            KeyEvent.KEYCODE_BUTTON_B -> quitToLibrary()
+    private fun hotkey(action: HotkeyAction) {
+        when (action) {
+            HotkeyAction.Save -> hotkeySave()
+            HotkeyAction.Load -> hotkeyLoad()
+            HotkeyAction.NextSlot -> stepSlot(1)
+            HotkeyAction.PrevSlot -> stepSlot(-1)
+            HotkeyAction.Screenshot -> hotkeyScreenshot()
+            HotkeyAction.Reset -> stateHandler.post { val ok = resetNow(); runOnUiThread { popReset(ok) } }
+            HotkeyAction.Quit -> quitToLibrary()
+            HotkeyAction.PauseMenu -> if (!menuOpen) openMenu()
+            HotkeyAction.FastForward -> toggleFastForward()
         }
     }
 
-    /** Back is held: the D-pad on a hat axis changes the slot as the D-pad keys do. */
+    /** The hotkey button is held: a hat D-pad's left / right are the D-pad keys' hotkeys. */
     private fun hotkeyHat(event: MotionEvent) {
         val hx = event.getAxisValue(MotionEvent.AXIS_HAT_X)
         val x = if (hx < -0.5f) -1 else if (hx > 0.5f) 1 else 0
-        if (x != 0 && x != hotkeyHatX) stepSlot(x)
+        if (x != 0 && x != hotkeyHatX && !quitting)
+            hotkeys.actionFor(if (x < 0) KeyEvent.KEYCODE_DPAD_LEFT else KeyEvent.KEYCODE_DPAD_RIGHT, alone = false)?.let { hotkey(it) }
         hotkeyHatX = x
     }
 
@@ -798,105 +796,174 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         }
     }
 
-    // ---- Gamepad → RetroPad (port 0) ---------------------------------------------------------
-    // Positional mapping for any Android gamepad: bottom face button = N64 A, left = N64 B, L2 = Z,
-    // right stick = C buttons. Which Android code is which position, and how far the sticks reach,
-    // comes from the pad's profile and calibration (Controllers).
-    private var keyMask = 0
-    private var hatMask = 0
-    private var triggerMask = 0
-    private var padProfile = Controllers.DEFAULT
-    private var stickCal: Controllers.StickCal? = null
+    // ---- Controls: controllers to N64 ports (plan, Phase 4) ------------------------------------------
+    // Each player has a controller (Controls' Controller row) and its own buttons, stick, dead zone and
+    // pak, from `files/controls/` (All games, or the game's own). Every event goes to the player whose
+    // controller sent it; a new controller nobody has goes to the first player with None, mapped by Auto
+    // map, and is kept there. The core runs with independent C buttons (alt-map), so each N64 button is
+    // its own RetroPad bit; the N64 stick goes to the core's left analog, its right analog stays still
+    // (C buttons on a stick are bindings). Stick reach is calibrated per device (Controllers.StickCal).
+    private val controlsStore by lazy { ControlsStore(this) }
+    private var controls = ControlsSet.defaults()
+    private val players = Array(4) { PlayerInput(controls.players[it]) }
+    /** deviceId to player (-1: no player has it). */
+    private val playerOfDevice = HashMap<Int, Int>()
+    private val stickCals = HashMap<Int, Controllers.StickCal>()
     private val stickPrefs by lazy { getSharedPreferences("sticks", Context.MODE_PRIVATE) }
+    /** Players whose port is plugged in this session (the core's ports are set as the game loads). */
+    private var portsPresent = 1
 
-    /** Switches to the pad that sent the last input: its profile and stick calibration. */
-    private fun usePad(dev: InputDevice?, id: Int) {
-        if (id == padDeviceId && stickCal != null) return
-        stickCal?.save(stickPrefs)
+    /** Reads the controls for [saveName] and sets the core's ports, paks and input options. Before loadGame. */
+    private fun applyControls(rom: String, saveName: String) {
+        if (!controlsStore.hasAll()) controlsStore.saveAll(PadDevices.firstSet())
+        controls = controlsStore.forGame(saveName.ifEmpty { null })
+        hotkeys = controlsStore.hotkeys()
+        for (i in 0..3) players[i].setup = controls.players[i]
+        playerOfDevice.clear()
+        portsPresent = 1
+        for (i in 1..3) if (controls.players[i].device != DeviceChoice.None) portsPresent = portsPresent or (1 shl i)
+        NativeBridge.setPortsPresent(portsPresent)
+        NativeBridge.setOption("mupen64plus-alt-map", "True")
+        NativeBridge.setOption("mupen64plus-astick-deadzone", "0") // PlayerInput applies the player's own
+        val md5 by lazy { intent?.getStringExtra(EXTRA_MD5) ?: romMd5(rom) }
+        val rumbleGames by lazy { PakDb.load(this) }
+        for (i in 0..3) {
+            val p = controls.players[i]
+            val pak = if (p.pak == Pak.Auto) PakDb.auto(rumbleGames, md5) else p.pak
+            NativeBridge.setOption("mupen64plus-pak${i + 1}", pak.core!!)
+        }
+        JLog.i(TAG, "controls: " + controls.players.mapIndexed { i, p ->
+            "P${i + 1} ${deviceLabel(p.device)}" + if (p.device == DeviceChoice.None) "" else " (${p.pak.name})"
+        }.joinToString(", ") + if (saveName.isNotEmpty() && controlsStore.game(saveName) != null) ", the game's own" else "")
+    }
+
+    private fun deviceLabel(d: DeviceChoice) = when (d) {
+        DeviceChoice.BuiltIn -> "built in"; DeviceChoice.None -> "none"; is DeviceChoice.Pad -> d.name
+    }
+
+    /** The ROM's MD5 in .z64 order (as the library keys games), for Auto pak when the launcher didn't pass it. */
+    private fun romMd5(rom: String): String? = try {
+        File(rom).inputStream().buffered(256 * 1024).use { com.joeysretro.joey64.launcher.library.RomReader.read(it)?.md5 }
+    } catch (e: Exception) { JLog.e(TAG, "controls: can't hash the ROM for Auto pak: $e"); null }
+
+    /** The player [dev] plays as, or -1. A controller seen for the first time may be given to a free player. */
+    private fun playerFor(dev: InputDevice?, id: Int): Int {
+        playerOfDevice[id]?.let { return it }
+        // Keyboards and adb's virtual keys play as player 1 (a key nobody binds still goes on to Android).
+        if (dev == null || !PadDevices.isPad(dev)) return 0
+        var p = controls.players.indexOfFirst { it.device is DeviceChoice.Pad && PadDevices.matches(it.device, dev) }
+        if (p < 0 && PadDevices.isBuiltIn(dev)) p = controls.players.indexOfFirst { it.device == DeviceChoice.BuiltIn }
+        if (p < 0) p = claimFreePlayer(dev)
+        playerOfDevice[id] = p
+        if (p >= 0) JLog.i(TAG, "controls: ${dev.name} (" + "%04x:%04x".format(dev.vendorId, dev.productId) + ") is player ${p + 1}")
+        return p
+    }
+
+    /**
+     * A controller no player has: with no built-in pad here (a phone), it plays as the built-in player;
+     * else the first player with None gets it, Auto mapped, saved to All games so it stays theirs.
+     */
+    private fun claimFreePlayer(dev: InputDevice): Int {
+        val builtInPlayer = controls.players.indexOfFirst { it.device == DeviceChoice.BuiltIn }
+        if (builtInPlayer >= 0 && PadDevices.builtIn() == null &&
+            playerOfDevice.values.none { it == builtInPlayer }) return builtInPlayer
+        val free = controls.players.indexOfFirst { it.device == DeviceChoice.None }
+        if (free < 0) return -1
+        val choice = PadDevices.choiceFor(dev)
+        val all = controlsStore.all()
+        val setup = PadDevices.autoSetup(dev, choice, keep = all.players[free])
+        controlsStore.saveAll(all.with(free, setup))
+        controls = controls.with(free, if (currentSaveName.isNotEmpty() && controlsStore.game(currentSaveName) != null) controls.players[free].copy(device = choice) else setup)
+        players[free].setup = controls.players[free]
+        if (portsPresent and (1 shl free) == 0) {
+            portsPresent = portsPresent or (1 shl free)
+            NativeBridge.setPortsPresent(portsPresent)
+        }
+        JLog.i(TAG, "controls: new controller ${dev.name} given to player ${free + 1}")
+        return free
+    }
+
+    private val currentSaveName get() = states?.saveName ?: ""
+
+    /** Switches the rumble and stick calibration to the pad that sent the last input. */
+    private fun usePad(dev: InputDevice?, id: Int): Controllers.StickCal {
+        stickCals[id]?.let { padDeviceId = id; return it }
         padDeviceId = id
-        padProfile = Controllers.profile(dev)
-        stickCal = Controllers.StickCal(dev?.descriptor ?: "unknown", padProfile.stickReach, stickPrefs)
-        JLog.i(TAG, "Pad: ${dev?.name} (" + "%04x:%04x".format(dev?.vendorId ?: 0, dev?.productId ?: 0) +
-            "), profile ${padProfile.name}")
+        val profile = Controllers.profile(dev)
+        JLog.i(TAG, "Pad: ${dev?.name} (" + "%04x:%04x".format(dev?.vendorId ?: 0, dev?.productId ?: 0) + "), profile ${profile.name}")
+        return Controllers.StickCal(dev?.descriptor ?: "unknown", profile.stickReach, stickPrefs).also { stickCals[id] = it }
     }
 
-    private fun retroId(keyCode: Int): Int = Controllers.faceRetroId(keyCode, padProfile).takeIf { it >= 0 } ?: when (keyCode) {
-        KeyEvent.KEYCODE_BUTTON_SELECT -> 2
-        KeyEvent.KEYCODE_BUTTON_START -> 3
-        KeyEvent.KEYCODE_DPAD_UP -> 4
-        KeyEvent.KEYCODE_DPAD_DOWN -> 5
-        KeyEvent.KEYCODE_DPAD_LEFT -> 6
-        KeyEvent.KEYCODE_DPAD_RIGHT -> 7
-        KeyEvent.KEYCODE_BUTTON_L1 -> 10
-        KeyEvent.KEYCODE_BUTTON_R1 -> 11
-        KeyEvent.KEYCODE_BUTTON_L2 -> 12        // → Z
-        KeyEvent.KEYCODE_BUTTON_R2 -> 13
-        KeyEvent.KEYCODE_BUTTON_THUMBL -> 14
-        else -> -1
+    private fun push(p: Int) {
+        val input = players[p]
+        NativeBridge.setButtons(p, input.buttons())
+        val (x, y) = input.stick()
+        NativeBridge.setAnalog(p, 0, PlayerInput.toRetro(x), PlayerInput.toRetro(y))
     }
 
-    private fun pushButtons() = NativeBridge.setButtons(keyMask or hatMask or triggerMask)
+    private fun releaseAll() {
+        for (p in 0..3) { players[p].release(); push(p); NativeBridge.setAnalog(p, 1, 0, 0) }
+    }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val inGame = states != null && overlay != null && mine
-        // Back opens the pause menu, on release (the menu's window would get the release otherwise).
-        if (event.keyCode == KeyEvent.KEYCODE_BACK && inGame) {
+        val code = event.keyCode
+        val down = event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0
+        // The pause menu's button (Back by default) opens it on release (the menu's window would get the release otherwise).
+        if (inGame && code == hotkeys.keys[HotkeyAction.PauseMenu]) {
             if (event.action == KeyEvent.ACTION_UP && !event.isCanceled && !quitting && !menuOpen) openMenu()
             return true
         }
         // The hotkey button held makes the next button a hotkey.
-        if (event.keyCode == hotkeyEnable && inGame) {
+        if (inGame && code == hotkeys.button) {
             when (event.action) {
                 KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) { hotkeyHeld = true; hotkeyHatX = 0 }
                 KeyEvent.ACTION_UP -> hotkeyHeld = false
             }
             return true
         }
-        if (hotkeyHeld && isHotkey(event.keyCode)) {
-            // Both edges are the hotkey's: the game never sees them.
-            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 && !quitting) hotkey(event.keyCode)
+        if (hotkeyHeld && inGame) {
+            hotkeys.actionFor(code, alone = false)?.let { action ->
+                // Both edges are the hotkey's: the game never sees them.
+                if (down && !quitting) hotkey(action)
+                return true
+            }
+        }
+        val p = playerFor(event.device, event.deviceId)
+        if (KeyEvent.isGamepadButton(code) || p >= 0) usePad(event.device, event.deviceId)
+        // A button on its own (R3 fast-forward), unless this player plays with it.
+        if (p < 0 || !players[p].uses(code)) hotkeys.actionFor(code, alone = true)?.let { action ->
+            if (down && !quitting) hotkey(action)
             return true
         }
-        if (event.keyCode == KeyEvent.KEYCODE_BUTTON_THUMBR) { // R3: not an N64 input, so fast-forward
-            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) toggleFastForward()
-            return true
-        }
-        if (event.deviceId != padDeviceId && KeyEvent.isGamepadButton(event.keyCode)) usePad(event.device, event.deviceId)
-        val id = retroId(event.keyCode)
-        if (id < 0) return super.dispatchKeyEvent(event)
+        if (p < 0 || !players[p].uses(code)) return super.dispatchKeyEvent(event)
         if (inputLat && event.action == KeyEvent.ACTION_DOWN) noteInputLat(event.eventTime, true, 0)
         when (event.action) {
-            KeyEvent.ACTION_DOWN -> keyMask = keyMask or (1 shl id)
-            KeyEvent.ACTION_UP -> keyMask = keyMask and (1 shl id).inv()
+            KeyEvent.ACTION_DOWN -> players[p].key(code, true)
+            KeyEvent.ACTION_UP -> players[p].key(code, false)
         }
-        pushButtons()
+        push(p)
         return true
     }
 
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
         if (event.source and InputDevice.SOURCE_JOYSTICK != InputDevice.SOURCE_JOYSTICK ||
             event.action != MotionEvent.ACTION_MOVE) return super.dispatchGenericMotionEvent(event)
-        usePad(event.device, event.deviceId)
+        val cal = usePad(event.device, event.deviceId)
         if (hotkeyHeld) hotkeyHat(event)
         if (inputLat) noteInputLat(if (event.historySize > 0) event.getHistoricalEventTime(0) else event.eventTime, false, event.historySize)
-        val cal = stickCal!!
-        fun axis(v: Float) = (v.coerceIn(-1f, 1f) * 32767).toInt()
+        val p = playerFor(event.device, event.deviceId)
+        if (p < 0) return super.dispatchGenericMotionEvent(event)
+        val input = players[p]
         val (lx, ly) = cal.apply(0, event.getAxisValue(MotionEvent.AXIS_X), event.getAxisValue(MotionEvent.AXIS_Y))
         val (rx, ry) = cal.apply(1, event.getAxisValue(MotionEvent.AXIS_Z), event.getAxisValue(MotionEvent.AXIS_RZ))
-        NativeBridge.setAnalog(0, axis(lx), axis(ly))
-        NativeBridge.setAnalog(1, axis(rx), axis(ry))
-
-        val hx = event.getAxisValue(MotionEvent.AXIS_HAT_X)
-        val hy = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
+        input.setAxes(lx, ly, rx, ry)
         // With the hotkey button held, left / right change the slot and don't reach the game (as the D-pad keys).
-        val hatX = !hotkeyHeld
-        hatMask = (if (hy < -0.5f) 1 shl 4 else 0) or (if (hy > 0.5f) 1 shl 5 else 0) or
-            (if (hatX && hx < -0.5f) 1 shl 6 else 0) or (if (hatX && hx > 0.5f) 1 shl 7 else 0)
+        input.setHat(if (hotkeyHeld) 0f else event.getAxisValue(MotionEvent.AXIS_HAT_X), event.getAxisValue(MotionEvent.AXIS_HAT_Y))
         // Analog triggers (Thor reports both keys and BRAKE/GAS axes).
-        val lt = maxOf(event.getAxisValue(MotionEvent.AXIS_LTRIGGER), event.getAxisValue(MotionEvent.AXIS_BRAKE))
-        val rt = maxOf(event.getAxisValue(MotionEvent.AXIS_RTRIGGER), event.getAxisValue(MotionEvent.AXIS_GAS))
-        triggerMask = (if (lt > 0.5f) 1 shl 12 else 0) or (if (rt > 0.5f) 1 shl 13 else 0)
-        pushButtons()
+        input.setTriggers(maxOf(event.getAxisValue(MotionEvent.AXIS_LTRIGGER), event.getAxisValue(MotionEvent.AXIS_BRAKE)),
+            maxOf(event.getAxisValue(MotionEvent.AXIS_RTRIGGER), event.getAxisValue(MotionEvent.AXIS_GAS)))
+        push(p)
         return true
     }
 
@@ -909,7 +976,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         resumed = false
         hotkeyHeld = false
         setRumbling(false)
-        stickCal?.save(stickPrefs)
+        stickCals.values.forEach { it.save(stickPrefs) }
     }
     override fun onResume() {
         super.onResume()
@@ -967,8 +1034,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         debugStick = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, i: Intent) {
                 val stick = i.getIntExtra("stick", 0)
-                NativeBridge.setAnalog(stick, i.getIntExtra("x", 0), i.getIntExtra("y", 0))
-                handler.postDelayed({ NativeBridge.setAnalog(stick, 0, 0) }, i.getIntExtra("ms", 150).toLong())
+                NativeBridge.setAnalog(0, stick, i.getIntExtra("x", 0), i.getIntExtra("y", 0))
+                handler.postDelayed({ NativeBridge.setAnalog(0, stick, 0, 0) }, i.getIntExtra("ms", 150).toLong())
             }
         }
         // adb shell am broadcast -a com.joeysretro.joey64.DUMP --es name snap1  -> files/dumps/snap1.bin
@@ -1014,6 +1081,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         const val EXTRA_SOURCE_NAME = "com.joeysretro.joey64.SOURCE_NAME"
         /** The library's title (pause menu, recently played). */
         const val EXTRA_TITLE = "com.joeysretro.joey64.TITLE"
+        /** The ROM's MD5 (.z64 order), from the launcher: Auto pak looks it up without hashing the ROM again. */
+        const val EXTRA_MD5 = "com.joeysretro.joey64.MD5"
         const val STATE_AUTO = "auto"
         const val STATE_RECOVERY = "recovery"
         /** "Every few minutes" (approved 2026-11-05). */

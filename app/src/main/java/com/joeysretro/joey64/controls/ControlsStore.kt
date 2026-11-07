@@ -23,6 +23,8 @@ class ControlsStore(private val dir: File) {
 
     fun all(): ControlsSet = read(all)?.let { ControlsSet.fromJson(it) } ?: ControlsSet.defaults()
     fun saveAll(set: ControlsSet) = write(all, set.toJson())
+    /** Whether All games was ever saved (else the first run: [PadDevices.firstSet]). */
+    fun hasAll(): Boolean = all.isFile
 
     /** A game's own controls, or null when it uses All games. */
     fun game(saveName: String): ControlsSet? = read(gameFile(saveName))?.let { ControlsSet.fromJson(it) }

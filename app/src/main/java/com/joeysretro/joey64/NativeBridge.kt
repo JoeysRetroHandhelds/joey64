@@ -90,9 +90,12 @@ object NativeBridge {
     /** Fast-forward: no vsync, audio muted, capped at 4x. */
     external fun setFastForward(on: Boolean)
 
-    /** RETRO_DEVICE_ID_JOYPAD_* bitmask for port 0 (M1 fills this from gamepad events). */
-    external fun setButtons(mask: Int)
+    /** RETRO_DEVICE_ID_JOYPAD_* bitmask for N64 [port] 0..3 (Controls, `PlayerInput.buttons`). */
+    external fun setButtons(port: Int, mask: Int)
 
-    /** Analog sticks in libretro range -32768..32767. index 0 = left, 1 = right (C-buttons). */
-    external fun setAnalog(index: Int, x: Int, y: Int)
+    /** Analog sticks in libretro range -32768..32767 for [port]. index 0 = left, 1 = right (C-buttons). */
+    external fun setAnalog(port: Int, index: Int, x: Int, y: Int)
+
+    /** Ports with a controller plugged in, a bit per port (player 1 always): at [loadGame], or between frames while a game runs. */
+    external fun setPortsPresent(mask: Int)
 }

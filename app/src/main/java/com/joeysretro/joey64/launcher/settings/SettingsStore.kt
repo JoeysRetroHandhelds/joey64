@@ -24,11 +24,6 @@ data class LauncherSettings(
     val downloadCheats: Boolean = true,
     /** First run is finished (ROMs folder picked, Import from RetroArch offered); until then the app opens to it. */
     val setupDone: Boolean = false,
-    /**
-     * The button held to make the next one a hotkey in game (a key code). The user picks it in
-     * Controls › Hotkeys (Phase 4); Select by default (Joey, 2026-11-06), since the N64 has no Select.
-     */
-    val hotkeyEnable: Int = android.view.KeyEvent.KEYCODE_BUTTON_SELECT,
 )
 
 private val Context.settingsStore: DataStore<Preferences> by preferencesDataStore(name = "launcher_settings")
@@ -48,7 +43,6 @@ class SettingsStore(context: Context) {
             downloadBoxArt = p[BOX_ART] ?: true,
             downloadCheats = p[CHEATS] ?: true,
             setupDone = p[SETUP_DONE] ?: false,
-            hotkeyEnable = p[HOTKEY_ENABLE] ?: android.view.KeyEvent.KEYCODE_BUTTON_SELECT,
         )
     }
 
@@ -59,7 +53,6 @@ class SettingsStore(context: Context) {
     suspend fun setDownloadBoxArt(on: Boolean) = store.edit { it[BOX_ART] = on }
     suspend fun setDownloadCheats(on: Boolean) = store.edit { it[CHEATS] = on }
     suspend fun setSetupDone() = store.edit { it[SETUP_DONE] = true }
-    suspend fun setHotkeyEnable(keyCode: Int) = store.edit { it[HOTKEY_ENABLE] = keyCode }
 
     private companion object {
         val THEME = stringPreferencesKey("theme")
@@ -68,6 +61,5 @@ class SettingsStore(context: Context) {
         val BOX_ART = booleanPreferencesKey("download_box_art")
         val CHEATS = booleanPreferencesKey("download_cheats")
         val SETUP_DONE = booleanPreferencesKey("setup_done")
-        val HOTKEY_ENABLE = androidx.datastore.preferences.core.intPreferencesKey("hotkey_enable")
     }
 }

@@ -373,6 +373,18 @@ The parts without screens:
 
 ## Phase 4: Controls
 
+**Mockups approved (Joey, 2026-11-06), 12 screens:**
+- the Controls page, Controller row first, hints A Change / X Clear / Y Reset to default / L/R Player / B Back
+- the controller chooser, one device per player; picking one another player has swaps the two
+- a new controller auto mapped by position; a player with None has the rows greyed out
+- the Auto map confirmation
+- the remap popup with its 5 s bar; any button counts, even B
+- Hotkeys with the hotkey button as its own row (Select by default), and picking it with the remap popup
+- the All games / one game chooser; a game's own controls with yellow dots on rows that differ, Y Use All games
+- the pause menu's Controls item, and Controls over the paused game, set to that game; the first change there makes the game's own controls
+
+Also agreed: for an ID shared by more than one layout, Auto map first asks for one press of A to pick the layout.
+
 - players 1–4, the remap popup, Clear and Reset
 - Auto map, with every N64-style controller known out of the box (Joey, 2026-11-06). The research is `docs/n64-controllers.md`: a table by vendor and product ID, the Switch Online N64's two Android layouts, one press to pick between layouts sharing an ID (0079:0006, Mayflash MF103), and the position rule for the rest. Rows not marked checked need a test on a real pad. Tracked for later: the Switch Online N64 over USB (needs Nintendo's handshake through the USB host API).
 - split groups

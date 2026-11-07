@@ -84,7 +84,28 @@ class UpdateModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Debug builds: shows a made-up prompt (the SHOW broadcast, for checking the popups, light mode
+     * included). Every button on it just closes it: nothing is downloaded, skipped or opened.
+     */
+    fun debugShow(which: String) {
+        if (!com.joeysretro.joey64.BuildConfig.DEBUG) return
+        val r = Releases.Release(if (which.endsWith("testing")) "0.2.0.1" else "0.2.0", "Made-up notes for the light-mode check.\n- One line\n- Another line", "", 24_600_000)
+        _prompt.value = when (which.removeSuffix("-testing")) {
+            "update" -> Prompt.Available(r)
+            "update-downloading" -> Prompt.Downloading(r, System.currentTimeMillis() - 4_000, 9_800_000)
+            "update-permission" -> Prompt.NeedPermission(r, File(context.cacheDir, "none.apk"))
+            "update-failed" -> Prompt.Failed(r, 9_800_000)
+            else -> return
+        }
+        fake = true
+    }
+    @Volatile private var fake = false
+    /** A made-up prompt's buttons close it and do nothing else. */
+    private fun closedFake(): Boolean { if (!fake) return false; fake = false; _prompt.value = null; return true }
+
     fun later() {
+        if (closedFake()) return
         val p = _prompt.value ?: return
         AppUpdates.skip(context, p.release.version)
         JLog.i(TAG, "Later: ${p.release.version}")
@@ -92,6 +113,7 @@ class UpdateModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun update() {
+        if (closedFake()) return
         val release = _prompt.value?.release ?: return
         downloading?.cancel()
         val started = SystemClock.elapsedRealtime()
@@ -114,14 +136,15 @@ class UpdateModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun cancel() {
+        if (closedFake()) return
         downloading?.cancel()
         JLog.i(TAG, "download cancelled")
         _prompt.value = null
     }
 
-    fun openPermission() { AppUpdates.openInstallSetting(context) }
+    fun openPermission() { if (closedFake()) return; AppUpdates.openInstallSetting(context) }
 
-    fun notNow() { _prompt.value = null }
+    fun notNow() { fake = false; _prompt.value = null }
 
     /** Back from Android's settings: the update installs as soon as the switch is on. */
     fun resumed() {

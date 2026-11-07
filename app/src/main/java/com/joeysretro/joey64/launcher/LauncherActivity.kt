@@ -77,9 +77,11 @@ class LauncherActivity : ComponentActivity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean = keys.dispatch(event)
 
     private var raFake: android.content.BroadcastReceiver? = null
+    private var debugShow: android.content.BroadcastReceiver? = null
 
     override fun onDestroy() {
         raFake?.let { unregisterReceiver(it) }
+        debugShow?.let { unregisterReceiver(it) }
         super.onDestroy()
     }
 
@@ -101,6 +103,21 @@ class LauncherActivity : ComponentActivity() {
             if (android.os.Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, android.content.Context.RECEIVER_EXPORTED)
             else registerReceiver(receiver, filter)
             raFake = receiver
+            // adb shell am broadcast -a com.joeysretro.joey64.SHOW --es what <screen>: a screen that can't
+            // otherwise be reached without changing Joey's setup, with made-up data, for checks (light
+            // mode). update, update-downloading, update-permission, update-failed (add -testing for a
+            // testing build): the updater's prompts, whose buttons only close them. first-run, import:
+            // the setup pages, shown over the library (nothing on them is kept); none goes back.
+            val show = object : android.content.BroadcastReceiver() {
+                override fun onReceive(c: android.content.Context, i: android.content.Intent) {
+                    val what = i.getStringExtra("what") ?: return
+                    if (what.startsWith("update")) updates.debugShow(what) else model.debugSetupPage(what.takeIf { it == "first-run" || it == "import" })
+                }
+            }
+            val showFilter = android.content.IntentFilter("com.joeysretro.joey64.SHOW")
+            if (android.os.Build.VERSION.SDK_INT >= 33) registerReceiver(show, showFilter, android.content.Context.RECEIVER_EXPORTED)
+            else registerReceiver(show, showFilter)
+            debugShow = show
         }
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).apply {
@@ -155,7 +172,10 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                 Box(Modifier.weight(1f).fillMaxSize()) {
                     ProvideScreenLayout {
                         CompositionLocalProvider(LocalFocusLanding provides landing) {
+                            val debugPage by model.debugSetup.collectAsStateWithLifecycle()
                             when {
+                                debugPage == "first-run" -> FirstRunScreen(model) { model.debugSetupPage(null) }
+                                debugPage == "import" -> ImportScreen(importModel, s.dataFolder, debugOnly = true) { model.debugSetupPage(null) }
                                 folders.isEmpty() -> FirstRunScreen(model) { trees ->
                                     scope.launch {
                                         for (tree in trees) {

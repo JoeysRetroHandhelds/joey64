@@ -61,13 +61,14 @@ import java.time.ZoneId
  * Not shown yet: the first screen's "You can do this later in Settings › Library." (no Settings yet).
  */
 @Composable
-fun ImportScreen(model: ImportModel, dataFolder: String?, onDone: () -> Unit) {
+fun ImportScreen(model: ImportModel, dataFolder: String?, debugOnly: Boolean = false, onDone: () -> Unit) {
     val step by model.step.collectAsStateWithLifecycle()
     val landing = LocalFocusLanding.current
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri == null) landing?.arm() else model.look(uri, dataFolder)
     }
-    val choose = { picker.launch(model.pickerUri()) }
+    // The SHOW broadcast's copy (debug builds): looks only, so choosing a folder just closes it.
+    val choose = { if (debugOnly) onDone() else picker.launch(model.pickerUri()) }
     BackHandler(enabled = step is ImportStep.Found) { model.back() }
 
     // The clash being asked about, and the answers so far; null while no popup is up.

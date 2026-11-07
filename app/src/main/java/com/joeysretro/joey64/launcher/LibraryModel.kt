@@ -46,6 +46,11 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     private val boxArt = BoxArt(app, db)
     private val settings = SettingsStore(app)
 
+    private val _debugSetup = MutableStateFlow<String?>(null)
+    /** Debug builds: a setup page ("first-run", "import") shown over the library by the SHOW broadcast. */
+    val debugSetup: StateFlow<String?> = _debugSetup
+    fun debugSetupPage(page: String?) { if (com.joeysretro.joey64.BuildConfig.DEBUG) _debugSetup.value = page }
+
     private val _offline = MutableStateFlow(false)
     /** The "Go online to get box art" popup is up (plan, Phase 2: once per scan that can't connect, never on every launch). */
     val offline: StateFlow<Boolean> = _offline

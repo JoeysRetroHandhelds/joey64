@@ -3,7 +3,7 @@
 # (committed), so the app's history says which core every build shipped. Default source: the core's main build output.
 # Run from Git Bash in the app repo after building the core; commit core-version.txt with the change that needs it.
 set -e
-CORE=/c/GithubProjects/joey64-core
+CORE=${CORE:-/c/GithubProjects/joey64-core}  # another checkout: CORE=/c/GithubProjects/joey64-core-x devtools/bundle-core.sh
 SRC=${1:-$CORE/libretro/libs/arm64-v8a/libretro.so}
 APP=$(cd "$(dirname "$0")/.." && pwd)
 DST=$APP/app/src/main/jniLibs/arm64-v8a/libjoey64_libretro_android.so

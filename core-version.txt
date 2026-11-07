@@ -1,7 +1,7 @@
 # The core bundled in app/src/main/jniLibs (written by devtools/bundle-core.sh; the .so itself is not committed)
 repo: JoeysRetroHandhelds/joey64-core
-branch: gliden64-update
-commit: ef0928f8b6ac8414ef593479292176d5e4904054 2026-11-06 20:30:47 -0600 Merge branch 'gpu2' into gliden64-update
+branch: no-angrylion
+commit: a8ab8292f70d92348d35b0c50af282217ea9a257 2026-11-07 16:50:53 -0600 Remove angrylion: its old MAME licence is non-commercial, which Joey64's GPLv3 can't carry
 uncommitted: none
-built: 2026-11-06 20:33
-md5: b712353db834cb7568c106af529b9bea
+built: 2026-11-07 16:50
+md5: 3cb07dcee4cf75a649e9248b72bab7cf

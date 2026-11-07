@@ -64,7 +64,7 @@ data class OssEntry(
  * `libretro/jni/Android.mk`: what HAVE_PARALLEL_RSP / RDP compile in), the host's
  * `third_party/`, the gradle dependencies, the bundled drivers, font and icons, and the data
  * the app's tables are made from. Keep it in step when a dependency comes or goes.
- * Not listed: angrylion (compiled into the core, never used; see README "Licensing").
+ * angrylion is not in the core since a8ab829 (its licence is non-commercial), so it isn't listed.
  */
 val OSS_ENTRIES = listOf(
     OssEntry("Emulator", "mupen64plus-core", "GPL 2.0+", "GPL 2.0 or later", "github.com/mupen64plus/mupen64plus-core",

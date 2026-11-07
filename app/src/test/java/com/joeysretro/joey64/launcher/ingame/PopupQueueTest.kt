@@ -40,4 +40,24 @@ class PopupQueueTest {
         q.tick(10_000)
         assertNull(q.current)
     }
+
+    @Test fun aPopUpsOwnStayTimeWins() {
+        val q = PopupQueue(5_000)
+        q.add(InGamePopup("progress", InGamePopup.Kind.Progress, "Time Trialist", "4 / 16", "", stayMs = 2_000), 0)
+        assertEquals(2_000, q.until)
+        q.add(p("next"), 10)
+        assertTrue(q.tick(2_000))
+        assertEquals(7_000, q.until)
+    }
+
+    @Test fun removeTakesTheOneShowingAwayAndShowsTheNext() {
+        val q = PopupQueue(5_000)
+        q.add(p("progress"), 0)
+        q.add(p("unlock"), 10)
+        q.remove("progress", 1_000)
+        assertEquals("unlock", q.current?.key)
+        assertEquals(6_000, q.until)
+        q.remove("gone", 1_500)
+        assertEquals("unlock", q.current?.key)
+    }
 }

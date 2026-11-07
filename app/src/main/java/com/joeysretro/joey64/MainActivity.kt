@@ -504,6 +504,13 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
                 if (gone) pop("ra", InGamePopup.Kind.Account, "RetroAchievements · Sign-in expired", "Sign in again to save unlocks", "")
             }
         }
+        // Achievement pop-ups (approved toast.html / toast2.html), the challenge badges, Screenshot on unlock.
+        raPopups = com.joeysretro.joey64.achievements.RaPopups(this,
+            show = { p -> runOnUiThread { if (!destroyed) overlay?.show(p) } },
+            hide = { key -> runOnUiThread { if (!destroyed) overlay?.hide(key) } },
+            badges = { files -> runOnUiThread { if (!destroyed) overlay?.setChallengeBadges(files) } },
+            screenshot = { stateHandler.post { if (st.screenshot() == null) JLog.w(TAG, "screenshot on unlock: not saved") } },
+        ).also { com.joeysretro.joey64.achievements.RaBridge.listeners += it }
         // The pause menu's title: the game's name in the library, else the ROM's (a frontend's game).
         stateHandler.post {
             val title = givenTitle ?: try {
@@ -557,6 +564,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     // Back pauses the game and opens the menu over it. The game stays paused until the menu closes,
     // and through a save, load or reset picked from it (they run on the state thread, then it resumes).
     private var overlay: GameOverlay? = null
+    private var raPopups: com.joeysretro.joey64.achievements.RaPopups? = null
     private var menuOpen = false
     private val slotPrefs by lazy { getSharedPreferences("states", Context.MODE_PRIVATE) }
 
@@ -1100,8 +1108,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         debugStick?.let { unregisterReceiver(it) }
         debugDump?.let { unregisterReceiver(it) }
         debugLogs?.let { unregisterReceiver(it) }
+        debugRaEvent?.let { unregisterReceiver(it) }
         destroyed = true
         fpsView?.let { windowManager.removeView(it) }
+        raPopups?.stop()
         overlay?.destroy()
         if (owner === this) { NativeBridge.stop(); owner = null } else if (owner == null && !switching) NativeBridge.stop()
         // Closed on purpose (Back, or a frontend sending the next game): no recovery state is due.
@@ -1119,6 +1129,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private var debugStick: BroadcastReceiver? = null
     private var debugDump: BroadcastReceiver? = null
     private var debugLogs: BroadcastReceiver? = null
+    private var debugRaEvent: BroadcastReceiver? = null
 
     private fun registerDebugStick() {
         if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return
@@ -1143,8 +1154,20 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
                 JLog.i(TAG, "log: zipped to ${LogFiles.zip(ctx)}")
             }
         }
+        // adb push ev.json /sdcard/Android/data/com.joeysretro.joey64/files/ra_event.json
+        // adb shell am broadcast -a com.joeysretro.joey64.RA_EVENT  -> hands that rcheevos event JSON to the
+        // listeners as if the core had sent it (pop-up checks without a real unlock); --es file x.json for another file
+        debugRaEvent = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, i: Intent) {
+                val f = File(getExternalFilesDir(null), i.getStringExtra("file") ?: "ra_event.json")
+                val text = try { f.readText() } catch (e: Exception) { JLog.e(TAG, "RA_EVENT: can't read $f: $e"); return }
+                // One event per line, sent a second apart (an unlock, then what follows it).
+                val lines = text.lines().filter { it.isNotBlank() }
+                lines.forEachIndexed { n, line -> handler.postDelayed({ Thread { com.joeysretro.joey64.achievements.RaBridge.onEvent(line) }.start() }, n * i.getLongExtra("gap", 1000L)) }
+            }
+        }
         for ((receiver, action) in listOf(debugStick to "com.joeysretro.joey64.STICK", debugDump to "com.joeysretro.joey64.DUMP",
-                debugLogs to "com.joeysretro.joey64.LOGS")) {
+                debugLogs to "com.joeysretro.joey64.LOGS", debugRaEvent to "com.joeysretro.joey64.RA_EVENT")) {
             val filter = IntentFilter(action)
             if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
             else registerReceiver(receiver, filter)

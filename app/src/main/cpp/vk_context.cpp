@@ -118,8 +118,9 @@ std::string VkContext::probe(bool custom) {
                 for (char& c : driver) if (c == '|' || c == '\n') c = ' ';
             }
             char buf[640];
-            snprintf(buf, sizeof buf, "%u|%u.%u|%d|%s|%s", props.vendorID, VK_VERSION_MAJOR(props.apiVersion),
-                     VK_VERSION_MINOR(props.apiVersion), s16, props.deviceName, driver.c_str());
+            // The 4th field, maxStorageBufferRange in MB, caps parallel-RDP's upscaling (MainActivity.capUpscaling).
+            snprintf(buf, sizeof buf, "%u|%u.%u|%d|%u|%s|%s", props.vendorID, VK_VERSION_MAJOR(props.apiVersion),
+                     VK_VERSION_MINOR(props.apiVersion), s16, props.limits.maxStorageBufferRange >> 20, props.deviceName, driver.c_str());
             out = buf;
         }
         destroyInst(inst, nullptr);
@@ -251,6 +252,16 @@ bool VkContext::init(const retro_hw_render_context_negotiation_interface_vulkan*
     vkGetPhysicalDeviceProperties(gpu_, &props);
     LOGI("vulkan: %s, api %u.%u.%u, driver 0x%x", props.deviceName, VK_VERSION_MAJOR(props.apiVersion),
          VK_VERSION_MINOR(props.apiVersion), VK_VERSION_PATCH(props.apiVersion), props.driverVersion);
+    {
+        // parallel-RDP's upscaling binds RDRAM x factor^2 as one storage buffer (8x: 512 MB), so these limits matter.
+        VkPhysicalDeviceMemoryProperties mem;
+        vkGetPhysicalDeviceMemoryProperties(gpu_, &mem);
+        unsigned long long heap = 0;
+        for (uint32_t i = 0; i < mem.memoryHeapCount; i++)
+            if (mem.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) heap = std::max(heap, (unsigned long long)mem.memoryHeaps[i].size);
+        LOGI("vulkan limits: maxStorageBufferRange %u MB, maxImageDimension2D %u, device-local heap %llu MB",
+             props.limits.maxStorageBufferRange >> 20, props.limits.maxImageDimension2D, heap >> 20);
+    }
 
     VkCommandPoolCreateInfo pci{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     pci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;

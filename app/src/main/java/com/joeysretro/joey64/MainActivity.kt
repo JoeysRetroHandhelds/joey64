@@ -326,7 +326,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     // Dev: --es driver system|turnip
 
     // storage16: 16-bit storage buffers, which parallel-RDP requires (1 yes, 0 no, -1 not asked: before Vulkan 1.1)
-    private class VkGpu(val vendor: Int, val major: Int, val minor: Int, val storage16: Int, val name: String, val driver: String = "") {
+    private class VkGpu(val vendor: Int, val major: Int, val minor: Int, val storage16: Int, val name: String, val driver: String = "",
+                        /** maxStorageBufferRange in MB (0: not known). */ val storageRangeMb: Int = 0) {
         val vulkan11 get() = major > 1 || (major == 1 && minor >= 1)
         val adreno get() = vendor == 0x5143
         val mali get() = vendor == 0x13B5
@@ -334,9 +335,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     private fun parseGpu(s: String): VkGpu? {
-        val p = s.split('|', limit = 5).takeIf { it.size >= 4 } ?: return null
+        // vendor|major.minor|16-bit storage|maxStorageBufferRange MB|name|driver
+        val p = s.split('|', limit = 6).takeIf { it.size >= 5 } ?: return null
         val v = p[1].split('.').mapNotNull { it.toIntOrNull() }.takeIf { it.size == 2 } ?: return null
-        return VkGpu(p[0].toIntOrNull() ?: return null, v[0], v[1], p[2].toIntOrNull() ?: -1, p[3], p.getOrNull(4).orEmpty())
+        return VkGpu(p[0].toIntOrNull() ?: return null, v[0], v[1], p[2].toIntOrNull() ?: -1, p[4], p.getOrNull(5).orEmpty(), p[3].toIntOrNull() ?: 0)
     }
 
     /** Picks and installs the Vulkan driver; returns the renderer, "parallel" or "gliden64". */
@@ -370,6 +372,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         }
         val gpu = custom ?: system
         gpuName = gpu?.name ?: ""
+        storageRangeMb = gpu?.storageRangeMb ?: 0
         statsDriver = statsDriverName(lib?.takeIf { custom != null }, dev != null, gpu?.driver.orEmpty())
         // parallel-RDP also needs 16-bit storage buffers: without them it fails to start and the core crashes
         // (Adreno 610, Snapdragon 665: missing on both drivers, so GLideN64 there)
@@ -401,6 +404,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     private var gpuName = ""
+    private var storageRangeMb = 0
 
     /**
      * The stats overlay's driver: the bundled ones by their release (devtools/drivers/bundled.json, keep these
@@ -568,12 +572,20 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     // parallel-RDP at 4x on the Adreno 722 (Retroid Pocket Duo) drops most geometry (characters
     // vanish, the screen flickers between layers) on both Turnip builds tried, and runs at 40-55 fps
     // anyway; 2x renders correctly at 60. The Adreno 740 is fine at 4x.
+    //
+    // parallel-RDP binds the upscaled RDRAM (8 MB x factor^2) as one storage buffer, so the factor can't go past
+    // what maxStorageBufferRange holds: Adreno reports 128 MB on Qualcomm's driver and Turnip (Thor, 2026-11-07),
+    // so 4x (128 MB) is its top and 8x (512 MB) was a black screen at 19-35 fps.
     private fun capUpscaling(key: String, value: String): String {
-        if (key != "mupen64plus-parallel-rdp-upscaling" || value !in setOf("4x", "8x") || "Adreno (TM) 722" !in gpuName) return value
-        // Dev: --ez nocap true lifts the cap, to try other drivers
+        if (key != UPSCALE_KEY) return value
+        val f = value.removeSuffix("x").toIntOrNull() ?: return value
+        // Dev: --ez nocap true lifts the caps, to try other drivers
         if (intent?.getBooleanExtra("nocap", false) == true) return value
-        JLog.w(TAG, "parallel-RDP upscaling $value capped at 2x on $gpuName")
-        return "2x"
+        var top = if ("Adreno (TM) 722" in gpuName) 2 else 8
+        if (storageRangeMb > 0) while (top > 1 && 8 * top * top > storageRangeMb) top /= 2
+        if (f <= top) return value
+        JLog.w(TAG, "parallel-RDP upscaling $value capped at ${top}x on $gpuName (storage buffer range $storageRangeMb MB)")
+        return "${top}x"
     }
 
     private val gpuDriverDir get() = File(filesDir, "gpu_driver").apply { mkdirs() }

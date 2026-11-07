@@ -1,5 +1,6 @@
 #include "joeylog.h"
 #include "egl_context.h"
+#include "display_opts.h"
 #include <android/log.h>
 #include <initializer_list>
 #include <cstring>
@@ -86,10 +87,9 @@ void EglContext::present(int srcW, int srcH, bool bottomLeftOrigin) {
     eglQuerySurface(display_, window_, EGL_WIDTH, &winW);
     eglQuerySurface(display_, window_, EGL_HEIGHT, &winH);
 
-    // 4:3 letterbox. M5 adds widescreen / integer-scale options.
-    int dstH = winH, dstW = winH * 4 / 3;
-    if (dstW > winW) { dstW = winW; dstH = winW * 3 / 4; }
-    int x = (winW - dstW) / 2, y = (winH - dstH) / 2;
+    // Settings › Video: the shape and integer scaling (display_opts.h), as the Vulkan path.
+    int x, y, dstW, dstH;
+    Display::fit(winW, winH, srcW, srcH, x, y, dstW, dstH);
 
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     glClearColor(0, 0, 0, 1);

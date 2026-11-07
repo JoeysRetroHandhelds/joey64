@@ -1,5 +1,6 @@
 #include "joeylog.h"
 #include "vk_context.h"
+#include "display_opts.h"
 #include <android/log.h>
 #include <algorithm>
 #include <cmath>
@@ -252,6 +253,8 @@ bool VkContext::init(const retro_hw_render_context_negotiation_interface_vulkan*
     for (auto& f : frameFences_) vkCreateFence(device_, &fci, nullptr, &f);
     const char* dupes = getenv("N64_SKIP_DUPES");
     skipDupes_ = !(dupes && *dupes == '0');
+    // Black frame insertion presents every refresh (a frame, then black), so repeats can't be skipped.
+    if (Display::opts().bfi) skipDupes_ = false;
     const char* early = getenv("N64_EARLY_ACQUIRE");
     earlyAcquire_ = early ? atoi(early) : 0; // new frames in a row before acquiring early (2 = first try)
     if (earlyAcquire_ > 0) LOGI("vulkan: early acquire after %d new frames in a row", earlyAcquire_);
@@ -401,7 +404,8 @@ void VkContext::updateSwapInterval() {
         const char* si = getenv("N64_SWAP_INTERVAL");
         swapMode_ = si ? atoi(si) : 0;
         if (swapMode_ == 2 && !getPastTiming_) swapMode_ = 0; // timed pacing needs display timing
-        if (swapMode_ == 0) interval = 1;
+        if (Display::opts().bfi) swapMode_ = 0; // black frames take the spare refreshes
+        if (swapMode_ == 0 && !Display::opts().bfi) interval = 1;
         if (interval != swapInterval_)
             LOGI("vulkan: refresh %.1f Hz, game %.2f fps: swap interval %u%s", 1e9 / (double)rc.refreshDuration,
                  contentHz_, interval, swapMode_ == 2 ? " (timed)" : "");
@@ -512,7 +516,10 @@ void VkContext::paceFrame() {
 void VkContext::endFrame() {
     bool begun = acquired_;
     if (acquired_ && !presented_) present(false); // an acquired image must be presented
-    bool shown = begun && !skip_ && swapMode_ == 1 && !needAcquire_; // not a skipped repeat
+    // Black frame insertion (Settings › Video): on a screen at a whole multiple of the game's rate, the
+    // frame's spare refreshes are presented black, for less motion blur. Off while unthrottled.
+    bool bfi = Display::opts().bfi && swapInterval_ >= 2 && !unthrottled_;
+    bool shown = begun && !skip_ && (swapMode_ == 1 || bfi) && !needAcquire_; // not a skipped repeat
     acquired_ = false;
     needAcquire_ = false;
     // Swap interval: present the frame again, so with FIFO each one is shown for swapInterval_
@@ -523,7 +530,9 @@ void VkContext::endFrame() {
     for (uint32_t k = 1; k < swapInterval_; ++k) {
         if (!beginFrame(true)) break;
         repaint_ = true; // the repeat is the point here
+        black_ = bfi;
         present(false);
+        black_ = false;
         acquired_ = false;
         needAcquire_ = false;
     }
@@ -555,7 +564,7 @@ void VkContext::present(bool newImage) {
     VkClearColorValue black{};
     vkCmdClearColorImage(cmd, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &kColorRange);
 
-    if (haveImage_ && imageW_ && imageH_) {
+    if (haveImage_ && imageW_ && imageH_ && !black_) {
         VkImage src = image_.create_info.image;
         VkImageLayout layout = image_.image_layout;
         VkImageSubresourceRange range = image_.create_info.subresourceRange;
@@ -571,17 +580,11 @@ void VkContext::present(bool newImage) {
                      VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
                      fromFam, toFam);
 
-        // 4:3 letterbox, same as the GLES path. Dev switch N64_ASPECT=16:9 (or any W:H) shows it
-        // wider, for widescreen codes, until Joey designs the menu spot.
-        static const std::pair<int32_t, int32_t> aspect = [] {
-            int w = 4, h = 3;
-            if (const char* a = getenv("N64_ASPECT")) if (sscanf(a, "%d:%d", &w, &h) != 2 || w <= 0 || h <= 0) { w = 4; h = 3; }
-            return std::pair<int32_t, int32_t>(w, h);
-        }();
+        // Settings › Video: the shape (4:3, 16:9, stretch) and integer scaling, as the GLES path
+        // (display_opts.h). Dev switch N64_ASPECT=W:H still wins.
         int32_t winW = (int32_t)dstExtent.width, winH = (int32_t)dstExtent.height;
-        int32_t dstH = winH, dstW = winH * aspect.first / aspect.second;
-        if (dstW > winW) { dstW = winW; dstH = winW * aspect.second / aspect.first; }
-        int32_t x = (winW - dstW) / 2, y = (winH - dstH) / 2;
+        int32_t x, y, dstW, dstH;
+        Display::fit(winW, winH, (int)imageW_, (int)imageH_, x, y, dstW, dstH);
         VkImageBlit blit{};
         blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, range.baseMipLevel, range.baseArrayLayer, 1};
         blit.srcOffsets[1] = {(int32_t)imageW_, (int32_t)imageH_, 1};

@@ -67,8 +67,16 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // Dev check (2026-11-05 recheck): whether this device offers sustained performance mode (checked before only on the Flip and Portal)
         JLog.w(TAG, "sustained performance mode supported: " +
             (getSystemService(POWER_SERVICE) as android.os.PowerManager).isSustainedPerformanceModeSupported)
-        window.attributes.layoutInDisplayCutoutMode =
-            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        // Settings › Video for this game (All games, then its own rows), read before anything starts.
+        video = com.joeysretro.joey64.video.VideoStore(this).forGame(earlySaveName())
+        // Fill the camera cutout: the window reaches behind it only when asked (it matters for Stretch).
+        window.attributes.layoutInDisplayCutoutMode = if (video.on(com.joeysretro.joey64.video.VideoKey.Cutout))
+            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_NEVER
+        requestedOrientation = when (video[com.joeysretro.joey64.video.VideoKey.Orientation]) {
+            "portrait" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            "auto" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+            else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        }
         // Render straight into the activity's window, like RetroArch's NativeActivity, not a SurfaceView:
         // Qualcomm's frame pacing library (libpenguin, vendor.perf.framepacing) hooks SurfaceView layers of
         // games and runs a 120 Hz vsync loop in our process (Duo: ~17 ms of CPU a second). The window's
@@ -95,7 +103,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // own priority. Before setupGpu: the hook reads it as the driver loads. --es env N64_KGSL_PRIO= (empty) turns it off.
         if (Build.MODEL == "Odin3" && android.system.Os.getenv("N64_KGSL_PRIO") == null)
             android.system.Os.setenv("N64_KGSL_PRIO", "1", true)
-        // Driver and renderer by GPU (setupGpu). Override with: am start ... --es renderer parallel|gliden64
+        // Frame pacing and Thermal fallback (Settings › Video) are read by the host from the environment; --es env wins.
+        for ((k, v) in com.joeysretro.joey64.video.VideoApply.of(video, true).env)
+            if (android.system.Os.getenv(k) == null) android.system.Os.setenv(k, v, true)
+        // Driver and renderer by GPU (setupGpu), or Settings › Video's choice. Override with: am start ... --es renderer parallel|gliden64
         val renderer = setupGpu()
         NativeBridge.setRenderer(renderer == "parallel")
         // Settings > About shows the renderer the last game started with (the launcher can't probe Vulkan itself).
@@ -121,6 +132,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // Resident Evil 2, Cruis'n USA) or halts (New Tetris), and sync costs ~1-2 ms a frame (Odin 3, Duo).
         // On Mali (Flip) sync can cost a third of the frame rate, so async plus kSyncRdpGames. --es opts wins.
         if ("Adreno" in gpuName) NativeBridge.setOption("mupen64plus-parallel-rdp-synchronous", "True")
+        // Settings › Video: resolution and the N64 video filters (core options), the picture's shape, integer
+        // scaling, black frames, colour and sharpening. The dev switches below still win.
+        val vApply = com.joeysretro.joey64.video.VideoApply.of(video, renderer == "parallel")
+        for ((k, v) in vApply.coreOptions) NativeBridge.setOption(k, capUpscaling(k, v))
+        if (vApply.sharpScale) NativeBridge.setSharp(true)
+        applyVideoDisplay()
         // Sharp display (opt-in; the native look stays the default): the VI's anti-aliasing and bilinear
         // blur off, and a sharp-bilinear final scale. Dev: --ez sharp true, until the settings screen exists.
         // --ez sharp2 true (experiment, Joey 2026-11-05): Sharp plus the VI dither filter off. That filter blurs the
@@ -342,7 +359,13 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     /** Picks and installs the Vulkan driver; returns the renderer, "parallel" or "gliden64". */
     private fun setupGpu(): String {
         val system = parseGpu(NativeBridge.probeVulkan(false))
-        val lib = devDriver() ?: when (intent?.getStringExtra("driver")) {
+        val videoDriver = when (video[com.joeysretro.joey64.video.VideoKey.Driver]) {
+            "system" -> "system"
+            "bundled" -> if (system != null && "Adreno (TM) 722" in system.name) "faux123" else "turnip"
+            else -> null
+        }
+        val dev = devDriver()
+        val lib = dev ?: when (intent?.getStringExtra("driver") ?: videoDriver) {
             "system" -> null
             "turnip" -> bundledDriver(TURNIP)
             "faux123" -> bundledDriver(TURNIP_FAUX123)
@@ -370,10 +393,45 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (gpu != null && gpu.vulkan11 && gpu.storage16 != 1) JLog.w(TAG, "GPU ${gpu.name}: no 16-bit storage buffers, parallel-RDP can't run")
         JLog.i(TAG, "GPU: ${gpu ?: "no Vulkan"}, driver ${if (custom != null) lib!!.relativeTo(gpuDriverDir).path else "system"}, " +
             "default renderer ${if (parallel) "parallel" else "gliden64"}")
-        return intent?.getStringExtra("renderer") ?: if (parallel) "parallel" else "gliden64"
+        // Which driver ran, for Settings › Video's "Auto · ..." (the launcher can't probe Vulkan itself).
+        getSharedPreferences("device", MODE_PRIVATE).edit().putString("driver", when {
+            custom == null -> "system"
+            dev != null -> "custom"
+            lib?.parentFile?.name == "faux123" -> "faux123"
+            else -> "turnip"
+        }).apply()
+        intent?.getStringExtra("renderer")?.let { return it }
+        // Settings › Video › Renderer: parallel-RDP only where it can start (Vulkan 1.1 with 16-bit storage), else
+        // the core crashes; it may still draw wrong on a stock Adreno driver, which is the user's choice there.
+        return when (video[com.joeysretro.joey64.video.VideoKey.Renderer]) {
+            "gliden64" -> "gliden64"
+            "parallel" -> if (gpu != null && gpu.vulkan11 && gpu.storage16 == 1) "parallel"
+                else { JLog.w(TAG, "Renderer parallel-RDP picked, but this GPU can't run it: GLideN64"); "gliden64" }
+            else -> if (parallel) "parallel" else "gliden64"
+        }
     }
 
     private var gpuName = ""
+
+    /** Settings › Video for the game this screen was started for (onCreate). */
+    private var video = com.joeysretro.joey64.video.VideoSettings.DEFAULTS
+
+    /** The save name the launcher gave, or the one the ROM's file name makes, before the ROM is read (null: the dev path). */
+    private fun earlySaveName(): String? {
+        val i = intent ?: return null
+        i.getStringExtra(EXTRA_SAVE_NAME)?.takeIf { it.isNotEmpty() }?.let { return it }
+        val file = i.getStringExtra(EXTRA_SOURCE_NAME) ?: i.getStringExtra("rom") ?: i.data?.let { displayName(it) } ?: return null
+        return saveName(file)
+    }
+
+    /** The host's display state from [video]: shape, integer scaling, black frames, colour, sharpening. */
+    private fun applyVideoDisplay() {
+        val v = video
+        val (aw, ah) = com.joeysretro.joey64.video.VideoApply.aspect(v, widescreenOn = false)
+        NativeBridge.setDisplay(aw, ah, v.on(com.joeysretro.joey64.video.VideoKey.Integer), v.on(com.joeysretro.joey64.video.VideoKey.Bfi))
+        NativeBridge.setColour(v.int(com.joeysretro.joey64.video.VideoKey.Brightness), v.int(com.joeysretro.joey64.video.VideoKey.Contrast), v.int(com.joeysretro.joey64.video.VideoKey.Saturation), v.int(com.joeysretro.joey64.video.VideoKey.Gamma))
+        NativeBridge.setSharpen(when (v[com.joeysretro.joey64.video.VideoKey.Sharpen]) { "cas" -> 1; "fsr" -> 2; else -> 0 }, v.int(com.joeysretro.joey64.video.VideoKey.SharpenStrength))
+    }
 
     // parallel-RDP at 4x on the Adreno 722 (Retroid Pocket Duo) drops most geometry (characters
     // vanish, the screen flickers between layers) on both Turnip builds tried, and runs at 40-55 fps

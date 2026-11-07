@@ -37,6 +37,15 @@ object NativeBridge {
     /** Sharp display: whole-number nearest prescale, then linear to the screen. Any time. */
     external fun setSharp(on: Boolean)
 
+    /** Settings › Video: the picture's shape W:H (0:0 = stretch), integer scaling, black frame insertion. Before the surface. */
+    external fun setDisplay(aspW: Int, aspH: Int, integer: Boolean, bfi: Boolean)
+
+    /** Settings › Video › Colour: brightness, contrast, saturation in percent (-50..50), gamma in tenths (5..20). Any time. */
+    external fun setColour(brightness: Int, contrast: Int, saturation: Int, gamma: Int)
+
+    /** Settings › Video › Sharpening: 0 off, 1 CAS, 2 FSR; strength in percent. Any time. */
+    external fun setSharpen(mode: Int, strength: Int)
+
     external fun setSurface(surface: Surface?)
     /** The surface set by setSurface changed size (e.g. once the system bars are hidden). */
     external fun surfaceResized()

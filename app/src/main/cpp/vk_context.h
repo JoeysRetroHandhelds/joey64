@@ -122,6 +122,7 @@ private:
     // Default (N64_SKIP_DUPES=0 turns it off): frames start without a swapchain image; present acquires one only for a new frame
     // (or repaint_: the last image must go on a new swapchain), so repeat frames aren't presented.
     bool skipDupes_ = false, needAcquire_ = false, repaint_ = true;
+    bool black_ = false; // this present is black frame insertion's black refresh
     // N64_EARLY_ACQUIRE=<n> (default 30 on Mali, set by MainActivity; off elsewhere): with skipDupes_, once n frames in a row were new images the next one acquires
     // at frame start like the plain path, so a blocking acquire waits before the input poll (games that draw every
     // refresh, e.g. Smash on the Flip: poll->display 58 ms skipping vs 40 ms not). A repeat ends the streak.

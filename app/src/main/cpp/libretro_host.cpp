@@ -6,6 +6,7 @@
 #include "gpu_clock_pin.h"
 #include "gpu_counters.h"
 #include "thermal.h"
+#include "display_opts.h"
 #include <jni.h>
 #include <dlfcn.h>
 #include <android/log.h>
@@ -1031,6 +1032,23 @@ JNIEXPORT void JNICALL JNI(setVulkanDriver)(JNIEnv* env, jobject, jstring dir, j
 
 JNIEXPORT jstring JNICALL JNI(probeVulkan)(JNIEnv* env, jobject, jboolean custom) {
     return env->NewStringUTF(VkContext::probe(custom).c_str());
+}
+
+// Settings › Video (display_opts.h): the picture's shape (0:0 = stretch), integer scaling, black frames.
+JNIEXPORT void JNICALL JNI(setDisplay)(JNIEnv*, jobject, jint aspW, jint aspH, jboolean integer, jboolean bfi) {
+    auto& o = Display::opts();
+    o.aspW = aspW; o.aspH = aspH; o.integer = integer; o.bfi = bfi;
+}
+
+// Settings › Video › Colour: percent (-50..50) and gamma in tenths; Sharpening: 0 off, 1 CAS, 2 FSR.
+JNIEXPORT void JNICALL JNI(setColour)(JNIEnv*, jobject, jint brightness, jint contrast, jint saturation, jint gamma) {
+    auto& o = Display::opts();
+    o.brightness = brightness; o.contrast = contrast; o.saturation = saturation; o.gamma = gamma;
+}
+
+JNIEXPORT void JNICALL JNI(setSharpen)(JNIEnv*, jobject, jint mode, jint strength) {
+    auto& o = Display::opts();
+    o.sharpen = mode; o.strength = strength;
 }
 
 // Sharp display (sharp-bilinear final scale); MainActivity also turns the VI blur filters off.

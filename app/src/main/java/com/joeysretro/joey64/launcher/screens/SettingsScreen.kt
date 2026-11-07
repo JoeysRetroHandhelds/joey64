@@ -50,6 +50,7 @@ import com.joeysretro.joey64.launcher.components.DescriptionLine
 import com.joeysretro.joey64.launcher.components.Hint
 import com.joeysretro.joey64.launcher.components.InfoRow
 import com.joeysretro.joey64.launcher.components.JoeyRow
+import com.joeysretro.joey64.launcher.components.PageChip
 import com.joeysretro.joey64.launcher.components.LocalFocusLanding
 import com.joeysretro.joey64.launcher.components.SectionLabel
 import com.joeysretro.joey64.launcher.components.initialFocus
@@ -60,12 +61,14 @@ import com.joeysretro.joey64.launcher.update.UpdateModel
 import com.joeysretro.joey64.launcher.update.UpdateModel.RowState
 import kotlinx.coroutines.delay
 
-/** The Settings tabs built so far, in the approved order (General, Video, Audio and Library come with their pages). */
-enum class SettingsTab(val label: String) { Appearance("Appearance"), RetroAchievements("RetroAchievements"), About("About") }
+/** The Settings tabs built so far, in the approved order (General, Audio and Library come with their pages). */
+enum class SettingsTab(val label: String) { Appearance("Appearance"), Video("Video"), RetroAchievements("RetroAchievements"), About("About") }
 
 /**
  * Settings (approved Settings mockups, 2026-11-05). The tabs that are built, L1/R1 (or a tap)
- * between them: Appearance ([AppearanceTab]), RetroAchievements ([RaTab]) and About.
+ * between them: Appearance ([AppearanceTab]), Video ([VideoTab], approved 2026-11-07),
+ * RetroAchievements ([RaTab]) and About. On Video the header has the All games chip (a game's
+ * own settings), opening the same popups as Controls'.
  */
 @Composable
 fun SettingsScreen(updates: UpdateModel, onHints: (List<Hint>) -> Unit, onClose: () -> Unit) {
@@ -74,6 +77,14 @@ fun SettingsScreen(updates: UpdateModel, onHints: (List<Hint>) -> Unit, onClose:
     val c = JoeyTheme.colors
     val s = JoeyTheme.spacing
     var tab by remember { mutableStateOf(SettingsTab.entries.first()) }
+    // Video's game ([GamesForPopup]): null = All games.
+    var target by remember { mutableStateOf<String?>(null) }
+    var targetTitle by remember { mutableStateOf<String?>(null) }
+    var gamesPopup by remember { mutableStateOf(0) } // 1 = Video for, 2 = Pick a game
+    // The open tab's own buttons (Video: Y), offered what Settings doesn't use itself.
+    var tabControl by remember { mutableStateOf<((Control) -> Boolean)?>(null) }
+    val context = LocalContext.current
+    val videoStore = remember { com.joeysretro.joey64.video.VideoStore(context) }
     // Each tab lands focus on its first row as it opens.
     LaunchedEffect(tab) { landing?.arm() }
     DisposableEffect(Unit) {
@@ -82,14 +93,17 @@ fun SettingsScreen(updates: UpdateModel, onHints: (List<Hint>) -> Unit, onClose:
             when (ctl) {
                 Control.TabPrev -> { tab = tabs[(tab.ordinal + tabs.size - 1) % tabs.size]; true }
                 Control.TabNext -> { tab = tabs[(tab.ordinal + 1) % tabs.size]; true }
-                else -> false
+                else -> tabControl?.invoke(ctl) ?: false
             }
         }
         ControlBus.push(handler)
         onDispose { ControlBus.pop(handler) }
     }
     Column(Modifier.fillMaxSize().padding(horizontal = s.margin).padding(top = 14.dp, bottom = 8.dp)) {
-        Text("Settings", style = JoeyTheme.type.pageTitle, color = c.text)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Settings", style = JoeyTheme.type.pageTitle, color = c.text, modifier = Modifier.weight(1f))
+            if (tab == SettingsTab.Video) PageChip((targetTitle ?: "All games") + "  ›", R.drawable.ic_sliders, on = target != null) { gamesPopup = 1 }
+        }
         Row(Modifier.padding(top = 6.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             for (t in SettingsTab.entries) {
                 val on = t == tab
@@ -100,13 +114,23 @@ fun SettingsScreen(updates: UpdateModel, onHints: (List<Hint>) -> Unit, onClose:
                         .padding(horizontal = 12.dp, vertical = 4.dp))
             }
         }
-        key(tab) {
+        key(tab, target) {
+            if (tab != SettingsTab.Video) tabControl = null
             when (tab) {
                 SettingsTab.Appearance -> AppearanceTab(onHints, Modifier.weight(1f))
+                SettingsTab.Video -> VideoTab(target, onHints, { tabControl = it }, Modifier.weight(1f))
                 SettingsTab.RetroAchievements -> RaTab(onHints, Modifier.weight(1f))
                 SettingsTab.About -> AboutTab(updates, { onHints(it.dropLast(1) + Hint("L/R", "Tab") + it.last()) }, Modifier.weight(1f))
             }
         }
+    }
+    when (gamesPopup) {
+        1 -> GamesForPopup("Video for", "A game's own settings are used instead of All games when it starts.", target,
+            gamesWithOwn = { videoStore.gamesWithOwn() }, changeCount = { videoStore.game(it)?.size ?: 0 },
+            removeLabel = "Remove the game's settings", onDismiss = { gamesPopup = 0 },
+            onPick = { save, title -> target = save; targetTitle = title; gamesPopup = 0 },
+            onPickGame = { gamesPopup = 2 }, onRemoved = { videoStore.removeGame(it) })
+        2 -> PickGamePopup("Its settings start as All games'.", { gamesPopup = 1 }) { save, title -> target = save; targetTitle = title; gamesPopup = 0 }
     }
 }
 

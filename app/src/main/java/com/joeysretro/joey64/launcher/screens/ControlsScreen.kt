@@ -356,9 +356,11 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             Pak.entries.map { Choice(pakValue(it, autoPak), pakDetail(it), it == setup.pak) }, close) { i ->
             edit { editor.set(player, setup.copy(pak = Pak.entries[i])) }; close()
         }
-        Popup.Games -> GamesPopup(editor, target, close, onPick = { save, title -> target = save; targetTitle = title; close() },
+        Popup.Games -> GamesForPopup("Controls for", "A game's own controls are used instead of All games when it starts.", target,
+            gamesWithOwn = { editor.gamesWithOwn() }, changeCount = { editor.changeCount(it) }, removeLabel = "Remove the game's controls",
+            onDismiss = close, onPick = { save, title -> target = save; targetTitle = title; close() },
             onPickGame = { popup = Popup.PickGame }, onRemoved = { save -> edit { editor.removeGame(save) } })
-        Popup.PickGame -> PickGamePopup({ popup = Popup.Games }) { save, title -> target = save; targetTitle = title; close() }
+        Popup.PickGame -> PickGamePopup("Its controls start as a copy of All games.", { popup = Popup.Games }) { save, title -> target = save; targetTitle = title; close() }
         Popup.Diagram -> JoeyDialog(onDismiss = close, hints = listOf(Hint("B", "Close")), width = 760.dp) {
             ControllerDiagram(player, deviceName(setup.device), setup, face)
         }
@@ -693,77 +695,6 @@ private fun RemapPopup(target: Target, setup: PlayerSetup, editor: ControlsEdito
             PressBody(title, line, note)
             Box(Modifier.padding(horizontal = 10.dp)) { TimeBar { finish(null, null) } }
             PopupNote(note)
-        }
-    }
-}
-
-/** Mockup 8: All games, the games with their own controls (X removes them), and Pick a game. */
-@Composable
-private fun GamesPopup(editor: ControlsEditor, target: String?, onDismiss: () -> Unit, onPick: (String?, String?) -> Unit,
-                       onPickGame: () -> Unit, onRemoved: (String) -> Unit) {
-    val context = LocalContext.current
-    var games by remember { mutableStateOf(editor.gamesWithOwn()) }
-    var titles by remember { mutableStateOf(emptyMap<String, String>()) }
-    LaunchedEffect(games) {
-        titles = withContext(Dispatchers.IO) {
-            games.associateWith { g ->
-                try { LibraryDb.get(context).gameWithFile(g, GameStates::saveNameOf)?.title ?: g } catch (e: Exception) { g }
-            }
-        }
-    }
-    var focusedGame by remember { mutableStateOf<String?>(null) }
-    JoeyDialog(onDismiss = onDismiss, width = 470.dp,
-        hints = if (focusedGame != null) listOf(Hint("A", "Select"), Hint("X", "Remove the game's controls"), Hint("B", "Back"))
-            else listOf(Hint("A", "Select"), Hint("B", "Back")),
-        onPadButton = { code ->
-            val g = focusedGame
-            if (code == KeyEvent.KEYCODE_BUTTON_X && g != null) {
-                onRemoved(g); games = editor.gamesWithOwn(); focusedGame = null
-                if (g == target) onPick(null, null)
-            }
-        }) {
-        Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
-            PopupTitle("Controls for", "A game's own controls are used instead of All games when it starts.")
-            JoeyRow("All games", Modifier.initialFocus(target == null), detail = "Every game without its own",
-                trailing = if (target == null) { _ -> Tick() } else null) { onPick(null, null) }
-            if (games.isNotEmpty()) PopupDivider()
-            for (g in games) {
-                val n = editor.changeCount(g)
-                JoeyRow(titles[g] ?: g, Modifier.initialFocus(g == target), detail = if (n == 1) "1 change" else "$n changes",
-                    onFocused = { if (it) focusedGame = g else if (focusedGame == g) focusedGame = null },
-                    trailing = if (g == target) { _ -> Tick() } else null) { onPick(g, titles[g] ?: g) }
-            }
-            PopupDivider()
-            JoeyRow("Pick a game", value = "›") { onPickGame() }
-        }
-    }
-}
-
-/** Pick a game: the library; its controls start as a copy of All games (on the first change). */
-@Composable
-private fun PickGamePopup(onDismiss: () -> Unit, onPick: (String, String) -> Unit) {
-    val context = LocalContext.current
-    var games by remember { mutableStateOf<List<LibraryGame>?>(null) }
-    LaunchedEffect(Unit) {
-        games = withContext(Dispatchers.IO) { try { LibraryDb.get(context).libraryGames() } catch (e: Exception) { JLog.e(TAG, "library: $e"); emptyList() } }
-    }
-    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Back")), width = 470.dp) {
-        Column {
-            PopupTitle("Pick a game", "Its controls start as a copy of All games.")
-            val list = games
-            when {
-                list == null -> PopupNote("Reading the library")
-                list.isEmpty() -> PopupNote("The library has no games yet.")
-                else -> LazyColumn(Modifier.heightIn(max = 380.dp)) {
-                    items(list, key = { it.id }) { g ->
-                        JoeyRow(g.title, if (g == list.first()) Modifier.initialFocus() else Modifier) {
-                            val db = LibraryDb.get(context)
-                            val save = GameLauncher(context, db).saveNameFor(g)
-                            if (save != null) onPick(save, g.title) else JLog.e(TAG, "no readable file for ${g.title}")
-                        }
-                    }
-                }
-            }
         }
     }
 }

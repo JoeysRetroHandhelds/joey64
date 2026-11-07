@@ -55,6 +55,8 @@ fun JoeyRow(
     detail: String? = null,
     /** The yellow dot after the label: a game's row that differs from All games (Controls). */
     dot: Boolean = false,
+    /** A padlock after the label: locked until something else allows it (Hardcore "Not approved yet"). */
+    lock: Boolean = false,
     onLongClick: (() -> Unit)? = null,
     onFocused: ((Boolean) -> Unit)? = null,
     leading: (@Composable RowScope.(focused: Boolean) -> Unit)? = null,
@@ -81,7 +83,12 @@ fun JoeyRow(
             else -> rowTextColor(c, focused, c.text)
         }
         leading?.invoke(this, focused)
-        if (dot) Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+        if (lock) Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            Text(label, style = JoeyTheme.type.row, color = labelColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            androidx.compose.material3.Icon(androidx.compose.ui.res.painterResource(com.joeysretro.joey64.R.drawable.ic_lock), contentDescription = "Locked",
+                tint = labelColor, modifier = Modifier.padding(start = 8.dp).size(14.dp))
+        }
+        else         if (dot) Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
             Text(label, style = JoeyTheme.type.row, color = labelColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Box(Modifier.padding(start = 8.dp).size(6.dp).background(c.gold, androidx.compose.foundation.shape.CircleShape))
         }

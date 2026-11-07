@@ -1,5 +1,7 @@
 package com.joeysretro.joey64
 
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -263,6 +265,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     @Volatile private var resumed = false
     @Volatile private var destroyed = false
+    /** Watches RetroAchievements' sign-in state for the pop-ups; ends with the activity. */
+    private val uiScope = kotlinx.coroutines.MainScope()
     private val rumbleWatcher = Thread({
         var on = false
         while (!destroyed) {
@@ -492,6 +496,13 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         overlay = GameOverlay(this, pauseActions).also {
             it.title = givenTitle ?: saveName
             it.saveSlotName = slotName(currentSlot())
+        }
+        // RetroAchievements no longer takes the kept sign-in (the password changed on the website): say so
+        // once the game is up (approved sign-in mockup g). Signing in again is in Settings › RetroAchievements.
+        uiScope.launch {
+            com.joeysretro.joey64.achievements.RaBridge.expired.collect { gone ->
+                if (gone) pop("ra", InGamePopup.Kind.Account, "RetroAchievements · Sign-in expired", "Sign in again to save unlocks", "")
+            }
         }
         // The pause menu's title: the game's name in the library, else the ROM's (a frontend's game).
         stateHandler.post {
@@ -1085,6 +1096,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     override fun onDestroy() {
+        uiScope.cancel()
         debugStick?.let { unregisterReceiver(it) }
         debugDump?.let { unregisterReceiver(it) }
         debugLogs?.let { unregisterReceiver(it) }

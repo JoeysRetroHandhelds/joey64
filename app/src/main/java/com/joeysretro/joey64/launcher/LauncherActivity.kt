@@ -76,11 +76,32 @@ class LauncherActivity : ComponentActivity() {
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean = keys.dispatch(event)
 
+    private var raFake: android.content.BroadcastReceiver? = null
+
+    override fun onDestroy() {
+        raFake?.let { unregisterReceiver(it) }
+        super.onDestroy()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // The session log (files/logs) starts here when the app opens to the launcher, so first run, the
         // import and library reads are in what a tester sends, not only what happens once a game is up.
         LogFiles.start(this, intent)
+        // RetroAchievements: the kept account signs in now, so Settings shows it with its points.
+        com.joeysretro.joey64.achievements.RaBridge.init(this)
+        // Debug builds: adb shell am broadcast -a com.joeysretro.joey64.RA_FAKE --ez on true shows the
+        // signed-in RetroAchievements tab with a made-up account (no sign-in, nothing sent).
+        if (com.joeysretro.joey64.BuildConfig.DEBUG) {
+            val receiver = object : android.content.BroadcastReceiver() {
+                override fun onReceive(c: android.content.Context, i: android.content.Intent) =
+                    com.joeysretro.joey64.achievements.RaBridge.debugFakeAccount(i.getBooleanExtra("on", true))
+            }
+            val filter = android.content.IntentFilter("com.joeysretro.joey64.RA_FAKE")
+            if (android.os.Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, android.content.Context.RECEIVER_EXPORTED)
+            else registerReceiver(receiver, filter)
+            raFake = receiver
+        }
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).apply {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE

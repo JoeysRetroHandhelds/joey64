@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher.components
 
+import androidx.compose.foundation.layout.isImeVisible
 import android.os.Build
 import android.view.KeyEvent
 import android.view.WindowManager
@@ -92,6 +93,8 @@ fun JoeyDialog(
     fullScreen: Boolean = false,
     /** The card near the top of the screen, so the keyboard below doesn't cover it (New collection). */
     atTop: Boolean = false,
+    /** Centred, and near the top while the keyboard is up (Sign in to RetroAchievements). */
+    riseWithKeyboard: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val backRegistry = remember { DialogBackRegistry() }
@@ -165,6 +168,9 @@ fun JoeyDialog(
         val c = JoeyTheme.colors
         val s = JoeyTheme.spacing
 
+        // The dialog window's own insets: the keyboard opens over this window, not the activity's.
+        @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+        val atTop = atTop || (riseWithKeyboard && androidx.compose.foundation.layout.WindowInsets.Companion.isImeVisible)
         val tapOutside by rememberUpdatedState { if (dismissible) requestClose() }
         Column(Modifier.fillMaxSize()) {
             // The dim: everything above the hint row. A tap on it is "outside". A tap handler,

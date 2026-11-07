@@ -12,7 +12,7 @@ import com.joeysretro.joey64.launcher.theme.JoeyTheme
  * shows the last slot, not five pop-ups in a row).
  */
 data class InGamePopup(val key: String, val kind: Kind, val label: String, val name: String, val line: String) {
-    enum class Kind { Saved, Loaded, Slot, Screenshot, Reset, Problem }
+    enum class Kind { Saved, Loaded, Slot, Screenshot, Reset, Problem, Account }
 }
 
 /**
@@ -55,6 +55,11 @@ fun InGamePopupCard(p: InGamePopup) {
         InGamePopup.Kind.Screenshot -> R.drawable.ic_camera
         InGamePopup.Kind.Reset -> R.drawable.ic_reset
         InGamePopup.Kind.Problem -> R.drawable.ic_alert
+        InGamePopup.Kind.Account -> R.drawable.ic_user_alert
     }
-    JoeyToast(icon, p.label, p.name, p.line, iconTint = if (p.kind == InGamePopup.Kind.Problem) JoeyTheme.colors.error else null)
+    JoeyToast(icon, p.label, p.name, p.line, iconTint = when (p.kind) {
+        InGamePopup.Kind.Problem -> JoeyTheme.colors.error
+        InGamePopup.Kind.Account -> JoeyTheme.colors.gold
+        else -> null
+    })
 }

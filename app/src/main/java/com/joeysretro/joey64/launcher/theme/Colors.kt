@@ -100,3 +100,17 @@ val LightColors = JoeyColors(
 )
 
 val LocalJoeyColors = staticCompositionLocalOf { DarkColors }
+
+/**
+ * Colours that draw a picture rather than the UI, the same in dark and light: the RetroAchievements
+ * account's stand-in picture, and the Pop-up place preview's game and badges (approved mockups).
+ */
+object PictureColors {
+    val avatarFrom = Color(0xFF3A6FE0)
+    val avatarTo = Color(0xFF5A2A82)
+    val screen = Color(0xFF000000)
+    val gameSky = Color(0xFF2E5A8C)
+    val gameGround = Color(0xFF3F7A3A)
+    val badgeBlue = Color(0xFF3A6FE0)
+    val badgeGreen = Color(0xFF3BAA5C)
+}

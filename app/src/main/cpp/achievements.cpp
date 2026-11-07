@@ -41,6 +41,7 @@ uint8_t* g_ram = nullptr;
 size_t g_ramSize = 0;
 char g_hash[33] = "";
 std::atomic<bool> g_gameWanted{false};
+std::atomic<bool> g_enabled{true};     // Settings › RetroAchievements › Achievements
 
 struct Env {
     JNIEnv* env = nullptr;
@@ -267,6 +268,7 @@ void gameLoaded(const uint8_t* rom, size_t romSize, uint8_t* ram, size_t ramSize
     }
     RLOGI("game hash %s, RDRAM %zu bytes", g_hash, ramSize);
     if (!g_client || !g_hash[0]) return;
+    if (!g_enabled) { RLOGI("achievements are off in Settings"); return; }
     const rc_client_user_t* u = rc_client_get_user_info(g_client);
     // Signed in, or a sign-in under way (rc_client waits for it before loading).
     if (!u && !g_gameWanted) return;
@@ -347,6 +349,16 @@ JNIEXPORT void JNICALL RAJNI(loginWithToken)(JNIEnv* env, jclass, jstring user, 
 JNIEXPORT void JNICALL RAJNI(logout)(JNIEnv*, jclass) {
     g_gameWanted = false;
     if (g_client) rc_client_logout(g_client);
+}
+
+// Settings › RetroAchievements. Encore and Unofficial apply from the next game load, Spectator
+// at once (rc_client's own rules); Achievements Off skips identifying the next game.
+JNIEXPORT void JNICALL RAJNI(setOptions)(JNIEnv*, jclass, jboolean enabled, jboolean encore, jboolean spectator, jboolean unofficial) {
+    ensureClient();
+    g_enabled = enabled;
+    rc_client_set_encore_mode_enabled(g_client, encore);
+    rc_client_set_spectator_mode_enabled(g_client, spectator);
+    rc_client_set_unofficial_enabled(g_client, unofficial);
 }
 
 // The RetroAchievements server, or (RAOfflineProxy) a local one; null or empty = the real server.

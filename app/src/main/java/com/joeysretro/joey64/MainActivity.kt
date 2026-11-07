@@ -1064,6 +1064,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             HotkeyAction.UpscaleUp -> stepUpscale(1)
             HotkeyAction.UpscaleDown -> stepUpscale(-1)
             HotkeyAction.Pause -> togglePause()
+            HotkeyAction.FrameAdvance -> frameAdvance()
             HotkeyAction.Achievements -> openAchievementsHotkey()
         }
     }
@@ -1174,12 +1175,27 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (hotkeyPaused) {
             NativeBridge.pause(true)
             releaseAll()
-            overlay?.show(InGamePopup("paused", InGamePopup.Kind.Paused, "Paused", "Press Pause again to go on", "", stayMs = com.joeysretro.joey64.launcher.ingame.PopupQueue.UNTIL_HIDDEN))
+            overlay?.show(InGamePopup("paused", InGamePopup.Kind.Paused, "Paused", pausedLine(), "", stayMs = com.joeysretro.joey64.launcher.ingame.PopupQueue.UNTIL_HIDDEN))
         } else {
             overlay?.hide("paused", waiting = true)
             if (resumed) NativeBridge.pause(false)
         }
         JLog.i(TAG, "pause hotkey: ${if (hotkeyPaused) "paused" else "going on"}")
+    }
+
+    /** The Paused pop-up's line: how to go on (Pause has no button by default: then the pause menu's Resume), and Frame advance when it has one. */
+    private fun pausedLine(): String {
+        val pause = hotkeys.keys[HotkeyAction.Pause] != null
+        // Short enough for the pop-up's one line.
+        return if (hotkeys.keys[HotkeyAction.FrameAdvance] == null) (if (pause) "Press Pause again to go on" else "Resume from the pause menu to go on")
+            else (if (pause) "Pause: go on" else "Menu: Resume") + " · Frame advance: one frame"
+    }
+
+    /** Frame advance: running, it pauses (as Pause); paused by a hotkey, one more frame each press. */
+    private fun frameAdvance() {
+        if (menuOpen) return
+        if (!hotkeyPaused) { togglePause(); return }
+        NativeBridge.stepFrame()
     }
 
     /** The Achievements hotkey opened the page (B goes back to the game). */

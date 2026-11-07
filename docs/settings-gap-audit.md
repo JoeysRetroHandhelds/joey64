@@ -270,7 +270,7 @@ Each needs a mockup from Joey first.
 - **Keep:**
   - Cycle the stats overlay
   - Slow motion
-  - Frame advance and pause/unpause
+  - Frame advance and pause/unpause (built 2026-11-07: the Pause and Frame advance hotkeys)
   - Rewind, with rewind
   - Volume up and down, mute
   - Open achievements

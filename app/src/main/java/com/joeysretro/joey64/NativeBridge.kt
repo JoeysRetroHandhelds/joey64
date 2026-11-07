@@ -51,6 +51,8 @@ object NativeBridge {
     external fun surfaceResized()
     external fun start()
     external fun pause(paused: Boolean)
+    /** Frame advance: while paused, the game runs one more frame (without sound) and stays paused. */
+    external fun stepFrame()
     external fun stop()
 
     /** Before loadGame: override a core option (M3's profile DB will call this). */

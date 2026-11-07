@@ -511,7 +511,7 @@ private fun HotkeysPage(editor: ControlsEditor, version: Int, focused: String, o
         }
         Column(Modifier.weight(1f)) {
             SectionLabel("Game")
-            for (a in listOf(HotkeyAction.PauseMenu, HotkeyAction.Pause, HotkeyAction.FastForward, HotkeyAction.Screenshot, HotkeyAction.Stats,
+            for (a in listOf(HotkeyAction.PauseMenu, HotkeyAction.Pause, HotkeyAction.FrameAdvance, HotkeyAction.FastForward, HotkeyAction.Screenshot, HotkeyAction.Stats,
                 HotkeyAction.Achievements, HotkeyAction.GameShark, HotkeyAction.Reset, HotkeyAction.Quit)) row(a)
         }
     }
@@ -537,6 +537,7 @@ private fun hotkeyDescription(a: HotkeyAction): String? = when (a) {
     HotkeyAction.UpscaleUp -> "Draws the game one step sharper, up to 8x. For this play only, on parallel-RDP. Settings › Video keeps its own."
     HotkeyAction.UpscaleDown -> "Draws the game one step less sharp. For this play only, on parallel-RDP. Settings › Video keeps its own."
     HotkeyAction.Pause -> "Stops the game where it is, with no menu, until you press it again."
+    HotkeyAction.FrameAdvance -> "Paused, each press runs the game one frame, without sound. Playing, it pauses."
     HotkeyAction.Achievements -> "Opens the pause menu's Achievements page. B goes back to the game."
     else -> null
 }
@@ -554,6 +555,7 @@ private fun hotkeyPopupLine(a: HotkeyAction): String = when (a) {
     HotkeyAction.UpscaleDown -> "One step less sharp, for this play only."
     HotkeyAction.PauseMenu -> "Opens the pause menu."
     HotkeyAction.Pause -> "Stops the game with no menu, until you press it again."
+    HotkeyAction.FrameAdvance -> "Paused, one frame a press. Playing, it pauses."
     HotkeyAction.Screenshot -> "Saves a picture of the game."
     HotkeyAction.Stats -> "Steps through Off, Simple, Full and Custom."
     HotkeyAction.Achievements -> "Opens the Achievements page."

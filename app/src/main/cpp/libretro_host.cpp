@@ -95,6 +95,8 @@ std::atomic<bool> g_surfaceResized{false};
 
 std::thread g_thread;
 std::atomic<bool> g_running{false}, g_paused{false};
+// Frame advance (the hotkey): frames still to run while paused, one per press.
+std::atomic<int> g_stepFrames{0};
 std::mutex g_pauseMutex;
 std::condition_variable g_pauseCv;
 // Fast-forward: vsync off, audio dropped, emulation capped at 4x normal (lower while the
@@ -385,14 +387,14 @@ void video_refresh(const void* data, unsigned w, unsigned h, size_t) {
 }
 
 void audio_sample(int16_t l, int16_t r) {
-    if (g_bench) return;
+    if (g_bench || g_paused) return; // paused: a frame advance step, whose sound would pile up in the paused stream
     int16_t s[2] = {l, r};
     if (g_fastForward) { if (int m = g_ffSound.load()) g_audio.writeFast(s, 1, g_ffSpeedNow.load(), m == 1 ? 0.25f : 1.0f); return; }
     g_audio.write(s, 1);
 }
 size_t g_frameAudio = 0; // audio frames the core gave during this retro_run (N64_FRAME_TRACE)
 size_t audio_batch(const int16_t* d, size_t frames) {
-    if (g_bench) return frames;
+    if (g_bench || g_paused) return frames; // paused: a frame advance step (the stream is paused, nothing drains)
     // A blocking write would throttle fast-forward: its sound (if any) goes through writeFast.
     if (g_fastForward) { if (int m = g_ffSound.load()) g_audio.writeFast(d, frames, g_ffSpeedNow.load(), m == 1 ? 0.25f : 1.0f); }
     else g_audio.write(d, frames);
@@ -810,11 +812,13 @@ void runLoop() {
             std::unique_lock<std::mutex> lk(g_pauseMutex);
             for (;;) {
                 // Wakes once a second while paused so rc_client can keep the session alive (pings, retries).
-                if (!g_pauseCv.wait_for(lk, std::chrono::seconds(1), [] { return !g_paused || !g_running || g_statePending; })) {
+                if (!g_pauseCv.wait_for(lk, std::chrono::seconds(1), [] { return !g_paused || !g_running || g_statePending || g_stepFrames > 0; })) {
                     lk.unlock(); Cheevos::idle(); lk.lock();
                     continue;
                 }
                 if (!g_paused || !g_running) break;
+                // Frame advance: one frame while staying paused (its sound is dropped, see audio_batch).
+                if (g_stepFrames > 0) { --g_stepFrames; break; }
                 // Paused with a state request (the pause menu): served without running a frame.
                 lk.unlock();
                 serveStateRequest(g_framesRun >= (uint32_t)stateReadyFrames(), true);
@@ -877,7 +881,7 @@ void runLoop() {
             show = now - ffLastShown >= std::chrono::microseconds(16000);
             if (show) ffLastShown = now;
         }
-        if (!ff && !g_bench) {
+        if (!ff && !g_bench && !g_paused) { // paused: a frame advance step, no audio to wait for
             auto t0 = std::chrono::steady_clock::now();
             g_audio.setPanelRefreshNs(g_vulkan ? g_vk.refreshNs() : 0);
             g_audio.waitForRoom();
@@ -1211,7 +1215,15 @@ JNIEXPORT void JNICALL JNI(start)(JNIEnv*, jobject) {
     g_thread = std::thread(runLoop);
 }
 
+// Frame advance: while paused, the game runs one more frame and stays paused. Does nothing if not paused.
+JNIEXPORT void JNICALL JNI(stepFrame)(JNIEnv*, jobject) {
+    if (!g_paused) return;
+    { std::lock_guard<std::mutex> pl(g_pauseMutex); if (g_stepFrames < 4) ++g_stepFrames; }
+    g_pauseCv.notify_all();
+}
+
 JNIEXPORT void JNICALL JNI(pause)(JNIEnv*, jobject, jboolean p) {
+    if (!p) g_stepFrames = 0;
     g_paused = p;
     g_audio.setPaused(p);
     g_pauseCv.notify_all();

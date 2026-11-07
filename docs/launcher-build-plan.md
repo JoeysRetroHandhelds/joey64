@@ -598,7 +598,7 @@ Also agreed: for an ID shared by more than one layout, Auto map first asks for o
   - Turbo and autofire: hold a button to repeat it, per game (RetroArch, Project64, PPSSPP, DuckStation).
   - Undo load state and undo save state (DuckStation, PCSX2).
   - Rewind (ares, RetroArch). Measure the cost first: N64 states are large, so maybe strong devices only.
-  - Frame advance and slow motion (ares, DuckStation, PCSX2, mupen64plus).
+  - Frame advance and slow motion (ares, DuckStation, PCSX2, mupen64plus). Frame advance built 2026-11-07 as a hotkey next to Pause (Joey: "your call"); slow motion still waits.
   - Overscan crop (RMG, ares, gopher64), likely in Game settings › Picture.
   - Android TV: the leanback launcher entry, a banner, and checking the launcher at TV size (Dolphin, Lemuroid, Mupen64Plus AE).
 - **Settings from the gap audit (Joey, 2026-11-07, picked tab by tab, no mockups yet):** every kept and dropped setting, and the suggested build order, are in `docs/settings-gap-audit.md`. Each needs a mockup first.

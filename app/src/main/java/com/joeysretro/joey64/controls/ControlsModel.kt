@@ -191,6 +191,8 @@ enum class HotkeyAction(val label: String, /** null: not set until the user pick
     PauseMenu("Pause menu", KeyEvent.KEYCODE_BACK, aloneByDefault = true),
     /** Stops the game with no menu until pressed again. */
     Pause("Pause", null),
+    /** Paused: one more frame, still paused. Running: pauses, as Pause does (Joey's call 2026-11-07, next to Pause). */
+    FrameAdvance("Frame advance", null),
     /** Hotkey button + R2 (Joey 2026-11-07; was R3 on its own). */
     FastForward("Fast-forward", KeyEvent.KEYCODE_BUTTON_R2),
     Screenshot("Screenshot", KeyEvent.KEYCODE_BUTTON_Y),

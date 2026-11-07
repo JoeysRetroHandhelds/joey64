@@ -177,6 +177,7 @@ private fun GamesList(onHints: (List<Hint>) -> Unit, onClose: () -> Unit, focusG
             line = RaLists.pageSummary(a?.display ?: "", a?.softcore, filter, shown.size, all.size),
             picture = { Picture(a?.avatar, 34.dp) },
             chip = filter.label, chipOn = filter != GameFilter.All, onChip = { showing = true }, onChipFocused = { onChip = it },
+            chipFirst = all.isNotEmpty() && shown.isEmpty(),
         )
         if (all.isEmpty()) Empty("Play a game that has RetroAchievements, and it shows here with your progress.", holdFocus = true)
         else if (shown.isEmpty()) Empty("No games here")
@@ -217,6 +218,7 @@ private fun GameAchievementsContent(
             line = g?.let { RaLists.gameSummary(it, filter, shown.size) } ?: "",
             picture = { Picture(g?.let { badgeFile(it.badge) }, 34.dp) },
             chip = filter.label, chipOn = filter != AchFilter.All, onChip = { onShow(true) }, chipShown = g != null, onChipFocused = { onChip = it },
+            chipFirst = g != null && shown.isEmpty(),
         )
         if (g != null) ThinBar(g.fraction, Modifier.fillMaxWidth().padding(top = 10.dp))
         if (g == null) Empty(if (live) "This game has no RetroAchievements set, or it wasn't found." else "Play this game once, and its achievements show here.", holdFocus = true)
@@ -269,7 +271,7 @@ private fun AchievementRow(a: RaAchievement, now: Long, live: Boolean, modifier:
 /** The shared header (approved template): picture, the title in the page type, the line under it, the Show chip at the right. */
 @Composable
 private fun Header(title: String, line: String, picture: @Composable () -> Unit, chip: String, chipOn: Boolean, onChip: () -> Unit, chipShown: Boolean = true,
-                   onChipFocused: (Boolean) -> Unit = {}) {
+                   onChipFocused: (Boolean) -> Unit = {}, chipFirst: Boolean = false) {
     val c = JoeyTheme.colors
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         picture()
@@ -277,7 +279,9 @@ private fun Header(title: String, line: String, picture: @Composable () -> Unit,
             Text(title, style = JoeyTheme.type.pageTitle, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (line.isNotEmpty()) Text(line, style = JoeyTheme.type.small, color = c.textDim, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        if (chipShown) PageChip(chip, R.drawable.ic_filter, on = chipOn, onFocused = onChipFocused, onClick = onChip)
+        // [chipFirst]: the list is empty, so focus lands on the chip (else it falls to the rail).
+        if (chipShown) PageChip(chip, R.drawable.ic_filter, modifier = if (chipFirst) Modifier.initialFocus() else Modifier,
+            on = chipOn, onFocused = onChipFocused, onClick = onChip)
     }
 }
 

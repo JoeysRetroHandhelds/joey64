@@ -60,12 +60,12 @@ import com.joeysretro.joey64.launcher.update.UpdateModel
 import com.joeysretro.joey64.launcher.update.UpdateModel.RowState
 import kotlinx.coroutines.delay
 
-/** The Settings tabs built so far, in the approved order (General, Appearance, Video, Audio and Library come with their pages). */
-enum class SettingsTab(val label: String) { RetroAchievements("RetroAchievements"), About("About") }
+/** The Settings tabs built so far, in the approved order (General, Video, Audio and Library come with their pages). */
+enum class SettingsTab(val label: String) { Appearance("Appearance"), RetroAchievements("RetroAchievements"), About("About") }
 
 /**
  * Settings (approved Settings mockups, 2026-11-05). The tabs that are built, L1/R1 (or a tap)
- * between them: RetroAchievements ([RaTab]) and About.
+ * between them: Appearance ([AppearanceTab]), RetroAchievements ([RaTab]) and About.
  */
 @Composable
 fun SettingsScreen(updates: UpdateModel, onHints: (List<Hint>) -> Unit, onClose: () -> Unit) {
@@ -73,7 +73,7 @@ fun SettingsScreen(updates: UpdateModel, onHints: (List<Hint>) -> Unit, onClose:
     val landing = LocalFocusLanding.current
     val c = JoeyTheme.colors
     val s = JoeyTheme.spacing
-    var tab by remember { mutableStateOf(SettingsTab.RetroAchievements) }
+    var tab by remember { mutableStateOf(SettingsTab.entries.first()) }
     // Each tab lands focus on its first row as it opens.
     LaunchedEffect(tab) { landing?.arm() }
     DisposableEffect(Unit) {
@@ -102,6 +102,7 @@ fun SettingsScreen(updates: UpdateModel, onHints: (List<Hint>) -> Unit, onClose:
         }
         key(tab) {
             when (tab) {
+                SettingsTab.Appearance -> AppearanceTab(onHints, Modifier.weight(1f))
                 SettingsTab.RetroAchievements -> RaTab(onHints, Modifier.weight(1f))
                 SettingsTab.About -> AboutTab(updates, { onHints(it.dropLast(1) + Hint("L/R", "Tab") + it.last()) }, Modifier.weight(1f))
             }

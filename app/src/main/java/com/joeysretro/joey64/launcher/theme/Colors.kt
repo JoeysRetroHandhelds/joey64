@@ -106,10 +106,11 @@ val LightColors = JoeyColors(
     keyBadgeText = Color(0xFFFFFFFF),
     buttonPrimary = Color(0xFF3A6FE0),
     onButtonPrimary = Color(0xFFFFFFFF),
-    tagMissable = Color(0xFFF0A050),
-    tagMissableBg = Color(0xFF2E2A3E),
-    tagChallenge = Color(0xFF7FA8FF),
-    tagChallengeBg = Color(0xFF1E2A55),
+    // The dark theme's tag colours, darkened for a light page (light-mode check, 2026-11-07).
+    tagMissable = Color(0xFFA3530F),
+    tagMissableBg = Color(0xFFFBE9D7),
+    tagChallenge = Color(0xFF2747B8),
+    tagChallengeBg = Color(0xFFE1E8FB),
 )
 
 val LocalJoeyColors = staticCompositionLocalOf { DarkColors }

@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.joeysretro.joey64.launcher.theme.PopupTheme
 import com.joeysretro.joey64.launcher.theme.ThemeChoice
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -15,6 +16,8 @@ import kotlinx.coroutines.flow.map
 /** The launcher's settings as one value; screens read it as a Flow and recompose on change. */
 data class LauncherSettings(
     val theme: ThemeChoice = ThemeChoice.Dark,
+    /** Settings › Appearance › Pop-ups: achievement, leaderboard and cheat pop-ups during play. */
+    val popupTheme: PopupTheme = PopupTheme.Dark,
     /** Tree URIs of the picked ROM folders. */
     val romFolders: Set<String> = emptySet(),
     /** Tree URI of the picked data folder; null = Joey64's own storage. */
@@ -38,6 +41,7 @@ class SettingsStore(context: Context) {
     val settings: Flow<LauncherSettings> = store.data.map { p ->
         LauncherSettings(
             theme = p[THEME]?.let { name -> ThemeChoice.entries.firstOrNull { it.name == name } } ?: ThemeChoice.Dark,
+            popupTheme = p[POPUP_THEME]?.let { name -> PopupTheme.entries.firstOrNull { it.name == name } } ?: PopupTheme.Dark,
             romFolders = p[ROM_FOLDERS] ?: emptySet(),
             dataFolder = p[DATA_FOLDER],
             downloadBoxArt = p[BOX_ART] ?: true,
@@ -47,6 +51,7 @@ class SettingsStore(context: Context) {
     }
 
     suspend fun setTheme(choice: ThemeChoice) = store.edit { it[THEME] = choice.name }
+    suspend fun setPopupTheme(choice: PopupTheme) = store.edit { it[POPUP_THEME] = choice.name }
     suspend fun addRomFolder(treeUri: String) = store.edit { it[ROM_FOLDERS] = (it[ROM_FOLDERS] ?: emptySet()) + treeUri }
     suspend fun removeRomFolder(treeUri: String) = store.edit { it[ROM_FOLDERS] = (it[ROM_FOLDERS] ?: emptySet()) - treeUri }
     suspend fun setDataFolder(treeUri: String?) = store.edit { if (treeUri == null) it.remove(DATA_FOLDER) else it[DATA_FOLDER] = treeUri }
@@ -56,6 +61,7 @@ class SettingsStore(context: Context) {
 
     private companion object {
         val THEME = stringPreferencesKey("theme")
+        val POPUP_THEME = stringPreferencesKey("popup_theme")
         val ROM_FOLDERS = stringSetPreferencesKey("rom_folders")
         val DATA_FOLDER = stringPreferencesKey("data_folder")
         val BOX_ART = booleanPreferencesKey("download_box_art")

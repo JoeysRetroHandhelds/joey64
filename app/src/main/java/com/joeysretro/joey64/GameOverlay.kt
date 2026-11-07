@@ -100,7 +100,7 @@ class GameOverlay(private val activity: Activity, private val actions: PauseActi
             val store = remember { SettingsStore(context) }
             val settings by store.settings.collectAsState(initial = null)
             val p = popupState
-            if (p != null) JoeyTheme(settings?.theme ?: ThemeChoice.Dark) {
+            if (p != null) JoeyTheme(popupTheme(settings)) {
                 Across(popupSpot) { Box(Modifier.onGloballyPositioned { popupBox = it.boundsInWindow() }) { InGamePopupCard(p) } }
             }
         }
@@ -117,7 +117,7 @@ class GameOverlay(private val activity: Activity, private val actions: PauseActi
             val store = remember { SettingsStore(context) }
             val settings by store.settings.collectAsState(initial = null)
             val b = badgeFiles
-            if (b.isNotEmpty()) JoeyTheme(settings?.theme ?: ThemeChoice.Dark) {
+            if (b.isNotEmpty()) JoeyTheme(popupTheme(settings)) {
                 Across(badgeSpot) { Box(Modifier.onGloballyPositioned { badgeBox = it.boundsInWindow() }) { ChallengeBadges(b) } }
             }
         }
@@ -146,6 +146,10 @@ class GameOverlay(private val activity: Activity, private val actions: PauseActi
         if (badgeFiles.isNotEmpty() && hit(badgeView, badgeBox)) return Tap.Badges(badgeIds.lastOrNull())
         return null
     }
+
+    /** Settings › Appearance › Pop-ups for the pop-up and badge windows; the pause menu follows Theme. */
+    private fun popupTheme(s: com.joeysretro.joey64.launcher.settings.LauncherSettings?) =
+        (s?.popupTheme ?: com.joeysretro.joey64.launcher.theme.PopupTheme.Dark).resolve(s?.theme ?: ThemeChoice.Dark)
 
     init {
         activity.addContentView(view, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))

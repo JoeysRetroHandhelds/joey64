@@ -559,6 +559,8 @@ Also agreed: for an ID shared by more than one layout, Auto map first asks for o
 
 - The Settings tabs, with content only for Appearance, RetroAchievements and the stop-gap Library rows.
 - Light mode checked screen by screen.
+- **Built 2026-11-07: Appearance** (`launcher/screens/AppearanceTab.kt`, approved appearance.html). Settings now opens on Appearance, the first tab: Theme (Dark, Light, Match system) on the left, During play › Pop-ups (Match theme, Dark, Light; Dark by default, as the mockup shows) on the right, each a small popup with the tick. Theme drives the launcher and the pause menu; Pop-ups drives the pop-up and badge windows (`LauncherSettings.popupTheme`, `GameOverlay.popupTheme`).
+- **Light mode checked on the Thor (2026-11-07):** Settings (all three tabs), the library and Show, a game's options, Search, Achievements (games list, a game's page, Show, an empty set), Controls, and in a game the pause menu, the Achievements panel, Controls, Cheats and the pop-ups with Pop-ups on Dark and on Match theme. One fix: the Missable and Challenge tags kept the dark theme's chip colours; Light has its own now. Not looked at in Light: the first-run setup pages, the sign-in popup and the updater prompts (none can be reached on the Thor without changing Joey's setup or signing in).
 
 ## Not in this plan
 

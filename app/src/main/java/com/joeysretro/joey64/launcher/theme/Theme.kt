@@ -15,7 +15,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /** Settings › Appearance › Theme (approved 2026-11-04): Dark is the default. */
-enum class ThemeChoice { Dark, Light, MatchSystem }
+enum class ThemeChoice(val label: String) { Dark("Dark"), Light("Light"), MatchSystem("Match system") }
+
+/** Settings › Appearance › Pop-ups (approved appearance.html, 2026-11-05): the pop-ups over a game. Dark as the mockup shows. */
+enum class PopupTheme(val label: String) {
+    MatchTheme("Match theme"), Dark("Dark"), Light("Light");
+
+    fun resolve(theme: ThemeChoice) = when (this) { MatchTheme -> theme; Dark -> ThemeChoice.Dark; Light -> ThemeChoice.Light }
+}
 
 /** Spacing from the mockups, in one place so screens can't drift a margin at a time. */
 @Immutable

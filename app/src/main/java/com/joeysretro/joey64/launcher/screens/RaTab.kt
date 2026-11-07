@@ -357,7 +357,7 @@ private fun AccountBlock(account: RaBridge.Account) {
 
 /** A popup choice with the tick on the one in use; [note] greys it out with a word on why (the badges' spot). */
 @Composable
-private fun TickOption(label: String, on: Boolean, modifier: Modifier = Modifier, note: String? = null, onFocused: ((Boolean) -> Unit)? = null, onClick: () -> Unit) {
+internal fun TickOption(label: String, on: Boolean, modifier: Modifier = Modifier, note: String? = null, onFocused: ((Boolean) -> Unit)? = null, onClick: () -> Unit) {
     val c = JoeyTheme.colors
     JoeyRow(label, modifier = modifier, enabled = note == null, onFocused = onFocused, trailing = { f ->
         if (note != null) Text(note, style = JoeyTheme.type.small, color = c.textFaint)

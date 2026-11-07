@@ -57,7 +57,33 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private var switching = false
     private val mine get() = !switching && (owner == null || owner === this)
 
-    private fun hasRom(i: Intent?) = i?.data != null || i?.getStringExtra("rom") != null || i?.getStringExtra(EXTRA_ROM_PATH) != null
+    private fun hasRom(i: Intent?) = i?.data != null || (devBuild && i?.getStringExtra("rom") != null) || i?.getStringExtra(EXTRA_ROM_PATH) != null
+
+    /**
+     * Debug builds only: the adb switches (--es env/opts/cheats/driver/renderer/rom, --ez sharp/sharp2/nocap,
+     * test.z64). This activity takes ROMs from other apps, and those must not set the process environment, core
+     * options or cheats of a release build (code audit 2026-11-07).
+     */
+    private val devBuild get() = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+    private fun devString(name: String): String? = if (devBuild) intent?.getStringExtra(name) else null
+    private fun devFlag(name: String): Boolean = devBuild && intent?.getBooleanExtra(name, false) == true
+
+    /** A save name as a file name only: a "/" or ".." in one handed over put the save outside saves/. */
+    private fun cleanSaveName(name: String) = name.replace('/', '_').replace('\\', '_').let { if (it == "." || it == "..") "_" else it }
+
+    /**
+     * The ROM switchGame or a settings restart handed over (EXTRA_ROM_PATH, EXTRA_SAVE_NAME). Other apps can send
+     * these extras too, so a release build takes only a ROM in Joey64's own cache, where both unpack it.
+     */
+    private fun handedRom(): Pair<String, String>? {
+        val path = intent?.getStringExtra(EXTRA_ROM_PATH) ?: return null
+        if (!devBuild) {
+            val cache = cacheDir.canonicalFile.path + File.separator
+            val f = try { File(path).canonicalFile.path } catch (e: java.io.IOException) { null }
+            if (f == null || !f.startsWith(cache)) { JLog.e(TAG, "handed ROM outside Joey64's cache, not loaded: $path"); return null }
+        }
+        return path to cleanSaveName(intent?.getStringExtra(EXTRA_SAVE_NAME) ?: "")
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -88,7 +114,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
         // Dev: --es env "PARALLEL_RDP_UBERSHADER=1,KEY=value" (process environment, read by the core).
         // Set before setupGpu: the driver hooks (N64_KGSL_PRIO) read it while the custom driver loads
-        intent?.getStringExtra("env")?.split(',')?.forEach { kv ->
+        devString("env")?.split(',')?.forEach { kv ->
             val (k, v) = kv.split('=', limit = 2).takeIf { it.size == 2 } ?: return@forEach
             android.system.Os.setenv(k.trim(), v.trim(), true)
         }
@@ -138,26 +164,26 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (renderer == "parallel") playUpscale = capUpscaling(UPSCALE_KEY, vApply.coreOptions[UPSCALE_KEY] ?: "1x")
         if (vApply.sharpScale) NativeBridge.setSharp(true)
         applyVideoDisplay()
-        devSharp = intent?.getBooleanExtra("sharp2", false) == true || intent?.getBooleanExtra("sharp", false) == true
+        devSharp = devFlag("sharp2") || devFlag("sharp")
         // Sharp display (opt-in; the native look stays the default): the VI's anti-aliasing and bilinear
         // blur off, and a sharp-bilinear final scale. Dev: --ez sharp true, until the settings screen exists.
         // --ez sharp2 true (experiment, Joey 2026-11-05): Sharp plus the VI dither filter off. That filter blurs the
         // games' dither pattern away and is most of the native softness (Flip screenshots: edge contrast +28% with it
         // off, +9% for VI AA off); the price is the dither grain showing on flat surfaces.
-        val sharp2 = intent?.getBooleanExtra("sharp2", false) == true
-        if (sharp2 || intent?.getBooleanExtra("sharp", false) == true) {
+        val sharp2 = devFlag("sharp2")
+        if (sharp2 || devFlag("sharp")) {
             NativeBridge.setOption("mupen64plus-parallel-rdp-vi-aa", "False")
             NativeBridge.setOption("mupen64plus-parallel-rdp-vi-bilinear", "False")
             if (sharp2) NativeBridge.setOption("mupen64plus-parallel-rdp-dither-filter", "False")
             NativeBridge.setSharp(true)
         }
         // Dev: --es opts "mupen64plus-parallel-rdp-synchronous=False,key=value"
-        intent?.getStringExtra("opts")?.split(',')?.forEach { kv ->
+        devString("opts")?.split(',')?.forEach { kv ->
             val (k, v) = kv.split('=', limit = 2).takeIf { it.size == 2 } ?: return@forEach
             NativeBridge.setOption(k.trim(), capUpscaling(k.trim(), v.trim()))
         }
         // Dev: --es cheats "D11E3184 2881,811E3184 2001;<next cheat>"
-        intent?.getStringExtra("cheats")?.split(';')?.filter { it.isNotBlank() }?.forEach { NativeBridge.addCheat(it) }
+        devString("cheats")?.split(';')?.filter { it.isNotBlank() }?.forEach { NativeBridge.addCheat(it) }
         if (!NativeBridge.loadCore(coreFile.absolutePath, sys.absolutePath, saves.absolutePath)) {
             JLog.e(TAG, "Core failed to load: $coreFile"); finish()
         }
@@ -350,7 +376,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             else -> null
         }
         val dev = devDriver()
-        val lib = dev ?: when (intent?.getStringExtra("driver") ?: videoDriver) {
+        val lib = dev ?: when (devString("driver") ?: videoDriver) {
             "system" -> null
             "turnip" -> bundledDriver(TURNIP)
             "faux123" -> bundledDriver(TURNIP_FAUX123)
@@ -385,14 +411,14 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // files/drivers counts: it is what Auto uses then).
         val prefs = getSharedPreferences("device", MODE_PRIVATE).edit()
         prefs.putString("auto_renderer", if (parallel) "parallel" else "gliden64")
-        if (intent?.getStringExtra("driver") == null && videoDriver == null) prefs.putString("driver", when {
+        if (devString("driver") == null && videoDriver == null) prefs.putString("driver", when {
             custom == null -> "system"
             dev != null -> "custom"
             lib?.parentFile?.name == "faux123" -> "faux123"
             else -> "turnip"
         })
         prefs.apply()
-        intent?.getStringExtra("renderer")?.let { return it }
+        devString("renderer")?.let { return it }
         // Settings › Video › Renderer: parallel-RDP only where it can start (Vulkan 1.1 with 16-bit storage), else
         // the core crashes; it may still draw wrong on a stock Adreno driver, which is the user's choice there.
         return when (video[com.joeysretro.joey64.video.VideoKey.Renderer]) {
@@ -556,8 +582,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     /** The save name the launcher gave, or the one the ROM's file name makes, before the ROM is read (null: the dev path). */
     private fun earlySaveName(): String? {
         val i = intent ?: return null
-        i.getStringExtra(EXTRA_SAVE_NAME)?.takeIf { it.isNotEmpty() }?.let { return it }
-        val file = i.getStringExtra(EXTRA_SOURCE_NAME) ?: i.getStringExtra("rom") ?: i.data?.let { displayName(it) } ?: return null
+        i.getStringExtra(EXTRA_SAVE_NAME)?.takeIf { it.isNotEmpty() }?.let { return cleanSaveName(it) }
+        val file = i.getStringExtra(EXTRA_SOURCE_NAME) ?: (if (devBuild) i.getStringExtra("rom") else null) ?: i.data?.let { displayName(it) } ?: return null
         return saveName(file)
     }
 
@@ -581,7 +607,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (key != UPSCALE_KEY) return value
         val f = value.removeSuffix("x").toIntOrNull() ?: return value
         // Dev: --ez nocap true lifts the caps, to try other drivers
-        if (intent?.getBooleanExtra("nocap", false) == true) return value
+        if (devFlag("nocap")) return value
         var top = if ("Adreno (TM) 722" in gpuName) 2 else 8
         if (storageRangeMb > 0) while (top > 1 && 8 * top * top > storageRangeMb) top /= 2
         if (f <= top) return value
@@ -628,7 +654,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
      */
     private fun resolveRom(): Pair<String, String>? {
         // Handed over by switchGame from the process before this one: the ROM is already unpacked.
-        intent?.getStringExtra(EXTRA_ROM_PATH)?.let { return it to (intent.getStringExtra(EXTRA_SAVE_NAME) ?: "") }
+        if (intent?.hasExtra(EXTRA_ROM_PATH) == true) return handedRom()
         intent?.data?.let { uri ->
             val inner = copyToCache(uri) ?: run { JLog.e(TAG, "No N64 ROM in $uri"); return null }
             if (inner.isNotEmpty()) JLog.i(TAG, "ROM $inner from archive $uri")
@@ -637,7 +663,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // Some Android 11 devices (Retroid Pocket Flip) block adb from Android/data: there, copy the
         // ROM into internal storage with run-as instead.
         val dirs = listOfNotNull(getExternalFilesDir(null), filesDir)
-        intent?.getStringExtra("rom")?.let { name ->
+        devString("rom")?.let { name ->
             val rom = dirs.map { File(it, "roms/$name") }.firstOrNull { it.exists() }
                 ?: run { JLog.e(TAG, "ROM $name not found in roms/"); return null }
             if (!RomFiles.isArchive(rom.inputStream().use { i -> ByteArray(4).also { i.read(it) } }))
@@ -647,6 +673,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             JLog.i(TAG, "ROM $inner from archive $name")
             return romCache.absolutePath to saveName(rom.name)
         }
+        if (!devBuild) return null
         return dirs.map { File(it, "test.z64") }.firstOrNull { it.exists() }?.let { it.absolutePath to "" }
     }
 

@@ -79,6 +79,8 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
     val inDetails = popup == GamePopup.Details
     // Achievements only while signed in to RetroAchievements (approved: no signed-out state).
     val signedIn = com.joeysretro.joey64.achievements.RaBridge.account.collectAsState().value != null
+    // Game settings' value (approved mockup 2026-11-07): "3 changed" or "Same as All games".
+    val gameSettings by produceState<String?>(null, game.id) { value = model.gameSettingsLabel(game) }
     JoeyDialog(
         onDismiss = { onPopup(null) },
         hints = when (popup) {
@@ -98,6 +100,7 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
                 GamePopup.Options -> {
                     JoeyOption("Play", modifier = Modifier.initialFocus()) { onPopup(null); onPlay() }
                     JoeyOption("Details") { onPopup(GamePopup.Details) }
+                    gameSettings?.let { JoeyOption("Game settings", value = "$it  ›") { onPopup(null); model.openGameSettings(game) } }
                     com.joeysretro.joey64.launcher.components.PopupDivider()
                     JoeyOption("Cheats", value = "›") { onPopup(null); model.openCheats(game) }
                     if (signedIn) JoeyOption("Achievements", value = "›") { onPopup(null); model.openAchievements(game) }

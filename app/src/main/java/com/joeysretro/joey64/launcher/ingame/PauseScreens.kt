@@ -57,9 +57,13 @@ sealed interface PauseScreen {
     /** The game's achievements over the paused game (Phase 7), on the row with [focusId] when a tap opened it. B goes back to the menu. */
     data class Achievements(val focusId: Int? = null) : PauseScreen
     data class Cheats(val game: com.joeysretro.joey64.launcher.screens.CheatsGame, /** "Select + L3", or null with no hotkey for it. */ val gameSharkKeys: String? = null) : PauseScreen
+    /** Game settings over the paused game (approved mockup 2026-11-07, screen 9) for [saveName]. B goes back to the menu. */
+    data class GameSettings(val saveName: String) : PauseScreen
+    /** Resuming after a row read only at start changed (screen 10): Restart now or Later. [subtitle] names the rows. */
+    data class Restart(val subtitle: String) : PauseScreen
 }
 
-enum class MenuRow { Resume, Save, Load, Controls, Cheats, Achievements }
+enum class MenuRow { Resume, Save, Load, GameSettings, Controls, Cheats, Achievements }
 
 /** One cell of the slot picker. [savedAt] null: nothing in the slot. [picture]: the PNG beside the state, if any. */
 data class SlotView(val slot: Int, val name: String, val savedAt: Long?, val picture: ImageBitmap?)
@@ -69,6 +73,13 @@ interface PauseActions {
     fun resume()
     fun openSave()
     fun openLoad()
+    fun openGameSettings()
+    /** Back from Game settings to the menu; what can change in game does now, the rest on Restart now or the next start. */
+    fun closeGameSettings()
+    /** The menu's Game settings value: "3 changed" or "Same as All games". */
+    val gameSettingsLabel: String get() = ""
+    fun restartNow()
+    fun restartLater()
     fun openControls()
     /** Back from Controls to the menu; what changed there takes effect when the game resumes. */
     fun closeControls()
@@ -100,6 +111,10 @@ interface PauseActions {
  */
 @Composable
 fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Long, actions: PauseActions) {
+    if (screen is PauseScreen.GameSettings) {
+        com.joeysretro.joey64.launcher.screens.InGameGameSettings(com.joeysretro.joey64.launcher.gamesettings.GameRef(screen.saveName, title)) { actions.closeGameSettings() }
+        return
+    }
     if (screen is PauseScreen.Controls) {
         com.joeysretro.joey64.launcher.screens.InGameControls(screen.saveName, title) { actions.closeControls() }
         return
@@ -114,13 +129,17 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
         return
     }
     val picker = screen as? PauseScreen.Picker
-    val hints = if (picker == null) listOf(Hint("A", "Select"), Hint("B", "Resume"))
-        else listOf(Hint("A", if (picker.save) "Save" else "Load"), Hint("D-pad", "Move"), Hint("B", "Back"))
+    val restart = screen as? PauseScreen.Restart
+    val hints = when {
+        restart != null -> listOf(Hint("A", "Select"), Hint("B", "Later"))
+        picker == null -> listOf(Hint("A", "Select"), Hint("B", "Resume"))
+        else -> listOf(Hint("A", if (picker.save) "Save" else "Load"), Hint("D-pad", "Move"), Hint("B", "Back"))
+    }
     JoeyDialog(
-        onDismiss = { actions.resume() },
+        onDismiss = { if (restart != null) actions.restartLater() else actions.resume() },
         hints = hints,
         interceptBack = { if (picker != null) { actions.backToMenu(if (picker.save) MenuRow.Save else MenuRow.Load); true } else false },
-        width = if (picker == null) 300.dp else 454.dp,
+        width = when { restart != null -> 470.dp; picker == null -> 300.dp; else -> 454.dp },
     ) {
         val landing = LocalFocusLanding.current
         LaunchedEffect(screen) { landing?.arm() }
@@ -131,6 +150,8 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
                 JoeyOption("Save state", Modifier.initialFocus(screen.from == MenuRow.Save), value = "$saveSlotName  ▸") { actions.openSave() }
                 JoeyOption("Load state", Modifier.initialFocus(screen.from == MenuRow.Load), value = "›") { actions.openLoad() }
                 PopupDivider()
+                JoeyOption("Game settings", Modifier.initialFocus(screen.from == MenuRow.GameSettings),
+                    value = androidx.compose.runtime.remember(screen) { actions.gameSettingsLabel } + "  ›") { actions.openGameSettings() }
                 JoeyOption("Controls", Modifier.initialFocus(screen.from == MenuRow.Controls), value = "›") { actions.openControls() }
                 JoeyOption("Cheats", Modifier.initialFocus(screen.from == MenuRow.Cheats), value = "›") { actions.openCheats() }
                 // Only when RetroAchievements knows the game (signed in, and it has a set).
@@ -142,7 +163,13 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
                 JoeyOption(actions.quitLabel) { actions.quit() }
             }
             is PauseScreen.Picker -> SlotGrid(screen, now) { actions.pick(screen.save, it) }
-            is PauseScreen.Controls, is PauseScreen.Cheats, is PauseScreen.Achievements -> {}
+            is PauseScreen.Restart -> Column {
+                PopupTitle("Restart to use the new settings?", screen.subtitle)
+                com.joeysretro.joey64.launcher.components.JoeyRow("Restart now", Modifier.initialFocus(),
+                    detail = "Saves to the auto slot, then starts again from there") { actions.restartNow() }
+                com.joeysretro.joey64.launcher.components.JoeyRow("Later", detail = "Keep playing as it is") { actions.restartLater() }
+            }
+            is PauseScreen.Controls, is PauseScreen.Cheats, is PauseScreen.Achievements, is PauseScreen.GameSettings -> {}
         }
     }
 }

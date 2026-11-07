@@ -69,14 +69,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             (getSystemService(POWER_SERVICE) as android.os.PowerManager).isSustainedPerformanceModeSupported)
         // Settings › Video for this game (All games, then its own rows), read before anything starts.
         video = com.joeysretro.joey64.video.VideoStore(this).forGame(earlySaveName())
-        // Fill the camera cutout: the window reaches behind it only when asked (it matters for Stretch).
-        window.attributes.layoutInDisplayCutoutMode = if (video.on(com.joeysretro.joey64.video.VideoKey.Cutout))
-            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_NEVER
-        requestedOrientation = when (video[com.joeysretro.joey64.video.VideoKey.Orientation]) {
-            "portrait" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-            "auto" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER
-            else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        }
+        videoAtStart = video
+        applyWindowVideo()
         // Render straight into the activity's window, like RetroArch's NativeActivity, not a SurfaceView:
         // Qualcomm's frame pacing library (libpenguin, vendor.perf.framepacing) hooks SurfaceView layers of
         // games and runs a 120 Hz vsync loop in our process (Duo: ~17 ms of CPU a second). The window's
@@ -108,6 +102,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             if (android.system.Os.getenv(k) == null) android.system.Os.setenv(k, v, true)
         // Driver and renderer by GPU (setupGpu), or Settings › Video's choice. Override with: am start ... --es renderer parallel|gliden64
         val renderer = setupGpu()
+        parallel = renderer == "parallel"
         NativeBridge.setRenderer(renderer == "parallel")
         onScreen = onScreenStore.read()
         // Settings > About shows the renderer the last game started with (the launcher can't probe Vulkan itself).
@@ -142,6 +137,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             vApply.coreOptions["mupen64plus-parallel-rdp-upscaling"] ?: "1x") else "GLideN64 " + (vApply.coreOptions["mupen64plus-EnableNativeResFactor"] ?: "1") + "x"
         if (vApply.sharpScale) NativeBridge.setSharp(true)
         applyVideoDisplay()
+        devSharp = intent?.getBooleanExtra("sharp2", false) == true || intent?.getBooleanExtra("sharp", false) == true
         // Sharp display (opt-in; the native look stays the default): the VI's anti-aliasing and bilinear
         // blur off, and a sharp-bilinear final scale. Dev: --ez sharp true, until the settings screen exists.
         // --ez sharp2 true (experiment, Joey 2026-11-05): Sharp plus the VI dither filter off. That filter blurs the
@@ -416,8 +412,141 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         else -> "Turnip Gen8 V38"
     }
 
-    /** Settings › Video for the game this screen was started for (onCreate). */
+    /** Settings › Video for the game this screen was started for (onCreate), then as Game settings changes it in game. */
     private var video = com.joeysretro.joey64.video.VideoSettings.DEFAULTS
+    /** Video as the game started: the rows read only at start (VideoKey.AT_START) keep these values until a restart. */
+    private var videoAtStart = com.joeysretro.joey64.video.VideoSettings.DEFAULTS
+    private var audioAtStart: com.joeysretro.joey64.audio.AudioSettings? = null
+    private var parallel = false
+    /** --ez sharp / sharp2 (dev): they set the N64 filters themselves, so Game settings leaves those alone. */
+    private var devSharp = false
+    /** The ROM and save name the game started with, for Restart now. */
+    private var startRom: String? = null
+    private var startSave: String? = null
+    /** Start-only rows the restart question was already asked about (key to value), so it's asked once per change. */
+    private val restartAsked = HashMap<String, String>()
+
+    /** Fill the camera cutout (the window reaches behind it only when asked; it matters for Stretch) and Screen orientation. */
+    private fun applyWindowVideo() {
+        window.attributes = window.attributes.apply {
+            layoutInDisplayCutoutMode = if (video.on(com.joeysretro.joey64.video.VideoKey.Cutout))
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_NEVER
+        }
+        requestedOrientation = when (video[com.joeysretro.joey64.video.VideoKey.Orientation]) {
+            "portrait" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            "auto" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+            else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        }
+    }
+
+    /**
+     * Back from Game settings (approved mockup 2026-11-07, screen 9): Video and Audio read again. What
+     * can change while the game runs does now (the picture's shape, colour, sharpening, black frames,
+     * the N64 filters, cutout, orientation; volume, mute, mono, fast-forward sound); the rows read
+     * only at start (AT_START) keep the values the game started with until it starts again.
+     */
+    private fun applyGameSettings(saveName: String) {
+        val fresh = com.joeysretro.joey64.video.VideoStore(this).forGame(saveName)
+        val atStart = com.joeysretro.joey64.video.VideoKey.AT_START
+        val next = com.joeysretro.joey64.video.VideoSettings(fresh.values.filterKeys { it !in atStart } + videoAtStart.values.filterKeys { it in atStart })
+        val before = video
+        video = next
+        applyVideoDisplay()
+        applyWindowVideo()
+        if (!devSharp) {
+            val was = com.joeysretro.joey64.video.VideoApply.of(before, parallel)
+            val now = com.joeysretro.joey64.video.VideoApply.of(next, parallel)
+            val changed = now.coreOptions.filter { (k, v) -> was.coreOptions[k] != v }
+            if (changed.isNotEmpty()) {
+                NativeBridge.setOptionsLive(changed.keys.toTypedArray(), changed.map { (k, v) -> capUpscaling(k, v) }.toTypedArray())
+                JLog.i(TAG, "game settings: core options now ${changed}")
+            }
+            if (now.sharpScale != was.sharpScale) NativeBridge.setSharp(now.sharpScale)
+        }
+        val a = com.joeysretro.joey64.audio.AudioStore(this).forGame(saveName)
+        val start = audioAtStart ?: a
+        NativeBridge.setAudio(a.volume, a.on(com.joeysretro.joey64.audio.AudioKey.Mute), a.on(com.joeysretro.joey64.audio.AudioKey.Mono), a.ffMode, start.latencyMode)
+        JLog.i(TAG, "game settings: audio volume ${a.volume}, mute ${a.on(com.joeysretro.joey64.audio.AudioKey.Mute)}, ff sound ${a.ffMode}, latency kept ${start.latencyMode}; video aspect ${next[com.joeysretro.joey64.video.VideoKey.Aspect]}")
+    }
+
+    /** The start-only rows whose saved value differs from the one the game started with: name (value) for each, in row order. */
+    private fun pendingAtStart(saveName: String): List<Triple<String, String, String>> {
+        val out = ArrayList<Triple<String, String, String>>()
+        val v = com.joeysretro.joey64.video.VideoStore(this).forGame(saveName)
+        for (k in com.joeysretro.joey64.video.VideoKey.entries) {
+            if (k !in com.joeysretro.joey64.video.VideoKey.AT_START || v[k] == videoAtStart[k]) continue
+            out += Triple("v:" + k.name, startRowName(k.name), com.joeysretro.joey64.video.VideoChoices.label(k, v[k]))
+        }
+        val start = audioAtStart
+        if (start != null) {
+            val a = com.joeysretro.joey64.audio.AudioStore(this).forGame(saveName)
+            for (k in com.joeysretro.joey64.audio.AudioKey.entries) {
+                if (k !in com.joeysretro.joey64.audio.AudioKey.AT_START || a[k] == start[k]) continue
+                out += Triple("a:" + k.name, startRowName(k.name), com.joeysretro.joey64.audio.AudioChoices.label(k, a[k]))
+            }
+        }
+        return out
+    }
+
+    private fun startRowName(key: String) = when (key) {
+        "Driver" -> "GPU driver"; "Pacing" -> "Frame pacing"; "Thermal" -> "Thermal fallback"; "Supersample" -> "Supersampling"
+        "NativeTexLod" -> "Native texture detail"; "NativeTexRect" -> "Native 2D (TEX_RECT)"; "Apps" -> "Play alongside other apps"
+        else -> key
+    }
+
+    /**
+     * Resuming after Game settings changed a row read only at start (mockup screen 10): asks once per
+     * change whether to restart. True when the question is up instead of the game.
+     */
+    private fun askRestart(): Boolean {
+        val st = states ?: return false
+        val pending = pendingAtStart(st.saveName)
+        if (pending.isEmpty() || pending.all { (id, _, value) -> restartAsked[id] == value }) return false
+        for ((id, _, value) in pending) restartAsked[id] = value
+        val names = pending.map { (_, name, value) -> "$name ($value)" }
+        val list = if (names.size == 1) names[0] else names.dropLast(1).joinToString(", ") + " and " + names.last()
+        overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Restart("$list ${if (names.size == 1) "applies" else "apply"} when the game next starts.")
+        return true
+    }
+
+    /**
+     * Restart now: the auto slot is written, then the game screen starts again in a fresh process
+     * (RestartActivity, as switchGame) and loads it. The game's own screen is finished first, so Back
+     * from the new one goes where it went before (the library). Without a written state the game
+     * starts from the beginning.
+     */
+    private fun restartForSettings() {
+        val st = states ?: return
+        val rom = startRom ?: return
+        if (quitting) return
+        quitting = true
+        overlay?.screen = null
+        menuOpen = false
+        NativeBridge.pause(true)
+        stateHandler.removeCallbacks(recoveryTick)
+        stateHandler.post {
+            val saved = !startLoadFailed && st.save(StateSlots.AUTO)
+            if (saved) st.clearRecovery()
+            JLog.i(TAG, "game settings: restarting for the new settings, auto slot ${if (saved) "written" else "not written"}")
+            runOnUiThread {
+                val next = Intent(this, MainActivity::class.java).apply {
+                    intent.extras?.let { putExtras(it) }
+                    removeExtra("rom")
+                    intent.data?.let { d ->
+                        if (!hasExtra(EXTRA_SOURCE_URI)) putExtra(EXTRA_SOURCE_URI, d.toString())
+                        if (!hasExtra(EXTRA_SOURCE_NAME)) displayName(d)?.let { putExtra(EXTRA_SOURCE_NAME, it) }
+                    }
+                    putExtra(EXTRA_ROM_PATH, rom)
+                    putExtra(EXTRA_SAVE_NAME, startSave ?: st.saveName)
+                    if (saved) putExtra(EXTRA_LOAD_STATE, STATE_AUTO) else removeExtra(EXTRA_LOAD_STATE)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                if (owner === this) { NativeBridge.stop(); owner = null }
+                finish()
+                RestartActivity.restart(this, next)
+            }
+        }
+    }
 
     /** The save name the launcher gave, or the one the ROM's file name makes, before the ROM is read (null: the dev path). */
     private fun earlySaveName(): String? {
@@ -552,6 +681,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         NativeBridge.setSurface(holder.surface)
         if (!started) {
             val (rom, saveName) = resolveRom() ?: run { JLog.e(TAG, "No ROM. Push one to ${getExternalFilesDir(null)}/test.z64"); return }
+            startRom = rom; startSave = saveName
             reportGameState(loading = true)
             applyControls(rom, saveName)
             applyCheats(rom, saveName)
@@ -767,7 +897,21 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         }
 
     private val pauseActions = object : com.joeysretro.joey64.launcher.ingame.PauseActions {
-        override fun resume() = closeMenu()
+        override fun resume() { if (!askRestart()) closeMenu() }
+        override fun openGameSettings() {
+            val st = states ?: return
+            overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.GameSettings(st.saveName)
+        }
+        override fun closeGameSettings() {
+            states?.let { applyGameSettings(it.saveName) }
+            reloadControls()
+            if (menuOpen) overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Menu(com.joeysretro.joey64.launcher.ingame.MenuRow.GameSettings)
+        }
+        override val gameSettingsLabel: String get() = states?.let {
+            com.joeysretro.joey64.launcher.gamesettings.GameSettingsModel(this@MainActivity).summary(it.saveName).label
+        } ?: ""
+        override fun restartNow() = restartForSettings()
+        override fun restartLater() = closeMenu()
         override fun openSave() = openPicker(save = true)
         override fun openLoad() = openPicker(save = false)
         override fun openControls() {
@@ -1273,6 +1417,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     /** Settings › Audio for this game (All games, then its own Volume and Latency), before the stream opens. */
     private fun applyAudio(saveName: String?) {
         val a = com.joeysretro.joey64.audio.AudioStore(this).forGame(saveName)
+        audioAtStart = a
         audioApps = a.on(com.joeysretro.joey64.audio.AudioKey.Apps)
         NativeBridge.setAudio(a.volume, a.on(com.joeysretro.joey64.audio.AudioKey.Mute), a.on(com.joeysretro.joey64.audio.AudioKey.Mono), a.ffMode, a.latencyMode)
         JLog.i(TAG, "audio settings: volume ${a.volume}, ff sound ${a.ffMode}, latency ${a.latencyMode}, play alongside other apps $audioApps")

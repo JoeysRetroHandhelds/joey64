@@ -158,7 +158,7 @@ These are actions other apps can bind that Joey64 can't.
 
 ## 9. Per-game overrides
 
-ARMSX2, Dolphin, Eden, FZ and RA let **every** setting above be set per game. Joey64 has per-game controls only, plus planned Picture and Texture pack. Per-game video, audio and emulation are listed under "Not in this plan".
+ARMSX2, Dolphin, Eden, FZ and RA let **every** setting above be set per game. Joey64 has per-game Controls, Video and Audio (Settings' game chip, or Game settings from the library and the pause menu, built 2026-11-07), plus planned Picture and Texture pack. Per-game video, audio and emulation are listed under "Not in this plan".
 
 ## Biggest gaps
 
@@ -391,7 +391,7 @@ Each item needs Joey's mockup first. The order puts what players miss most first
    - settings summary
    - position and size
    - pop-ups on or off by type
-5. **Game settings:**
+5. **Game settings.** **Built 2026-11-07** (launcher/phase0, `screens/GameSettingsScreen.kt`), as the approved mockup:
    - from the pause menu and from the library
    - changed marks with Reset to All games
    - copy to another game

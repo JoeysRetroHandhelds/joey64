@@ -348,6 +348,27 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
 
     fun closeCheats() { _cheatsFor.value = null }
 
+    private val _gameSettingsFor = MutableStateFlow<com.joeysretro.joey64.launcher.gamesettings.GameRef?>(null)
+    /** The game whose Game settings page is open in the library's place (a game's options › Game settings), or null. */
+    val gameSettingsFor: StateFlow<com.joeysretro.joey64.launcher.gamesettings.GameRef?> = _gameSettingsFor
+
+    fun openGameSettings(game: LibraryGame) {
+        viewModelScope.launch {
+            // The settings files are named like the game's save, as the game reads them.
+            val saveName = withContext(Dispatchers.IO) { launcher.saveNameFor(game) } ?: run {
+                JLog.e(TAG, "game settings: no readable file for ${game.title}"); return@launch
+            }
+            _gameSettingsFor.value = com.joeysretro.joey64.launcher.gamesettings.GameRef(saveName, game.title)
+        }
+    }
+
+    fun closeGameSettings() { _gameSettingsFor.value = null }
+
+    /** The options' Game settings value: "3 changed" or "Same as All games"; null when the game has no readable file. */
+    suspend fun gameSettingsLabel(game: LibraryGame): String? = withContext(Dispatchers.IO) {
+        launcher.saveNameFor(game)?.let { com.joeysretro.joey64.launcher.gamesettings.GameSettingsModel(getApplication<Application>()).summary(it).label }
+    }
+
     private val _achievementsFor = MutableStateFlow<com.joeysretro.joey64.launcher.screens.AchievementsGame?>(null)
     /** The game whose Achievements page is open in the library's place (a game's options › Achievements), or null. */
     val achievementsFor: StateFlow<com.joeysretro.joey64.launcher.screens.AchievementsGame?> = _achievementsFor

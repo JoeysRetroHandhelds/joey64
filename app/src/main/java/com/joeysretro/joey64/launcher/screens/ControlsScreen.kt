@@ -136,6 +136,11 @@ fun InGameControls(saveName: String, title: String, onClose: () -> Unit) {
     }
 }
 
+/** Controls set to one game, opened from Game settings at [player] (a changed "Player 2 · ..." row). B there goes back to Game settings. */
+@Composable
+fun GameControlsPage(saveName: String, title: String, player: Int, sink: ControlsSink, onHints: (List<Hint>) -> Unit) =
+    ControlsContent(game = saveName, gameTitle = title, inGame = false, sink = sink, onHints = onHints, startPlayer = player)
+
 private sealed interface Popup {
     data object Controller : Popup
     data object AutoConfirm : Popup
@@ -169,7 +174,7 @@ private const val CGROUP = "C"
 private val DEAD_ZONES = listOf(0, 5, 10, 15, 20, 25, 30)
 
 @Composable
-private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, sink: ControlsSink, onHints: (List<Hint>) -> Unit) {
+private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, sink: ControlsSink, onHints: (List<Hint>) -> Unit, startPlayer: Int = 0) {
     val context = LocalContext.current
     val c = JoeyTheme.colors
     val s = JoeyTheme.spacing
@@ -182,7 +187,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
     }
     var version by remember { mutableIntStateOf(0) }
     fun edit(block: () -> Unit) { block(); version++ }
-    var player by remember { mutableIntStateOf(0) }
+    var player by remember { mutableIntStateOf(startPlayer) }
     var hotkeysOpen by remember { mutableStateOf(false) }
     var popup by remember { mutableStateOf<Popup?>(null) }
     var focused by remember { mutableStateOf("Controller") }

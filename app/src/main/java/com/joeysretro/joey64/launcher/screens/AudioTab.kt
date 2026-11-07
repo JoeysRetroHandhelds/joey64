@@ -39,7 +39,9 @@ import com.joeysretro.joey64.launcher.controls.Control
  * differ; the other rows are greyed, being the same for every game. Y puts the focused row back.
  */
 @Composable
-fun AudioTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean)?) -> Unit, modifier: Modifier = Modifier) {
+fun AudioTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean)?) -> Unit, modifier: Modifier = Modifier,
+             /** Game settings' changed row to open at. */
+             start: AudioKey? = null) {
     val context = LocalContext.current
     val store = remember { AudioStore(context) }
     var version by remember { mutableIntStateOf(0) }
@@ -47,7 +49,7 @@ fun AudioTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
     val all = remember(version) { store.all() }
     val own = remember(version, target) { target?.let { store.game(it) } ?: emptyMap() }
     val a = AudioSettings.resolve(all, own)
-    var focused by remember { mutableStateOf(AudioKey.Volume) }
+    var focused by remember { mutableStateOf(start ?: AudioKey.Volume) }
     var volumeFocused by remember { mutableStateOf(false) } // the ◀ ▶ only while it really has focus
     var popup by remember { mutableStateOf<AudioKey?>(null) }
     val game = target != null
@@ -80,11 +82,11 @@ fun AudioTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
         Row(Modifier.weight(1f).fillMaxWidth().focusRestorer().focusGroup(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
             @Composable
             fun row(k: AudioKey, label: String) =
-                JoeyRow(label, value = AudioChoices.label(k, a[k]), sideways = true, enabled = !fixed(k),
+                JoeyRow(label, Modifier.initialFocus(start == k), value = AudioChoices.label(k, a[k]), sideways = true, enabled = !fixed(k),
                     dot = dot(k), onFocused = { if (it) focused = k }) { popup = k }
             Column(Modifier.weight(1f)) {
                 SectionLabel("Sound")
-                StepRow("Volume", "${a.volume}%", AudioChoices.volumeSteps, a.volume, volumeFocused, first = true,
+                StepRow("Volume", "${a.volume}%", AudioChoices.volumeSteps, a.volume, volumeFocused, first = start == null || start == AudioKey.Volume,
                     dot = dot(AudioKey.Volume), onFocused = { volumeFocused = it; if (it) focused = AudioKey.Volume }) { set(AudioKey.Volume, it.toString()) }
                 row(AudioKey.Mute, "Mute")
                 row(AudioKey.Mono, "Mono")

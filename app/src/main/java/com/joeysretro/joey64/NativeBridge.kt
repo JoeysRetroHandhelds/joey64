@@ -56,6 +56,9 @@ object NativeBridge {
     /** Before loadGame: override a core option (M3's profile DB will call this). */
     external fun setOption(key: String, value: String)
 
+    /** Core options for the running game (Game settings from the pause menu): the emulation thread takes them between frames, a paused game on resume. */
+    external fun setOptionsLive(keys: Array<String>, values: Array<String>)
+
     /** Before loadGame: GameShark code ("ADDRESS VALUE" pairs, any separator), applied at load. */
     external fun addCheat(code: String)
 

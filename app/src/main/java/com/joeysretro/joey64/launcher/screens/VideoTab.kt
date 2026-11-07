@@ -62,7 +62,9 @@ import kotlin.math.pow
  * the yellow dot, and Y puts the focused row back to All games.
  */
 @Composable
-fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean)?) -> Unit, modifier: Modifier = Modifier) {
+fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean)?) -> Unit, modifier: Modifier = Modifier,
+             /** Game settings' changed row to open at: a row id ("res", "col"), "adv:<row>" or "filters:<row>". */
+             start: String? = null) {
     val context = LocalContext.current
     val store = remember { VideoStore(context) }
     var version by remember { mutableIntStateOf(0) }
@@ -70,8 +72,19 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
     val all = remember(version) { store.all() }
     val own = remember(version, target) { target?.let { store.game(it) } ?: emptyMap() }
     val v = VideoSettings.resolve(all, own)
-    var focused by remember { mutableStateOf("res") }
-    var popup by remember { mutableStateOf<VPopup?>(null) }
+    val startRow = when {
+        start == null -> "res"
+        start.startsWith("adv:") || start.startsWith("filters:") -> "adv"
+        else -> start
+    }
+    var focused by remember { mutableStateOf(startRow) }
+    var popup by remember { mutableStateOf<VPopup?>(when {
+        start == "col" -> VPopup.Colour
+        start == "shp" -> VPopup.Sharpen
+        start?.startsWith("adv:") == true -> VPopup.Advanced(start.substringAfter(':'))
+        start?.startsWith("filters:") == true -> VPopup.Filters(start.substringAfter(':'))
+        else -> null
+    }) }
 
     fun set(changes: Map<VideoKey, String>) {
         if (target == null) store.saveAll(all + changes) else store.saveGame(target, own + changes)
@@ -102,10 +115,10 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
             Column(Modifier.weight(1f)) {
                 SectionLabel("Picture")
                 @Composable
-                fun row(id: String, label: String, k: VideoKey, first: Boolean = false) =
-                    JoeyRow(label, if (first) Modifier.initialFocus() else Modifier, value = VideoChoices.label(k, v[k]), sideways = true,
+                fun row(id: String, label: String, k: VideoKey) =
+                    JoeyRow(label, Modifier.initialFocus(startRow == id), value = VideoChoices.label(k, v[k]), sideways = true,
                         dot = dot(k), onFocused = { if (it) focused = id }) { popup = VPopup.Choice(k) }
-                row("res", "Resolution", VideoKey.Resolution, first = true)
+                row("res", "Resolution", VideoKey.Resolution)
                 row("asp", "Aspect ratio", VideoKey.Aspect)
                 row("int", "Integer scaling", VideoKey.Integer)
                 row("ori", "Screen orientation", VideoKey.Orientation)
@@ -114,14 +127,14 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
             Column(Modifier.weight(1f)) {
                 SectionLabel("Look")
                 val colourDefault = COLOUR_KEYS.all { v[it] == it.default }
-                JoeyRow("Colour", value = (if (colourDefault) "Default" else "Changed") + "  ›", sideways = true, dot = dot(*COLOUR_KEYS.toTypedArray()),
+                JoeyRow("Colour", Modifier.initialFocus(startRow == "col"), value = (if (colourDefault) "Default" else "Changed") + "  ›", sideways = true, dot = dot(*COLOUR_KEYS.toTypedArray()),
                     onFocused = { if (it) focused = "col" }) { popup = VPopup.Colour }
-                JoeyRow("Sharpening", value = sharpenValue(v), sideways = true, dot = dot(VideoKey.Sharpen, VideoKey.SharpenStrength),
+                JoeyRow("Sharpening", Modifier.initialFocus(startRow == "shp"), value = sharpenValue(v), sideways = true, dot = dot(VideoKey.Sharpen, VideoKey.SharpenStrength),
                     onFocused = { if (it) focused = "shp" }) { popup = VPopup.Sharpen }
-                JoeyRow("Black frame insertion", value = VideoChoices.label(VideoKey.Bfi, v[VideoKey.Bfi]), sideways = true, dot = dot(VideoKey.Bfi),
+                JoeyRow("Black frame insertion", Modifier.initialFocus(startRow == "bfi"), value = VideoChoices.label(VideoKey.Bfi, v[VideoKey.Bfi]), sideways = true, dot = dot(VideoKey.Bfi),
                     onFocused = { if (it) focused = "bfi" }) { popup = VPopup.Choice(VideoKey.Bfi) }
                 SectionLabel("Advanced")
-                JoeyRow("Renderer, driver, timing", value = "›", sideways = true, dot = dot(*ADVANCED_KEYS.toTypedArray()),
+                JoeyRow("Renderer, driver, timing", Modifier.initialFocus(startRow == "adv"), value = "›", sideways = true, dot = dot(*ADVANCED_KEYS.toTypedArray()),
                     onFocused = { if (it) focused = "adv" }) { popup = VPopup.Advanced("renderer") }
             }
         }
@@ -161,7 +174,7 @@ private sealed class VPopup {
     object Look : VPopup()
 }
 
-private fun sharpenValue(v: VideoSettings) = if (v[VideoKey.Sharpen] == "off") "Off"
+internal fun sharpenValue(v: VideoSettings) = if (v[VideoKey.Sharpen] == "off") "Off"
     else "${VideoChoices.label(VideoKey.Sharpen, v[VideoKey.Sharpen])} · ${v.int(VideoKey.SharpenStrength)}%"
 
 private fun describe(row: String, v: VideoSettings): Pair<String, String> = when (row) {
@@ -371,7 +384,7 @@ private fun AdvancedPopup(context: Context, v: VideoSettings, startRow: String, 
     val look = VideoChoices.look.firstOrNull { it.value == v.look }?.label ?: "Custom"
     JoeyDialog(onDismiss = onDismiss, width = 680.dp, hints = listOf(Hint("A", "Change"), Hint("B", "Back"))) {
         Column {
-            PopupTitle("Renderer, driver, timing", "Auto is right for most people. Changes apply when the game next starts.")
+            PopupTitle("Renderer, driver, timing", "Auto is right for most people. Renderer, GPU driver, frame pacing and thermal fallback apply when the game next starts.")
             Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                 Column(Modifier.weight(1f)) {
                     JoeyRow("Renderer", Modifier.initialFocus(startRow == "renderer"), value = auto(VideoKey.Renderer, renderer), sideways = true,

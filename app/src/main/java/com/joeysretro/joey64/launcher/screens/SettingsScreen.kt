@@ -106,16 +106,7 @@ fun SettingsScreen(updates: UpdateModel, onHints: (List<Hint>) -> Unit, onClose:
             Text("Settings", style = JoeyTheme.type.pageTitle, color = c.text, modifier = Modifier.weight(1f))
             if (perGame) PageChip((targetTitle ?: "All games") + "  ›", R.drawable.ic_sliders, on = target != null) { gamesPopup = 1 }
         }
-        Row(Modifier.padding(top = 6.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            for (t in SettingsTab.entries) {
-                val on = t == tab
-                Text(t.label, style = JoeyTheme.type.tab, color = if (on) c.text else c.textSecondary,
-                    modifier = Modifier
-                        .then(if (on) Modifier.background(c.chip, RoundedCornerShape(6.dp)) else Modifier)
-                        .pointerInput(t) { detectTapGestures { tab = t } }
-                        .padding(horizontal = 12.dp, vertical = 4.dp))
-            }
-        }
+        SettingsTabs(SettingsTab.entries.map { it.label }, tab.ordinal) { tab = SettingsTab.entries[it] }
         key(tab, target) {
             if (!perGame && tab != SettingsTab.OnScreen) tabControl = null
             when (tab) {
@@ -140,6 +131,21 @@ fun SettingsScreen(updates: UpdateModel, onHints: (List<Hint>) -> Unit, onClose:
             onPick = { save, title -> target = save; targetTitle = title; gamesPopup = 0 },
             onPickGame = { gamesPopup = 2 }, onRemoved = { videoStore.removeGame(it) })
         2 -> PickGamePopup("Its settings start as All games'.", { gamesPopup = 1 }) { save, title -> target = save; targetTitle = title; gamesPopup = 0 }
+    }
+}
+
+/** Settings' tab row (L1 / R1 move along it; a tap picks one), also Game settings' Video and Audio. */
+@Composable
+internal fun SettingsTabs(labels: List<String>, on: Int, onTap: (Int) -> Unit) {
+    val c = JoeyTheme.colors
+    Row(Modifier.padding(top = 6.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        labels.forEachIndexed { i, label ->
+            Text(label, style = JoeyTheme.type.tab, color = if (i == on) c.text else c.textSecondary,
+                modifier = Modifier
+                    .then(if (i == on) Modifier.background(c.chip, RoundedCornerShape(6.dp)) else Modifier)
+                    .pointerInput(i) { detectTapGestures { onTap(i) } }
+                    .padding(horizontal = 12.dp, vertical = 4.dp))
+        }
     }
 }
 

@@ -121,6 +121,24 @@ bool g_ffKeepSync = false;
 std::vector<std::string> g_cheats;
 std::mutex g_cheatsMutex;
 std::atomic<bool> g_cheatsChanged{false};
+// Core options changed while the game runs (Game settings from the pause menu): the UI thread queues
+// them here and the emulation thread moves them into g_optionOverrides between frames, since it reads
+// and writes that map itself (fast-forward) without a lock.
+std::vector<std::pair<std::string, std::string>> g_liveOptions;
+std::mutex g_liveOptionsMutex;
+std::atomic<bool> g_liveOptionsChanged{false};
+static void applyLiveOptions() {
+    std::vector<std::pair<std::string, std::string>> next;
+    {
+        std::lock_guard<std::mutex> lk(g_liveOptionsMutex);
+        next.swap(g_liveOptions);
+    }
+    for (auto& [k, v] : next) {
+        g_optionOverrides[k] = v;
+        LOGI("option override (live): %s = %s", k.c_str(), v.c_str());
+    }
+    if (!next.empty()) g_optionsDirty = true;
+}
 // Debug: RDRAM dump requested from the UI thread, written by the emulation thread between frames.
 std::mutex g_dumpMutex;
 std::string g_dumpPath;
@@ -801,6 +819,7 @@ void runLoop() {
         serveStateRequest(g_framesRun >= (uint32_t)stateReadyFrames(), false);
         if (g_portsChanged.exchange(false)) applyPorts(); // a controller given to a player mid-game
         if (g_cheatsChanged.exchange(false)) applyCheats(); // the Cheats page, from the pause menu
+        if (g_liveOptionsChanged.exchange(false)) applyLiveOptions(); // Game settings, from the pause menu
         applySurfaceIfChanged();
         bool hasWindow = g_vulkan ? g_vk.hasWindow() : g_egl.hasWindow();
         if (!hasWindow) { std::this_thread::sleep_for(std::chrono::milliseconds(16)); continue; }
@@ -1209,6 +1228,28 @@ JNIEXPORT void JNICALL JNI(addCheat)(JNIEnv* env, jobject, jstring code) {
         g_cheats.emplace_back(c);
     }
     env->ReleaseStringUTFChars(code, c);
+}
+
+// Core options for a running game (keys[i] = values[i]): taken between frames, a paused game's on resume.
+JNIEXPORT void JNICALL JNI(setOptionsLive)(JNIEnv* env, jobject, jobjectArray keys, jobjectArray values) {
+    std::vector<std::pair<std::string, std::string>> next;
+    jsize n = std::min(env->GetArrayLength(keys), env->GetArrayLength(values));
+    for (jsize i = 0; i < n; ++i) {
+        auto ks = (jstring)env->GetObjectArrayElement(keys, i);
+        auto vs = (jstring)env->GetObjectArrayElement(values, i);
+        const char* k = env->GetStringUTFChars(ks, nullptr);
+        const char* v = env->GetStringUTFChars(vs, nullptr);
+        next.emplace_back(k, v);
+        env->ReleaseStringUTFChars(ks, k);
+        env->ReleaseStringUTFChars(vs, v);
+        env->DeleteLocalRef(ks);
+        env->DeleteLocalRef(vs);
+    }
+    {
+        std::lock_guard<std::mutex> lk(g_liveOptionsMutex);
+        for (auto& kv : next) g_liveOptions.push_back(std::move(kv));
+    }
+    g_liveOptionsChanged = true;
 }
 
 // Replaces every cheat; a running game takes them between frames (a paused one when it resumes).

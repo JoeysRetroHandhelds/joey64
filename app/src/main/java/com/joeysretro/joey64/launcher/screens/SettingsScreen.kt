@@ -62,7 +62,7 @@ import com.joeysretro.joey64.launcher.update.UpdateModel.RowState
 import kotlinx.coroutines.delay
 
 /** The Settings tabs built so far, in the approved order (General, Audio and Library come with their pages). */
-enum class SettingsTab(val label: String) { Appearance("Appearance"), Video("Video"), RetroAchievements("RetroAchievements"), About("About") }
+enum class SettingsTab(val label: String) { Appearance("Appearance"), Video("Video"), Audio("Audio"), RetroAchievements("RetroAchievements"), About("About") }
 
 /**
  * Settings (approved Settings mockups, 2026-11-05). The tabs that are built, L1/R1 (or a tap)
@@ -77,14 +77,16 @@ fun SettingsScreen(updates: UpdateModel, onHints: (List<Hint>) -> Unit, onClose:
     val c = JoeyTheme.colors
     val s = JoeyTheme.spacing
     var tab by remember { mutableStateOf(SettingsTab.entries.first()) }
-    // Video's game ([GamesForPopup]): null = All games.
+    // Video's or Audio's game ([GamesForPopup]): null = All games.
     var target by remember { mutableStateOf<String?>(null) }
     var targetTitle by remember { mutableStateOf<String?>(null) }
-    var gamesPopup by remember { mutableStateOf(0) } // 1 = Video for, 2 = Pick a game
+    var gamesPopup by remember { mutableStateOf(0) } // 1 = Video for / Audio for, 2 = Pick a game
     // The open tab's own buttons (Video: Y), offered what Settings doesn't use itself.
     var tabControl by remember { mutableStateOf<((Control) -> Boolean)?>(null) }
     val context = LocalContext.current
     val videoStore = remember { com.joeysretro.joey64.video.VideoStore(context) }
+    val audioStore = remember { com.joeysretro.joey64.audio.AudioStore(context) }
+    val perGame = tab == SettingsTab.Video || tab == SettingsTab.Audio
     // Each tab lands focus on its first row as it opens.
     LaunchedEffect(tab) { landing?.arm() }
     DisposableEffect(Unit) {
@@ -102,7 +104,7 @@ fun SettingsScreen(updates: UpdateModel, onHints: (List<Hint>) -> Unit, onClose:
     Column(Modifier.fillMaxSize().padding(horizontal = s.margin).padding(top = 14.dp, bottom = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Settings", style = JoeyTheme.type.pageTitle, color = c.text, modifier = Modifier.weight(1f))
-            if (tab == SettingsTab.Video) PageChip((targetTitle ?: "All games") + "  ›", R.drawable.ic_sliders, on = target != null) { gamesPopup = 1 }
+            if (perGame) PageChip((targetTitle ?: "All games") + "  ›", R.drawable.ic_sliders, on = target != null) { gamesPopup = 1 }
         }
         Row(Modifier.padding(top = 6.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             for (t in SettingsTab.entries) {
@@ -115,17 +117,23 @@ fun SettingsScreen(updates: UpdateModel, onHints: (List<Hint>) -> Unit, onClose:
             }
         }
         key(tab, target) {
-            if (tab != SettingsTab.Video) tabControl = null
+            if (!perGame) tabControl = null
             when (tab) {
                 SettingsTab.Appearance -> AppearanceTab(onHints, Modifier.weight(1f))
                 SettingsTab.Video -> VideoTab(target, onHints, { tabControl = it }, Modifier.weight(1f))
+                SettingsTab.Audio -> AudioTab(target, onHints, { tabControl = it }, Modifier.weight(1f))
                 SettingsTab.RetroAchievements -> RaTab(onHints, Modifier.weight(1f))
                 SettingsTab.About -> AboutTab(updates, { onHints(it.dropLast(1) + Hint("L/R", "Tab") + it.last()) }, Modifier.weight(1f))
             }
         }
     }
     when (gamesPopup) {
-        1 -> GamesForPopup("Video for", "A game's own settings are used instead of All games when it starts.", target,
+        1 -> if (tab == SettingsTab.Audio) GamesForPopup("Audio for", "A game's own Volume and Latency are used instead of All games when it starts.", target,
+            gamesWithOwn = { audioStore.gamesWithOwn() }, changeCount = { audioStore.game(it)?.size ?: 0 },
+            removeLabel = "Remove the game's settings", onDismiss = { gamesPopup = 0 },
+            onPick = { save, title -> target = save; targetTitle = title; gamesPopup = 0 },
+            onPickGame = { gamesPopup = 2 }, onRemoved = { audioStore.removeGame(it) })
+        else GamesForPopup("Video for", "A game's own settings are used instead of All games when it starts.", target,
             gamesWithOwn = { videoStore.gamesWithOwn() }, changeCount = { videoStore.game(it)?.size ?: 0 },
             removeLabel = "Remove the game's settings", onDismiss = { gamesPopup = 0 },
             onPick = { save, title -> target = save; targetTitle = title; gamesPopup = 0 },

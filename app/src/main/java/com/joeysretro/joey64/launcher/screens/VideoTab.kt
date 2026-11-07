@@ -220,8 +220,8 @@ private fun ChoicePopup(k: VideoKey, current: String, onDismiss: () -> Unit, onP
 
 /** A row that changes its value with Left / Right (◀ value ▶ while focused), as fast-forward's Speed. */
 @Composable
-private fun StepRow(label: String, value: String, steps: List<Int>, current: Int, focused: Boolean, first: Boolean,
-                    enabled: Boolean = true, onFocused: (Boolean) -> Unit, onStep: (Int) -> Unit) {
+internal fun StepRow(label: String, value: String, steps: List<Int>, current: Int, focused: Boolean, first: Boolean,
+                     enabled: Boolean = true, dot: Boolean = false, onFocused: (Boolean) -> Unit, onStep: (Int) -> Unit) {
     JoeyRow(label, Modifier.initialFocus(first).onPreviewKeyEvent { e ->
         val n = e.nativeKeyEvent
         val step = when (n.keyCode) { KeyEvent.KEYCODE_DPAD_LEFT -> -1; KeyEvent.KEYCODE_DPAD_RIGHT -> 1; else -> 0 }
@@ -231,7 +231,7 @@ private fun StepRow(label: String, value: String, steps: List<Int>, current: Int
             onStep(steps[i.coerceIn(0, steps.lastIndex)])
         }
         true
-    }, value = if (focused && enabled) "◀ $value ▶" else value, enabled = enabled, sideways = true, onFocused = onFocused)
+    }, value = if (focused && enabled) "◀ $value ▶" else value, enabled = enabled, sideways = true, dot = dot, onFocused = onFocused)
 }
 
 /** Colour (mockup 3): the four values with Left / Right, the picture beside them showing the result. X resets all four. */

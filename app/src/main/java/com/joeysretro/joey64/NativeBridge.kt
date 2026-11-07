@@ -101,11 +101,15 @@ object NativeBridge {
      */
     external fun loadState(data: ByteArray, timeoutMs: Int): Boolean
 
-    /** Fast-forward: no vsync, audio muted, capped at 4x. */
+    /** Fast-forward: no vsync, capped at 4x; its sound follows setAudio (muted by default). */
     external fun setFastForward(on: Boolean)
 
     /** Fast-forward's speed in percent of normal (100 to 400; the thermal cap still applies). Any thread. */
     external fun setFastForwardSpeed(percent: Int)
+
+    /** Settings › Audio: volume 0-100, mute, mono, fast-forward sound (0 mute, 1 quieter, 2 full) apply at once;
+     *  latency (0 auto, 1 low, 2 safe) when the audio stream opens, so call it before loadGame. Any thread. */
+    external fun setAudio(volume: Int, mute: Boolean, mono: Boolean, ffSound: Int, latency: Int)
 
     /** RETRO_DEVICE_ID_JOYPAD_* bitmask for N64 [port] 0..3 (Controls, `PlayerInput.buttons`). */
     external fun setButtons(port: Int, mask: Int)

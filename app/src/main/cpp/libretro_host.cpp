@@ -103,6 +103,10 @@ std::atomic<bool> g_fastForward{false};
 // The user's fast-forward speed (Controls > Hotkeys > Fast-forward), or Adaptive's from the trigger, in
 // percent of normal; the thermal cap still applies on top.
 std::atomic<int> g_ffSpeedPct{400};
+// Settings › Audio's Fast-forward sound: 0 mute (as before), 1 quieter (half the loudness), 2 full.
+std::atomic<int> g_ffSound{0};
+// The speed fast-forward runs at now (speed setting under the thermal cap), for its sound.
+std::atomic<double> g_ffSpeedNow{1.0};
 // Benchmark (dev env N64_BENCH=1): no speed cap, vsync off, audio dropped, settings unchanged and every frame
 // presented, so the counter shows how fast the game could run: the headroom a full-speed game has.
 bool g_bench = false;
@@ -345,12 +349,17 @@ void video_refresh(const void* data, unsigned w, unsigned h, size_t) {
 }
 
 void audio_sample(int16_t l, int16_t r) {
-    if (g_fastForward || g_bench) return;
-    int16_t s[2] = {l, r}; g_audio.write(s, 1);
+    if (g_bench) return;
+    int16_t s[2] = {l, r};
+    if (g_fastForward) { if (int m = g_ffSound.load()) g_audio.writeFast(s, 1, g_ffSpeedNow.load(), m == 1 ? 0.25f : 1.0f); return; }
+    g_audio.write(s, 1);
 }
 size_t g_frameAudio = 0; // audio frames the core gave during this retro_run (N64_FRAME_TRACE)
 size_t audio_batch(const int16_t* d, size_t frames) {
-    if (!g_fastForward && !g_bench) g_audio.write(d, frames); // blocking write would throttle fast-forward
+    if (g_bench) return frames;
+    // A blocking write would throttle fast-forward: its sound (if any) goes through writeFast.
+    if (g_fastForward) { if (int m = g_ffSound.load()) g_audio.writeFast(d, frames, g_ffSpeedNow.load(), m == 1 ? 0.25f : 1.0f); }
+    else g_audio.write(d, frames);
     g_frameAudio += frames;
     return frames;
 }
@@ -818,6 +827,7 @@ void runLoop() {
         }
         if (ff) {
             const double speed = std::min(std::max(g_ffSpeedPct.load(), 100) / 100.0, (double)Thermal::fastForwardSpeed());
+            g_ffSpeedNow = speed;
             ffNext += std::chrono::microseconds((long long)(1e6 / (g_av.timing.fps * speed)));
             auto now = std::chrono::steady_clock::now();
             if (ffNext > now) std::this_thread::sleep_until(ffNext);
@@ -841,7 +851,9 @@ void runLoop() {
             // (New Tetris) ran at the panel rate on 120 Hz: 2x. 2% slack keeps it out of the way
             // of audio pacing and rate control.
             auto now = std::chrono::steady_clock::now();
-            capNext += std::chrono::microseconds((long long)(1e6 / (g_av.timing.fps * 1.02)));
+            // Dev: N64_SLOW_PCT=<n> caps the game at n% of full speed, as a device that can't keep up (time stretch test).
+            static const double capSpeed = getenv("N64_SLOW_PCT") ? std::clamp(atoi(getenv("N64_SLOW_PCT")), 10, 100) / 100.0 : 1.02;
+            capNext += std::chrono::microseconds((long long)(1e6 / (g_av.timing.fps * capSpeed)));
             if (capNext > now) std::this_thread::sleep_until(capNext);
             else if (now - capNext > std::chrono::milliseconds(50)) capNext = now; // behind: don't sprint
         }
@@ -1224,6 +1236,14 @@ JNIEXPORT void JNICALL JNI(setFastForward)(JNIEnv*, jobject, jboolean on) {
 
 JNIEXPORT void JNICALL JNI(setFastForwardSpeed)(JNIEnv*, jobject, jint percent) {
     g_ffSpeedPct = std::clamp((int)percent, 100, 400);
+}
+
+// Settings › Audio. Volume, mute, mono and fast-forward sound apply at once; latency when the stream
+// next opens (call before loadGame).
+JNIEXPORT void JNICALL JNI(setAudio)(JNIEnv*, jobject, jint volume, jboolean mute, jboolean mono, jint ffSound, jint latency) {
+    g_audio.setMix((int)volume, mute, mono);
+    g_audio.setLatencyMode(std::clamp((int)latency, 0, 2));
+    g_ffSound = std::clamp((int)ffSound, 0, 2);
 }
 
 JNIEXPORT jint JNICALL JNI(rumble)(JNIEnv*, jobject) {

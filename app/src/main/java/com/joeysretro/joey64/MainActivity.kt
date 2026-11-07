@@ -557,6 +557,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             reportGameState(loading = true)
             applyControls(rom, saveName)
             applyCheats(rom, saveName)
+            applyAudio(saveName)
             // RetroAchievements: signs in with the kept account first, so the game is identified as it loads.
             com.joeysretro.joey64.achievements.RaBridge.init(this)
             if (NativeBridge.loadGame(rom, saveName)) {
@@ -1259,10 +1260,42 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         return true
     }
 
+    /** Settings › Audio for this game (All games, then its own Volume and Latency), before the stream opens. */
+    private fun applyAudio(saveName: String?) {
+        val a = com.joeysretro.joey64.audio.AudioStore(this).forGame(saveName)
+        audioApps = a.on(com.joeysretro.joey64.audio.AudioKey.Apps)
+        NativeBridge.setAudio(a.volume, a.on(com.joeysretro.joey64.audio.AudioKey.Mute), a.on(com.joeysretro.joey64.audio.AudioKey.Mono), a.ffMode, a.latencyMode)
+        JLog.i(TAG, "audio settings: volume ${a.volume}, ff sound ${a.ffMode}, latency ${a.latencyMode}, play alongside other apps $audioApps")
+        requestAudioFocus()
+    }
+
+    // Play alongside other apps Off (the default): the game takes audio focus while it runs, so other apps'
+    // music or video pauses; given back on pause. On: no request, both mix.
+    private var audioApps = false
+    private var focusRequest: android.media.AudioFocusRequest? = null
+    private fun requestAudioFocus() {
+        if (audioApps || focusRequest != null) return
+        val am = getSystemService(AUDIO_SERVICE) as android.media.AudioManager
+        val req = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_GAME)
+                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
+            .setOnAudioFocusChangeListener { JLog.i(TAG, "audio focus change $it") }
+            .build()
+        val r = am.requestAudioFocus(req)
+        focusRequest = req
+        JLog.i(TAG, "audio focus requested: $r")
+    }
+    private fun abandonAudioFocus() {
+        val req = focusRequest ?: return
+        (getSystemService(AUDIO_SERVICE) as android.media.AudioManager).abandonAudioFocusRequest(req)
+        focusRequest = null
+    }
+
     override fun onPause() {
         super.onPause()
         if (!mine) return
         NativeBridge.pause(true)
+        abandonAudioFocus()
         // Leaving the game (quit, home, another app): its progress is kept while rc_client still has it.
         raCache?.keepNow()
         reportGameState(loading = false, playing = false)
@@ -1279,7 +1312,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         super.onResume()
         if (!mine) return
         if (!menuOpen) NativeBridge.pause(false)
-        if (started) reportGameState(loading = false)
+        if (started) { reportGameState(loading = false); requestAudioFocus() }
         fpsLastTime = 0L
         fpsHandler.post(fpsTick)
         resumed = true

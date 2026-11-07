@@ -88,6 +88,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             val (k, v) = kv.split('=', limit = 2).takeIf { it.size == 2 } ?: return@forEach
             android.system.Os.setenv(k.trim(), v.trim(), true)
         }
+        // KGSL GPU priority 1 for the bundled Turnip's contexts on the Odin 3 only (Joey 2026-11-07): +3.6% uncapped
+        // there (odin3-gpu2, 13 of 14 games up); flat on the Portal (portal-gpu2), so other devices keep the driver's
+        // own priority. Before setupGpu: the hook reads it as the driver loads. --es env N64_KGSL_PRIO= (empty) turns it off.
+        if (Build.MODEL == "Odin3" && android.system.Os.getenv("N64_KGSL_PRIO") == null)
+            android.system.Os.setenv("N64_KGSL_PRIO", "1", true)
         // Driver and renderer by GPU (setupGpu). Override with: am start ... --es renderer parallel|gliden64
         val renderer = setupGpu()
         NativeBridge.setRenderer(renderer == "parallel")

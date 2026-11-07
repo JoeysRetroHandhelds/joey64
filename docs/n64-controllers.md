@@ -75,7 +75,7 @@ Not controllers for Android:
 
 Every row not marked **Checked** needs a test on a real pad: connect it, press each button, and compare with the table. Joey64's dev log can show each key code as it arrives.
 
-Joey has none of these pads yet (2026-11-06), so the rows stay as they are until one turns up. Auto map ships with them anyway, and the one-press layout check catches a wrong row.
+Joey has none of these pads yet (2026-11-06), so the rows stay as they are until one turns up. Auto map uses them as they are; a wrong row is fixed by hand in Controls, and reported rows get corrected in the table.
 
 The rows that matter most:
 - the Switch Online N64 (both kernels)

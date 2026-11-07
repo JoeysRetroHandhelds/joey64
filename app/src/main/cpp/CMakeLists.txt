@@ -11,6 +11,7 @@ add_library(joey64host SHARED
     thermal.cpp
     joeylog.cpp
     vk_context.cpp
+    vk_post.cpp
     achievements.cpp)
 
 add_subdirectory(third_party/libadrenotools)

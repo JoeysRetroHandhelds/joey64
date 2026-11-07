@@ -12,6 +12,7 @@
 
 #include "libretro.h"
 #include "libretro_vulkan.h"
+#include "vk_post.h"
 
 // Vulkan frontend for libretro cores that render with RETRO_HW_CONTEXT_VULKAN (parallel-RDP).
 // Owns the instance, surface and swapchain; the device comes from the core's negotiation
@@ -169,6 +170,8 @@ private:
     VkFormat sharpFormat_ = VK_FORMAT_UNDEFINED;
     bool ensureSharpImage(uint32_t w, uint32_t h, VkFormat format);
     void destroySharpImage();
+    // Settings › Video's colour and sharpening (vk_post.h), only while one of them is changed.
+    VkPost post_;
 
     // State handed over by the core for the next video_refresh.
     retro_vulkan_image image_{};

@@ -359,7 +359,7 @@ Each needs a mockup from Joey first.
 
 Each item needs Joey's mockup first. The order puts what players miss most first, and what shares a screen together.
 
-1. **Settings › Video** (one tab, then the same rows per game):
+1. **Settings › Video** (one tab, then the same rows per game). **Built 2026-11-07** (launcher/phase0; `docs/launcher-build-plan.md`):
    - aspect
    - upscale
    - integer scaling

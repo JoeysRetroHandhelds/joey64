@@ -30,4 +30,17 @@ private:
     GLuint fbo_ = 0, color_ = 0, depth_ = 0;
     int fboW_ = 0, fboH_ = 0;
     int swapInterval_ = 1;
+
+    // Settings › Video's colour and sharpening (shaders/post_gl.frag): made on first use, only while
+    // one of them is changed. Passes: 0 colour only, 1 CAS, 2 FSR EASU (into mid), 3 FSR RCAS.
+    struct PostProg { GLuint prog = 0; GLint c[4], colour, extra, place, flip, src; };
+    PostProg post_[4];
+    GLuint postVao_ = 0, midTex_ = 0, midFbo_ = 0;
+    int midW_ = 0, midH_ = 0;
+    bool postFailed_ = false;
+    bool ensurePost();
+    bool ensureMid(int w, int h);
+    void drawPost(int pass, GLuint tex, int x, int y, int w, int h, bool flip, const uint32_t* c,
+                  const float* colour, const float* extra);
+    void destroyPost();
 };

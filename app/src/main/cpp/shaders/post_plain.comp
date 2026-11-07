@@ -1,0 +1,23 @@
+#version 450
+// Colour only (no sharpening): the core's picture scaled to the screen like the plain blit (linear),
+// or sharp-bilinear when the Sharp look is on (extra.z = the whole-number prescale, as the blit path).
+layout(local_size_x = 8, local_size_y = 8) in;
+#include "post_common.glsl"
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 outSize = imageSize(imgDst);
+    if (p.x >= outSize.x || p.y >= outSize.y) return;
+    vec2 size = pc.extra.xy;
+    vec2 uv = (vec2(p) + 0.5) / vec2(outSize);
+    float k = pc.extra.z;
+    if (k > 1.0) { // nearest to k times the size, then linear: only the pixel edges blend
+        vec2 texel = uv * size;
+        vec2 fl = floor(texel);
+        vec2 d = fract(texel) - 0.5;
+        float r = 0.5 - 0.5 / k;
+        uv = (fl + (d - clamp(d, -r, r)) * k + 0.5) / size;
+    }
+    vec3 c = textureLod(imgSrc, uv, 0.0).rgb;
+    imageStore(imgDst, p, vec4(applyColour(c), 1.0));
+}

@@ -393,13 +393,18 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (gpu != null && gpu.vulkan11 && gpu.storage16 != 1) JLog.w(TAG, "GPU ${gpu.name}: no 16-bit storage buffers, parallel-RDP can't run")
         JLog.i(TAG, "GPU: ${gpu ?: "no Vulkan"}, driver ${if (custom != null) lib!!.relativeTo(gpuDriverDir).path else "system"}, " +
             "default renderer ${if (parallel) "parallel" else "gliden64"}")
-        // Which driver ran, for Settings › Video's "Auto · ..." (the launcher can't probe Vulkan itself).
-        getSharedPreferences("device", MODE_PRIVATE).edit().putString("driver", when {
+        // What Auto picks here, for Settings › Video's "Auto · ..." (the launcher can't probe Vulkan itself):
+        // the renderer by GPU, and the driver that ran when nothing but Auto chose it (a dev driver in
+        // files/drivers counts: it is what Auto uses then).
+        val prefs = getSharedPreferences("device", MODE_PRIVATE).edit()
+        prefs.putString("auto_renderer", if (parallel) "parallel" else "gliden64")
+        if (intent?.getStringExtra("driver") == null && videoDriver == null) prefs.putString("driver", when {
             custom == null -> "system"
             dev != null -> "custom"
             lib?.parentFile?.name == "faux123" -> "faux123"
             else -> "turnip"
-        }).apply()
+        })
+        prefs.apply()
         intent?.getStringExtra("renderer")?.let { return it }
         // Settings › Video › Renderer: parallel-RDP only where it can start (Vulkan 1.1 with 16-bit storage), else
         // the core crashes; it may still draw wrong on a stock Adreno driver, which is the user's choice there.

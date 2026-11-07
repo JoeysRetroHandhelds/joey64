@@ -366,7 +366,7 @@ private fun AdvancedPopup(context: Context, v: VideoSettings, startRow: String, 
                           onOpen: (VideoKey, String) -> Unit, onFilters: () -> Unit) {
     var row by remember { mutableStateOf(startRow) }
     fun auto(k: VideoKey, pick: String?) = if (v[k] == "auto" && pick != null) "Auto · $pick" else VideoChoices.label(k, v[k])
-    val renderer = when (lastPick(context, "renderer")) { "parallel" -> "parallel-RDP"; "gliden64" -> "GLideN64"; else -> null }
+    val renderer = when (lastPick(context, "auto_renderer")) { "parallel" -> "parallel-RDP"; "gliden64" -> "GLideN64"; else -> null }
     val driver = when (lastPick(context, "driver")) { "turnip" -> "Turnip Gen8"; "faux123" -> "Turnip faux123"; "system" -> "System"; "custom" -> "Your own"; else -> null }
     val look = VideoChoices.look.firstOrNull { it.value == v.look }?.label ?: "Custom"
     JoeyDialog(onDismiss = onDismiss, width = 680.dp, hints = listOf(Hint("A", "Change"), Hint("B", "Back"))) {

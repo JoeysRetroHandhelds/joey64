@@ -251,6 +251,13 @@ bool VkContext::init(const retro_hw_render_context_negotiation_interface_vulkan*
     VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
     fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
     for (auto& f : frameFences_) vkCreateFence(device_, &fci, nullptr, &f);
+    static_assert(kSyncFrames == VkPost::kFrames, "present pass sets per frame");
+    VkPhysicalDeviceMemoryProperties memProps;
+    vkGetPhysicalDeviceMemoryProperties(gpu_, &memProps);
+    post_.setDevice(device_, memProps, vkGetDeviceProcAddr, [this] {
+        std::lock_guard<std::mutex> lk(queueMutex_);
+        vkQueueWaitIdle(queue_);
+    });
     const char* dupes = getenv("N64_SKIP_DUPES");
     skipDupes_ = !(dupes && *dupes == '0');
     // Black frame insertion presents every refresh (a frame, then black), so repeats can't be skipped.
@@ -573,18 +580,22 @@ void VkContext::present(bool newImage) {
         bool transfer = newImage && srcQueueFamily_ != VK_QUEUE_FAMILY_IGNORED && srcQueueFamily_ != queueFamily_;
         uint32_t fromFam = transfer ? srcQueueFamily_ : VK_QUEUE_FAMILY_IGNORED;
         uint32_t toFam = transfer ? queueFamily_ : VK_QUEUE_FAMILY_IGNORED;
-        VkImageLayout blitLayout = layout == VK_IMAGE_LAYOUT_GENERAL ? VK_IMAGE_LAYOUT_GENERAL
-                                                                     : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        imageBarrier(cmd, src, range, layout, blitLayout,
-                     VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT,
-                     VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                     fromFam, toFam);
-
         // Settings › Video: the shape (4:3, 16:9, stretch) and integer scaling, as the GLES path
         // (display_opts.h). Dev switch N64_ASPECT=W:H still wins.
         int32_t winW = (int32_t)dstExtent.width, winH = (int32_t)dstExtent.height;
         int32_t x, y, dstW, dstH;
         Display::fit(winW, winH, (int)imageW_, (int)imageH_, x, y, dstW, dstH);
+        // Colour or sharpening changed: the compute pass (vk_post.cpp) samples the picture into an
+        // image at the shown size, which is copied in; else the plain blit (no extra cost).
+        bool post = Display::opts().postOn() && image_.image_view && dstW > 0 && dstH > 0 &&
+                    post_.prepare((uint32_t)dstW, (uint32_t)dstH);
+        VkImageLayout blitLayout = layout == VK_IMAGE_LAYOUT_GENERAL ? VK_IMAGE_LAYOUT_GENERAL
+                                 : post ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        VkAccessFlags readAccess = post ? VK_ACCESS_SHADER_READ_BIT : VK_ACCESS_TRANSFER_READ_BIT;
+        VkPipelineStageFlags readStage = post ? VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT : VK_PIPELINE_STAGE_TRANSFER_BIT;
+        imageBarrier(cmd, src, range, layout, blitLayout,
+                     VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT,
+                     readAccess, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, readStage, fromFam, toFam);
         VkImageBlit blit{};
         blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, range.baseMipLevel, range.baseArrayLayer, 1};
         blit.srcOffsets[1] = {(int32_t)imageW_, (int32_t)imageH_, 1};
@@ -596,7 +607,20 @@ void VkContext::present(bool newImage) {
         // 640x480 at 1x on the Flip's 752-line screen, a plain linear 1.57x stretch.
         uint32_t kx = sharp_ ? std::max(1, (dstW + (int32_t)imageW_ - 1) / (int32_t)imageW_) : 1;
         uint32_t ky = sharp_ ? std::max(1, (dstH + (int32_t)imageH_ - 1) / (int32_t)imageH_) : 1;
-        if ((kx > 1 || ky > 1) && ensureSharpImage(imageW_ * kx, imageH_ * ky, image_.create_info.format)) {
+        if (post) {
+            VkImage out = VK_NULL_HANDLE;
+            post_.record(cmd, sync_, image_.image_view, blitLayout, imageW_, imageH_, (uint32_t)dstW, (uint32_t)dstH,
+                         std::max(kx, ky), &out);
+            VkImageBlit copy{};
+            copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            copy.srcOffsets[1] = {dstW, dstH, 1};
+            copy.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            copy.dstOffsets[0] = {x, y, 0};
+            copy.dstOffsets[1] = {x + dstW, y + dstH, 1};
+            // A blit, not a copy: the swapchain may be BGRA. Same size, so nearest is exact.
+            vkCmdBlitImage(cmd, out, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                           1, &copy, VK_FILTER_NEAREST);
+        } else if ((kx > 1 || ky > 1) && ensureSharpImage(imageW_ * kx, imageH_ * ky, image_.create_info.format)) {
             VkImageSubresourceRange whole{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
             // The previous frame's linear blit may still read it: wait for that before writing.
             imageBarrier(cmd, sharpImage_, whole, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -617,8 +641,8 @@ void VkContext::present(bool newImage) {
             vkCmdBlitImage(cmd, src, blitLayout, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
         }
 
-        imageBarrier(cmd, src, range, blitLayout, layout, VK_ACCESS_TRANSFER_READ_BIT, 0,
-                     VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, toFam, fromFam);
+        imageBarrier(cmd, src, range, blitLayout, layout, readAccess, 0,
+                     readStage, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, toFam, fromFam);
     }
 
     imageBarrier(cmd, dst, kColorRange, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
@@ -776,6 +800,7 @@ void VkContext::submitSkipped(bool newImage) {
 void VkContext::destroy() {
     if (!instance_) return;
     if (device_) vkDeviceWaitIdle(device_);
+    post_.destroy();
     destroySharpImage();
     destroySwapchain();
     if (surface_) vkDestroySurfaceKHR(instance_, surface_, nullptr);

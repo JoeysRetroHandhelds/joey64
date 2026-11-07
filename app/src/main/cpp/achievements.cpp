@@ -20,30 +20,16 @@
 
 extern "C" {
 #include "rc_client.h"
-
-// Java strings from rcheevos text (titles, descriptions, JSON). NewStringUTF takes modified UTF-8 only: a 4-byte
-// sequence (an emoji in an achievement title) aborts the app under CheckJNI (debug builds). This builds UTF-16
-// instead: 4-byte sequences become surrogate pairs, broken bytes U+FFFD.
-static jstring jstr(JNIEnv* env, const char* s) {
-    std::u16string out;
-    const unsigned char* p = reinterpret_cast<const unsigned char*>(s ? s : "");
-    while (*p) {
-        uint32_t c = *p;
-        int extra = c < 0x80 ? 0 : (c >> 5) == 6 ? 1 : (c >> 4) == 14 ? 2 : (c >> 3) == 30 ? 3 : -1;
-        if (extra < 0) { out.push_back(0xFFFD); ++p; continue; }
-        c &= extra == 0 ? 0x7F : extra == 1 ? 0x1F : extra == 2 ? 0x0F : 0x07;
-        int k = 1;
-        for (; k <= extra; ++k) { if ((p[k] & 0xC0) != 0x80) break; c = (c << 6) | (p[k] & 0x3F); }
-        if (k <= extra) { out.push_back(0xFFFD); p += k; continue; }
-        p += extra + 1;
-        if (c >= 0x10000) { c -= 0x10000; out.push_back(char16_t(0xD800 + (c >> 10))); out.push_back(char16_t(0xDC00 + (c & 0x3FF))); }
-        else out.push_back(char16_t(c));
-    }
-    return env->NewString(reinterpret_cast<const jchar*>(out.data()), (jsize)out.size());
-}
 #include "rc_api_request.h"
 #include "rhash/md5.h"
 #include "rc_api_runtime.h"
+}
+#include "utf16.h"
+
+// Java strings from rcheevos text (titles, descriptions, JSON), as UTF-16 (utf16.h says why).
+static jstring jstr(JNIEnv* env, const char* s) {
+    std::u16string out = utf8To16(s);
+    return env->NewString(reinterpret_cast<const jchar*>(out.data()), (jsize)out.size());
 }
 
 #define LOG_TAG "joey64ra"

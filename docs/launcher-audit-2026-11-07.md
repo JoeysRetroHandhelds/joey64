@@ -26,7 +26,7 @@ Tests: 245 unit tests pass. The branch is 9 commits ahead of main and 9 behind (
 2. **Built 2026-11-07 (Settings › Library).** **ROM folders can't be changed after first run.** No screen adds or removes a ROM folder once setup is done (same stop-gap tab).
 3. **Built 2026-11-07 (About's licences and credits; 24 entries).** **No licence list.** About shows only "GPL 3.0 or later". The APK ships Compose/AndroidX/Kotlin (Apache-2.0), Commons Compress and XZ, rcheevos (MIT), libadrenotools (BSD-2), FidelityFX (MIT), Turnip/Mesa (MIT), the core (GPL-2.0-or-later parts, parallel-RDP MIT, ares-derived ISC) and Rubik (OFL). Only six licence texts are in `assets/licenses` (FidelityFX, Commons, libretro-database, Mesa, Rubik, XZ), and none is shown in the app. The About and licences mockup is approved. Needed before any public build.
 4. **Built 2026-11-07.** **Has achievements** filter in Show: approved with Phase 5, waiting on Phase 7, which is now built.
-5. **Built 2026-11-07.** **Rumble for players 2-4**: `setRumble` returns false for any port but 0.
+5. **Built 2026-11-07** (not felt on a device yet: Star Fox 64's intro and demo never ran the motor, and players 2-4 need a second pad; tracked for Joey's hands). **Rumble for players 2-4**: `setRumble` returns false for any port but 0.
 6. **Built 2026-11-07.** **First-run screens 3-4** ("Where should Joey64 keep saves, states and screenshots?"): approved, and the data folder now works without the core change they waited for.
 7. **Built 2026-11-07.** **The import's "You can do this later in Settings" line** can come back now, pointing at Settings › Saves.
 

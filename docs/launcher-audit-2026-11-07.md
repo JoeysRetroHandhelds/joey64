@@ -7,7 +7,7 @@ Every phase in `docs/launcher-build-plan.md`, checked against the code on `launc
 | Phase | State | Open |
 |---|---|---|
 | 0 Groundwork | Built | Forced landscape still on MainActivity; 4:3 / square / portrait never checked; Android 10 SQLite unchecked |
-| 0b Updater | Built, install checked with Joey | Licences list, Source code row, credits (approved mockup); install-session fallback never exercised; repo still private |
+| 0b Updater | Built, install checked with Joey | (Licences list, Source code row, credits: built 2026-11-07); install-session fallback never exercised; repo still private |
 | 1 Library, first run | Built | First-run screens 3-4 (where saves go): the reason they waited is gone; "You can do this later in Settings" line; not on the other four devices |
 | 2 Box art | Built | (The download switches' row: built 2026-11-07, Settings › Library) |
 | 3 In game, states | Built | Rail label "Continue · game"; states loading in RetroArch untested |
@@ -24,7 +24,7 @@ Tests: 245 unit tests pass. The branch is 9 commits ahead of main and 9 behind (
 **Gaps in what's built:**
 1. **Built 2026-11-07 (Settings › Library).** **No way to turn box art or cheat downloads off or on.** The settings exist and are obeyed, but no screen shows them since Phase 2. The Cheats page even says "Downloading cheats is off in Settings › Library", a tab that doesn't exist (reachable only by restoring a backup with it off). Decision 3 already OK'd a stop-gap Library tab: ROM folders, the two switches (the data folder and Import now live in Saves).
 2. **Built 2026-11-07 (Settings › Library).** **ROM folders can't be changed after first run.** No screen adds or removes a ROM folder once setup is done (same stop-gap tab).
-3. **No licence list.** About shows only "GPL 3.0 or later". The APK ships Compose/AndroidX/Kotlin (Apache-2.0), Commons Compress and XZ, rcheevos (MIT), libadrenotools (BSD-2), FidelityFX (MIT), Turnip/Mesa (MIT), the core (GPL-2.0-or-later parts, parallel-RDP MIT, ares-derived ISC) and Rubik (OFL). Only six licence texts are in `assets/licenses` (FidelityFX, Commons, libretro-database, Mesa, Rubik, XZ), and none is shown in the app. The About and licences mockup is approved. Needed before any public build.
+3. **Built 2026-11-07 (About's licences and credits; 24 entries).** **No licence list.** About shows only "GPL 3.0 or later". The APK ships Compose/AndroidX/Kotlin (Apache-2.0), Commons Compress and XZ, rcheevos (MIT), libadrenotools (BSD-2), FidelityFX (MIT), Turnip/Mesa (MIT), the core (GPL-2.0-or-later parts, parallel-RDP MIT, ares-derived ISC) and Rubik (OFL). Only six licence texts are in `assets/licenses` (FidelityFX, Commons, libretro-database, Mesa, Rubik, XZ), and none is shown in the app. The About and licences mockup is approved. Needed before any public build.
 4. **Has achievements** filter in Show: approved with Phase 5, waiting on Phase 7, which is now built.
 5. **Rumble for players 2-4**: `setRumble` returns false for any port but 0.
 6. **First-run screens 3-4** ("Where should Joey64 keep saves, states and screenshots?"): approved, and the data folder now works without the core change they waited for.
@@ -32,7 +32,7 @@ Tests: 245 unit tests pass. The branch is 9 commits ahead of main and 9 behind (
 
 **Approved mockups not built yet** (each already approved; build order is Joey's):
 - Problem screens: game won't start, can't reach the ROMs folder, controller disconnected (pause and carry on), not enough space to save. (Crash recovery is built.)
-- About's licences and credits (item 3 above).
+- About's licences and credits (item 3 above). Built 2026-11-07.
 - N64 paks page rows: Rumble on, Rumble strength, Transfer Pak.
 - Save manager per game, Screenshot gallery.
 - Touch controls (layout, editor, settings page, portrait).

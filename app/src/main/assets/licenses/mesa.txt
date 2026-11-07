@@ -1,4 +1,4 @@
-Mesa 3D (Turnip: libvulkan_freedreno.so "Turnip Gen8 V38" by StevenMXZ; faux123/libvulkan_freedreno.so "Turnip faux123 v1.2.5" by faux123, github.com/faux123/turnip-faux123-driver): https://mesa3d.org
+Mesa 3D (Turnip: libvulkan_freedreno.so "Turnip Gen8 V38" by StevenMXZ; faux123/libvulkan_freedreno.so "Turnip faux123 v1.2.7" by faux123, github.com/faux123/turnip-faux123-driver): https://mesa3d.org
 
 License and Copyright
 =====================

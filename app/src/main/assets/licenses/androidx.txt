@@ -1,0 +1,3 @@
+The Kotlin standard library and kotlinx.coroutines (kotlinlang.org, JetBrains), Jetpack Compose and the AndroidX libraries (developer.android.com/jetpack, the Android Open Source Project): activity, core, datastore, documentfile, lifecycle, Compose UI, foundation and Material 3.
+
+Licensed under the Apache License 2.0, below.

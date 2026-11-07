@@ -2,6 +2,8 @@ package com.joeysretro.joey64.launcher.screens
 
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.core.net.toUri
 import androidx.compose.foundation.horizontalScroll
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -177,6 +179,8 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
     val testing by updates.testing.collectAsStateWithLifecycle()
     var focused by remember { mutableStateOf("chk") }
     var copied by remember { mutableStateOf(false) }
+    // The popup open over About: "oss" (the licences list) or "gpl" (Joey64's licence).
+    var open by remember { mutableStateOf<String?>(null) }
     // "Checked 10 minutes ago" stays true as time passes.
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { delay(30_000); now = System.currentTimeMillis() } }
@@ -186,6 +190,8 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
         onHints(when (focused) {
             "chk" -> if (row == RowState.Checking) listOf(Hint("B", "Back")) else listOf(Hint("A", "Check"), Hint("B", "Back"))
             "copy" -> listOf(Hint("A", "Copy"), Hint("B", "Back"))
+            "gpl", "oss" -> listOf(Hint("A", "Read"), Hint("B", "Back"))
+            "src" -> listOf(Hint("A", "Open"), Hint("B", "Back"))
             else -> listOf(Hint("B", "Back"))
         })
     }
@@ -203,20 +209,30 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
                 // A tap leaves nothing focused, and Compose won't focus a row in touch mode: back to
                 // controller mode, then focus goes to Check for updates, as the mockup shows.
                 VersionRow(updates, testing) { inputMode.requestInputMode(InputMode.Keyboard); landing?.arm() }
-                JoeyRow("Check for updates", modifier = Modifier.initialFocus(), onFocused = { if (it) focused = "chk" },
+                JoeyRow("Check for updates", modifier = Modifier.initialFocus(), sideways = true, onFocused = { if (it) focused = "chk" },
                     trailing = { f -> CheckValue(row, updates.lastCheck, now, f) }) { updates.checkNow() }
-                JoeyRow("Core", value = info.core, onFocused = { if (it) focused = "core" })
-                JoeyRow("Renderer", value = AboutInfo.renderer(context), onFocused = { if (it) focused = "rdr" })
-                JoeyRow("Device", value = info.device, onFocused = { if (it) focused = "dev" })
-                JoeyRow("Copy device info", value = if (copied) "Copied" else null, onFocused = { if (it) focused = "copy" }) {
+                JoeyRow("Core", value = info.core, sideways = true, onFocused = { if (it) focused = "core" })
+                JoeyRow("Renderer", value = AboutInfo.renderer(context), sideways = true, onFocused = { if (it) focused = "rdr" })
+                JoeyRow("Device", value = info.device, sideways = true, onFocused = { if (it) focused = "dev" })
+                JoeyRow("Copy device info", value = if (copied) "Copied" else null, sideways = true, onFocused = { if (it) focused = "copy" }) {
                     val clip = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     clip.setPrimaryClip(ClipData.newPlainText("Joey64 device info", AboutInfo.report(context, info)))
                     copied = true
                 }
             }
-            Column(Modifier.weight(1f)) {
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                 SectionLabel("Licence")
-                InfoRow("Joey64 is free software", "GPL 3.0 or later")
+                JoeyRow("Joey64 is free software", value = "GPL 3.0 or later ›", sideways = true, onFocused = { if (it) focused = "gpl" }) { open = "gpl" }
+                JoeyRow("Source code", value = "joey64 on GitHub ›", sideways = true, onFocused = { if (it) focused = "src" }) {
+                    try { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, "https://${JOEY64_LICENCE.url}".toUri())) }
+                    catch (e: Exception) { /* no browser */ }
+                }
+                SectionLabel("Credits")
+                JoeyRow("Open-source licences", value = "${OSS_ENTRIES.size} ›", sideways = true, onFocused = { if (it) focused = "oss" }) { open = "oss" }
+                JoeyRow("Box art", value = "libretro-thumbnails", sideways = true, onFocused = { if (it) focused = "art" })
+                JoeyRow("Game list", value = "No-Intro · libretro", sideways = true, onFocused = { if (it) focused = "db" })
+                JoeyRow("Cheats", value = "Project64 · RMG · FZ · libretro", sideways = true, onFocused = { if (it) focused = "cht" })
+                JoeyRow("Controllers", value = "SDL · RetroArch", sideways = true, onFocused = { if (it) focused = "ctl" })
                 // The notes of the release this build came from, kept when the updater downloaded it.
                 val notes = remember { AppUpdates.notes(context, updates.installed) }
                 if (!notes.isNullOrBlank()) {
@@ -233,9 +249,20 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
             "core" -> "Core" to "The emulator core this build runs: ${info.coreDetail}."
             "rdr" -> "Renderer" to "What draws the games on this device, picked when a game starts."
             "dev" -> "Device" to info.deviceDetail
+            "gpl" -> "Joey64 is free software" to "Under the GNU General Public License 3.0 or later: use it, share it, change it. Select to read it."
+            "src" -> "Source code" to "The code this build is made from: ${JOEY64_LICENCE.url}."
+            "oss" -> "Open-source licences" to "The projects Joey64 is built from, and the licence each one is under."
+            "art" -> "Box art" to "Covers come from libretro-thumbnails (thumbnails.libretro.com), downloaded once per game."
+            "db" -> "Game list" to "Game names from No-Intro's lists, through libretro-database."
+            "cht" -> "Cheats" to "From Project64, Rosalie's Mupen GUI, M64Plus FZ (retroben's codes) and libretro-database, each under its own licence."
+            "ctl" -> "Controllers" to "Auto map's controller table is built from SDL_GameControllerDB and RetroArch's joypad autoconfig."
             else -> "Copy device info" to "Copies the version, core, renderer and device, for a bug report."
         }
         DescriptionLine(title, text)
+    }
+    when (open) {
+        "oss" -> OssListPopup { open = null }
+        "gpl" -> LicenceTextPopup(JOEY64_LICENCE) { open = null }
     }
 }
 

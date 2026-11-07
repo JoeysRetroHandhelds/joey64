@@ -1,0 +1,49 @@
+Mupen64Plus-Core LICENSES
+-------------------------
+
+Mupen64Plus-Core is licensed under the GNU General Public License version 2.  Please see the
+included doc/gpl-license file for the terms and conditions of the GNU General Public License. 
+The authors of Mupen64Plus-Core are:
+  * Richard Goedeken (Richard42)
+  * Sven Eckelmann (ecsv)
+  * John Chadwick (NMN)
+  * James Hood (Ebenblues)
+  * Scott Gorman (okaygo)
+  * Scott Knauert (Tillin9)
+  * Jesse Dean (DarkJezter)
+  * Louai Al-Khanji (slougi)
+  * Bob Forder (orbitaldecay)
+  * Jason Espinosa (hasone)
+  * Bobby Smiles (bsmiles32)
+  * Dorian Fevrier (Narann)
+  * Richard Hender (ricrpi)
+  * Will Nayes (wnayes)
+  * Conchur Navid
+  * Gillou68310
+  * HyperHacker
+  * littleguy77
+  * Nebuleon
+  * and others.
+
+The core's files say: "This program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version."
+
+Mupen64Plus-rsp-hle LICENSE
+---------------------------
+The authors of Mupen64Plus-rsp-hle are:
+  * Richard Goedeken (Richard42)
+  * Bobby Smiles (bsmiles32)
+  * Sven Eckelmann (ecsv)
+  * John Chadwick (NMN)
+  * James Hood (Ebenblues)
+  * Scott Gorman (okaygo)
+  * Scott Knauert (Tillin9)
+  * Jesse Dean (DarkJezter)
+  * Louai Al-Khanji (slougi)
+  * Bob Forder (orbitaldecay)
+  * Jason Espinosa (hasone)
+  * HyperHacker
+  * and others.
+
+Mupen64Plus-Next (github.com/libretro/mupen64plus-libretro-nx), the libretro core Joey64's core is built from, by the libretro team and contributors, GPL 2.0. Joey64's core: github.com/JoeysRetroHandhelds/joey64-core.
+
+The pak table (which games use the Rumble Pak) is made from the core's mupen64plus.ini.

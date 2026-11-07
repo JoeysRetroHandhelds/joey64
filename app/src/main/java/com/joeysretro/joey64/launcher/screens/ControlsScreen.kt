@@ -163,6 +163,8 @@ private sealed interface Popup {
     data object Games : Popup
     data object PickGame : Popup
     data object Diagram : Popup
+    /** Start: Reset tab for the player on screen (approved mockup B, 2026-11-07). */
+    data object ResetPlayer : Popup
 }
 
 /** What a remap popup sets. */
@@ -228,6 +230,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             Control.TabNext -> { if (!hk) { player = (p + 1) % 4; open = emptySet() }; true }
             Control.Extra -> { edit { if (hk) clearHotkey(editor, row) else clearRow(editor, p, row) }; true }
             Control.Search -> { edit { if (hk) resetHotkey(editor, row) else resetRow(editor, p, row) }; true }
+            Control.Options -> { if (!hk && editor.shown.players[p].device != DeviceChoice.None) popup = Popup.ResetPlayer; true }
             else -> false
         }
     }
@@ -236,7 +239,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
     // ---- hints ----
     val backLabel = if (inGame) "Back to the pause menu" else "Back"
     LaunchedEffect(focused, hotkeysOpen, target, off) {
-        onHints(when {
+        onHints((when {
             hotkeysOpen -> listOf(Hint("A", if (focused == "hkFastForward" || focused == "hkQuit") "Open" else "Change"), Hint("X", "Clear"),
                 Hint("Y", "Reset to default"), Hint("B", "Back"))
             focused.startsWith("chip") -> listOf(Hint("A", "Select"), Hint("L/R", "Player"), Hint("B", backLabel))
@@ -248,7 +251,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             off -> listOf(Hint("L/R", "Player"), Hint("B", backLabel))
             else -> listOf(Hint("A", "Change"), Hint("X", "Clear"), Hint("Y", if (target == null) "Reset to default" else "Use All games"),
                 Hint("L/R", "Player"), Hint("B", backLabel))
-        })
+        }).let { if (hotkeysOpen || off) it else withResetHint(it) })
     }
 
     val landing = LocalFocusLanding.current
@@ -392,6 +395,18 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
         Popup.PickGame -> PickGamePopup("Its controls start as a copy of All games.", { popup = Popup.Games }) { save, title -> target = save; targetTitle = title; close() }
         Popup.Diagram -> JoeyDialog(onDismiss = close, hints = listOf(Hint("B", "Close")), width = 760.dp) {
             ControllerDiagram(player, deviceName(setup.device), setup, face)
+        }
+        Popup.ResetPlayer -> {
+            val who = "Player ${player + 1}"
+            val g = targetTitle ?: target
+            if (target == null) ResetTabPopup("Reset $who?", "$who's buttons, stick, dead zone, stick feel and pak go back to what Auto map gives " +
+                "${deviceName(setup.device)}. The controller and the hotkeys stay.", "Keep my settings", "Reset to defaults", close) {
+                edit { editor.resetPlayer(player) }; JLog.i(TAG, "reset tab: player ${player + 1}, All games"); close()
+            } else if (changed.isEmpty()) NothingToResetPopup("$who uses All games' controls", "$g has none of its own for $who.", close)
+            else ResetTabPopup("Use All games for $who?", "${changesGo(changed.size, "for $who in $g")}, and $who uses All games' controls again.",
+                "Keep its settings", "Use All games", close) {
+                edit { editor.resetPlayer(player) }; JLog.i(TAG, "reset tab: player ${player + 1}, a game"); close()
+            }
         }
     }
 }

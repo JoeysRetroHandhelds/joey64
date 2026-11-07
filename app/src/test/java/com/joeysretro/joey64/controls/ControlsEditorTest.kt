@@ -42,6 +42,32 @@ class ControlsEditorTest {
         assertTrue(store.gamesWithOwn().isEmpty())
     }
 
+    @Test fun resetPlayerPutsEveryRowBackAndKeepsTheController() {
+        val store = ControlsStore(tmp.root)
+        val e = ControlsEditor(store, null, byPos)
+        val before = e.shown.players[0]
+        e.set(0, before.with(N64Button.A, r1).copy(deadZone = 25, stick = StickSource.DPad))
+        e.setHotkeys(e.hotkeys.copy(button = KeyEvent.KEYCODE_BUTTON_THUMBL))
+        e.resetPlayer(0)
+        val after = store.all().players[0]
+        assertEquals(byPos(before).copy(device = before.device), after)
+        assertEquals(before.device, after.device)
+        assertEquals(KeyEvent.KEYCODE_BUTTON_THUMBL, store.hotkeys().button) // hotkeys aren't a player's
+    }
+
+    @Test fun resetPlayerOnAGameUsesAllGamesAndDropsTheFileWhenNothingIsLeft() {
+        val store = ControlsStore(tmp.root)
+        val e = ControlsEditor(store, "g", byPos)
+        e.set(0, e.shown.players[0].with(N64Button.Z, r1))
+        e.set(1, e.shown.players[1].copy(deadZone = 25))
+        e.resetPlayer(0)
+        assertTrue(e.changed(0).isEmpty())
+        assertEquals(setOf("DeadZone"), e.changed(1))
+        assertEquals(listOf("g"), store.gamesWithOwn())
+        e.resetPlayer(1)
+        assertTrue(store.gamesWithOwn().isEmpty())
+    }
+
     @Test fun pickingAnotherPlayersControllerSwapsTheTwo() {
         val store = ControlsStore(tmp.root)
         val e = ControlsEditor(store, null, byPos)

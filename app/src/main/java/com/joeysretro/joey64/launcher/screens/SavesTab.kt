@@ -61,7 +61,9 @@ import kotlinx.coroutines.withContext
  * A row that's working shows how far it is as its value, then what came of it.
  */
 @Composable
-fun SavesTab(onHints: (List<Hint>) -> Unit, onImport: () -> Unit, modifier: Modifier = Modifier, startRow: String = "quit") {
+fun SavesTab(onHints: (List<Hint>) -> Unit, onImport: () -> Unit, modifier: Modifier = Modifier, startRow: String = "quit",
+             /** A row is working (a backup, restore or move): Settings holds Start: Reset tab meanwhile. */
+             onBusy: (Boolean) -> Unit = {}) {
     val context = LocalContext.current
     val landing = LocalFocusLanding.current
     val scope = rememberCoroutineScope()
@@ -109,6 +111,7 @@ fun SavesTab(onHints: (List<Hint>) -> Unit, onImport: () -> Unit, modifier: Modi
         moveData(context, scope, tree.toString(), { show("folder", it) }) { folderTree = it }
     }
 
+    LaunchedEffect(busy) { onBusy(busy) }
     LaunchedEffect(focused, busy) {
         onHints(if (busy && status?.first == focused) listOf(Hint("L/R", "Tab"), Hint("B", "Back"))
             else listOf(Hint("A", "Change"), Hint("L/R", "Tab"), Hint("B", "Back")))

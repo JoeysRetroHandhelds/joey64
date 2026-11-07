@@ -102,6 +102,19 @@ class ControlsEditor(
         set(player, cur.copy(buttons = mapped.buttons))
     }
 
+    /**
+     * Start: Reset tab for [player] (approved mockup B, 2026-11-07): on All games every row goes back to what Auto
+     * map gives the player's controller; on a game the player uses All games' again (the game's file goes once no
+     * player differs). The controller stays. Hotkeys aren't a player's.
+     */
+    fun resetPlayer(player: Int) {
+        if (game == null) { set(player, defaultsFor(all.players[player])); return }
+        val o = own ?: return
+        val next = o.with(player, all.players[player])
+        if ((0..3).all { next.players[it].copy(device = all.players[it].device).differences(all.players[it]).isEmpty() }) removeGame(game)
+        else { own = next; store.saveGame(game, next) }
+    }
+
     /** X on the game chooser: the game goes back to All games. */
     fun removeGame(saveName: String) {
         store.removeGame(saveName)

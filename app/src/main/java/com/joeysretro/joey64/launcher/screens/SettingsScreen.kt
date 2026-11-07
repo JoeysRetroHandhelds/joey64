@@ -65,6 +65,8 @@ import com.joeysretro.joey64.launcher.update.AppUpdates
 import com.joeysretro.joey64.launcher.update.UpdateModel
 import com.joeysretro.joey64.launcher.update.UpdateModel.RowState
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import com.joeysretro.joey64.JLog
 
 /** The Settings tabs built so far, in the approved order (General, Audio and Library come with their pages). */
 enum class SettingsTab(val label: String) { Appearance("Appearance"), Video("Video"), Audio("Audio"), OnScreen("On screen"), Saves("Saves"), Library("Library"), RetroAchievements("RetroAchievements"), About("About") }
@@ -92,14 +94,25 @@ fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher
     val videoStore = remember { com.joeysretro.joey64.video.VideoStore(context) }
     val audioStore = remember { com.joeysretro.joey64.audio.AudioStore(context) }
     val perGame = tab == SettingsTab.Video || tab == SettingsTab.Audio
+    // Start: Reset tab (approved mockup B, 2026-11-07). Library, RetroAchievements and About have nothing to reset.
+    // Not while Saves runs a backup, restore or move: the tab is built again after a reset, which would stop it.
+    var savesBusy by remember { mutableStateOf(false) }
+    val resettable = tab in RESETTABLE && !(tab == SettingsTab.Saves && savesBusy)
+    var resetAsk by remember { mutableStateOf(false) }
+    // Bumped by a reset: the tab is built again and reads its settings anew.
+    var resetGen by remember { mutableIntStateOf(0) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     // Each tab lands focus on its first row as it opens.
     LaunchedEffect(tab) { landing?.arm() }
+    // A reset builds the tab again: focus lands on its first row, not the rail.
+    LaunchedEffect(resetGen) { if (resetGen > 0) landing?.arm() }
     DisposableEffect(Unit) {
         val handler: (Control) -> Boolean = { ctl ->
             val tabs = SettingsTab.entries
             when (ctl) {
                 Control.TabPrev -> { tab = tabs[(tab.ordinal + tabs.size - 1) % tabs.size]; true }
                 Control.TabNext -> { tab = tabs[(tab.ordinal + 1) % tabs.size]; true }
+                Control.Options -> { if (tab in RESETTABLE && !(tab == SettingsTab.Saves && savesBusy)) resetAsk = true; true }
                 else -> tabControl?.invoke(ctl) ?: false
             }
         }
@@ -112,14 +125,16 @@ fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher
             if (perGame) PageChip((targetTitle ?: "All games") + "  ›", R.drawable.ic_sliders, on = target != null) { gamesPopup = 1 }
         }
         SettingsTabs(SettingsTab.entries.map { it.label }, tab.ordinal) { tab = SettingsTab.entries[it] }
-        key(tab, target) {
+        key(tab, target, resetGen) {
             if (!perGame && tab != SettingsTab.OnScreen) tabControl = null
+            val hints: (List<Hint>) -> Unit = { onHints(if (resettable) withResetHint(it) else it) }
             when (tab) {
-                SettingsTab.Appearance -> AppearanceTab(onHints, Modifier.weight(1f))
-                SettingsTab.Video -> VideoTab(target, onHints, { tabControl = it }, Modifier.weight(1f))
-                SettingsTab.Audio -> AudioTab(target, onHints, { tabControl = it }, Modifier.weight(1f))
-                SettingsTab.OnScreen -> OnScreenTab(onHints, { tabControl = it }, Modifier.weight(1f))
-                SettingsTab.Saves -> SavesTab(onHints, onImport, Modifier.weight(1f), startRow ?: "quit")
+                SettingsTab.Appearance -> AppearanceTab(hints, Modifier.weight(1f))
+                SettingsTab.Video -> VideoTab(target, hints, { tabControl = it }, Modifier.weight(1f))
+                SettingsTab.Audio -> AudioTab(target, hints, { tabControl = it }, Modifier.weight(1f))
+                SettingsTab.OnScreen -> OnScreenTab(hints, { tabControl = it }, Modifier.weight(1f))
+                SettingsTab.Saves -> SavesTab({ h -> onHints(if (tab in RESETTABLE && !savesBusy) withResetHint(h) else h) }, onImport, Modifier.weight(1f),
+                    startRow ?: "quit", onBusy = { savesBusy = it })
                 SettingsTab.Library -> LibraryTab(library, onHints, Modifier.weight(1f))
                 SettingsTab.RetroAchievements -> RaTab(onHints, Modifier.weight(1f))
                 SettingsTab.About -> AboutTab(updates, { onHints(it.dropLast(1) + Hint("L/R", "Tab") + it.last()) }, Modifier.weight(1f))
@@ -139,7 +154,54 @@ fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher
             onPickGame = { gamesPopup = 2 }, onRemoved = { videoStore.removeGame(it) })
         2 -> PickGamePopup("Its settings start as All games'.", { gamesPopup = 1 }) { save, title -> target = save; targetTitle = title; gamesPopup = 0 }
     }
+    if (resetAsk) {
+        val close = { resetAsk = false }
+        fun done() { resetAsk = false; resetGen++; JLog.i("Joey64Settings", "reset tab ${tab.name}${if (target != null) " for a game" else ""}") }
+        val game = target
+        if (perGame && game != null) {
+            // A game picked in the chip: drop its own settings on this tab, as X on it in the chip's list does.
+            val name = targetTitle ?: game
+            val n = if (tab == SettingsTab.Video) videoStore.game(game)?.size ?: 0 else audioStore.game(game)?.size ?: 0
+            if (n == 0) NothingToResetPopup("$name uses All games' ${tab.label}", "It has no ${tab.label} settings of its own.", close)
+            else ResetTabPopup("Use All games for $name?", "${changesGo(n, "on this tab")}, and it uses All games' ${tab.label} again.",
+                "Keep its settings", "Use All games", close) {
+                if (tab == SettingsTab.Video) videoStore.removeGame(game) else audioStore.removeGame(game)
+                done()
+            }
+        } else {
+            val note = when (tab) {
+                SettingsTab.Video, SettingsTab.Audio -> "Every row goes back to its default for All games. Games with their own ${tab.label} settings keep them."
+                SettingsTab.OnScreen -> "Every row goes back to its default. The achievement pop-ups are RetroAchievements' too, so they change there as well."
+                SettingsTab.Saves -> "Every row goes back to its default. The data folder, your saves, states and backups stay as they are."
+                else -> "Every row goes back to its default."
+            }
+            ResetTabPopup("Reset ${tab.label}?", note, "Keep my settings", "Reset to defaults", close) {
+                when (tab) {
+                    SettingsTab.Appearance -> {
+                        val d = com.joeysretro.joey64.launcher.settings.LauncherSettings()
+                        val store = com.joeysretro.joey64.launcher.settings.SettingsStore(context)
+                        scope.launch { store.setTheme(d.theme); store.setPopupTheme(d.popupTheme) }
+                    }
+                    SettingsTab.Video -> videoStore.saveAll(emptyMap())
+                    SettingsTab.Audio -> audioStore.saveAll(emptyMap())
+                    SettingsTab.OnScreen -> {
+                        com.joeysretro.joey64.onscreen.OnScreenStore(context).save(com.joeysretro.joey64.onscreen.OnScreen())
+                        val dr = com.joeysretro.joey64.achievements.RaOptions()
+                        com.joeysretro.joey64.achievements.RaSettings.update(context) {
+                            it.copy(popUnlocks = dr.popUnlocks, popProgress = dr.popProgress, popSummary = dr.popSummary)
+                        }
+                    }
+                    SettingsTab.Saves -> com.joeysretro.joey64.saves.SavesStore(context).save(com.joeysretro.joey64.saves.SavesOptions())
+                    else -> {}
+                }
+                done()
+            }
+        }
+    }
 }
+
+/** The tabs Start resets (approved mockup B): the ones with settings of their own. */
+private val RESETTABLE = setOf(SettingsTab.Appearance, SettingsTab.Video, SettingsTab.Audio, SettingsTab.OnScreen, SettingsTab.Saves)
 
 /** Settings' tab row (L1 / R1 move along it; a tap picks one), also Game settings' Video and Audio. */
 @Composable

@@ -19,6 +19,9 @@ int64_t nowNs() {
 
 bool AudioOut::open(int srcRate) {
     std::lock_guard<std::mutex> lk(streamMutex_);
+    // A second open (another game in this process) closes the stream it had first.
+    if (stream_) { AAudioStream_requestStop(stream_); AAudioStream_close(stream_); stream_ = nullptr; }
+    stalled_ = false;
     srcRate_ = srcRate;
     paused_ = false;
     lost_ = false;
@@ -208,9 +211,12 @@ bool AudioOut::push(float s) {
     size_t next = (w + 1) % cap_;
     int spins = 0;
     while (next == r_.load(std::memory_order_acquire)) { // full: wait for consumer
-        if (lost_ || ++spins > 2000) return false;       // ~give up, avoid deadlock on pause
+        // Once a wait gave up, drop samples without waiting until the consumer moves again: a stream that stalls
+        // without reporting an error cost ~0.5 s on every write, so the game crawled.
+        if (lost_ || stalled_ || ++spins > 2000) { stalled_ = true; return false; } // ~give up, avoid deadlock on pause
         std::this_thread::sleep_for(std::chrono::microseconds(250));
     }
+    stalled_ = false;
     ring_[w] = s;
     w_.store(next, std::memory_order_release);
     return true;

@@ -1543,7 +1543,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         for (i in 0..3) {
             val p = controls.players[i]
             val pak = if (p.pak == Pak.Auto) PakDb.auto(rumbleGames, md5) else p.pak
-            if (pak != paks[i]) { paks[i] = pak; NativeBridge.setOption("mupen64plus-pak${i + 1}", pak.core!!) }
+            // Live: the game is loaded, and setOption writes the option table the emulation thread reads unlocked.
+            if (pak != paks[i]) { paks[i] = pak; NativeBridge.setOptionsLive(arrayOf("mupen64plus-pak${i + 1}"), arrayOf(pak.core!!)) }
         }
         JLog.i(TAG, "controls: changed in game, " + controls.players.mapIndexed { i, p -> "P${i + 1} ${deviceLabel(p.device)} (${paks[i].name})" }.joinToString(", "))
     }

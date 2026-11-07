@@ -346,6 +346,7 @@ bool VkContext::createSwapchain() {
 
     uint32_t fn = 0;
     vkGetPhysicalDeviceSurfaceFormatsKHR(gpu_, surface_, &fn, nullptr);
+    if (fn == 0) { LOGE("vulkan: the surface has no formats, no swapchain"); return false; } // formats[0] below
     std::vector<VkSurfaceFormatKHR> formats(fn);
     vkGetPhysicalDeviceSurfaceFormatsKHR(gpu_, surface_, &fn, formats.data());
     VkSurfaceFormatKHR fmt = formats[0];

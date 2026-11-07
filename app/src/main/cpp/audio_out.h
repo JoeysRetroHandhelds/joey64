@@ -53,6 +53,7 @@ private:
     void reopenIfLost();
     std::mutex streamMutex_;  // stream_ lifetime vs setPaused (UI thread)
     std::atomic<bool> lost_{false};
+    bool stalled_ = false;    // push gave up on a full ring; the emulation thread's own (push, open)
     bool paused_ = false;
     int srcRate_ = 0;
     int64_t retryNs_ = 0;     // when to try opening again after a failed reopen (0 = not failed)

@@ -1125,7 +1125,13 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
     const char* p = env->GetStringUTFChars(rom, nullptr);
     FILE* f = fopen(p, "rb");
     std::vector<uint8_t> buf;
-    if (f) { fseek(f, 0, SEEK_END); buf.resize(ftell(f)); fseek(f, 0, SEEK_SET); fread(buf.data(), 1, buf.size(), f); fclose(f); }
+    if (f) {
+        // A failed ftell (-1) became a huge resize, and a short read left zeros counted as ROM.
+        long n = fseek(f, 0, SEEK_END) == 0 ? ftell(f) : -1;
+        if (n > 0 && fseek(f, 0, SEEK_SET) == 0) { buf.resize((size_t)n); buf.resize(fread(buf.data(), 1, buf.size(), f)); }
+        if (buf.empty()) LOGE("can't read the ROM %s", p);
+        fclose(f);
+    }
     // Sync by default on Adreno (MainActivity). Elsewhere, games that break with async parallel-RDP (their
     // CPU reads the framebuffer, which async can serve stale): Pokemon Snap
     // (photo checks), The New Tetris (async: halts on a "secret cheat, power off" screen after ~10 s),

@@ -20,6 +20,27 @@
 
 extern "C" {
 #include "rc_client.h"
+
+// Java strings from rcheevos text (titles, descriptions, JSON). NewStringUTF takes modified UTF-8 only: a 4-byte
+// sequence (an emoji in an achievement title) aborts the app under CheckJNI (debug builds). This builds UTF-16
+// instead: 4-byte sequences become surrogate pairs, broken bytes U+FFFD.
+static jstring jstr(JNIEnv* env, const char* s) {
+    std::u16string out;
+    const unsigned char* p = reinterpret_cast<const unsigned char*>(s ? s : "");
+    while (*p) {
+        uint32_t c = *p;
+        int extra = c < 0x80 ? 0 : (c >> 5) == 6 ? 1 : (c >> 4) == 14 ? 2 : (c >> 3) == 30 ? 3 : -1;
+        if (extra < 0) { out.push_back(0xFFFD); ++p; continue; }
+        c &= extra == 0 ? 0x7F : extra == 1 ? 0x1F : extra == 2 ? 0x0F : 0x07;
+        int k = 1;
+        for (; k <= extra; ++k) { if ((p[k] & 0xC0) != 0x80) break; c = (c << 6) | (p[k] & 0x3F); }
+        if (k <= extra) { out.push_back(0xFFFD); p += k; continue; }
+        p += extra + 1;
+        if (c >= 0x10000) { c -= 0x10000; out.push_back(char16_t(0xD800 + (c >> 10))); out.push_back(char16_t(0xDC00 + (c & 0x3FF))); }
+        else out.push_back(char16_t(c));
+    }
+    return env->NewString(reinterpret_cast<const jchar*>(out.data()), (jsize)out.size());
+}
 #include "rc_api_request.h"
 #include "rhash/md5.h"
 #include "rc_api_runtime.h"
@@ -116,7 +137,7 @@ void emit(const std::string& json) {
     if (!g_bridge || !g_onEvent) return;
     Env e;
     if (!e.env) return;
-    jstring s = e.env->NewStringUTF(json.c_str());
+    jstring s = jstr(e.env, json.c_str());
     e.env->CallStaticVoidMethod(g_bridge, g_onEvent, s);
     if (e.env->ExceptionCheck()) { e.env->ExceptionDescribe(); e.env->ExceptionClear(); }
     e.env->DeleteLocalRef(s);
@@ -142,8 +163,8 @@ void serverCall(const rc_api_request_t* req, rc_client_server_callback_t cb, voi
     }
     Env e;
     auto* p = new Pending{cb, data};
-    jstring url = e.env->NewStringUTF(req->url);
-    jstring post = req->post_data ? e.env->NewStringUTF(req->post_data) : nullptr;
+    jstring url = jstr(e.env, req->url);
+    jstring post = req->post_data ? jstr(e.env, req->post_data) : nullptr;
     e.env->CallStaticVoidMethod(g_bridge, g_serverCall, url, post, (jlong)(intptr_t)p);
     if (e.env->ExceptionCheck()) { e.env->ExceptionDescribe(); e.env->ExceptionClear(); }
     e.env->DeleteLocalRef(url);
@@ -311,7 +332,7 @@ JNIEXPORT jstring JNICALL RAJNI(userAgentClause)(JNIEnv* env, jclass) {
     ensureClient();
     char buf[64] = "";
     rc_client_get_user_agent_clause(g_client, buf, sizeof buf);
-    return env->NewStringUTF(buf);
+    return jstr(env, buf);
 }
 
 JNIEXPORT void JNICALL RAJNI(serverResponse)(JNIEnv* env, jclass, jlong handle, jint status, jbyteArray body) {
@@ -375,7 +396,7 @@ JNIEXPORT void JNICALL RAJNI(setHost)(JNIEnv* env, jclass, jstring host) {
 }
 
 JNIEXPORT jstring JNICALL RAJNI(gameInfo)(JNIEnv* env, jclass) {
-    return env->NewStringUTF(gameJson().c_str());
+    return jstr(env, gameJson().c_str());
 }
 
 // Every achievement of the loaded game, grouped as RetroArch shows them (RC_CLIENT_ACHIEVEMENT_LIST_GROUPING_PROGRESS).
@@ -397,7 +418,7 @@ JNIEXPORT jstring JNICALL RAJNI(achievementList)(JNIEnv* env, jclass) {
         if (list) rc_client_destroy_achievement_list(list);
     }
     out += "]";
-    return env->NewStringUTF(out.c_str());
+    return jstr(env, out.c_str());
 }
 
 // The offline queue (RaUnlockQueue): an unlock rc_client couldn't send before its game was left,
@@ -426,7 +447,7 @@ JNIEXPORT jstring JNICALL RAJNI(awardRequest)(JNIEnv* env, jclass, jint id, jstr
         rc_api_destroy_request(&req);
         if (h) env->ReleaseStringUTFChars(hash, h);
     }
-    return env->NewStringUTF(out.c_str());
+    return jstr(env, out.c_str());
 }
 
 // Whether rc_client has a game loaded (it then retries its own unlocks).
@@ -435,7 +456,7 @@ JNIEXPORT jboolean JNICALL RAJNI(gameLoaded)(JNIEnv*, jclass) {
 }
 
 JNIEXPORT jstring JNICALL RAJNI(lastHash)(JNIEnv* env, jclass) {
-    return env->NewStringUTF(g_hash);
+    return jstr(env, g_hash);
 }
 
 } // extern "C"

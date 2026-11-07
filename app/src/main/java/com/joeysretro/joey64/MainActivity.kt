@@ -584,11 +584,40 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         NativeBridge.pause(true)
         // Held buttons and sticks are let go: the menu's window takes the pad from here.
         hotkeyHeld = false
+        gameSharkButton(false)
         releaseAll()
         o.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Menu()
     }
 
     /** The menu is done: the game carries on (unless the screen is in the background). */
+    /** The cheats the Cheats page left on, to the core (between frames). */
+    private fun sendCheats() {
+        val st = states ?: return
+        stateHandler.post {
+            val lines = com.joeysretro.joey64.cheats.GameCheats(this@MainActivity, st.saveName).read().codeLines()
+            NativeBridge.setCheats(lines.toTypedArray())
+            JLog.i(TAG, "cheats: ${lines.size} on")
+        }
+    }
+
+    // The GameShark cartridge's button (approved 2026-11-07): held with its hotkey (hotkey button + L3 by
+    // default) for as long as both are, or for a second from the pause menu's Cheats.
+    private var gameSharkDown = false
+    private var gameSharkSince = 0L
+    private val gameSharkUp = Runnable { gameSharkButton(false) }
+    private fun gameSharkButton(down: Boolean) {
+        if (down == gameSharkDown) return
+        gameSharkDown = down
+        if (down) gameSharkSince = android.os.SystemClock.uptimeMillis()
+        NativeBridge.setGameShark(down)
+    }
+    /** The hotkey let go: a tap shorter than [GAMESHARK_MIN_MS] still holds the button that long, so the game sees it. */
+    private fun gameSharkRelease() {
+        val left = GAMESHARK_MIN_MS - (android.os.SystemClock.uptimeMillis() - gameSharkSince)
+        fpsHandler.removeCallbacks(gameSharkUp)
+        if (gameSharkDown && left > 0) fpsHandler.postDelayed(gameSharkUp, left) else gameSharkButton(false)
+    }
+
     private fun closeMenu() {
         overlay?.screen = null
         menuOpen = false
@@ -615,17 +644,22 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         }
         override fun openCheats() {
             val st = states ?: return
+            val gsKeys = hotkeys.keys[HotkeyAction.GameShark]?.let {
+                com.joeysretro.joey64.launcher.screens.hotkeyKey(hotkeys.button) + " + " + com.joeysretro.joey64.launcher.screens.hotkeyKey(it)
+            }
             overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Cheats(
-                com.joeysretro.joey64.launcher.screens.CheatsGame(overlay?.title ?: st.saveName, st.saveName, cheatKeys))
+                com.joeysretro.joey64.launcher.screens.CheatsGame(overlay?.title ?: st.saveName, st.saveName, cheatKeys), gsKeys)
         }
         override fun closeCheats() {
-            val st = states
-            if (st != null) stateHandler.post {
-                val lines = com.joeysretro.joey64.cheats.GameCheats(this@MainActivity, st.saveName).read().codeLines()
-                NativeBridge.setCheats(lines.toTypedArray())
-                JLog.i(TAG, "cheats: ${lines.size} on")
-            }
+            sendCheats()
             if (menuOpen) overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Menu(com.joeysretro.joey64.launcher.ingame.MenuRow.Cheats)
+        }
+        override fun pressGameShark() {
+            sendCheats()
+            closeMenu()
+            gameSharkButton(true)
+            fpsHandler.removeCallbacks(gameSharkUp)
+            fpsHandler.postDelayed(gameSharkUp, GAMESHARK_PRESS_MS)
         }
         override fun closeControls() {
             reloadControls()
@@ -696,6 +730,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             HotkeyAction.Quit -> quitToLibrary()
             HotkeyAction.PauseMenu -> if (!menuOpen) openMenu()
             HotkeyAction.FastForward -> toggleFastForward()
+            HotkeyAction.GameShark -> {}  // both edges, in dispatchKeyEvent
         }
     }
 
@@ -849,7 +884,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         super.onWindowFocusChanged(hasFocus)
         // The hotkey button's release goes to whichever window has focus (the menu, the notification
         // shade): let go of it here, or B alone would quit to the library afterwards.
-        if (!hasFocus) { hotkeyHeld = false; return }
+        if (!hasFocus) { hotkeyHeld = false; if (!menuOpen) gameSharkButton(false); return }
         requestUnbufferedJoystick()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.setDecorFitsSystemWindows(false)
@@ -1017,12 +1052,20 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (inGame && code == hotkeys.button) {
             when (event.action) {
                 KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) { hotkeyHeld = true; hotkeyHatX = 0 }
-                KeyEvent.ACTION_UP -> hotkeyHeld = false
+                KeyEvent.ACTION_UP -> { hotkeyHeld = false; gameSharkRelease() }
             }
+            return true
+        }
+        if (inGame && gameSharkDown && event.action == KeyEvent.ACTION_UP && code == hotkeys.keys[HotkeyAction.GameShark]) {
+            gameSharkRelease()
             return true
         }
         if (hotkeyHeld && inGame) {
             hotkeys.actionFor(code, alone = false)?.let { action ->
+                if (action == HotkeyAction.GameShark) {
+                    if (down && !quitting) { fpsHandler.removeCallbacks(gameSharkUp); gameSharkButton(true) }
+                    return true
+                }
                 // Both edges are the hotkey's: the game never sees them.
                 if (down && !quitting) hotkey(action)
                 return true
@@ -1074,6 +1117,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         fpsHandler.removeCallbacks(fpsTick)
         resumed = false
         hotkeyHeld = false
+        fpsHandler.removeCallbacks(gameSharkUp)
+        gameSharkButton(false)
         setRumbling(false)
         stickCals.values.forEach { it.save(stickPrefs) }
     }
@@ -1202,6 +1247,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         const val STATE_RECOVERY = "recovery"
         /** "Every few minutes" (approved 2026-11-05). */
         private const val RECOVERY_EVERY_MS = 2 * 60_000L
+        /** The pause menu's "Press GameShark button": how long it holds it (approved 2026-11-07: a second). */
+        private const val GAMESHARK_PRESS_MS = 1_000L
+        /** The hotkey's shortest hold: a few frames, so a quick tap reaches the game. */
+        private const val GAMESHARK_MIN_MS = 200L
         private const val STATE_TIMEOUT_MS = 10_000
         const val TAG = "Joey64"
         // Bundled in assets/drivers/ (see assets/licenses/): Turnip (Mesa freedreno).

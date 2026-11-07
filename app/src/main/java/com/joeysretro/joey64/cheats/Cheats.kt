@@ -24,6 +24,8 @@ data class Cheat(
     val label: String get() = path.lastOrNull() ?: name
     /** A boot-time code: it works from the game's start, so turning it on mid-game needs a reset. */
     val boot get() = "boot" in flags
+    /** Its codes run only while the GameShark's button is held (hotkey, or the pause menu's Cheats). */
+    val gsButton get() = "gs_button" in flags
 }
 
 /** A folder of cheats, or one cheat, as the Cheats page lists them. */
@@ -94,13 +96,13 @@ object CheatLogic {
     private fun JSONArray.strings() = (0 until length()).map { getString(it) }
 
     /**
-     * A cheat as the page shows it, or null when Joey64 can't run it: a code that needs the
-     * GameShark's button (the host has none), or a value with nothing to pick from. A source's
+     * A cheat as the page shows it, or null when Joey64 can't run it: a value with nothing to
+     * pick from. (Codes that need the GameShark's button stay since 2026-11-07: it can be pressed.) A source's
      * own "Off" option goes (the page's Off leaves the game alone); when one option is left, its
      * value goes into the codes and the cheat is a plain On / Off.
      */
     fun tidy(c: Cheat): Cheat? {
-        if ("gs_button" in c.flags || "needs_value" in c.flags) return null
+        if ("needs_value" in c.flags) return null
         // Widescreen and 60 fps get their own menu spots, not Cheats (Joey, 2026-11-06).
         if (c.flags.any { it in OWN_SPOTS }) return null
         val opts = c.options.filter { !it.label.equals("Off", ignoreCase = true) }
@@ -164,6 +166,22 @@ object CheatLogic {
             buildString { for (ch in code) append(if (ch == '?') v[i++] else ch) }
         }
     }
+
+    /**
+     * The grey line under a cheat's name (approved 2026-11-07): its list's note ("Press L to stop"),
+     * after "Needs the GameShark button" for codes that do, and "Takes effect after a reset" for boot codes.
+     */
+    fun noteLine(c: Cheat): String? {
+        val note = c.note?.trim()?.takeIf { it.isNotEmpty() }
+        val main = if (c.gsButton) {
+            if (note == null) "Needs the GameShark button" else "Needs the GameShark button: " + lowerFirst(note)
+        } else note
+        return listOfNotNull(if (c.boot) "Takes effect after a reset" else null, main).joinToString(" · ").ifEmpty { null }
+    }
+
+    /** "Press L to stop" -> "press L to stop"; "L to stop" and "GS Button" stay (a name or a button). */
+    private fun lowerFirst(s: String) =
+        if (s.length > 1 && s[0].isUpperCase() && s[1].isLowerCase()) s[0].lowercaseChar() + s.substring(1) else s
 
     private val PAIR = Regex("([0-9A-Fa-f]{8})[\\s:]*([0-9A-Fa-f]{4})")
 

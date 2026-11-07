@@ -99,9 +99,12 @@ fun CheatsScreen(game: CheatsGame, onHints: (List<Hint>) -> Unit, onClose: () ->
     CheatsContent(game, sink, onHints)
 }
 
-/** Cheats over the paused game: the same page without the rail. B goes back to the pause menu. */
+/** The in-game page's first row (approved 2026-11-07): presses the GameShark's button. [keys]: its hotkey, "Select + L3". */
+class GameSharkRow(val keys: String?, val press: () -> Unit)
+
+/** Cheats over the paused game: the same page without the rail, and the GameShark button row. B goes back to the pause menu. */
 @Composable
-fun InGameCheats(game: CheatsGame, onClose: () -> Unit) {
+fun InGameCheats(game: CheatsGame, gameShark: GameSharkRow? = null, onClose: () -> Unit) {
     val sink = remember { CheatsSink() }
     var hints by remember { mutableStateOf(emptyList<Hint>()) }
     JoeyDialog(
@@ -112,7 +115,7 @@ fun InGameCheats(game: CheatsGame, onClose: () -> Unit) {
         onOptions = { sink.onControl(Control.Options) },
         onPadButton = { code -> com.joeysretro.joey64.launcher.controls.Controls.intentFor(code)?.let { sink.onControl(it) } },
     ) {
-        CheatsContent(game, sink, onHints = { hints = it })
+        CheatsContent(game, sink, onHints = { hints = it }, gameShark = gameShark)
     }
 }
 
@@ -130,6 +133,7 @@ private sealed interface FocusedRow {
     data class Plain(val name: String) : FocusedRow
     data object Choice : FocusedRow
     data class Own(val name: String) : FocusedRow
+    data object GameShark : FocusedRow
 }
 
 private sealed interface CheatPopup {
@@ -142,7 +146,7 @@ private sealed interface CheatPopup {
 private fun hardcoreOn(): Boolean = false
 
 @Composable
-private fun CheatsContent(game: CheatsGame, sink: CheatsSink, onHints: (List<Hint>) -> Unit) {
+private fun CheatsContent(game: CheatsGame, sink: CheatsSink, onHints: (List<Hint>) -> Unit, gameShark: GameSharkRow? = null) {
     val context = LocalContext.current
     val c = JoeyTheme.colors
     val s = JoeyTheme.spacing
@@ -223,6 +227,7 @@ private fun CheatsContent(game: CheatsGame, sink: CheatsSink, onHints: (List<Hin
         val back = Hint("B", "Back")
         onHints(if (hardcore) listOf(back) else when (val f = focused) {
             FocusedRow.Folder -> listOf(Hint("A", "Open"), add, back)
+            FocusedRow.GameShark -> listOf(Hint("A", "Press"), add, back)
             is FocusedRow.Plain -> listOf(Hint("A", if (f.name in current.on) "Turn off" else "Turn on"), add, back)
             FocusedRow.Choice -> listOf(Hint("A", "Choose"), add, back)
             is FocusedRow.Own -> listOf(Hint("A", if (current.own.any { it.name == f.name && it.on }) "Turn off" else "Turn on"), Hint("Start", "Options"), add, back)
@@ -253,17 +258,24 @@ private fun CheatsContent(game: CheatsGame, sink: CheatsSink, onHints: (List<Hin
             Icon(painterResource(R.drawable.ic_lock), contentDescription = null, tint = c.value, modifier = Modifier.size(16.dp))
             Text("Cheats can't be used while RetroAchievements Hardcore is on.", style = JoeyTheme.type.note, color = c.text)
         }
+        val gs = gameShark?.takeIf { path.isEmpty() && !hardcore }
         LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(top = 6.dp), state = listState) {
+            if (gs != null) item(key = "gs") {
+                JoeyRow("Press GameShark button", Modifier.initialFocus(focusKey == "gs" || focusKey == null), value = gs.keys,
+                    onFocused = { if (it) { focused = FocusedRow.GameShark; focusKey = "gs" } },
+                    leading = { f -> Icon(painterResource(R.drawable.ic_hand_click), contentDescription = null, tint = c.gold,
+                        modifier = Modifier.padding(end = 10.dp).size(18.dp)) }) { gs.press() }
+            }
             items(own, key = { "o:" + it.name }) { o ->
                 val key = "o:" + o.name
-                JoeyRow(o.name, Modifier.initialFocus(focusKey == key || (focusKey == null && o === own.first())), enabled = !hardcore,
+                JoeyRow(o.name, Modifier.initialFocus(focusKey == key || (focusKey == null && gs == null && o === own.first())), enabled = !hardcore,
                     value = if (o.on) "On" else null,
                     onFocused = { if (it) { focused = FocusedRow.Own(o.name); focusKey = key } },
                     onLongClick = { popup = CheatPopup.OwnOptions(o) },
                     trailing = { f -> if (!o.on) OffText(f) }) { toggleOwn(o) }
             }
             itemsIndexed(nodes, key = { i, n -> (if (n is CheatNode.Folder) "f:" else "c:") + i + ":" + n.label }) { i, n ->
-                val first = own.isEmpty() && i == 0
+                val first = gs == null && own.isEmpty() && i == 0
                 when (n) {
                     is CheatNode.Folder -> {
                         val key = "f:" + n.label
@@ -279,7 +291,7 @@ private fun CheatsContent(game: CheatsGame, sink: CheatsSink, onHints: (List<Hin
                         val on = current.on[ch.name]
                         val choice = on?.value?.let { v -> ch.options.firstOrNull { it.value.equals(v, ignoreCase = true) }?.label ?: v }
                         JoeyRow(n.label, Modifier.initialFocus(focusKey == key || (focusKey == null && first)), enabled = !hardcore,
-                            detail = if (ch.boot) "Takes effect after a reset" else null,
+                            detail = CheatLogic.noteLine(ch),
                             value = when { on == null -> null; ch.options.isEmpty() -> "On"; else -> choice },
                             onFocused = { if (it) { focused = if (ch.options.isEmpty()) FocusedRow.Plain(ch.name) else FocusedRow.Choice; focusKey = key } },
                             trailing = { f -> if (on == null) OffText(f) }) {
@@ -295,6 +307,10 @@ private fun CheatsContent(game: CheatsGame, sink: CheatsSink, onHints: (List<Hin
             is Lists.Empty -> EmptyLine(l.why)
             is Lists.Ready -> if (l.nodes.isEmpty()) EmptyLine("No cheats for this game yet")
         } else if (path.isEmpty() && l is Lists.Empty) EmptyLine(l.why)
+        if (gs != null) Text(
+            "Resumes the game with the GameShark button held for a second, for codes that say to press it." +
+                (gs.keys?.let { " In game, hold $it." } ?: ""),
+            style = JoeyTheme.type.note, color = c.textDim, modifier = Modifier.padding(start = s.rowPadH, top = 8.dp, bottom = 4.dp))
     }
 
     when (val p = popup) {

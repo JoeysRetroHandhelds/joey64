@@ -173,6 +173,8 @@ enum class HotkeyAction(val label: String, val default: Int, /** Pressed on its 
     PauseMenu("Pause menu", KeyEvent.KEYCODE_BACK, alone = true),
     FastForward("Fast-forward", KeyEvent.KEYCODE_BUTTON_THUMBR, alone = true),
     Screenshot("Screenshot", KeyEvent.KEYCODE_BUTTON_Y),
+    /** Held for as long as the buttons are (approved 2026-11-07). */
+    GameShark("GameShark button", KeyEvent.KEYCODE_BUTTON_THUMBL),
     Reset("Reset game", KeyEvent.KEYCODE_BUTTON_START),
     Quit("Quit to library", KeyEvent.KEYCODE_BUTTON_B),
 }

@@ -26,8 +26,24 @@ class CheatLogicTest {
     }
 
     @Test fun codesJoey64CantRunAreHidden() {
-        assertNull(CheatLogic.tidy(Cheat("Press GS\\Debug", listOf("8818ED10 0001"), flags = setOf("gs_button"))))
         assertNull(CheatLogic.tidy(Cheat("Items", listOf("8016609D ????"), flags = setOf("needs_value"))))
+    }
+
+    @Test fun gameSharkButtonCodesStaySinceItCanBePressed() {
+        val gs = CheatLogic.tidy(Cheat("Press GS\\Debug", listOf("8818ED10 0001"), flags = setOf("gs_button")))!!
+        assertTrue(gs.gsButton)
+    }
+
+    @Test fun noteLines() {
+        assertNull(CheatLogic.noteLine(Cheat("A", listOf("8018ED10 0001"))))
+        assertEquals("Press L to stop", CheatLogic.noteLine(Cheat("A", listOf("8018ED10 0001"), note = " Press L to stop ")))
+        assertEquals("Needs the GameShark button", CheatLogic.noteLine(Cheat("A", listOf("8818ED10 0001"), flags = setOf("gs_button"))))
+        assertEquals("Needs the GameShark button: press it on the title screen",
+            CheatLogic.noteLine(Cheat("A", listOf("8818ED10 0001"), note = "Press it on the title screen", flags = setOf("gs_button"))))
+        assertEquals("Needs the GameShark button: L to stop",
+            CheatLogic.noteLine(Cheat("A", listOf("8818ED10 0001"), note = "L to stop", flags = setOf("gs_button"))))
+        assertEquals("Takes effect after a reset · Use on a new save",
+            CheatLogic.noteLine(Cheat("A", listOf("F0000318 0040"), note = "Use on a new save", flags = setOf("boot"))))
     }
 
     @Test fun mergeKeepsTheFirstSourcesNameAndDropsSameCodes() {

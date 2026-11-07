@@ -54,7 +54,7 @@ sealed interface PauseScreen {
     /** Controls over the paused game (Phase 4, mockup 11), set to the game [saveName]. B goes back to the menu. */
     data class Controls(val saveName: String) : PauseScreen
     /** Cheats over the paused game (Phase 6) for [game]. B goes back to the menu; the game takes the changes on resume. */
-    data class Cheats(val game: com.joeysretro.joey64.launcher.screens.CheatsGame) : PauseScreen
+    data class Cheats(val game: com.joeysretro.joey64.launcher.screens.CheatsGame, /** "Select + L3", or null with no hotkey for it. */ val gameSharkKeys: String? = null) : PauseScreen
 }
 
 enum class MenuRow { Resume, Save, Load, Controls, Cheats }
@@ -73,6 +73,8 @@ interface PauseActions {
     fun openCheats()
     /** Back from Cheats to the menu; the cheats on now are what the game runs. */
     fun closeCheats()
+    /** Cheats' "Press GameShark button": back to the game with the button held for a second. */
+    fun pressGameShark()
     fun reset()
     fun quit()
     /** Back from the picker to the menu. */
@@ -97,7 +99,8 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
         return
     }
     if (screen is PauseScreen.Cheats) {
-        com.joeysretro.joey64.launcher.screens.InGameCheats(screen.game) { actions.closeCheats() }
+        com.joeysretro.joey64.launcher.screens.InGameCheats(screen.game,
+            com.joeysretro.joey64.launcher.screens.GameSharkRow(screen.gameSharkKeys) { actions.pressGameShark() }) { actions.closeCheats() }
         return
     }
     val picker = screen as? PauseScreen.Picker

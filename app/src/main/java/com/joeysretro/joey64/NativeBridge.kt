@@ -52,6 +52,8 @@ object NativeBridge {
 
     /** Every cheat at once, one per string (its codes joined): a running game takes them between frames, a paused one on resume. */
     external fun setCheats(codes: Array<String>)
+    /** The GameShark cartridge's button down or up (its codes run only while it's down); between frames. */
+    external fun setGameShark(down: Boolean)
 
     /** Debug: write RDRAM (as the core stores it) to path after the current frame. */
     external fun dumpRam(path: String)

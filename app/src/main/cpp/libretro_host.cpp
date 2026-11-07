@@ -132,13 +132,45 @@ std::atomic<int> g_analog[kPorts][2][2] = {};
 std::atomic<int> g_portsPresent{1};
 std::atomic<bool> g_portsChanged{false}; // set while a game runs: applied between frames
 
+// The GameShark cartridge's button (hotkey, or the pause menu's Cheats). The core only exports libretro's
+// functions, so its own event_set_gameshark can't be called; it runs a button code (88/89/A8/A9 writes,
+// D8-DB tests) exactly like the plain code (80/81/A0/A1, D0-D3) while the button is down and skips it while
+// up. So while it's held the core is given the plain codes instead (gameSharkHeld), between frames.
+std::atomic<bool> g_gsButton{false};
+
+// [line] with every button code's address made the plain one: "88123456 0001" -> "80123456 0001".
+// Codes are 8 + 4 hex digits with any separators; only addresses (every other hex run) change.
+std::string gameSharkHeld(const std::string& line) {
+    std::string out = line;
+    size_t i = 0;
+    int run = 0;
+    auto hex = [](char ch) { return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F'); };
+    while (i < out.size()) {
+        if (!hex(out[i])) { ++i; continue; }
+        size_t start = i;
+        while (i < out.size() && hex(out[i])) ++i;
+        if (run++ % 2 == 0 && i - start == 8) {
+            char a = (char)toupper(out[start]), b = (char)toupper(out[start + 1]);
+            const char* to = nullptr;
+            if (a == '8' && b == '8') to = "80"; else if (a == '8' && b == '9') to = "81";
+            else if (a == 'A' && b == '8') to = "A0"; else if (a == 'A' && b == '9') to = "A1";
+            else if (a == 'D' && b == '8') to = "D0"; else if (a == 'D' && b == '9') to = "D1";
+            else if (a == 'D' && b == 'A') to = "D3"; else if (a == 'D' && b == 'B') to = "D2";
+            if (to) { out[start] = to[0]; out[start + 1] = to[1]; }
+        }
+    }
+    return out;
+}
+
 // Gives the core the cheats in g_cheats, replacing what it had. On the emulation thread (or before it starts).
 void applyCheats() {
     std::lock_guard<std::mutex> lk(g_cheatsMutex);
     core.cheat_reset();
+    const bool held = g_gsButton.load();
     for (size_t i = 0; i < g_cheats.size(); ++i) {
-        core.cheat_set((unsigned)i, true, g_cheats[i].c_str());
-        LOGI("cheat %zu: %s", i, g_cheats[i].c_str());
+        const std::string line = held ? gameSharkHeld(g_cheats[i]) : g_cheats[i];
+        core.cheat_set((unsigned)i, true, line.c_str());
+        LOGI("cheat %zu: %s", i, line.c_str());
     }
     if (g_cheats.empty()) LOGI("cheats: none");
 }
@@ -1148,6 +1180,13 @@ JNIEXPORT void JNICALL JNI(setCheats)(JNIEnv* env, jobject, jobjectArray codes) 
         std::lock_guard<std::mutex> lk(g_cheatsMutex);
         g_cheats.swap(next);
     }
+    g_cheatsChanged = true;
+}
+
+// The GameShark button down or up; the game takes it between frames.
+JNIEXPORT void JNICALL JNI(setGameShark)(JNIEnv*, jobject, jboolean down) {
+    if (g_gsButton.exchange(down) == (bool)down) return;
+    LOGI("GameShark button %s", down ? "down" : "up");
     g_cheatsChanged = true;
 }
 

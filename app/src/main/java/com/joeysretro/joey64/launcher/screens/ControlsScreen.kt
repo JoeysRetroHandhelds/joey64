@@ -410,7 +410,7 @@ private fun resetHotkey(editor: ControlsEditor, row: String) {
 // ---- Hotkeys (mockups 6 and 7) ----
 
 /** A button in a hotkey's name: the D-pad's directions short ("Select + Right"), the rest as the Controls page names them. */
-private fun hotkeyKey(code: Int) = when (code) {
+fun hotkeyKey(code: Int) = when (code) {
     KeyEvent.KEYCODE_DPAD_UP -> "Up"; KeyEvent.KEYCODE_DPAD_DOWN -> "Down"
     KeyEvent.KEYCODE_DPAD_LEFT -> "Left"; KeyEvent.KEYCODE_DPAD_RIGHT -> "Right"
     else -> InputNames.key(code, null)
@@ -441,7 +441,7 @@ private fun HotkeysPage(editor: ControlsEditor, version: Int, onFocused: (String
         }
         Column(Modifier.weight(1f)) {
             SectionLabel("Game")
-            for (a in listOf(HotkeyAction.PauseMenu, HotkeyAction.FastForward, HotkeyAction.Screenshot, HotkeyAction.Reset, HotkeyAction.Quit)) row(a)
+            for (a in listOf(HotkeyAction.PauseMenu, HotkeyAction.FastForward, HotkeyAction.Screenshot, HotkeyAction.GameShark, HotkeyAction.Reset, HotkeyAction.Quit)) row(a)
         }
     }
 }

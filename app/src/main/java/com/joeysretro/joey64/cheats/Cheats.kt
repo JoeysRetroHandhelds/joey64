@@ -44,6 +44,16 @@ object CheatLogic {
     /** The order lists are merged in: our own fixes first, then Project64's (the fullest checked list), libretro's last. */
     val SOURCES = listOf("joey64", "project64", "rmg-custom", "fz-retroben", "libretro")
 
+    /** Flags whose codes live outside Cheats, in their own menu spots (Joey, 2026-11-06). */
+    val OWN_SPOTS = setOf("widescreen", "60fps")
+
+    /**
+     * libretro's cheats go in a folder of their own at the bottom (Joey, 2026-11-06): its lists
+     * are long and messy (headings typed as cheats, repeats of Project64's codes per player). A
+     * game only libretro has cheats for shows them without the folder.
+     */
+    const val LIBRETRO_FOLDER = "More from libretro"
+
     /** The keys a game's lists can be under: "CRC1-CRC2-CC", then "CRC1-CRC2" (a source that gives no country). */
     fun keys(fullKey: String?): List<String> =
         if (fullKey.isNullOrEmpty()) emptyList() else listOf(fullKey, fullKey.substringBeforeLast('-')).distinct()
@@ -91,6 +101,8 @@ object CheatLogic {
      */
     fun tidy(c: Cheat): Cheat? {
         if ("gs_button" in c.flags || "needs_value" in c.flags) return null
+        // Widescreen and 60 fps get their own menu spots, not Cheats (Joey, 2026-11-06).
+        if (c.flags.any { it in OWN_SPOTS }) return null
         val opts = c.options.filter { !it.label.equals("Off", ignoreCase = true) }
         if (c.options.isNotEmpty() && opts.isEmpty()) return null
         if (c.options.isNotEmpty() && opts.size == 1) return c.copy(codes = resolve(c, opts[0].value), options = emptyList())
@@ -114,6 +126,8 @@ object CheatLogic {
                 out += c
             }
         }
+        if (out.any { it.source != "libretro" })
+            return out.map { if (it.source == "libretro") it.copy(name = LIBRETRO_FOLDER + "\\" + it.name) else it }
         return out
     }
 

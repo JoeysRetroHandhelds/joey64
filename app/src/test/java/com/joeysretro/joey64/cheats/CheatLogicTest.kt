@@ -37,8 +37,20 @@ class CheatLogicTest {
             Cheat("Press L To Levitate", listOf("D0000000 0020", "8016F2FA 0040"), source = "libretro"),
         )
         val merged = CheatLogic.merge(mapOf("libretro" to lr, "project64" to listOf(items)))
-        assertEquals(listOf(items.name, "Press L To Levitate"), merged.map { it.name })
+        assertEquals(listOf(items.name, "More from libretro\\Press L To Levitate"), merged.map { it.name })
         assertEquals("project64", merged[0].source)
+    }
+
+    @Test fun libretroAloneHasNoFolder() {
+        val lr = listOf(Cheat("Infinite Lives", listOf("80000000 0001"), source = "libretro"))
+        assertEquals(listOf("Infinite Lives"), CheatLogic.merge(mapOf("libretro" to lr)).map { it.name })
+        val tree = CheatLogic.tree(CheatLogic.merge(mapOf("project64" to listOf(items), "libretro" to lr)))
+        assertEquals(listOf("Infinite Items", "More from libretro"), tree.map { it.label })
+    }
+
+    @Test fun widescreenAnd60FpsStayOutOfCheats() {
+        assertNull(CheatLogic.tidy(Cheat("Widescreen", listOf("80000000 0001"), flags = setOf("widescreen"))))
+        assertNull(CheatLogic.tidy(Cheat("60 FPS", listOf("80000000 0001"), flags = setOf("60fps"))))
     }
 
     @Test fun foldersCountEveryCheatInside() {

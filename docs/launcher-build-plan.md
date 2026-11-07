@@ -456,7 +456,8 @@ Also agreed: for an ID shared by more than one layout, Auto map first asks for o
     - **Your codes** come first. Start on one gives Edit / Delete.
     - **The Hardcore lock** (banner, list locked, B Back) is built but never on until Phase 7.
   - Hints follow the focused row.
-- **Tests:** `CheatLogicTest` covers values, tidy, merge, folders, typed codes, keys, parsing, the choices file and the repo's format.
+- **libretro's lists in their own folder (Joey, 2026-11-06):** when a game has a list from another source, libretro's cheats go in "More from libretro" at the bottom, after the merge drops names and codes already given. A game only libretro covers shows them as they are. Checked on the Thor: Mario Kart 64 shows Project64's four folders, then More from libretro (615 cheats).
+- **Tests:** `CheatLogicTest` covers values, the libretro folder, hidden widescreen / 60 fps codes, tidy, merge, folders, typed codes, keys, parsing, the choices file and the repo's format.
 - **Checked on the Thor (Mario Kart 64):**
   - Cheats opens from Search results, and folders and the breadcrumb show.
   - Ghost was picked for Infinite Items › 2 player Mode › Player 1, No Laps to Race was turned on, and Add code made "Test code", with Edit / Delete on Start. All of it survived a restart.
@@ -472,16 +473,7 @@ Also agreed: for an ID shared by more than one layout, Auto map first asks for o
 **Still to do, tracked:**
 - **Put `joey64-cheats` on GitHub, public:** Joey's call. Until then the app's download gets nothing: no index, so "Go online to get this game's cheats". The lists kept on the Thor came from the PC.
 - **The weekly GitHub Action** that runs update-sources and convert and opens a change: written when the repo is on GitHub.
-- **libretro's lists are messy, a decision for Joey** (Mario Kart 64 has 776 libretro entries against Project64's 16):
-  - German header lines ("Benutze nur einen der folgenden", "use only one of the following")
-  - numbered repeats of Project64's codes ("No Laps To Race P1")
-  - one item per cheat where Project64 has a picker
-
-  Options:
-  - keep them mixed in (now)
-  - put them in their own "More from libretro" folder
-  - use libretro only for games Project64 lacks
-  - clean them up in `joey64/`
+- **Widescreen and 60 fps need their own menu spots (Joey, 2026-11-06), not designed yet.** The repo tags these codes (`widescreen`, `60fps` flags, and each game's `extras` in the index) and the Cheats page hides them, so until the spots exist they can't be turned on. Joey designs where they go (likely Game settings). Only some games have them: widescreen 16 (Mario 64, Mario Kart 64, OoT Rev 2, Star Fox 64, Smash, F-Zero X, Banjo-Tooie, DK64, Paper Mario, Snap, JFG, RE2, Wave Race, Mario Tennis, Bomberman Hero, Beetle Adventure Racing), 60 fps 2 (Banjo-Kazooie, Banjo-Tooie). A widescreen code also needs the picture shown at 16:9, or it looks squashed.
 - **The Hardcore lock** waits for Phase 7.
 - **Cheat notes** (Project64's `Note=`, for example "Press L to stop") aren't shown. Where they go is Joey's design.
 - **Codes needing the GameShark button are hidden.** A button for it is Joey's call: the core has `event_set_gameshark`.

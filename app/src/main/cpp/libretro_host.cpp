@@ -1162,8 +1162,6 @@ JNIEXPORT jbyteArray JNICALL JNI(captureFrame)(JNIEnv* env, jobject, jint timeou
     return out;
 }
 
-// Puts [data] (the core's state, unwrapped) back between frames. Waits for the core to be ready, so
-// it can be called right after start(); false if it failed or wasn't served in [timeoutMs].
 // The pause menu's Reset (the console's reset button), between frames; also while paused. False if
 // it wasn't served in [timeoutMs].
 JNIEXPORT jboolean JNICALL JNI(resetGame)(JNIEnv*, jobject, jint timeoutMs) {
@@ -1172,6 +1170,8 @@ JNIEXPORT jboolean JNICALL JNI(resetGame)(JNIEnv*, jobject, jint timeoutMs) {
     return runStateRequest(req, timeoutMs) && req.ok ? JNI_TRUE : JNI_FALSE;
 }
 
+// Puts [data] (the core's state, unwrapped) back between frames. Waits for the core to be ready, so
+// it can be called right after start(); false if it failed or wasn't served in [timeoutMs].
 JNIEXPORT jboolean JNICALL JNI(loadState)(JNIEnv* env, jobject, jbyteArray data, jint timeoutMs) {
     StateRequest req;
     req.save = false;

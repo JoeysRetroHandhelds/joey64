@@ -532,6 +532,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         NativeBridge.pause(true)
         // Held buttons and sticks are let go: the menu's window takes the pad from here.
         keyMask = 0; hatMask = 0; triggerMask = 0
+        hotkeyHeld = false
         pushButtons()
         NativeBridge.setAnalog(0, 0, 0); NativeBridge.setAnalog(1, 0, 0)
         o.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Menu()
@@ -778,7 +779,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     // because the system shows the bars again after dialogs / swipes.
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (!hasFocus) return
+        // The hotkey button's release goes to whichever window has focus (the menu, the notification
+        // shade): let go of it here, or B alone would quit to the library afterwards.
+        if (!hasFocus) { hotkeyHeld = false; return }
         requestUnbufferedJoystick()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.setDecorFitsSystemWindows(false)
@@ -885,8 +888,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
         val hx = event.getAxisValue(MotionEvent.AXIS_HAT_X)
         val hy = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
+        // With the hotkey button held, left / right change the slot and don't reach the game (as the D-pad keys).
+        val hatX = !hotkeyHeld
         hatMask = (if (hy < -0.5f) 1 shl 4 else 0) or (if (hy > 0.5f) 1 shl 5 else 0) or
-            (if (hx < -0.5f) 1 shl 6 else 0) or (if (hx > 0.5f) 1 shl 7 else 0)
+            (if (hatX && hx < -0.5f) 1 shl 6 else 0) or (if (hatX && hx > 0.5f) 1 shl 7 else 0)
         // Analog triggers (Thor reports both keys and BRAKE/GAS axes).
         val lt = maxOf(event.getAxisValue(MotionEvent.AXIS_LTRIGGER), event.getAxisValue(MotionEvent.AXIS_BRAKE))
         val rt = maxOf(event.getAxisValue(MotionEvent.AXIS_RTRIGGER), event.getAxisValue(MotionEvent.AXIS_GAS))
@@ -902,6 +907,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         reportGameState(loading = false, playing = false)
         fpsHandler.removeCallbacks(fpsTick)
         resumed = false
+        hotkeyHeld = false
         setRumbling(false)
         stickCal?.save(stickPrefs)
     }

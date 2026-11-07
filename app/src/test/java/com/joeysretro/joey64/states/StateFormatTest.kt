@@ -58,6 +58,13 @@ class StateFormatTest {
         assertNull(StateFormat.unwrap(ByteArray(0)))
     }
 
+    @Test fun aHeaderAskingForGigabytesIsRefused() {
+        // RZIP header saying 1.5 GB: refused before anything that big is made (it would crash the app).
+        val file = StateFormat.wrap(coreData(1000))
+        for (i in 0 until 8) file[12 + i] = ((1_500_000_000L ushr (8 * i)) and 0xFF).toByte()
+        assertNull(StateFormat.unwrap(file))
+    }
+
     @Test fun ourStatesAreFoundByTheImport() {
         // The import's reader (RetroArch's files) takes what we write as an N64 state.
         assertTrue(RetroArchImport.isN64State(StateFormat.wrap(coreData(300_000)).inputStream()))

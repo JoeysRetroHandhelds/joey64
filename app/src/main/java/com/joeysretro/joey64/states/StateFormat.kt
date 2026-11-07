@@ -24,6 +24,7 @@ object StateFormat {
     private const val RZIP_LEVEL = 6
     private const val RASTATE = "RASTATE"
     private const val RASTATE_VERSION = 1
+    private const val MAX_STATE = 64L * 1024 * 1024
 
     /** The core's [data] as a RetroArch state file: RASTATE with one MEM block, RZIP-compressed when [compress]. */
     fun wrap(data: ByteArray, compress: Boolean = true): ByteArray {
@@ -97,7 +98,8 @@ object StateFormat {
     private fun unrzip(bytes: ByteArray): ByteArray? {
         if (bytes.size < RZIP_HEADER) return null
         val total = le64(bytes, 12)
-        if (total <= 0 || total > Int.MAX_VALUE) return null
+        // The core's state is ~16 MB; a damaged header could ask for up to 2 GB and crash the app.
+        if (total <= 0 || total > MAX_STATE) return null
         val out = ByteArray(total.toInt())
         var at = RZIP_HEADER
         var filled = 0

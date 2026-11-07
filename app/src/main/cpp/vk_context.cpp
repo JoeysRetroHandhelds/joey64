@@ -848,7 +848,13 @@ bool VkContext::capture(std::vector<uint8_t>& rgba, unsigned& w, unsigned& h) {
             std::lock_guard<std::mutex> lk(queueMutex_);
             if (vkQueueSubmit(queue_, 1, &si, fence) != VK_SUCCESS) break;
         }
-        if (vkWaitForFences(device_, 1, &fence, VK_TRUE, 2000000000ull) != VK_SUCCESS) { LOGE("vulkan: capture: GPU didn't finish"); break; }
+        if (vkWaitForFences(device_, 1, &fence, VK_TRUE, 2000000000ull) != VK_SUCCESS) {
+            // The copy may still be running: wait it out before its buffer and command buffer are freed.
+            LOGE("vulkan: capture: GPU didn't finish in 2 s, waiting for the queue");
+            std::lock_guard<std::mutex> lk(queueMutex_);
+            vkQueueWaitIdle(queue_);
+            break;
+        }
         void* p = nullptr;
         if (vkMapMemory(device_, mem, 0, VK_WHOLE_SIZE, 0, &p) != VK_SUCCESS) break;
         VkMappedMemoryRange mr{VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};

@@ -162,6 +162,28 @@ class RetroArchImportTest {
         assertEquals(before, after)
     }
 
+    @Test fun aStateCopiedInBringsItsOwnPictureOrNone() {
+        val ra = dir("RetroArch")
+        val joey = dir("Joey64")
+        ra.put("states/Mupen64Plus-Next/A.state", n64State)
+        ra.put("states/Mupen64Plus-Next/A.state.png", byteArrayOf(9, 9))
+        ra.put("states/Mupen64Plus-Next/B.state1", n64State)              // no picture in RetroArch
+        joey.put("states/A.state", n64State + byteArrayOf(1))             // Joey64's own, another moment
+        joey.put("states/A.state.png", byteArrayOf(5))
+        joey.put("states/B.state1.png", byteArrayOf(6))                    // left without its state
+
+        val plan = RetroArchImport.plan(ra, RetroArchImport.find(ra), joey)
+        RetroArchImport.copy(ra, joey, plan.toCopy, replace = false)
+        // B's state is new: the old picture beside it is of nothing it holds, so it goes.
+        assertArrayEquals(n64State, File(joey.root, "states/B.state1").readBytes())
+        assertFalse(File(joey.root, "states/B.state1.png").exists())
+        // A clashes: kept with its own picture until the user picks RetroArch's, then both come over.
+        assertArrayEquals(byteArrayOf(5), File(joey.root, "states/A.state.png").readBytes())
+        RetroArchImport.copy(ra, joey, plan.clashes.map { it.file }, replace = true)
+        assertArrayEquals(n64State, File(joey.root, "states/A.state").readBytes())
+        assertArrayEquals(byteArrayOf(9, 9), File(joey.root, "states/A.state.png").readBytes())
+    }
+
     @Test fun retroArchsFolderCantBeWritten() {
         val ra = ReadOnlySpace(dir("RetroArch").apply { put("saves/A.srm", srm(1)) })
         for (write in listOf<() -> Unit>({ ra.openWrite(listOf("x")) }, { ra.delete(listOf("saves", "A.srm")) }, { ra.rename(listOf("saves", "A.srm"), "B.srm") })) {

@@ -130,6 +130,10 @@ object RomFolders {
     fun stillReadable(context: Context, treeUri: Uri): Boolean =
         context.contentResolver.persistedUriPermissions.any { it.uri == treeUri && it.isReadPermission }
 
+    /** True when the folder can be read now: its permission is held and the folder (its card) is there. */
+    fun readableNow(context: Context, treeUri: Uri): Boolean =
+        stillReadable(context, treeUri) && TreeSpace(context.contentResolver, treeUri).readable()
+
     /** Every ROM in a picked folder (its N64 folders found by [RomFolderRules.foldersToScan]). */
     fun scan(resolver: ContentResolver, treeUri: Uri): List<RomFile> {
         val tree = TreeSpace(resolver, treeUri)

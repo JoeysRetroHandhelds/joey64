@@ -204,8 +204,13 @@ object RetroArchImport {
         fun one(f: RaFile) {
             if (put(space, joey, f, replace)) {
                 copied.incrementAndGet()
-                // A state's picture follows its state; a missing one is no failure.
-                f.thumbnail?.let { put(space, joey, it, replace) }
+                // A state's picture follows its state (a missing one is no failure). The picture already
+                // in Joey64 under that name was of another moment: RetroArch's replaces it, or it goes.
+                if (f.kind == DataKind.States) {
+                    val t = f.thumbnail
+                    if (t != null) put(space, joey, t, replace = true)
+                    else runCatching { joey.delete(target(f).dropLast(1) + (f.name + ".png")) }
+                }
             } else failed += f.path.joinToString("/")
             onFile(f)
         }

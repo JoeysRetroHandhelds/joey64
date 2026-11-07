@@ -130,6 +130,18 @@ class TreeSpace(
         return createDocument(parent, mime, name)
     }
 
+    /**
+     * Whether the picked folder itself can be read now. Android keeps a folder's permission when its
+     * SD card is taken out, and a listing that fails reads as empty, so without this a scan with the
+     * card out took every game on it for gone.
+     */
+    fun readable(): Boolean = try {
+        resolver.query(documentUri(rootDocId), arrayOf(Document.COLUMN_DOCUMENT_ID), null, null, null)?.use { it.moveToFirst() } ?: false
+    } catch (e: Exception) {
+        JLog.w(TAG, "can't read the picked folder $rootDocId: $e")
+        false
+    }
+
     override fun list(dir: List<String>): List<SpaceEntry> =
         dirId(dir, create = false)?.let { id -> children(id).map { it.entry } } ?: emptyList()
 

@@ -46,8 +46,14 @@ class GameStates(
             // The picture beside it, as RetroArch names it. The old one (RetroArch's, or ours) shows the
             // moment before, so it goes even when there's no new one.
             val thumb = StateSlots.thumbnailName(saveName, slot)
-            if (png != null) writeWhole(thumb, png)
-            else { space.delete(path(thumb)); JLog.e(TAG, "slot $slot: no picture from the core") }
+            // The picture is extra: the state is saved even when it can't be written.
+            val pictureOk = png != null && try { writeWhole(thumb, png); true } catch (e: IOException) {
+                JLog.e(TAG, "slot $slot: can't write its picture: $e"); false
+            }
+            if (!pictureOk) {
+                runCatching { space.delete(path(thumb)) }
+                if (png == null) JLog.e(TAG, "slot $slot: no picture from the core")
+            }
             JLog.i(TAG, "saved ${StateSlots.fileName(saveName, slot)}: ${data.size} bytes, ${file.size} written, picture ${png?.size ?: 0}; " +
                 "taking it ${t1 - t0} ms, packing and writing ${SystemClock.elapsedRealtime() - t1} ms")
             true

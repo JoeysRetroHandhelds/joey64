@@ -54,7 +54,8 @@ class LibraryScanner(private val context: Context, private val db: LibraryDb) {
         var skipped = 0
         for (tree in treeUris) {
             coroutineContext.ensureActive()
-            val files = if (RomFolders.stillReadable(context, tree)) {
+            // Permission gone, or the folder isn't there (card out): skipped, its games kept.
+            val files = if (RomFolders.readableNow(context, tree)) {
                 try { RomFolders.scan(resolver, tree) } catch (e: Exception) { JLog.w(TAG, "can't list $tree" + "\n" + Log.getStackTraceString(e)); null }
             } else null
             if (files == null) { skipped++; continue }

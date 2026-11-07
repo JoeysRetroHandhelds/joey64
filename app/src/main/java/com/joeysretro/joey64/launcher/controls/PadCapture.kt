@@ -68,6 +68,33 @@ object PadCapture {
 }
 
 /**
+ * Inside a popup: the sticks' axes (X, Y, Z, RZ) as they move, for Stick feel's preview. Stick moves
+ * stay in the popup (they no longer move focus); a hat D-pad still does.
+ */
+@Composable
+fun StickWatch(onAxes: (FloatArray) -> Unit) {
+    val view = LocalView.current
+    val current = rememberUpdatedState(onAxes)
+    DisposableEffect(view) {
+        val window = (view.parent as? DialogWindowProvider)?.window
+        val original = window?.callback
+        if (window != null && original != null) {
+            window.callback = object : Window.Callback by original {
+                override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+                    if (event.source and InputDevice.SOURCE_JOYSTICK != InputDevice.SOURCE_JOYSTICK) return original.dispatchGenericMotionEvent(event)
+                    current.value(floatArrayOf(event.getAxisValue(MotionEvent.AXIS_X), event.getAxisValue(MotionEvent.AXIS_Y),
+                        event.getAxisValue(MotionEvent.AXIS_Z), event.getAxisValue(MotionEvent.AXIS_RZ)))
+                    val hat = event.getAxisValue(MotionEvent.AXIS_HAT_X) != 0f || event.getAxisValue(MotionEvent.AXIS_HAT_Y) != 0f
+                    return if (hat || hatHeld) { hatHeld = hat; original.dispatchGenericMotionEvent(event) } else true
+                }
+                private var hatHeld = false
+            }
+        }
+        onDispose { if (window != null && original != null) window.callback = original }
+    }
+}
+
+/**
  * Inside a popup ([com.joeysretro.joey64.launcher.components.JoeyDialog]): while [active], the popup's
  * window hands every key and stick move to [onInput] before anything else sees it ([keysOnly]: stick
  * pushes are ignored, as for the hotkeys, which are buttons; a hat D-pad and triggers still count).

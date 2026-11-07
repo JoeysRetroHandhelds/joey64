@@ -72,7 +72,7 @@ class ControlsEditor(
     private fun baseFor(player: Int): PlayerSetup =
         if (game != null) all.players[player] else defaultsFor(all.players[player])
 
-    /** Y: Reset to default (All games) / Use All games (a game) for one row: an N64 button's name, "Stick", "DeadZone", "Pak". */
+    /** Y: Reset to default (All games) / Use All games (a game) for one row: an N64 button's name, "Stick", "DeadZone", "Pak", "StickFeel" or one of [StickFeel.ROWS]. */
     fun resetRow(player: Int, row: String) {
         val cur = shown.players[player]
         val base = baseFor(player)
@@ -80,6 +80,9 @@ class ControlsEditor(
             "Stick" -> cur.copy(stick = base.stick)
             "DeadZone" -> cur.copy(deadZone = base.deadZone)
             "Pak" -> cur.copy(pak = base.pak)
+            // The page's Stick feel row: all of it; a row inside its popup: that one.
+            "StickFeel" -> cur.copy(feel = base.feel)
+            in StickFeel.ROWS -> cur.copy(feel = cur.feel.withRow(row, base.feel))
             else -> N64Button.entries.firstOrNull { it.name == row }?.let { cur.with(it, base.buttons[it]) } ?: return
         }
         set(player, next)

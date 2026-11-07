@@ -376,7 +376,7 @@ Each item needs Joey's mockup first. The order puts what players miss most first
    - mono
    - play alongside other apps
    - Advanced: latency, time stretch (test first)
-3. **Stick feel, in Controls:**
+3. **Stick feel, in Controls.** **Built 2026-11-07** (launcher/phase0), with Left stick and D-pad as the Stick choice for "D-pad as the stick":
    - stick range
    - response curve
    - octagon gate

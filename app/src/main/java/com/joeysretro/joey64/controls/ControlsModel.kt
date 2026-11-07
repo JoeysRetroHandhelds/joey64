@@ -65,8 +65,13 @@ sealed interface PadInput {
     }
 }
 
-/** What moves the N64 stick. */
-enum class StickSource(val label: String) { LeftStick("Left stick"), RightStick("Right stick"), DPad("D-pad · digital") }
+/** What moves the N64 stick. With the D-pad on the stick (either D-pad choice) the D-pad no longer presses the N64 D-pad. */
+enum class StickSource(val label: String, val detail: String? = null, val usesDPad: Boolean = false) {
+    LeftStick("Left stick"), RightStick("Right stick"),
+    DPad("D-pad · digital", "The D-pad moves the stick, full tilt", usesDPad = true),
+    /** Stick feel mockup screen 8 (2026-11-07): both move it, the D-pad at full tilt while held. */
+    LeftStickDPad("Left stick and D-pad", "Both move it; the D-pad no longer works as the N64 D-pad", usesDPad = true),
+}
 
 /**
  * The pak in the back of the controller (approved paks mockup). [Auto] picks per game from the
@@ -94,6 +99,8 @@ data class PlayerSetup(
     /** Percent of the stick's reach that does nothing. */
     val deadZone: Int = DEFAULT_DEAD_ZONE,
     val pak: Pak = Pak.Auto,
+    /** Controls › Stick feel (range, curve, gate, invert, swap, anti-dead zone, trigger threshold). */
+    val feel: StickFeel = StickFeel(),
 ) {
     fun with(b: N64Button, input: PadInput?) = copy(buttons = buttons + (b to input))
 
@@ -103,6 +110,7 @@ data class PlayerSetup(
         if (stick != other.stick) add("Stick")
         if (deadZone != other.deadZone) add("DeadZone")
         if (pak != other.pak) add("Pak")
+        addAll(feel.differences(other.feel))
     }
 
     fun toJson(): JSONObject = JSONObject().apply {
@@ -115,6 +123,7 @@ data class PlayerSetup(
         put("stick", stick.name)
         put("deadZone", deadZone)
         put("pak", pak.name)
+        put("feel", feel.toJson())
     }
 
     companion object {
@@ -138,6 +147,7 @@ data class PlayerSetup(
                 stick = StickSource.entries.firstOrNull { it.name == o.optString("stick") } ?: fallback.stick,
                 deadZone = o.optInt("deadZone", fallback.deadZone).coerceIn(0, 50),
                 pak = Pak.entries.firstOrNull { it.name == o.optString("pak") } ?: fallback.pak,
+                feel = o.optJSONObject("feel")?.let { StickFeel.fromJson(it, fallback.feel) } ?: fallback.feel,
             )
         }
     }

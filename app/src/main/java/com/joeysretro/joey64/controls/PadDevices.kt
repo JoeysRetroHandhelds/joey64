@@ -53,7 +53,7 @@ object PadDevices {
     fun autoSetup(d: InputDevice?, choice: DeviceChoice, keep: PlayerSetup? = null): PlayerSetup {
         val face = face(d)
         val s = d?.let { layouts(it).firstOrNull() }?.let { AutoMap.fromLayout(choice, it, face) } ?: AutoMap.byPosition(choice, face)
-        return if (keep == null) s else s.copy(stick = keep.stick, deadZone = keep.deadZone, pak = keep.pak)
+        return if (keep == null) s else s.copy(stick = keep.stick, deadZone = keep.deadZone, pak = keep.pak, feel = keep.feel)
     }
 
     /** The first-run set: player 1 on this device's own pad, mapped for its face buttons (the Odin 3 has Nintendo labels). */

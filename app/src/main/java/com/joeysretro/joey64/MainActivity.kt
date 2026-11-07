@@ -1072,6 +1072,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         NativeBridge.setPortsPresent(portsPresent)
         NativeBridge.setOption("mupen64plus-alt-map", "True")
         NativeBridge.setOption("mupen64plus-astick-deadzone", "0") // PlayerInput applies the player's own
+        // Stick feel's Range and octagon gate reach past 80: the core maps 32767 to 120 (PlayerInput.toRetroStick).
+        NativeBridge.setOption("mupen64plus-astick-sensitivity", "150")
         val md5 by lazy { intent?.getStringExtra(EXTRA_MD5) ?: romMd5(rom) }
         val rumbleGames by lazy { PakDb.load(this) }
         for (i in 0..3) {
@@ -1172,7 +1174,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val input = players[p]
         NativeBridge.setButtons(p, input.buttons())
         val (x, y) = input.stick()
-        NativeBridge.setAnalog(p, 0, PlayerInput.toRetro(x), PlayerInput.toRetro(y))
+        NativeBridge.setAnalog(p, 0, PlayerInput.toRetroStick(x), PlayerInput.toRetroStick(y))
     }
 
     private fun releaseAll() {

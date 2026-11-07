@@ -148,6 +148,9 @@ private sealed interface Popup {
     data class QuitGame(val row: String = "button") : Popup
     data object QuitTo : Popup
     data object Stick : Popup
+    /** Stick feel (approved mockup 2026-11-07); [row] has focus on return from a row's choices. */
+    data class StickFeel(val row: String = com.joeysretro.joey64.controls.StickFeel.RANGE) : Popup
+    data class FeelChoice(val row: String) : Popup
     data object PakChoice : Popup
     data object Games : Popup
     data object PickGame : Popup
@@ -231,6 +234,8 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             focused == "DeadZone" -> listOf(Hint("◀▶", "Adjust"), Hint("Y", if (target == null) "Reset to default" else "Use All games"),
                 Hint("L/R", "Player"), Hint("B", backLabel))
             focused == "Controller" -> listOf(Hint("A", "Change"), Hint("L/R", "Player"), Hint("B", backLabel))
+            focused == "StickFeel" && !off -> listOf(Hint("A", "Open"), Hint("Y", if (target == null) "Reset to default" else "Use All games"),
+                Hint("L/R", "Player"), Hint("B", backLabel))
             off -> listOf(Hint("L/R", "Player"), Hint("B", backLabel))
             else -> listOf(Hint("A", "Change"), Hint("X", "Clear"), Hint("Y", if (target == null) "Reset to default" else "Use All games"),
                 Hint("L/R", "Player"), Hint("B", backLabel))
@@ -295,6 +300,9 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
                     }, value = "◀ ${setup.deadZone}% ▶", enabled = !off, sideways = true,
                         dot = "DeadZone" in changed,
                         onFocused = { if (it) focused = "DeadZone" })
+                    JoeyRow("Stick feel", value = stickFeelValue(setup.feel) + "  ›", enabled = !off, sideways = true,
+                        dot = changed.any { it.startsWith("Feel.") },
+                        onFocused = { if (it) focused = "StickFeel" }) { popup = Popup.StickFeel() }
                     SectionLabel("Pak")
                     JoeyRow("Pak", value = pakValue(setup.pak, autoPak) + "  ›", enabled = !off, sideways = true,
                         dot = "Pak" in changed,
@@ -349,8 +357,18 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             edit { editor.setHotkeys(editor.hotkeys.copy(quitTo = QuitTo.entries[i])) }; popup = Popup.QuitGame("to")
         }
         Popup.Stick -> ChoicePopup("Player ${player + 1} stick", "What moves the N64 stick.",
-            StickSource.entries.map { Choice(it.label, if (it == StickSource.DPad) "Full tilt only" else null, it == setup.stick) }, close) { i ->
+            StickSource.entries.map { Choice(it.label, it.detail, it == setup.stick) }, close) { i ->
             edit { editor.set(player, setup.copy(stick = StickSource.entries[i])) }; close()
+        }
+        is Popup.StickFeel -> StickFeelPopup(player, setup, changed, if (target == null) null else editor.all.players[player].feel, p.row, close,
+            onSet = { f -> edit { editor.set(player, setup.copy(feel = f)) } },
+            onReset = { row -> edit { editor.resetRow(player, row) } },
+            onChoice = { row -> popup = Popup.FeelChoice(row) })
+        is Popup.FeelChoice -> {
+            val choices = feelChoices(setup.feel, p.row)
+            ChoicePopup(feelLabel(p.row), null, choices.map { it.first }, { popup = Popup.StickFeel(p.row) }) { i ->
+                edit { editor.set(player, setup.copy(feel = choices[i].second)) }; popup = Popup.StickFeel(p.row)
+            }
         }
         Popup.PakChoice -> ChoicePopup("Player ${player + 1} pak", "What's in the back of the controller.",
             Pak.entries.map { Choice(pakValue(it, autoPak), pakDetail(it), it == setup.pak) }, close) { i ->
@@ -556,7 +574,7 @@ private fun QuitGamePopup(editor: ControlsEditor, version: Int, startRow: String
 
 // ---- popups ----
 
-private data class Choice(val label: String, val detail: String?, val on: Boolean, val value: String? = null)
+internal data class Choice(val label: String, val detail: String?, val on: Boolean, val value: String? = null)
 
 @Composable
 private fun Tick() {

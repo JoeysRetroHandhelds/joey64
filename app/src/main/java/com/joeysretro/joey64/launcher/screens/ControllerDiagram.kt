@@ -57,7 +57,7 @@ fun ControllerDiagram(player: Int, name: String, setup: PlayerSetup, face: AutoM
             Box(Modifier.offset(360.dp - 34.dp, 196.dp).size(68.dp).background(c.chip, CircleShape).border(2.dp, c.border, CircleShape),
                 contentAlignment = Alignment.Center) { Box(Modifier.size(30.dp).background(c.textDim, CircleShape)) }
             Caption("Stick", 360.dp, 270.dp); Value(setup.stick.label, 360.dp, 290.dp, width = 200.dp)
-            if (setup.stick == StickSource.DPad) Note("Full tilt only", 360.dp, 312.dp)
+            if (setup.stick.usesDPad) Note("D-pad: full tilt", 360.dp, 312.dp)
             // B, A and the C buttons
             Dot(c.good, 470.dp, 118.dp, 36.dp, "B"); Value(v(N64Button.B), 470.dp, 158.dp)
             Dot(c.buttonPrimary, 535.dp, 186.dp, 40.dp, "A"); Value(v(N64Button.A), 535.dp, 230.dp)

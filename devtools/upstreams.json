@@ -43,6 +43,13 @@
       "branch": "develop",
       "seen": "15bada85906593376e8fd697f1b0b3af3a20f512",
       "why": "the libretro core ours is a fork of"
+    },
+    {
+      "name": "rmg-netplay-server",
+      "repo": "Rosalie241/rmg-netplay-server",
+      "branch": "main",
+      "seen": "bf0f28746971fcb6341fac55c0d2d19f646a6e09",
+      "why": "the reference for Joey64's own netplay server (protocol 17, read 2026-11-06); a protocol change means ours changes too"
     }
   ]
 }

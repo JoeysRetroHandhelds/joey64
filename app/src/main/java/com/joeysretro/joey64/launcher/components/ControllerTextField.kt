@@ -34,6 +34,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.flow.first
 import com.joeysretro.joey64.launcher.theme.JoeyTheme
 
 /**
@@ -55,9 +56,13 @@ fun ControllerTextField(
     showPassword: Boolean = false,
     onDone: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
+    /** Typing (keyboard up) from the start: a name popup, where typing is the only thing to do. */
+    startTyping: Boolean = false,
+    /** The keyboard's Done: when set, it's handed the press instead of typing stopping and focus moving on. */
+    onSubmit: (() -> Unit)? = null,
 ) {
     val c = JoeyTheme.colors
-    var typing by remember { mutableStateOf(false) }
+    var typing by remember { mutableStateOf(startTyping) }
     val fieldFocus = remember { FocusRequester() }
     // The highlight-only stop comes back when typing stops; this puts focus on it as it arrives.
     val backToBox = remember { FocusLanding(armed = false) }
@@ -83,8 +88,12 @@ fun ControllerTextField(
     TypingBackHandler(typing = typing, inDialog = registry != null) { stopTyping(moveOn = false) }
     // The field is always composed (only its canFocus follows typing), so it is attached when this
     // runs, after the recomposition that turned typing on.
+    val windowInfo = androidx.compose.ui.platform.LocalWindowInfo.current
     LaunchedEffect(typing) {
         if (typing) {
+            // A popup that opens typing (New collection): Android ignores the keyboard until the
+            // popup's window has focus (found on the Thor: the field had the cursor, no keyboard).
+            androidx.compose.runtime.snapshotFlow { windowInfo.isWindowFocused }.first { it }
             fieldFocus.requestFocus()
             keyboard?.show()
         }
@@ -113,7 +122,7 @@ fun ControllerTextField(
                     keyboardType = if (isPassword) KeyboardType.Password else KeyboardType.Text,
                     imeAction = ImeAction.Done,
                 ),
-                keyboardActions = KeyboardActions(onDone = { stopTyping(moveOn = true) }),
+                keyboardActions = KeyboardActions(onDone = { if (onSubmit != null) onSubmit() else stopTyping(moveOn = true) }),
                 textStyle = JoeyTheme.type.row.copy(color = textColor),
                 cursorBrush = SolidColor(if (c.isDark) c.accent else c.navy),
                 decorationBox = { inner ->

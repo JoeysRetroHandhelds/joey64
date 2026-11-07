@@ -11,5 +11,11 @@ Changes: only the ROM MD5 and game name columns of the big-endian (.z64) rows ar
 as a tab-separated table (devtools/boxart/build-table.py). The table is shared under the same
 licence. It is a separate file; the licence covers it only, not Joey64's code.
 
+n64-players.tsv
+
+Built from the same project's metadat/maxusers/"Nintendo - Nintendo 64.dat" (the most players
+each game takes), same licence. Changes: only the ROM CRC32 and the player count are kept, as a
+tab-separated table (devtools/make-players.py). A separate file, shared under the same licence.
+
 Box art images are not part of Joey64. They are downloaded when the app runs from
 thumbnails.libretro.com (libretro-thumbnails), each once, and kept on the device.

@@ -1,0 +1,83 @@
+package com.joeysretro.joey64.launcher.library
+
+import android.content.Context
+import com.joeysretro.joey64.launcher.data.GameCollection
+import com.joeysretro.joey64.launcher.data.LibraryGame
+
+/** The filters that fill themselves (approved Show popup, 2026-11-04). "Has achievements" comes with RetroAchievements (Phase 7). */
+enum class AutoFilter(val label: String) {
+    /** Games that take four players or more, from libretro-database's player counts. */
+    FourPlayers("4 players"),
+    /** Games not in No-Intro's list (the box-art table): hacks, translations, homebrew. */
+    Hacks("Hacks and translations"),
+    NeverPlayed("Never played"),
+}
+
+/** What the library shows: one at a time, named on the Filter button (blue when it isn't All games). */
+sealed interface LibraryView {
+    val label: String
+    data object All : LibraryView { override val label = "All games" }
+    data object Favourites : LibraryView { override val label = "Favourites" }
+    data class Collection(val id: Long, val name: String) : LibraryView { override val label get() = name }
+    data class Filter(val filter: AutoFilter) : LibraryView { override val label get() = filter.label }
+}
+
+/** What the filters need beyond the games themselves. */
+class LibraryFacts(
+    /** CRC32 to the most players a game takes. */
+    val players: Map<String, Int>,
+    /** MD5s No-Intro lists. */
+    val listed: Set<String>,
+    /** Collection id to its games. */
+    val members: Map<Long, Set<Long>>,
+)
+
+object LibraryViews {
+    fun matches(game: LibraryGame, view: LibraryView, facts: LibraryFacts): Boolean = when (view) {
+        LibraryView.All -> true
+        LibraryView.Favourites -> game.favourite
+        is LibraryView.Collection -> game.id in facts.members[view.id].orEmpty()
+        is LibraryView.Filter -> when (view.filter) {
+            AutoFilter.FourPlayers -> (facts.players[game.crc32] ?: 0) >= 4
+            AutoFilter.Hacks -> game.md5 !in facts.listed
+            AutoFilter.NeverPlayed -> !game.played
+        }
+    }
+
+    fun show(games: List<LibraryGame>, view: LibraryView, facts: LibraryFacts) = games.filter { matches(it, view, facts) }
+
+    /** Every view the Show popup lists, Favourites and the collections first, with how many games each shows. */
+    fun counts(games: List<LibraryGame>, collections: List<GameCollection>, facts: LibraryFacts): Map<LibraryView, Int> {
+        val views = listOf(LibraryView.All, LibraryView.Favourites) +
+            collections.map { LibraryView.Collection(it.id, it.name) } + AutoFilter.entries.map { LibraryView.Filter(it) }
+        return views.associateWith { v -> games.count { matches(it, v, facts) } }
+    }
+
+    /** Search (approved 2026-11-04): every word typed appears in the title, any case, accents ignored ("pokemon" finds Pokémon Snap). */
+    fun search(games: List<LibraryGame>, query: String): List<LibraryGame> {
+        val words = fold(query).split(' ').filter { it.isNotEmpty() }
+        if (words.isEmpty()) return emptyList()
+        return games.filter { g -> val t = fold(g.title); words.all { it in t } }
+    }
+
+    private fun fold(s: String): String =
+        java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "").lowercase()
+
+    /** assets/n64-players.tsv (devtools/make-players.py): CRC32, a tab, the most players. */
+    fun parsePlayers(text: String): Map<String, Int> {
+        val m = HashMap<String, Int>(2048)
+        for (line in text.lineSequence()) {
+            if (line.isEmpty() || line[0] == '#') continue
+            val tab = line.indexOf('\t')
+            if (tab == 8) line.substring(9).toIntOrNull()?.let { m[line.substring(0, 8)] = it }
+        }
+        return m
+    }
+
+    @Volatile private var players: Map<String, Int>? = null
+
+    fun players(context: Context): Map<String, Int> =
+        players ?: synchronized(this) {
+            players ?: parsePlayers(context.assets.open("n64-players.tsv").bufferedReader().use { it.readText() }).also { players = it }
+        }
+}

@@ -140,7 +140,8 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                                 !s.setupDone -> ImportScreen(importModel, s.dataFolder) { scope.launch { store.setSetupDone() } }
                                 place == RailPlace.Settings -> SettingsScreen(updates, onHints = { settingsHints = it }) { place = RailPlace.Library }
                                 place == RailPlace.Controls -> ControlsScreen(onHints = { settingsHints = it }) { place = RailPlace.Library }
-                                else -> LibraryScreen(model)
+                                place == RailPlace.Search -> com.joeysretro.joey64.launcher.screens.SearchScreen(model, onHints = { settingsHints = it }) { place = RailPlace.Library }
+                                else -> LibraryScreen(model) { place = RailPlace.Search }
                             }
                         }
                     }
@@ -150,8 +151,8 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             HintRow(when {
                 !home -> listOf(Hint("A", "Select"))
                 onRail -> listOf(Hint("A", "Open"))
-                place == RailPlace.Settings || place == RailPlace.Controls -> settingsHints
-                else -> listOf(Hint("A", "Play"), Hint("Start", "Options"))
+                place == RailPlace.Settings || place == RailPlace.Controls || place == RailPlace.Search -> settingsHints
+                else -> listOf(Hint("A", "Play"), Hint("Start", "Options"), Hint("Y", "Search"))
             })
             if (home) updates.prompt.collectAsStateWithLifecycle().value?.let { UpdatePopup(it, updates) }
         }

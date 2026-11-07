@@ -54,14 +54,16 @@ import com.joeysretro.joey64.launcher.library.DetailsText
 import com.joeysretro.joey64.launcher.theme.JoeyTheme
 
 /** Which of a game's popups is up. */
-enum class GamePopup { Options, Details }
+enum class GamePopup { Options, Details, Collections }
 
 /**
  * A game's popups over the library, in one window whose contents change (as the update popups:
  * closing one window to open the next let the undimmed library flash through).
  *  - **Options** (Start, or a long-press): the approved list (2026-11-04, details2.html) shows only
- *    what's built: Play and Details. States, Game settings, Controls, Achievements and Add to
- *    collection come with their phases.
+ *    what's built: Play, Details and Add to collection (Phase 5). States, Game settings, Controls
+ *    and Achievements come with their phases.
+ *  - **Collections** (Add to collection, approved 2026-11-04, coll.html): see [AddToCollectionBody].
+ *    B goes back to Options.
  *  - **Details** (approved 2026-11-04, details2.html): the cover, then Last played, Play time,
  *    File, Revision, Region, Size and RA hash. The RetroAchievements row comes with Phase 7. The
  *    cover is the one thing to press: A opens Box art. B goes back to Options.
@@ -69,28 +71,39 @@ enum class GamePopup { Options, Details }
 @Composable
 fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup: (GamePopup?) -> Unit, onPlay: () -> Unit) {
     var boxArt by remember { mutableStateOf(false) }
+    var naming by remember { mutableStateOf(false) }
     // Read again after a Box art choice, so the popup shows the new cover.
     var version by remember { mutableIntStateOf(0) }
     val details by produceState<GameDetails?>(null, game.id, version) { value = model.details(game) }
     val inDetails = popup == GamePopup.Details
     JoeyDialog(
         onDismiss = { onPopup(null) },
-        hints = if (inDetails) listOf(Hint("A", "Change box art"), Hint("B", "Back")) else listOf(Hint("A", "Select"), Hint("B", "Close")),
-        interceptBack = { if (inDetails) { onPopup(GamePopup.Options); true } else false },
-        width = if (inDetails) 640.dp else 300.dp,
+        hints = when (popup) {
+            GamePopup.Details -> listOf(Hint("A", "Change box art"), Hint("B", "Back"))
+            GamePopup.Collections -> listOf(Hint("A", "Add / Remove"), Hint("B", "Done"))
+            GamePopup.Options -> listOf(Hint("A", "Select"), Hint("B", "Close"))
+        },
+        interceptBack = { if (popup != GamePopup.Options) { onPopup(GamePopup.Options); true } else false },
+        width = when (popup) { GamePopup.Details -> 640.dp; GamePopup.Collections -> 420.dp; GamePopup.Options -> 300.dp },
     ) {
         val landing = LocalFocusLanding.current
         LaunchedEffect(popup) { landing?.arm() }
-        Column {
+        if (popup == GamePopup.Collections) AddToCollectionBody(game, model) { naming = true }
+        else Column {
             PopupTitle(game.title)
             when (popup) {
                 GamePopup.Options -> {
                     JoeyOption("Play", modifier = Modifier.initialFocus()) { onPopup(null); onPlay() }
                     JoeyOption("Details") { onPopup(GamePopup.Details) }
+                    JoeyOption("Add to collection") { onPopup(GamePopup.Collections) }
                 }
                 GamePopup.Details -> details?.let { d -> DetailsBody(game, d, model) { boxArt = true } }
+                GamePopup.Collections -> {}
             }
         }
+    }
+    if (naming) NamePopup("New collection", "", "${game.title} goes in it", null, model, onDismiss = { naming = false }) { name ->
+        model.newCollection(name, game)
     }
     if (boxArt) BoxArtPopup(game, details, model) { changed -> boxArt = false; if (changed) version++ }
 }

@@ -147,7 +147,17 @@ object LibrarySchema {
  * A game in the library grid. [md5] is its RetroAchievements hash, and names its unpacked copy
  * and its cover. [art]: it has a cover to show (boxart/<md5>.jpg).
  */
-data class LibraryGame(val id: Long, val title: String, val md5: String, val art: ArtKind? = null)
+data class LibraryGame(
+    val id: Long, val title: String, val md5: String, val art: ArtKind? = null,
+    /** CRC32 of the .z64 bytes, for the player-count table (filters). */
+    val crc32: String = "",
+    val played: Boolean = false,
+    /** In Favourites (games.favorite). */
+    val favourite: Boolean = false,
+)
+
+/** A collection the user made (Phase 5). Favourites isn't one: it's games.favorite, always first. */
+data class GameCollection(val id: Long, val name: String)
 
 /** What a game's tile shows, from `box_art.kind` (V2). Null: no row yet, not looked up. */
 enum class ArtKind(val db: String) {
@@ -297,10 +307,75 @@ class LibraryDb private constructor(context: Context) :
     /** The library: every game with at least one file in a ROM folder, by title. */
     fun libraryGames(): List<LibraryGame> =
         readableDatabase.rawQuery(
-            "SELECT g.id, g.title, g.md5, a.kind FROM games g LEFT JOIN box_art a ON a.game_id = g.id" +
+            "SELECT g.id, g.title, g.md5, a.kind, g.crc32, g.last_played_at IS NOT NULL, g.favorite FROM games g LEFT JOIN box_art a ON a.game_id = g.id" +
                 " WHERE EXISTS (SELECT 1 FROM files f WHERE f.game_id = g.id) ORDER BY g.title COLLATE NOCASE",
             null,
-        ).use { c -> buildList { while (c.moveToNext()) add(LibraryGame(c.getLong(0), c.getString(1), c.getString(2), ArtKind.of(c.getString(3)))) } }
+        ).use { c ->
+            buildList {
+                while (c.moveToNext()) add(LibraryGame(c.getLong(0), c.getString(1), c.getString(2), ArtKind.of(c.getString(3)),
+                    crc32 = c.getString(4), played = c.getInt(5) != 0, favourite = c.getInt(6) != 0))
+            }
+        }
+
+    // ---- Collections (Phase 5; tables from V1) -----------------------------------------------------
+
+    /** The user's collections, oldest first (Favourites isn't one; see [setFavourite]). */
+    fun collections(): List<GameCollection> =
+        readableDatabase.rawQuery("SELECT id, name FROM collections ORDER BY position, id", null).use { c ->
+            buildList { while (c.moveToNext()) add(GameCollection(c.getLong(0), c.getString(1))) }
+        }
+
+    /** Which games each collection holds: collection id to game ids. */
+    fun collectionGames(): Map<Long, Set<Long>> =
+        readableDatabase.rawQuery("SELECT collection_id, game_id FROM collection_games", null).use { c ->
+            val m = HashMap<Long, MutableSet<Long>>()
+            while (c.moveToNext()) m.getOrPut(c.getLong(0)) { HashSet() }.add(c.getLong(1))
+            m
+        }
+
+    fun setFavourite(gameId: Long, on: Boolean) {
+        writableDatabase.execSQL("UPDATE games SET favorite = ? WHERE id = ?", arrayOf<Any>(if (on) 1 else 0, gameId))
+    }
+
+    /** Puts [gameId] in collection [collectionId], or takes it out. */
+    fun setInCollection(collectionId: Long, gameId: Long, on: Boolean) {
+        writableDatabase.transaction {
+            if (on) insertWithOnConflict("collection_games", null, ContentValues().apply {
+                put("collection_id", collectionId)
+                put("game_id", gameId)
+                put("position", System.currentTimeMillis())
+            }, SQLiteDatabase.CONFLICT_IGNORE)
+            else delete("collection_games", "collection_id = ? AND game_id = ?", arrayOf(collectionId.toString(), gameId.toString()))
+        }
+    }
+
+    /** A name already in use, ignoring case and the spaces around it; Favourites is taken too. [except]: renaming that one. */
+    fun nameTaken(name: String, except: Long? = null): Boolean {
+        val n = name.trim()
+        if (n.equals(FAVOURITES, ignoreCase = true)) return true
+        return collections().any { it.id != except && it.name.equals(n, ignoreCase = true) }
+    }
+
+    /** A new collection named [name] (trimmed), last in the list; null when the name is taken. */
+    fun newCollection(name: String, now: Long = System.currentTimeMillis()): Long? {
+        if (name.isBlank() || nameTaken(name)) return null
+        return writableDatabase.insertOrThrow("collections", null, ContentValues().apply {
+            put("name", name.trim())
+            put("position", now)
+            put("created_at", now)
+        })
+    }
+
+    fun renameCollection(id: Long, name: String): Boolean {
+        if (name.isBlank() || nameTaken(name, except = id)) return false
+        writableDatabase.update("collections", ContentValues().apply { put("name", name.trim()) }, "id = ?", arrayOf(id.toString()))
+        return true
+    }
+
+    /** Deletes the collection only; its games stay in the library. */
+    fun deleteCollection(id: Long) {
+        writableDatabase.delete("collections", "id = ?", arrayOf(id.toString()))
+    }
 
     /** The library game played last, for Continue; null before anything has been played. */
     fun lastPlayed(): LibraryGame? =
@@ -388,6 +463,8 @@ class LibraryDb private constructor(context: Context) :
 
     companion object {
         const val NAME = "library.db"
+        /** The built-in collection's name, which no other can take. */
+        const val FAVOURITES = "Favourites"
 
         @Volatile private var instance: LibraryDb? = null
 

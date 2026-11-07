@@ -90,6 +90,8 @@ fun JoeyDialog(
      * fills the window above the hint row, on the page colour.
      */
     fullScreen: Boolean = false,
+    /** The card near the top of the screen, so the keyboard below doesn't cover it (New collection). */
+    atTop: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val backRegistry = remember { DialogBackRegistry() }
@@ -174,8 +176,9 @@ fun JoeyDialog(
                     .weight(1f)
                     .fillMaxWidth()
                     .background(c.scrim)
-                    .pointerInput(Unit) { detectTapGestures { tapOutside() } },
-                contentAlignment = Alignment.Center,
+                    .pointerInput(Unit) { detectTapGestures { tapOutside() } }
+                    .then(if (atTop) Modifier.padding(top = 44.dp) else Modifier),
+                contentAlignment = if (atTop) Alignment.TopCenter else Alignment.Center,
             ) {
                 val shape = RoundedCornerShape(s.popupCorner)
                 Box(

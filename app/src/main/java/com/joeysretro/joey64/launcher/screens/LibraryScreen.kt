@@ -66,44 +66,31 @@ import com.joeysretro.joey64.launcher.theme.JoeyTheme
  * (none found, or not downloaded yet) shows its name on a plain tile, as the mockups draw it. A plays.
  * Focus starts on the first game and comes back to the one you played.
  *
- * Start (or a long-press) opens the focused game's options ([GamePopups]: Play, Details).
- * Not built yet, so not shown: the Filter button (collections and filters, Phase 5) and Search.
+ * Start (or a long-press) opens the focused game's options ([GamePopups]: Play, Details, Add to
+ * collection). Above the grid, the Filter button (Phase 5, approved 2026-11-04) names what's shown
+ * and is blue when it isn't All games; A opens [ShowPopup]. Y opens Search ([onSearch]).
  */
 @Composable
-@OptIn(ExperimentalFoundationApi::class)
-fun LibraryScreen(model: LibraryModel) {
+fun LibraryScreen(model: LibraryModel, onSearch: () -> Unit) {
     val games by model.games.collectAsStateWithLifecycle()
     val reading by model.reading.collectAsStateWithLifecycle()
+    val view by model.view.collectAsStateWithLifecycle()
+    val facts by model.facts.collectAsStateWithLifecycle()
     val landing = LocalFocusLanding.current
     val context = LocalContext.current
-    LaunchedEffect(Unit) { landing?.arm() }
+    // On opening, and after picking what to show: focus lands on the first game.
+    LaunchedEffect(view) { landing?.arm() }
     if (model.offline.collectAsStateWithLifecycle().value) OfflinePopup(model::offlineSeen)
     model.recovery.collectAsStateWithLifecycle().value?.let { offer ->
         RecoveryPopup(offer) { carryOn -> model.recoveryAnswered(carryOn) { context.startActivity(it) } }
     }
-
-    // The game whose tile has focus, for Start; null while focus is on the rail.
-    var focusedGame by remember { mutableStateOf<LibraryGame?>(null) }
-    var popup by remember { mutableStateOf<Pair<Long, GamePopup>?>(null) }
-    val currentFocused by rememberUpdatedState(focusedGame)
-    DisposableEffect(Unit) {
-        val handler: (Control) -> Boolean = { control ->
-            val g = currentFocused
-            if (control == Control.Options && g != null) { popup = g.id to GamePopup.Options; true } else false
-        }
-        ControlBus.setHandler(handler)
-        onDispose { ControlBus.clearHandler(handler) }
-    }
+    var showing by remember { mutableStateOf(false) }
+    if (showing) ShowPopup(model) { showing = false }
 
     val c = JoeyTheme.colors
-    val list = games ?: return
-    popup?.let { (id, which) ->
-        val g = list.firstOrNull { it.id == id }
-        if (g == null) popup = null
-        else GamePopups(g, which, model, onPopup = { next -> popup = next?.let { id to it } }) { model.play(g) { context.startActivity(it) } }
-    }
+    val all = games ?: return
     Column(Modifier.fillMaxSize()) {
-        if (list.isEmpty()) {
+        if (all.isEmpty()) {
             Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 Text(if (reading != null) "Reading your games" else "No N64 games found",
                     style = JoeyTheme.type.heading, color = c.text)
@@ -118,6 +105,51 @@ fun LibraryScreen(model: LibraryModel) {
                 ProgressLine(r, width = 320.dp, centred = false)
             }
         }
+        com.joeysretro.joey64.launcher.components.PageChip(view.label, com.joeysretro.joey64.R.drawable.ic_filter,
+            Modifier.padding(start = JoeyTheme.spacing.margin, top = 12.dp), on = view != com.joeysretro.joey64.launcher.library.LibraryView.All) { showing = true }
+        val f = facts
+        val list = remember(all, view, f) { if (f == null) all else com.joeysretro.joey64.launcher.library.LibraryViews.show(all, view, f) }
+        // Taking the last game out of a collection from its own options empties the view: the grid
+        // stays composed (empty), so the popup it holds stays up and B steps back through it.
+        if (list.isEmpty()) Text("No games here yet", style = JoeyTheme.type.note, color = c.textDim,
+            modifier = Modifier.padding(start = JoeyTheme.spacing.margin, top = 20.dp))
+        // A new view starts at its first game.
+        androidx.compose.runtime.key(view) { GamesGrid(list, model, onSearch) }
+    }
+}
+
+/**
+ * A grid of games (the library, a view of it, or Search's results): A plays, Start or a
+ * long-press opens the game's options, Y [onSearch]. Focus starts on the first game.
+ */
+@Composable
+@OptIn(ExperimentalFoundationApi::class)
+fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit, firstFocus: Boolean = true, onFocusGame: (Boolean) -> Unit = {}) {
+    val context = LocalContext.current
+    // The game whose tile has focus, for Start; null while focus is elsewhere.
+    var focusedGame by remember { mutableStateOf<LibraryGame?>(null) }
+    var popup by remember { mutableStateOf<Pair<Long, GamePopup>?>(null) }
+    val currentFocused by rememberUpdatedState(focusedGame)
+    val search by rememberUpdatedState(onSearch)
+    LaunchedEffect(focusedGame != null) { onFocusGame(focusedGame != null) }
+    DisposableEffect(Unit) {
+        val handler: (Control) -> Boolean = { control ->
+            val g = currentFocused
+            when {
+                control == Control.Options && g != null -> { popup = g.id to GamePopup.Options; true }
+                control == Control.Search -> { search(); true }
+                else -> false
+            }
+        }
+        ControlBus.setHandler(handler)
+        onDispose { ControlBus.clearHandler(handler) }
+    }
+    popup?.let { (id, which) ->
+        val g = list.firstOrNull { it.id == id } ?: model.games.value?.firstOrNull { it.id == id }
+        if (g == null) popup = null
+        else GamePopups(g, which, model, onPopup = { next -> popup = next?.let { id to it } }) { model.play(g) { context.startActivity(it) } }
+    }
+    run {
         // Focus moving to a row half off screen scrolls it fully in with a row gap to spare, so the
         // selected tile and its outline are never the cut-off ones (approved grid, 2026-11-04).
         // Compose's default stops with the tile flush against the hint row, outline cut.
@@ -131,7 +163,7 @@ fun LibraryScreen(model: LibraryModel) {
             modifier = Modifier.fillMaxSize().focusRestorer().focusGroup(),
         ) {
             itemsIndexed(list, key = { _, g -> g.id }) { i, g ->
-                GameTile(g, model.cover(g), Modifier.initialFocus(i == 0),
+                GameTile(g, model.cover(g), Modifier.initialFocus(firstFocus && i == 0),
                     onFocus = { on -> if (on) focusedGame = g else if (focusedGame?.id == g.id) focusedGame = null },
                     onOptions = { popup = g.id to GamePopup.Options }) { model.play(g) { context.startActivity(it) } }
             }

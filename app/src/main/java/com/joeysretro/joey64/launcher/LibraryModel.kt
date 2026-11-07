@@ -68,8 +68,83 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     private var scan: Job? = null
     private var starting = false
 
+    // ---- Collections and filters (Phase 5) -------------------------------------------------------------
+
+    private val _view = MutableStateFlow<com.joeysretro.joey64.launcher.library.LibraryView>(com.joeysretro.joey64.launcher.library.LibraryView.All)
+    /** What the grid shows; named on the Filter button. */
+    val view: StateFlow<com.joeysretro.joey64.launcher.library.LibraryView> = _view
+    private val _collections = MutableStateFlow<List<com.joeysretro.joey64.launcher.data.GameCollection>>(emptyList())
+    val collections: StateFlow<List<com.joeysretro.joey64.launcher.data.GameCollection>> = _collections
+    private val _facts = MutableStateFlow<com.joeysretro.joey64.launcher.library.LibraryFacts?>(null)
+    /** Null until the player table, No-Intro's list and the collections are read. */
+    val facts: StateFlow<com.joeysretro.joey64.launcher.library.LibraryFacts?> = _facts
+
+    fun show(v: com.joeysretro.joey64.launcher.library.LibraryView) {
+        _view.value = v
+        JLog.i(TAG, "showing ${v.label}")
+    }
+
+    /** Reads the collections again after a change, and the games (Favourites is a column on them). */
+    private suspend fun reloadCollections(games: Boolean = false) = withContext(Dispatchers.IO) {
+        val app = getApplication<Application>()
+        _collections.value = db.collections()
+        _facts.value = com.joeysretro.joey64.launcher.library.LibraryFacts(
+            players = com.joeysretro.joey64.launcher.library.LibraryViews.players(app),
+            listed = com.joeysretro.joey64.launcher.boxart.BoxArtTable.get(app).keys,
+            members = db.collectionGames(),
+        )
+        if (games) _games.value = db.libraryGames()
+        // A collection that's gone (deleted) or renamed: the button follows.
+        val v = _view.value
+        if (v is com.joeysretro.joey64.launcher.library.LibraryView.Collection) {
+            val now = _collections.value.firstOrNull { it.id == v.id }
+            _view.value = if (now == null) com.joeysretro.joey64.launcher.library.LibraryView.All
+                else com.joeysretro.joey64.launcher.library.LibraryView.Collection(now.id, now.name)
+        }
+    }
+
+    /** Add to collection: puts [game] in Favourites ([collectionId] null) or a collection, or takes it out. */
+    fun setInCollection(game: LibraryGame, collectionId: Long?, on: Boolean) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                if (collectionId == null) db.setFavourite(game.id, on) else db.setInCollection(collectionId, game.id, on)
+            }
+            JLog.i(TAG, "${game.title} ${if (on) "added to" else "taken out of"} ${collectionId ?: "Favourites"}")
+            reloadCollections(games = collectionId == null)
+        }
+    }
+
+    /** New collection: false when the name is empty or taken. [game] goes straight in. */
+    suspend fun newCollection(name: String, game: LibraryGame?): Boolean {
+        val id = withContext(Dispatchers.IO) { db.newCollection(name)?.also { id -> game?.let { db.setInCollection(id, it.id, true) } } }
+            ?: return false
+        JLog.i(TAG, "new collection ${name.trim()}" + (game?.let { " with ${it.title}" } ?: ""))
+        reloadCollections()
+        return true
+    }
+
+    suspend fun renameCollection(id: Long, name: String): Boolean {
+        if (!withContext(Dispatchers.IO) { db.renameCollection(id, name) }) return false
+        reloadCollections()
+        return true
+    }
+
+    fun deleteCollection(id: Long) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { db.deleteCollection(id) }
+            JLog.i(TAG, "collection $id deleted (its games stay)")
+            reloadCollections()
+        }
+    }
+
+    /** A name the user may give a collection: not empty, not Favourites, not one already there. */
+    suspend fun nameFree(name: String, except: Long? = null) = name.isNotBlank() && withContext(Dispatchers.IO) { !db.nameTaken(name, except) }
+
     init {
-        viewModelScope.launch { _games.value = withContext(Dispatchers.IO) { db.libraryGames() } }
+        viewModelScope.launch {
+            _games.value = withContext(Dispatchers.IO) { db.libraryGames() }
+            try { reloadCollections() } catch (e: Exception) { JLog.e(TAG, "can't read collections" + "\n" + Log.getStackTraceString(e)) }
+        }
         app.getSystemService(ConnectivityManager::class.java)?.registerDefaultNetworkCallback(network)
     }
 

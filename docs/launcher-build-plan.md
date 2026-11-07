@@ -412,6 +412,20 @@ Also agreed: for an ID shared by more than one layout, Auto map first asks for o
 
 ## Phase 5: collections and filters
 
+**Built (2026-11-06, branch `launcher/phase0`), to the approved mockups** (collections and the Show popup 2026-11-04, coll.html; Search and the filtered library 2026-11-04, remaining_l.html; all re-checked by Joey 2026-11-06 with Start for Hold A, scratchpad build_p5show.py):
+- **Filter button** above the library grid: names what's shown, blue when it isn't All games, reached with Up from the first row. A opens **Show**: All games with a tick and the total, then Collections (Favourites first, the user's own, New collection…) and Filters, each with its count. Picking one shows it and lands focus on its first game; an empty one says "No games here yet". Kept for the session only.
+- **Filters:** 4 players (four or more, from libretro-database's player counts, `assets/n64-players.tsv`, built by `devtools/make-players.py` from metadat/maxusers, CC-BY-SA 4.0, credited in `assets/licenses/libretro-database.txt`; downloaded 2026-11-06 with Joey's OK), Hacks and translations (not in No-Intro's list, the box-art table), Never played. On the Thor's 82 games: 41, 18 and 80; all 63 No-Intro games have a player count. Hacks have none, so Smash Remix isn't under 4 players.
+- **Add to collection** in a game's options (Start): Favourites (`games.favorite`), the user's collections, New collection…, each with its count and a tick; A puts the game in or takes it out (B Done back to the options). New collection opens near the top, typing at once; Enter makes it with the game in it. A name already used, or Favourites, says "There's already one called …".
+- **Start on a collection** in Show: Rename (the same name popup) and Delete ("Deleting keeps the games", no confirm). Deleting or renaming the one shown moves the button with it.
+- **Search** on the rail (and Y on the library): the field at the top, typing at once, with a live "N games" count; every word must appear in the title, any case, accents ignored. Results are the library's grid. Hints after typing: A Play, Start Options, Y Edit search, B Clear; B with nothing typed goes back to the library.
+- Tests: `LibraryViewsTest` (views, counts, search, the shipped player table). Checked on the Thor: Show, 4 players, Add to collection, Favourites, New collection, a taken name, Rename, Delete, Search, B Clear; test collections and favourites removed after.
+- **Found on the Thor:** a popup that opens typing showed no keyboard (Android ignores the request until the popup's window has focus; fixed in `ControllerTextField`). The keyboard then opens on the Thor's bottom screen, where JoeyOS's second-screen app holds it; that's the device's setup, not Joey64.
+
+**Still to do, tracked:**
+- Has achievements (approved in Show): with RetroAchievements, Phase 7.
+- Hacks have no player count, so a 4-player hack (Smash Remix) isn't under 4 players. A per-game override in `gamedb` would fix it.
+- Not checked on the Portal, Flip, Duo and Odin 3 (the emulator chat's runs), as with Phase 1.
+
 ## Phase 6: cheats
 
 - **Nothing bundled** (decided 2026-11-05). Every list comes from `joey64-cheats`, fetched with the box art (Phase 2), so the app carries no cheat licences. This phase is the Cheats screens and turning codes on in the core.

@@ -31,6 +31,7 @@ enum class RailPlace(@DrawableRes val icon: Int, val label: String) {
     /** Not a page: starts the last game from its auto slot. Shown once there's one to continue. */
     Continue(R.drawable.ic_rail_continue, "Continue"),
     Library(R.drawable.ic_rail_library, "Library"),
+    Search(R.drawable.ic_rail_search, "Search"),
     Controls(R.drawable.ic_rail_controls, "Controls"),
     Settings(R.drawable.ic_rail_settings, "Settings"),
 }
@@ -38,7 +39,7 @@ enum class RailPlace(@DrawableRes val icon: Int, val label: String) {
 /**
  * The slim left rail (approved library design, 2026-11-04): the J64 logo at the top, then the
  * places, Settings pinned at the bottom. Continue only once there's a game to continue
- * ([showContinue]); Search and Achievements come with their pages. Its places are focus stops (left from the library's first column, or a tap); A
+ * ([showContinue]); Achievements comes with its page. Its places are focus stops (left from the library's first column, or a tap); A
  * opens one. Labels beside the icons are still to come (plan, Phase 1).
  */
 @Composable

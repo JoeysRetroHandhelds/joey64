@@ -35,6 +35,7 @@ import java.util.concurrent.Executors
 object RaBridge {
     private const val TAG = "joey64ra"
     private const val PREFS = "ra" // the RAOfflineProxy host only; the account is in SignInStore
+    private const val SEND_RETRY_MS = 60_000L
 
     /** Events from rc_client, as it sent them: {"event": "unlocked", "achievement": {...}, "game": {...}}. */
     fun interface Listener { fun onEvent(event: JSONObject) }
@@ -76,6 +77,7 @@ object RaBridge {
         if (ready) return
         val app = context.applicationContext
         appContext = app
+        queue = RaUnlockQueue.of(app)
         NativeBridge // loads libjoey64host, where the native half lives
         nativeInit()
         userAgent = "Joey64/${BuildConfig.VERSION_NAME} ${userAgentClause()}".trim()
@@ -86,6 +88,13 @@ object RaBridge {
         if (p.contains("token") || p.contains("user")) p.edit().remove("token").remove("user").apply()
         p.getString("host", null)?.let { if (isLocalHost(it)) setHost(it) }
         val kept = try { runBlocking { SignInStore(app).load() } } catch (e: Exception) { JLog.e(TAG, "kept sign-in unreadable: $e"); null }
+        // Back online: the waiting unlocks go (sendUnsent checks there's an account and no game).
+        try {
+            val cm = app.getSystemService(android.net.ConnectivityManager::class.java)
+            cm?.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) { sendLater(5_000) }
+            })
+        } catch (e: Exception) { JLog.w(TAG, "no network callback: $e") }
         if (kept != null) {
             _account.value = Account(kept.user, kept.user, null, null, avatarFile(app).takeIf { it.exists() })
             JLog.i(TAG, "signing in as ${kept.user} (kept account)")
@@ -111,12 +120,14 @@ object RaBridge {
     fun clearSignInError() { if (_signIn.value != SignInState.Busy) _signIn.value = SignInState.Idle }
 
     fun signOut() {
+        val user = _account.value?.user
         logout()
         _account.value = null
         _expired.value = false
         // The progress cache was that account's (LibrarySchema.RA_CACHE).
         appContext?.let { ctx -> io.launch {
             SignInStore(ctx).clear(); avatarFile(ctx).delete()
+            if (user != null) queue?.clear(user)
             try { com.joeysretro.joey64.launcher.data.LibraryDb.get(ctx).clearAchievementCache() } catch (e: Exception) { JLog.e(TAG, "progress cache not cleared: $e") }
         } }
         JLog.i(TAG, "signed out")
@@ -211,6 +222,7 @@ object RaBridge {
             ctx?.let { fetchAvatar(it, user.optString("avatar")) }
             _expired.value = false
             _signIn.value = SignInState.Idle
+            sendLater(5_000)
             JLog.i(TAG, "signed in: ${user.optString("display")}, ${user.optInt("score")} points, ${user.optInt("softcore")} softcore points")
             return
         }
@@ -273,7 +285,80 @@ object RaBridge {
                 // Offline or the server didn't answer. Not logged with the request: it can hold the token.
                 JLog.w(TAG, "server call failed (${e.javaClass.simpleName}): ${endpoint(url, post)}")
             }
+            RaUnlockQueue.parseAward(post)?.let { award ->
+                val q = queue ?: return@let
+                if (RaUnlockQueue.settled(status, body)) q.remove(award.user, award.id) else { q.add(award, System.currentTimeMillis()); sendLater() }
+            }
             serverResponse(handle, status, body)
+        }
+    }
+
+    // --- the offline queue that outlives a game (RaUnlockQueue) ----------------------------------
+
+    @Volatile private var queue: RaUnlockQueue? = null
+    private val sender = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "ra-unsent").apply { isDaemon = true } }
+    @Volatile private var sendQueued = false
+
+    /** The signed-in account's unlocks still waiting to reach RetroAchievements (Sign out asks first while there are any). */
+    fun unsentCount(): Int {
+        val user = _account.value?.user ?: return 0
+        return queue?.count(user) ?: 0
+    }
+
+    /** Tries the waiting unlocks in a minute (and again each minute while some wait and no answer comes). */
+    private fun sendLater(delayMs: Long = SEND_RETRY_MS) {
+        if (sendQueued) return
+        sendQueued = true
+        try { sender.schedule({ sendQueued = false; sendUnsent() }, delayMs, java.util.concurrent.TimeUnit.MILLISECONDS) } catch (e: Exception) { sendQueued = false }
+    }
+
+    /**
+     * Sends the signed-in account's waiting unlocks, rebuilt with how long ago each was earned. Only
+     * while no game is loaded: in a game rc_client still retries its own (they come off the queue
+     * when its tries get an answer), and one left over from an earlier game simply waits for the next
+     * time no game runs. On the sender thread.
+     */
+    private fun sendUnsent() {
+        val q = queue ?: return
+        val user = _account.value?.user ?: return
+        if (!ready || BuildConfig.DEBUG && debugCache != null) return
+        val waiting = q.all().filter { it.user.equals(user, ignoreCase = true) }
+        if (waiting.isEmpty()) return
+        if (gameLoaded()) { sendLater(); return }
+        var left = 0
+        for (u in waiting) {
+            val secs = ((System.currentTimeMillis() - u.atMs) / 1000).coerceIn(1, Int.MAX_VALUE.toLong()).toInt()
+            val req = awardRequest(u.id, u.hash, secs).takeIf { it.isNotEmpty() }?.let { JSONObject(it) } ?: return
+            val (status, body) = httpPost(req.optString("url"), req.optString("post"))
+            if (RaUnlockQueue.settled(status, body)) {
+                val answer = try { JSONObject(String(body!!)) } catch (e: Exception) { JSONObject() }
+                if (!answer.optBoolean("Success", false)) JLog.e(TAG, "waiting unlock ${u.id} refused: ${answer.optString("Error")}")
+                q.remove(u.user, u.id)
+            } else left++
+        }
+        if (left > 0) sendLater() else JLog.i(TAG, "offline queue: all sent")
+    }
+
+    /** One POST to RetroAchievements (or the proxy): the status (-2 without an answer) and the body. */
+    private fun httpPost(url: String, post: String): Pair<Int, ByteArray?> {
+        try {
+            val c = URL(url).openConnection() as HttpURLConnection
+            c.connectTimeout = 15_000
+            c.readTimeout = 30_000
+            c.setRequestProperty("User-Agent", userAgent)
+            c.requestMethod = "POST"
+            c.doOutput = true
+            c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+            c.outputStream.use { it.write(post.toByteArray()) }
+            try {
+                val status = c.responseCode
+                return status to (if (status >= 400) c.errorStream else c.inputStream)?.use { it.readBytes() }
+            } finally {
+                c.disconnect()
+            }
+        } catch (e: IOException) {
+            JLog.w(TAG, "waiting unlock not sent (${e.javaClass.simpleName})")
+            return -2 to null
         }
     }
 
@@ -313,4 +398,6 @@ object RaBridge {
     /** Every achievement of the loaded game, in RetroArch's sections (Active challenges, Recently unlocked...), as JSON. */
     @JvmStatic external fun achievementList(): String
     @JvmStatic external fun lastHash(): String
+    @JvmStatic private external fun awardRequest(id: Int, hash: String, secondsSince: Int): String
+    @JvmStatic private external fun gameLoaded(): Boolean
 }

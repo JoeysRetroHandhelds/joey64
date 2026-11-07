@@ -22,6 +22,7 @@ extern "C" {
 #include "rc_client.h"
 #include "rc_api_request.h"
 #include "rhash/md5.h"
+#include "rc_api_runtime.h"
 }
 
 #define LOG_TAG "joey64ra"
@@ -40,6 +41,8 @@ std::mutex g_ramMutex;               // the RDRAM pointer changes only at game l
 uint8_t* g_ram = nullptr;
 size_t g_ramSize = 0;
 char g_hash[33] = "";
+std::mutex g_hostMutex;
+std::string g_host;                  // what setHost gave rc_client, for awardRequest
 std::atomic<bool> g_gameWanted{false};
 std::atomic<bool> g_enabled{true};     // Settings › RetroAchievements › Achievements
 
@@ -367,6 +370,7 @@ JNIEXPORT void JNICALL RAJNI(setHost)(JNIEnv* env, jclass, jstring host) {
     ensureClient();
     const char* h = host ? env->GetStringUTFChars(host, nullptr) : nullptr;
     rc_client_set_host(g_client, h && *h ? h : nullptr);
+    { std::lock_guard<std::mutex> l(g_hostMutex); g_host = h ? h : ""; }
     if (h) env->ReleaseStringUTFChars(host, h);
 }
 
@@ -394,6 +398,40 @@ JNIEXPORT jstring JNICALL RAJNI(achievementList)(JNIEnv* env, jclass) {
     }
     out += "]";
     return env->NewStringUTF(out.c_str());
+}
+
+// The offline queue (RaUnlockQueue): an unlock rc_client couldn't send before its game was left,
+// rebuilt for the signed-in account with how long ago it happened (rcheevos' delayed unlock, the
+// "o" field). {"url":..,"post":..}, or "" when nobody is signed in. The queue keeps no sign-in key.
+JNIEXPORT jstring JNICALL RAJNI(awardRequest)(JNIEnv* env, jclass, jint id, jstring hash, jint secondsSince) {
+    std::string out;
+    const rc_client_user_t* user = g_client ? rc_client_get_user_info(g_client) : nullptr;
+    if (user && user->username && user->token && id > 0) {
+        const char* h = hash ? env->GetStringUTFChars(hash, nullptr) : nullptr;
+        rc_api_award_achievement_request_t params{};
+        params.username = user->username;
+        params.api_token = user->token;
+        params.achievement_id = (uint32_t)id;
+        params.hardcore = 0; // softcore only
+        params.game_hash = h;
+        params.seconds_since_unlock = (uint32_t)std::max(secondsSince, 1);
+        std::string hostName;
+        { std::lock_guard<std::mutex> l(g_hostMutex); hostName = g_host; }
+        rc_api_host_t apiHost{hostName.empty() ? nullptr : hostName.c_str(), nullptr};
+        rc_api_request_t req{};
+        if (rc_api_init_award_achievement_request_hosted(&req, &params, &apiHost) == RC_OK) {
+            Json j; j.str("url", req.url).str("post", req.post_data ? req.post_data : "");
+            out = j.done();
+        }
+        rc_api_destroy_request(&req);
+        if (h) env->ReleaseStringUTFChars(hash, h);
+    }
+    return env->NewStringUTF(out.c_str());
+}
+
+// Whether rc_client has a game loaded (it then retries its own unlocks).
+JNIEXPORT jboolean JNICALL RAJNI(gameLoaded)(JNIEnv*, jclass) {
+    return g_client && rc_client_is_game_loaded(g_client);
 }
 
 JNIEXPORT jstring JNICALL RAJNI(lastHash)(JNIEnv* env, jclass) {

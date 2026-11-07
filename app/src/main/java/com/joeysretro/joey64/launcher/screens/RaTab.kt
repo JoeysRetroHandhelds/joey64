@@ -60,6 +60,9 @@ import com.joeysretro.joey64.achievements.RaBridge
 import com.joeysretro.joey64.achievements.RaOptions
 import com.joeysretro.joey64.achievements.RaSettings
 import com.joeysretro.joey64.launcher.components.ControllerTextField
+import com.joeysretro.joey64.launcher.components.PromptText
+import com.joeysretro.joey64.launcher.components.PromptHeader
+import com.joeysretro.joey64.launcher.components.JoeyOption
 import com.joeysretro.joey64.launcher.components.DescriptionLine
 import com.joeysretro.joey64.launcher.components.Hint
 import com.joeysretro.joey64.launcher.components.JoeyButton
@@ -87,8 +90,8 @@ import java.text.NumberFormat
  * Spectator mode, Unofficial achievements; More: Screenshot on unlock, Save badges for offline,
  * Rich presence. Right: Pop-ups: Unlocks, Progress, Challenge badges, Leaderboards (locked, "Needs
  * Hardcore"), Game start summary, Pop-up place, Badge place, Pop-ups stay for. The Sound rows come
- * with Joey64's sounds. Sign out asks first only when unlocks are still unsent; until the offline
- * queue keeps them across starts there never are any here, so it signs out at once.
+ * with Joey64's sounds. Sign out asks first only when unlocks are still unsent (the offline queue,
+ * RaUnlockQueue): Stay signed in, or Sign out anyway, which drops them.
  */
 @Composable
 fun RaTab(onHints: (List<Hint>) -> Unit, modifier: Modifier = Modifier) {
@@ -253,7 +256,9 @@ private fun SignedIn(account: RaBridge.Account, onHints: (List<Hint>) -> Unit, m
                 SectionLabel("Account")
                 AccountBlock(account)
                 Toggle("ach", "Achievements", o.achievements, first = true) { x, v -> x.copy(achievements = v) }
-                JoeyRow("Sign out", sideways = true, onFocused = { if (it) focused = "out" }) { RaBridge.signOut() }
+                JoeyRow("Sign out", sideways = true, onFocused = { if (it) focused = "out" }) {
+                    if (RaBridge.unsentCount() > 0) picker = "out" else RaBridge.signOut()
+                }
                 SectionLabel("Play")
                 JoeyRow("Hardcore", sideways = true, value = "Not approved yet", enabled = false, lock = true, onFocused = { if (it) focused = "hc" })
                 Toggle("enc", "Encore mode", o.encore) { x, v -> x.copy(encore = v) }
@@ -287,6 +292,26 @@ private fun SignedIn(account: RaBridge.Account, onHints: (List<Hint>) -> Unit, m
         "bplace" -> PlacePicker("Badge place", "Challenge badges and the leaderboard timer", o.badgePlace, taken = o.popPlace, takenBy = "Pop-ups",
             badges = true, onDismiss = { picker = null }) { spot -> set { it.copy(badgePlace = spot) }; picker = null }
         "dur" -> StayPicker(o.popSeconds, onDismiss = { picker = null }) { s -> set { it.copy(popSeconds = s) }; picker = null }
+        "out" -> SignOutPrompt(RaBridge.unsentCount(), onDismiss = { picker = null }) { picker = null; RaBridge.signOut() }
+    }
+}
+
+/**
+ * Sign out while unlocks still wait to reach RetroAchievements (the offline queue): they belong to
+ * this account, so signing out drops them. Staying is first.
+ */
+@Composable
+private fun SignOutPrompt(count: Int, onDismiss: () -> Unit, onSignOut: () -> Unit) {
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 440.dp) {
+        Column {
+            PromptHeader(R.drawable.ic_wifi_off, if (count == 1) "1 unlock isn't sent yet" else "$count unlocks aren't sent yet")
+            PromptText(androidx.compose.ui.text.AnnotatedString(
+                (if (count == 1) "It hasn't" else "They haven't") + " reached RetroAchievements. Joey64 sends " +
+                    (if (count == 1) "it" else "them") + " once you're online and not playing. Signing out now loses " +
+                    (if (count == 1) "it." else "them.")))
+            JoeyOption("Stay signed in", modifier = Modifier.initialFocus()) { onDismiss() }
+            JoeyOption("Sign out anyway") { onSignOut() }
+        }
     }
 }
 

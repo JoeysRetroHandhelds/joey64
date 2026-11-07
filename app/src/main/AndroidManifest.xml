@@ -66,5 +66,13 @@
             android:excludeFromRecents="true"
             android:noHistory="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <!-- RAOfflineProxy's host override (RetroAchievementsHostOverrideReceiver.kt): it finds this class by name, keep it -->
+        <receiver android:name=".achievements.RetroAchievementsHostOverrideReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="${applicationId}.action.SET_RETROACHIEVEMENTS_HOST_OVERRIDE" />
+                <action android:name="${applicationId}.action.CLEAR_RETROACHIEVEMENTS_HOST_OVERRIDE" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

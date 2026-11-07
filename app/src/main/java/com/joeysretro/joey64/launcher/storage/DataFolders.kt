@@ -76,7 +76,10 @@ object SrmSync {
         if (prefs(context).getLong(saveName, -1L) == at) return
         try {
             val bytes = f.readBytes()
-            folder.space.openWrite(listOf(DataKind.Saves.dir, f.name)).use { it.write(bytes) }
+            // Checked and renamed into place: a push cut off leaves the folder's last whole copy, which another
+            // device would otherwise pull over its own save.
+            if (!FileCopy.writeChecked(bytes.inputStream(), folder.space, listOf(DataKind.Saves.dir, f.name)))
+                throw IOException("can't write ${f.name}")
             prefs(context).edit().putLong(saveName, at).commit()
             JLog.i(TAG, "$saveName.srm: pushed ${bytes.size} bytes to the data folder")
         } catch (e: Exception) {

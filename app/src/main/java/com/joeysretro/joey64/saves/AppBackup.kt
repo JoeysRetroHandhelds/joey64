@@ -5,6 +5,7 @@ import com.joeysretro.joey64.JLog
 import com.joeysretro.joey64.launcher.data.LibraryDb
 import com.joeysretro.joey64.launcher.settings.SettingsStore
 import com.joeysretro.joey64.launcher.storage.DataKind
+import com.joeysretro.joey64.launcher.storage.FileCopy
 import com.joeysretro.joey64.launcher.storage.FileSpace
 import com.joeysretro.joey64.launcher.theme.PopupTheme
 import com.joeysretro.joey64.launcher.theme.ThemeChoice
@@ -77,7 +78,10 @@ object AppBackup {
     suspend fun write(context: Context, data: FileSpace, parts: Set<BackupPart>, out: OutputStream,
                       withCheats: Boolean = true, madeAt: Long = System.currentTimeMillis(), onFile: (Int) -> Unit = {}): Int {
         var n = 0
-        fun kindFiles(k: DataKind) = data.list(listOf(k.dir)).filter { !it.isDir && it.name != DataKind.NO_MEDIA && !it.name.endsWith(".part") }
+        fun kindFiles(k: DataKind) = data.list(listOf(k.dir)).filter {
+            !it.isDir && it.name != DataKind.NO_MEDIA && !it.name.endsWith(".part") &&
+                !it.name.endsWith(FileCopy.PART_SUFFIX) && !it.name.endsWith(FileCopy.OLD_SUFFIX)
+        }
         val saveFiles = if (BackupPart.Saves in parts) SAVE_KINDS.associateWith { kindFiles(it) } else emptyMap()
         val shots = if (BackupPart.Screenshots in parts) kindFiles(DataKind.Screenshots) else emptyList()
         val info = BackupInfo(madeAt, parts,
@@ -116,6 +120,24 @@ object AppBackup {
         return n
     }
 
+    /**
+     * True when the zip in [bytes] has the manifest and every entry reads to its end with the right CRC, so a copy
+     * cut short isn't brought in half (SettingsMirror).
+     */
+    fun readsWhole(bytes: ByteArray): Boolean = try {
+        ZipInputStream(bytes.inputStream()).use { zip ->
+            var manifest = false
+            val buf = ByteArray(16 * 1024)
+            var e = zip.nextEntry
+            while (e != null) {
+                if (e.name == MANIFEST) manifest = true
+                while (zip.read(buf) >= 0) {}
+                e = zip.nextEntry
+            }
+            manifest
+        }
+    } catch (e: Exception) { false }
+
     /** The backup's manifest (the first entry), or null when [input] isn't a Joey64 backup. */
     fun info(input: InputStream): BackupInfo? = try {
         ZipInputStream(input.buffered()).use { zip ->
@@ -145,7 +167,11 @@ object AppBackup {
                                 DataKind.Cheats -> BackupPart.Settings
                                 else -> null
                             }
-                            if (kind != null && part in parts) { data.openWrite(listOf(kind.dir, seg[2])).use { zip.copyTo(it) }; onFile(++n) }
+                            // Through a checked temporary file: a damaged backup or a restore cut off keeps the old save whole.
+                            if (kind != null && part in parts) {
+                                if (!FileCopy.writeChecked(zip, data, listOf(kind.dir, seg[2]))) throw IOException("can't restore $name")
+                                onFile(++n)
+                            }
                         }
                         BackupPart.Settings !in parts -> {}
                         seg.size >= 3 && seg[0] == "files" && seg[1] in SETTINGS_DIRS -> {

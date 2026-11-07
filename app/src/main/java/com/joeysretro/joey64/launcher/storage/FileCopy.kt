@@ -29,6 +29,21 @@ object FileCopy {
     fun replaceChecked(from: FileSpace, fromPath: List<String>, to: FileSpace, toPath: List<String>): Boolean {
         if (!to.exists(toPath)) return copyChecked(from, fromPath, to, toPath)
         val part = writePart(from, fromPath, to, toPath) ?: return false
+        return swapIn(to, part, toPath)
+    }
+
+    /**
+     * Puts the rest of [input] (read to its end, left open: a zip entry) at [toPath], a new file or in place
+     * of the one there, the same checked way: a restore or a folder copy cut off leaves the old file whole.
+     */
+    fun writeChecked(input: InputStream, to: FileSpace, toPath: List<String>): Boolean {
+        val part = writePartFrom(input, to, toPath) ?: return false
+        if (!to.exists(toPath)) return to.rename(part, toPath.last()) || run { to.delete(part); false }
+        return swapIn(to, part, toPath)
+    }
+
+    /** The checked copy [part] in place of the file at [toPath]: the old one aside first, put back if that fails. */
+    private fun swapIn(to: FileSpace, part: List<String>, toPath: List<String>): Boolean {
         val old = sibling(toPath, OLD_SUFFIX)
         to.delete(old)
         if (!to.rename(toPath, old.last())) { to.delete(part); return false }
@@ -42,13 +57,18 @@ object FileCopy {
     }
 
     private fun writePart(from: FileSpace, fromPath: List<String>, to: FileSpace, toPath: List<String>): List<String>? {
+        val input = try { from.openRead(fromPath) } catch (e: Exception) { null } ?: return null
+        return input.use { writePartFrom(it, to, toPath) }
+    }
+
+    /** Writes [i] to a temporary file next to [toPath] and reads it back; its path, or null (nothing left behind). Leaves [i] open. */
+    private fun writePartFrom(i: InputStream, to: FileSpace, toPath: List<String>): List<String>? {
         val part = sibling(toPath, PART_SUFFIX)
         return try {
             to.delete(part)
-            val input = from.openRead(fromPath) ?: return null
             val crc = java.util.zip.CRC32()
             var length = 0L
-            input.use { i ->
+            run {
                 to.openWrite(part).use { o ->
                     val buf = ByteArray(BUFFER)
                     while (true) {

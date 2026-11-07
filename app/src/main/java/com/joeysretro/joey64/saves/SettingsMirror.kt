@@ -82,6 +82,7 @@ object SettingsMirror {
             val bytes = folder.space.openRead(PATH)?.use { it.readBytes() } ?: return false
             val sha = sha(bytes)
             if (sha == prefs(context).getString(KEY, null)) return false
+            if (!AppBackup.readsWhole(bytes)) { JLog.e(TAG, "the data folder's settings copy is damaged, not brought in"); return false }
             val n = AppBackup.restore(context, folder.space, setOf(BackupPart.Settings), bytes.inputStream())
             prefs(context).edit().putString(KEY, sha).commit()
             JLog.i(TAG, "settings brought in from the data folder: $n files")
@@ -101,7 +102,9 @@ object SettingsMirror {
             val bytes = out.toByteArray()
             val sha = sha(bytes)
             if (sha == prefs(context).getString(KEY, null) && folder.space.exists(PATH)) return
-            folder.space.openWrite(PATH).use { it.write(bytes) }
+            // Checked and renamed into place: a copy cut off (app killed, card out) never replaces a whole one.
+            if (!com.joeysretro.joey64.launcher.storage.FileCopy.writeChecked(bytes.inputStream(), folder.space, PATH))
+                throw java.io.IOException("can't write $FILE")
             prefs(context).edit().putString(KEY, sha).commit()
             JLog.i(TAG, "settings copied to the data folder (${bytes.size} bytes)")
         } catch (e: Exception) {

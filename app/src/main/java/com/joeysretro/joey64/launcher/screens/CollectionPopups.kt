@@ -40,7 +40,7 @@ import kotlinx.coroutines.launch
 
 /** A row's tick (this game is in it, or this is what's shown) and its count, in the value colour. */
 @Composable
-private fun TickCount(on: Boolean, count: Int?, focused: Boolean) {
+internal fun TickCount(on: Boolean, count: Int?, focused: Boolean) {
     val c = JoeyTheme.colors
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (on) Icon(painterResource(R.drawable.ic_tick), contentDescription = "Chosen",
@@ -50,7 +50,7 @@ private fun TickCount(on: Boolean, count: Int?, focused: Boolean) {
 }
 
 @Composable
-private fun GroupLabel(text: String) {
+internal fun GroupLabel(text: String) {
     Text(text, style = JoeyTheme.type.small, color = JoeyTheme.colors.textDim,
         modifier = Modifier.padding(start = JoeyTheme.spacing.rowPadH, top = 8.dp, bottom = 2.dp))
 }

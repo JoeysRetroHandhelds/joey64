@@ -114,7 +114,11 @@ object RaBridge {
         logout()
         _account.value = null
         _expired.value = false
-        appContext?.let { ctx -> io.launch { SignInStore(ctx).clear(); avatarFile(ctx).delete() } }
+        // The progress cache was that account's (LibrarySchema.RA_CACHE).
+        appContext?.let { ctx -> io.launch {
+            SignInStore(ctx).clear(); avatarFile(ctx).delete()
+            try { com.joeysretro.joey64.launcher.data.LibraryDb.get(ctx).clearAchievementCache() } catch (e: Exception) { JLog.e(TAG, "progress cache not cleared: $e") }
+        } }
         JLog.i(TAG, "signed out")
     }
 
@@ -227,7 +231,12 @@ object RaBridge {
     fun debugFakeAccount(on: Boolean) {
         if (!BuildConfig.DEBUG) return
         _account.value = if (on) Account("JoeyRetro", "JoeyRetro", 4210, 312, null) else null
+        debugCache = if (on) RaFake.cache() else null
     }
+
+    /** Debug builds, with the made-up account: made-up cached sets (game id -> summary JSON, list JSON), in memory only. */
+    @Volatile var debugCache: Map<Long, Pair<String, String>>? = null
+        private set
 
     // rcheevos' result codes (rc_error.h).
     private const val RC_API_FAILURE_RETRY = -2

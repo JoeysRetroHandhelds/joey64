@@ -54,10 +54,12 @@ sealed interface PauseScreen {
     /** Controls over the paused game (Phase 4, mockup 11), set to the game [saveName]. B goes back to the menu. */
     data class Controls(val saveName: String) : PauseScreen
     /** Cheats over the paused game (Phase 6) for [game]. B goes back to the menu; the game takes the changes on resume. */
+    /** The game's achievements over the paused game (Phase 7), on the row with [focusId] when a tap opened it. B goes back to the menu. */
+    data class Achievements(val focusId: Int? = null) : PauseScreen
     data class Cheats(val game: com.joeysretro.joey64.launcher.screens.CheatsGame, /** "Select + L3", or null with no hotkey for it. */ val gameSharkKeys: String? = null) : PauseScreen
 }
 
-enum class MenuRow { Resume, Save, Load, Controls, Cheats }
+enum class MenuRow { Resume, Save, Load, Controls, Cheats, Achievements }
 
 /** One cell of the slot picker. [savedAt] null: nothing in the slot. [picture]: the PNG beside the state, if any. */
 data class SlotView(val slot: Int, val name: String, val savedAt: Long?, val picture: ImageBitmap?)
@@ -73,6 +75,8 @@ interface PauseActions {
     fun openCheats()
     /** Back from Cheats to the menu; the cheats on now are what the game runs. */
     fun closeCheats()
+    fun openAchievements()
+    fun closeAchievements()
     /** Cheats' "Press GameShark button": back to the game with the button held for a second. */
     fun pressGameShark()
     fun reset()
@@ -103,6 +107,10 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
             com.joeysretro.joey64.launcher.screens.GameSharkRow(screen.gameSharkKeys) { actions.pressGameShark() }) { actions.closeCheats() }
         return
     }
+    if (screen is PauseScreen.Achievements) {
+        com.joeysretro.joey64.launcher.screens.InGameAchievements(title, screen.focusId) { actions.closeAchievements() }
+        return
+    }
     val picker = screen as? PauseScreen.Picker
     val hints = if (picker == null) listOf(Hint("A", "Select"), Hint("B", "Resume"))
         else listOf(Hint("A", if (picker.save) "Save" else "Load"), Hint("D-pad", "Move"), Hint("B", "Back"))
@@ -123,12 +131,16 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
                 PopupDivider()
                 JoeyOption("Controls", Modifier.initialFocus(screen.from == MenuRow.Controls), value = "›") { actions.openControls() }
                 JoeyOption("Cheats", Modifier.initialFocus(screen.from == MenuRow.Cheats), value = "›") { actions.openCheats() }
+                // Only when RetroAchievements knows the game (signed in, and it has a set).
+                val hasSet = androidx.compose.runtime.remember(screen) { com.joeysretro.joey64.achievements.RaBridge.gameInfo() != "null" ||
+                    com.joeysretro.joey64.achievements.RaBridge.debugCache != null }
+                if (hasSet) JoeyOption("Achievements", Modifier.initialFocus(screen.from == MenuRow.Achievements), value = "›") { actions.openAchievements() }
                 PopupDivider()
                 JoeyOption("Reset") { actions.reset() }
                 JoeyOption("Quit to library") { actions.quit() }
             }
             is PauseScreen.Picker -> SlotGrid(screen, now) { actions.pick(screen.save, it) }
-            is PauseScreen.Controls, is PauseScreen.Cheats -> {}
+            is PauseScreen.Controls, is PauseScreen.Cheats, is PauseScreen.Achievements -> {}
         }
     }
 }

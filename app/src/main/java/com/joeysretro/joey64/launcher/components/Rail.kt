@@ -32,6 +32,8 @@ enum class RailPlace(@DrawableRes val icon: Int, val label: String) {
     Continue(R.drawable.ic_rail_continue, "Continue"),
     Library(R.drawable.ic_rail_library, "Library"),
     Search(R.drawable.ic_rail_search, "Search"),
+    /** Only while signed in to RetroAchievements (approved: no signed-out state). */
+    Achievements(R.drawable.ic_trophy, "Achievements"),
     Controls(R.drawable.ic_rail_controls, "Controls"),
     Settings(R.drawable.ic_rail_settings, "Settings"),
 }
@@ -39,11 +41,11 @@ enum class RailPlace(@DrawableRes val icon: Int, val label: String) {
 /**
  * The slim left rail (approved library design, 2026-11-04): the J64 logo at the top, then the
  * places, Settings pinned at the bottom. Continue only once there's a game to continue
- * ([showContinue]); Achievements comes with its page. Its places are focus stops (left from the library's first column, or a tap); A
+ * ([showContinue]); Achievements while signed in ([showAchievements]). Its places are focus stops (left from the library's first column, or a tap); A
  * opens one. Labels beside the icons are still to come (plan, Phase 1).
  */
 @Composable
-fun LauncherRail(selected: RailPlace, modifier: Modifier = Modifier, enabled: Boolean = true, showContinue: Boolean = false, onFocused: (Boolean) -> Unit = {}, onSelect: (RailPlace) -> Unit = {}) {
+fun LauncherRail(selected: RailPlace, modifier: Modifier = Modifier, enabled: Boolean = true, showContinue: Boolean = false, showAchievements: Boolean = false, onFocused: (Boolean) -> Unit = {}, onSelect: (RailPlace) -> Unit = {}) {
     val c = JoeyTheme.colors
     Column(
         modifier = modifier
@@ -60,6 +62,7 @@ fun LauncherRail(selected: RailPlace, modifier: Modifier = Modifier, enabled: Bo
         }
         for (place in RailPlace.entries) {
             if (place == RailPlace.Continue && !showContinue) continue
+            if (place == RailPlace.Achievements && !showAchievements) continue
             if (place == RailPlace.Settings) Spacer(Modifier.weight(1f))
             RailItem(place, place == selected, enabled) { onSelect(place) }
         }

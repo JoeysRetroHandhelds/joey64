@@ -343,6 +343,13 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
 
     fun closeCheats() { _cheatsFor.value = null }
 
+    private val _achievementsFor = MutableStateFlow<com.joeysretro.joey64.launcher.screens.AchievementsGame?>(null)
+    /** The game whose Achievements page is open in the library's place (a game's options › Achievements), or null. */
+    val achievementsFor: StateFlow<com.joeysretro.joey64.launcher.screens.AchievementsGame?> = _achievementsFor
+
+    fun openAchievements(game: LibraryGame) { _achievementsFor.value = com.joeysretro.joey64.launcher.screens.AchievementsGame(game.id, game.title) }
+    fun closeAchievements() { _achievementsFor.value = null }
+
     /** Gets [game] ready and hands [start] its intent. One at a time: a second press while a zip unpacks does nothing. */
     fun play(game: LibraryGame, loadState: String? = null, start: (Intent) -> Unit) {
         if (starting) return

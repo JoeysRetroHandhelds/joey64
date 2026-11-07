@@ -19,7 +19,7 @@ import com.joeysretro.joey64.launcher.library.RomInfo
  * the file is renamed or moved, or the same ROM sits in two folders.
  */
 object LibrarySchema {
-    const val VERSION = 4
+    const val VERSION = 5
 
     val V1 = listOf(
         // md5: RetroAchievements' N64 hash, the MD5 of the ROM in big-endian (.z64) byte order.
@@ -148,6 +148,17 @@ object LibrarySchema {
         "ALTER TABLE games ADD COLUMN header_key TEXT",
     )
 
+    /**
+     * Version 5 (Phase 7, the progress cache, decided 2026-11-04): what rc_client said about the game
+     * the last time it ran, kept whole (its game summary and its achievement list, as JSON), so
+     * the Achievements pages show sets and last-session progress without the game running.
+     */
+    val V5 = listOf(
+        "ALTER TABLE ra_sets ADD COLUMN badge TEXT",
+        "ALTER TABLE ra_sets ADD COLUMN game_json TEXT",
+        "ALTER TABLE ra_sets ADD COLUMN list_json TEXT",
+    )
+
     /** Tables the cache owns; emptied on sign-out. */
     val RA_CACHE = listOf("ra_achievements", "ra_sets")
 }
@@ -223,7 +234,7 @@ class LibraryDb private constructor(context: Context) :
     }
 
     override fun onCreate(db: SQLiteDatabase) {
-        for (sql in LibrarySchema.V1 + LibrarySchema.V2 + LibrarySchema.V3 + LibrarySchema.V4) db.execSQL(sql)
+        for (sql in LibrarySchema.V1 + LibrarySchema.V2 + LibrarySchema.V3 + LibrarySchema.V4 + LibrarySchema.V5) db.execSQL(sql)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -240,6 +251,7 @@ class LibraryDb private constructor(context: Context) :
             for (sql in LibrarySchema.V4) db.execSQL(sql)
             db.execSQL("UPDATE files SET size = -1")
         }
+        if (oldVersion < 5) for (sql in LibrarySchema.V5) db.execSQL(sql)
     }
 
     /** Adds a finished play session and keeps the game's total and last-played in step. */
@@ -469,6 +481,34 @@ class LibraryDb private constructor(context: Context) :
     /** Games with at least one file in a ROM folder: the library. */
     fun gameCount(): Int =
         readableDatabase.rawQuery("SELECT COUNT(DISTINCT game_id) FROM files WHERE game_id IS NOT NULL", null).use { c -> c.moveToFirst(); c.getInt(0) }
+
+    /**
+     * The progress cache: the set of the game with RetroAchievements hash [md5], as rc_client gave it
+     * ([game] its summary, [list] its achievements). False when the game isn't in the library.
+     */
+    fun saveAchievements(md5: String, game: org.json.JSONObject, list: String, now: Long = System.currentTimeMillis()): Boolean {
+        val db = writableDatabase
+        val id = db.rawQuery("SELECT id FROM games WHERE md5 = ?", arrayOf(md5.lowercase())).use { c -> if (c.moveToFirst()) c.getLong(0) else null }
+            ?: return false
+        db.insertWithOnConflict("ra_sets", null, ContentValues().apply {
+            put("game_id", id); put("ra_game_id", game.optInt("id")); put("title", game.optString("title"))
+            put("achievements", game.optInt("achievements")); put("points", game.optInt("points"))
+            put("earned", game.optInt("unlocked")); put("earned_hardcore", 0); put("fetched_at", now)
+            put("badge", game.optString("badge")); put("game_json", game.toString()); put("list_json", list)
+        }, SQLiteDatabase.CONFLICT_REPLACE)
+        return true
+    }
+
+    /** Every cached set: (game id, its summary JSON, the game's last-played ms). */
+    fun achievementGames(): List<Triple<Long, String, Long>> =
+        readableDatabase.rawQuery(
+            "SELECT s.game_id, s.game_json, COALESCE(g.last_played_at, 0) FROM ra_sets s JOIN games g ON g.id = s.game_id WHERE s.game_json IS NOT NULL", null,
+        ).use { c -> buildList { while (c.moveToNext()) add(Triple(c.getLong(0), c.getString(1), c.getLong(2))) } }
+
+    /** One game's cached set: (summary JSON, achievement list JSON, when it was kept), or null. */
+    fun achievementsOf(gameId: Long): Triple<String, String, Long>? =
+        readableDatabase.rawQuery("SELECT game_json, list_json, fetched_at FROM ra_sets WHERE game_id = ? AND game_json IS NOT NULL", arrayOf("$gameId"))
+            .use { c -> if (c.moveToFirst()) Triple(c.getString(0), c.getString(1) ?: "[]", c.getLong(2)) else null }
 
     /** Sign-out: the cached progress belonged to that account. */
     fun clearAchievementCache() {

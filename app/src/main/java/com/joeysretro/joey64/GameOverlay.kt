@@ -7,6 +7,9 @@ import android.os.Looper
 import android.os.SystemClock
 import android.view.Gravity
 import android.view.View
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.geometry.Rect
 import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.compose.foundation.layout.Box
@@ -97,7 +100,9 @@ class GameOverlay(private val activity: Activity, private val actions: PauseActi
             val store = remember { SettingsStore(context) }
             val settings by store.settings.collectAsState(initial = null)
             val p = popupState
-            if (p != null) JoeyTheme(settings?.theme ?: ThemeChoice.Dark) { Across(popupSpot) { InGamePopupCard(p) } }
+            if (p != null) JoeyTheme(settings?.theme ?: ThemeChoice.Dark) {
+                Across(popupSpot) { Box(Modifier.onGloballyPositioned { popupBox = it.boundsInWindow() }) { InGamePopupCard(p) } }
+            }
         }
     }
     private var popupAdded = false
@@ -112,11 +117,35 @@ class GameOverlay(private val activity: Activity, private val actions: PauseActi
             val store = remember { SettingsStore(context) }
             val settings by store.settings.collectAsState(initial = null)
             val b = badgeFiles
-            if (b.isNotEmpty()) JoeyTheme(settings?.theme ?: ThemeChoice.Dark) { Across(badgeSpot) { ChallengeBadges(b) } }
+            if (b.isNotEmpty()) JoeyTheme(settings?.theme ?: ThemeChoice.Dark) {
+                Across(badgeSpot) { Box(Modifier.onGloballyPositioned { badgeBox = it.boundsInWindow() }) { ChallengeBadges(b) } }
+            }
         }
     }
     private var badgeAdded = false
     private var badgeSpot by mutableStateOf<PopupSpot?>(null)
+    private var badgeIds: List<Int> = emptyList()
+
+    // Where the card and the badge box are in their windows, for taps (the windows themselves can't be
+    // touched, so the game's window gets every touch and asks [tapAt]).
+    private var popupBox: Rect? = null
+    private var badgeBox: Rect? = null
+
+    /** What a tap opens (plan: tap to open). */
+    sealed interface Tap { data class Popup(val popup: InGamePopup) : Tap; data class Badges(val newest: Int?) : Tap }
+
+    /** The pop-up or the badge box under a tap at screen [x], [y], or null. Main thread. */
+    fun tapAt(x: Float, y: Float): Tap? {
+        fun hit(v: View, box: Rect?): Boolean {
+            if (box == null || v.visibility != View.VISIBLE || !v.isAttachedToWindow) return false
+            val at = IntArray(2).also { v.getLocationOnScreen(it) }
+            return box.contains(androidx.compose.ui.geometry.Offset(x - at[0], y - at[1]))
+        }
+        val p = popup
+        if (p != null && hit(popupView, popupBox)) return Tap.Popup(p)
+        if (badgeFiles.isNotEmpty() && hit(badgeView, badgeBox)) return Tap.Badges(badgeIds.lastOrNull())
+        return null
+    }
 
     init {
         activity.addContentView(view, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -146,7 +175,8 @@ class GameOverlay(private val activity: Activity, private val actions: PauseActi
     }
 
     /** The challenge badges at Badge place, newest last; an empty list takes them away. Main thread. */
-    fun setChallengeBadges(files: List<File?>) {
+    fun setChallengeBadges(ids: List<Int>, files: List<File?>) {
+        badgeIds = ids
         if (files.isNotEmpty()) {
             val spot = RaSettings.current(activity).badgePlace
             placeWindow(badgeView, badgeAdded, badgeSpot, spot)?.let { badgeAdded = it; if (it) badgeSpot = spot }
@@ -214,6 +244,7 @@ class GameOverlay(private val activity: Activity, private val actions: PauseActi
         if (popupAdded) try { activity.windowManager.removeView(popupView) } catch (e: Exception) {}
         popupAdded = false
         badgeFiles = emptyList()
+        badgeIds = emptyList()
         if (badgeAdded) try { activity.windowManager.removeView(badgeView) } catch (e: Exception) {}
         badgeAdded = false
         owner.destroy()

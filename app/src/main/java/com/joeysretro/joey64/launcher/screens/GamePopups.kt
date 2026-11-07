@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -76,6 +77,8 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
     var version by remember { mutableIntStateOf(0) }
     val details by produceState<GameDetails?>(null, game.id, version) { value = model.details(game) }
     val inDetails = popup == GamePopup.Details
+    // Achievements only while signed in to RetroAchievements (approved: no signed-out state).
+    val signedIn = com.joeysretro.joey64.achievements.RaBridge.account.collectAsState().value != null
     JoeyDialog(
         onDismiss = { onPopup(null) },
         hints = when (popup) {
@@ -97,6 +100,7 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
                     JoeyOption("Details") { onPopup(GamePopup.Details) }
                     com.joeysretro.joey64.launcher.components.PopupDivider()
                     JoeyOption("Cheats", value = "›") { onPopup(null); model.openCheats(game) }
+                    if (signedIn) JoeyOption("Achievements", value = "›") { onPopup(null); model.openAchievements(game) }
                     com.joeysretro.joey64.launcher.components.PopupDivider()
                     JoeyOption("Add to collection", value = "›") { onPopup(GamePopup.Collections) }
                 }

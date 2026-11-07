@@ -46,6 +46,11 @@ data class JoeyColors(
     /** The main button on a page ("Choose ROMs folder", "Use this folder"): blue, white text, in both themes. */
     val buttonPrimary: Color,
     val onButtonPrimary: Color,
+    /** The small tags after an achievement's name (approved ach3.html): orange "Missable", blue "Challenge active". */
+    val tagMissable: Color,
+    val tagMissableBg: Color,
+    val tagChallenge: Color,
+    val tagChallengeBg: Color,
 )
 
 private val Yellow = Color(0xFFF9D036)
@@ -73,6 +78,10 @@ val DarkColors = JoeyColors(
     keyBadgeText = Color(0xFFE6E9F4),
     buttonPrimary = Color(0xFF3A6FE0),
     onButtonPrimary = Color(0xFFFFFFFF),
+    tagMissable = Color(0xFFF0A050),
+    tagMissableBg = Color(0xFF2E2A3E),
+    tagChallenge = Color(0xFF7FA8FF),
+    tagChallengeBg = Color(0xFF1E2A55),
 )
 
 val LightColors = JoeyColors(
@@ -97,6 +106,10 @@ val LightColors = JoeyColors(
     keyBadgeText = Color(0xFFFFFFFF),
     buttonPrimary = Color(0xFF3A6FE0),
     onButtonPrimary = Color(0xFFFFFFFF),
+    tagMissable = Color(0xFFF0A050),
+    tagMissableBg = Color(0xFF2E2A3E),
+    tagChallenge = Color(0xFF7FA8FF),
+    tagChallengeBg = Color(0xFF1E2A55),
 )
 
 val LocalJoeyColors = staticCompositionLocalOf { DarkColors }

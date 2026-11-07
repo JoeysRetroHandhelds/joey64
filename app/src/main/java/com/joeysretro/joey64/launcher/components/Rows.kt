@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -173,4 +174,80 @@ fun DescriptionLine(title: String, text: String, modifier: Modifier = Modifier) 
         style = JoeyTheme.type.small, color = c.textDim, maxLines = 2, overflow = TextOverflow.Ellipsis,
         modifier = modifier.padding(horizontal = JoeyTheme.spacing.rowPadH),
     )
+}
+
+/**
+ * The achievements row (approved template, Joey 2026-11-04 "reuse the same template"; ach3.html):
+ * a 40 dp picture | bold title (a tag after it), a grey line, an optional thin bar | one or two
+ * lines on the right. One focus target. Game rows and achievement rows are both this.
+ */
+@Composable
+fun IconRow(
+    title: String,
+    line: String,
+    modifier: Modifier = Modifier,
+    /** 0..1 for the thin bar under the line; null for none. */
+    bar: Float? = null,
+    /** The right side's first line, and the grey one under it ("8.4% of players"). */
+    rightText: androidx.compose.ui.text.AnnotatedString? = null,
+    rightNote: String? = null,
+    /** Lighter title (a locked achievement). */
+    dim: Boolean = false,
+    onFocused: ((Boolean) -> Unit)? = null,
+    picture: @Composable (focused: Boolean) -> Unit,
+    tag: (@Composable () -> Unit)? = null,
+    onClick: () -> Unit = {},
+) {
+    val c = JoeyTheme.colors
+    val (source, focused) = rememberFocusState()
+    if (onFocused != null) androidx.compose.runtime.LaunchedEffect(focused) { onFocused(focused) }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .focusProperties { left = FocusRequester.Cancel; right = FocusRequester.Cancel }
+            .rowSelection(focused, RoundedCornerShape(JoeyTheme.spacing.rowCorner))
+            .pressable(source, onClick = onClick)
+            .padding(horizontal = JoeyTheme.spacing.rowPadH, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        picture(focused)
+        androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(title, style = JoeyTheme.type.rowBold,
+                    color = rowTextColor(c, focused, if (dim) c.textSecondary else c.text), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false))
+                tag?.invoke()
+            }
+            Text(line, style = JoeyTheme.type.small, color = rowTextColor(c, focused, c.textDim), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (bar != null) ThinBar(bar, Modifier.padding(top = 5.dp).widthIn(max = 320.dp).fillMaxWidth())
+        }
+        if (rightText != null || rightNote != null) androidx.compose.foundation.layout.Column(horizontalAlignment = Alignment.End) {
+            if (rightText != null) Text(rightText, style = JoeyTheme.type.small, color = rowTextColor(c, focused, c.textSecondary), maxLines = 1)
+            if (rightNote != null) Text(rightNote, style = JoeyTheme.type.small, color = rowTextColor(c, focused, c.textDim), maxLines = 1)
+        }
+    }
+}
+
+/** The thin yellow progress bar (blue in light mode) of the achievement pages. */
+@Composable
+fun ThinBar(fraction: Float, modifier: Modifier = Modifier, height: androidx.compose.ui.unit.Dp = 4.dp) {
+    val c = JoeyTheme.colors
+    Box(modifier.height(height).background(c.separator, RoundedCornerShape(2.dp))) {
+        Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).height(height).background(c.value, RoundedCornerShape(2.dp)))
+    }
+}
+
+
+
+/** A small tag after an achievement's name (approved ach3.html): "Missable" orange with a warning sign. */
+@Composable
+fun RowTag(text: String, color: androidx.compose.ui.graphics.Color, background: androidx.compose.ui.graphics.Color, @androidx.annotation.DrawableRes icon: Int? = null) {
+    Row(
+        Modifier.padding(start = 8.dp).background(background, RoundedCornerShape(4.dp)).padding(start = 4.dp, end = 6.dp, top = 1.dp, bottom = 1.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        if (icon != null) androidx.compose.material3.Icon(androidx.compose.ui.res.painterResource(icon), contentDescription = null, tint = color, modifier = Modifier.size(11.dp))
+        Text(text, style = JoeyTheme.type.tag, color = color)
+    }
 }

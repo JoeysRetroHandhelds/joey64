@@ -67,6 +67,9 @@ data class JoeyType(
     val code: TextStyle,
     /** A state slot's name on its picture, and an empty slot's name (the slot picker). */
     val thumbLabel: TextStyle,
+    /** An icon row's bold name (the achievement pages) and the small tag after it ("Missable"). */
+    val rowBold: TextStyle,
+    val tag: TextStyle,
 )
 
 val DefaultType = JoeyType(
@@ -87,6 +90,8 @@ val DefaultType = JoeyType(
     small = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Normal, fontSize = 12.5.sp),
     code = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Normal, fontSize = 13.sp),
     thumbLabel = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Bold, fontSize = 12.sp),
+    rowBold = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Bold, fontSize = 14.5.sp),
+    tag = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Bold, fontSize = 10.5.sp),
 )
 
 val LocalJoeyType = staticCompositionLocalOf { DefaultType }

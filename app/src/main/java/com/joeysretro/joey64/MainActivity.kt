@@ -508,9 +508,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         raPopups = com.joeysretro.joey64.achievements.RaPopups(this,
             show = { p -> runOnUiThread { if (!destroyed) overlay?.show(p) } },
             hide = { key -> runOnUiThread { if (!destroyed) overlay?.hide(key) } },
-            badges = { files -> runOnUiThread { if (!destroyed) overlay?.setChallengeBadges(files) } },
+            badges = { ids, files -> runOnUiThread { if (!destroyed) overlay?.setChallengeBadges(ids, files) } },
             screenshot = { stateHandler.post { if (st.screenshot() == null) JLog.w(TAG, "screenshot on unlock: not saved") } },
         ).also { com.joeysretro.joey64.achievements.RaBridge.listeners += it }
+        // The progress cache (decided 2026-11-04): the set and its progress, for the Achievements pages.
+        raCache = com.joeysretro.joey64.achievements.RaCache(this).also { com.joeysretro.joey64.achievements.RaBridge.listeners += it }
         // The pause menu's title: the game's name in the library, else the ROM's (a frontend's game).
         stateHandler.post {
             val title = givenTitle ?: try {
@@ -565,6 +567,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     // and through a save, load or reset picked from it (they run on the state thread, then it resumes).
     private var overlay: GameOverlay? = null
     private var raPopups: com.joeysretro.joey64.achievements.RaPopups? = null
+    private var raCache: com.joeysretro.joey64.achievements.RaCache? = null
     private var menuOpen = false
     private val slotPrefs by lazy { getSharedPreferences("states", Context.MODE_PRIVATE) }
 
@@ -587,6 +590,42 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         gameSharkButton(false)
         releaseAll()
         o.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Menu()
+    }
+
+    /**
+     * Tap to open (plan, Phase 7): tapping an achievement pop-up or the challenge badges opens the
+     * pause menu's Achievements at that achievement. The pop-up windows can't be touched (the game
+     * keeps the pad), so the game's window checks where a tap lands. Other pop-ups do nothing.
+     */
+    private var tapDown: GameOverlay.Tap? = null
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        val o = overlay
+        if (o == null || menuOpen) return super.dispatchTouchEvent(ev)
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> tapDown = o.tapAt(ev.rawX, ev.rawY)?.takeIf { opensAchievements(it) }
+            MotionEvent.ACTION_UP -> {
+                val down = tapDown
+                tapDown = null
+                if (down != null && o.tapAt(ev.rawX, ev.rawY) == down) { openAchievementsAt(down); return true }
+            }
+            MotionEvent.ACTION_CANCEL -> tapDown = null
+        }
+        return if (tapDown != null) true else super.dispatchTouchEvent(ev)
+    }
+
+    private fun opensAchievements(t: GameOverlay.Tap) = when (t) {
+        is GameOverlay.Tap.Badges -> true
+        is GameOverlay.Tap.Popup -> t.popup.kind in setOf(InGamePopup.Kind.Achievement, InGamePopup.Kind.Progress,
+            InGamePopup.Kind.ChallengeFailed, InGamePopup.Kind.Game)
+    }
+
+    private fun openAchievementsAt(t: GameOverlay.Tap) {
+        val id = when (t) {
+            is GameOverlay.Tap.Badges -> t.newest
+            is GameOverlay.Tap.Popup -> t.popup.key.substringAfter('-', "").toIntOrNull()
+        }
+        openMenu()
+        overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Achievements(id)
     }
 
     /** The menu is done: the game carries on (unless the screen is in the background). */
@@ -653,6 +692,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         override fun closeCheats() {
             sendCheats()
             if (menuOpen) overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Menu(com.joeysretro.joey64.launcher.ingame.MenuRow.Cheats)
+        }
+        override fun openAchievements() {
+            overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Achievements()
+        }
+        override fun closeAchievements() {
+            if (menuOpen) overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Menu(com.joeysretro.joey64.launcher.ingame.MenuRow.Achievements)
         }
         override fun pressGameShark() {
             sendCheats()
@@ -1113,6 +1158,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         super.onPause()
         if (!mine) return
         NativeBridge.pause(true)
+        // Leaving the game (quit, home, another app): its progress is kept while rc_client still has it.
+        raCache?.keepNow()
         reportGameState(loading = false, playing = false)
         fpsHandler.removeCallbacks(fpsTick)
         resumed = false
@@ -1157,6 +1204,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         destroyed = true
         fpsView?.let { windowManager.removeView(it) }
         raPopups?.stop()
+        raCache?.stop()
         overlay?.destroy()
         if (owner === this) { NativeBridge.stop(); owner = null } else if (owner == null && !switching) NativeBridge.stop()
         // Closed on purpose (Back, or a frontend sending the next game): no recovery state is due.

@@ -83,7 +83,7 @@ class RaPopups(
     context: Context,
     private val show: (InGamePopup) -> Unit,
     private val hide: (key: String) -> Unit,
-    private val badges: (List<File?>) -> Unit,
+    private val badges: (ids: List<Int>, files: List<File?>) -> Unit,
     private val screenshot: () -> Unit,
 ) : RaBridge.Listener {
     private val app = context.applicationContext
@@ -133,12 +133,12 @@ class RaPopups(
             "progressHide" -> hide("progress")
             "challengeShow" -> if (a != null) {
                 challenges[a.optInt("id")] = badge(a.optString("badge"))
-                if (o.popChallenges) badges(challenges.values.toList())
+                if (o.popChallenges) badges(challenges.keys.toList(), challenges.values.toList())
             }
             "challengeHide" -> if (a != null) {
                 val id = a.optInt("id")
                 challenges.remove(id)
-                badges(if (o.popChallenges) challenges.values.toList() else emptyList())
+                if (o.popChallenges) badges(challenges.keys.toList(), challenges.values.toList()) else badges(emptyList(), emptyList())
                 // rcheevos hides the badge both when the challenge is won and when it's lost; an unlock
                 // comes in the same frame when it's won, so it's lost if none came by now.
                 worker.schedule({
@@ -147,7 +147,7 @@ class RaPopups(
             }
             "disconnected" -> offline = true
             "reconnected" -> offline = false
-            "reset" -> { challenges.clear(); badges(emptyList()) }
+            "reset" -> { challenges.clear(); badges(emptyList(), emptyList()) }
         }
     }
 

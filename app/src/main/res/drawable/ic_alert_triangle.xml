@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A warning triangle (Tabler Icons "alert-triangle", MIT): the Missable tag on an achievement. Tinted where it's used. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M12,9V13 M10.363,3.591L2.257,17.125A1.914,1.914 0 0 0 3.893,19.996H20.107A1.914,1.914 0 0 0 21.743,17.126L13.637,3.59A1.914,1.914 0 0 0 10.363,3.59Z M12,16H12.01"/>
+</vector>

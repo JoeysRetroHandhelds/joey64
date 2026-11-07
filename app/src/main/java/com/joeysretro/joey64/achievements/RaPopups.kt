@@ -36,8 +36,8 @@ object RaPopupText {
         "*Challenge failed*", a.optString("title"), "", badge = badge, compact = true, stayMs = SHORT_MS)
 
     /**
-     * When a game starts (Settings › Game start summary; the card shape of the approved toasts,
-     * the words drafted here): the game's icon, "RetroAchievements · Softcore", its name, and how
+     * When a game starts (Settings › Game start summary; approved as built, Joey 2026-11-07):
+     * the game's icon, "RetroAchievements · Softcore", its name, and how
      * much of the set is unlocked.
      */
     fun summary(game: JSONObject, badge: File?): InGamePopup {

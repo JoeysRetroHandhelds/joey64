@@ -479,10 +479,11 @@ std::mutex g_stateMutex;
 std::condition_variable g_stateCv;
 StateRequest* g_stateReq = nullptr;
 std::atomic<bool> g_statePending{false};
-// mupen64plus-next can't serialize before its emulation has started; the dev N64_STATE load waits
-// 30 frames for the same reason. Dev env N64_STATE_READY=<frames> tries another count.
+// mupen64plus-next can't serialize before its emulation has started, so a request waits for the first
+// frame. 1 frame (Joey 2026-11-06, was 30 like the dev N64_STATE load, which keeps 30): the Thor's
+// 14-game test loaded all 56 Continues either way, done ~400 ms sooner. Dev env N64_STATE_READY=<frames>.
 int stateReadyFrames() {
-    static const int n = getenv("N64_STATE_READY") && *getenv("N64_STATE_READY") ? atoi(getenv("N64_STATE_READY")) : 30;
+    static const int n = getenv("N64_STATE_READY") && *getenv("N64_STATE_READY") ? atoi(getenv("N64_STATE_READY")) : 1;
     return n;
 }
 

@@ -479,7 +479,7 @@ Also agreed: for an ID shared by more than one layout, Auto map first asks for o
 - **Cheat notes** (Project64's `Note=`, for example "Press L to stop"): DECIDED (Joey 2026-11-07) a small grey line under the cheat's name in the Cheats list, on the rows that have one. Mockup approved and BUILT 2026-11-07 (two lines at most, longer notes end in "…").
 - **GameShark button:** DECIDED (Joey 2026-11-07) a hotkey (proposed: hold the hotkey button + L3) and a "Press GameShark button" row in the pause menu's Cheats, through the core's `event_set_gameshark`; the 3,048 codes that need it then show, with "Needs the GameShark button" under the name. Mockup approved and BUILT 2026-11-07: the core exports only libretro's functions, so while the button is down the host hands it the plain codes (88 -> 80 and so on) between frames. Checked on the Thor in SM64, "Press GS For 255 Coins": coins 0 without the button, 255 after the row and after the hotkey.
 - **367 libretro files are unplaced.** They're named after the ROM's internal name or dumps the tables lack, and could be matched with ROMs.
-- **The Search box's Enter** drops focus on the result under the field, not the first. Phase 5, seen here.
+- **The Search box's Enter** dropped focus on the result under the field, not the first. FIXED 2026-11-07: Enter goes to the first result (checked on the Thor).
 - **Not checked** on the Portal, Flip, Duo and Odin 3. Not checked offline with nothing kept, or with Download cheats off.
 
 - **Nothing bundled** (decided 2026-11-05). Every list comes from `joey64-cheats`, fetched with the box art (Phase 2), so the app carries no cheat licences. This phase is the Cheats screens and turning codes on in the core.

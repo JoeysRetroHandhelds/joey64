@@ -42,6 +42,7 @@ fun SearchScreen(model: LibraryModel, onHints: (List<Hint>) -> Unit, onClose: ()
     val landing = LocalFocusLanding.current
     val found = remember(games, query) { LibraryViews.search(games, query) }
     val c = JoeyTheme.colors
+    val firstResult = remember { androidx.compose.ui.focus.FocusRequester() }
 
     // The results went (cleared, or nothing matches): no game has focus any more.
     if (found.isEmpty() && onGame) onGame = false
@@ -59,6 +60,8 @@ fun SearchScreen(model: LibraryModel, onHints: (List<Hint>) -> Unit, onClose: ()
             ControllerTextField(query, { query = it }, "Search your games",
                 Modifier.initialFocus().padding(start = JoeyTheme.spacing.margin, end = JoeyTheme.spacing.margin, top = 12.dp),
                 startTyping = true,
+                // Enter goes to the first result (moving focus down landed on the tile under the box).
+                onDone = { found.isNotEmpty() && runCatching { firstResult.requestFocus() }.isSuccess },
                 trailing = {
                     if (query.isNotBlank()) Text(if (found.size == 1) "1 game" else "${found.size} games",
                         style = JoeyTheme.type.note, color = c.textDim)
@@ -68,7 +71,7 @@ fun SearchScreen(model: LibraryModel, onHints: (List<Hint>) -> Unit, onClose: ()
             Text("No games match", style = JoeyTheme.type.note, color = c.textDim,
                 modifier = Modifier.padding(start = JoeyTheme.spacing.margin, top = 20.dp))
         } else if (found.isNotEmpty()) {
-            GamesGrid(found, model, onSearch = { edit++; landing?.arm() }, firstFocus = false, onFocusGame = { onGame = it })
+            GamesGrid(found, model, onSearch = { edit++; landing?.arm() }, firstFocus = false, onFocusGame = { onGame = it }, firstTile = firstResult)
         }
     }
 }

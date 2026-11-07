@@ -43,6 +43,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -124,7 +125,9 @@ fun LibraryScreen(model: LibraryModel, onSearch: () -> Unit) {
  */
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
-fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit, firstFocus: Boolean = true, onFocusGame: (Boolean) -> Unit = {}) {
+fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit, firstFocus: Boolean = true, onFocusGame: (Boolean) -> Unit = {},
+    /** Focuses the first tile (Search's Enter: the first result, not the tile under the box). */
+    firstTile: androidx.compose.ui.focus.FocusRequester? = null) {
     val context = LocalContext.current
     // The game whose tile has focus, for Start; null while focus is elsewhere.
     var focusedGame by remember { mutableStateOf<LibraryGame?>(null) }
@@ -163,7 +166,8 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
             modifier = Modifier.fillMaxSize().focusRestorer().focusGroup(),
         ) {
             itemsIndexed(list, key = { _, g -> g.id }) { i, g ->
-                GameTile(g, model.cover(g), Modifier.initialFocus(firstFocus && i == 0),
+                GameTile(g, model.cover(g), Modifier.initialFocus(firstFocus && i == 0)
+                    .then(if (i == 0 && firstTile != null) Modifier.focusRequester(firstTile) else Modifier),
                     onFocus = { on -> if (on) focusedGame = g else if (focusedGame?.id == g.id) focusedGame = null },
                     onOptions = { popup = g.id to GamePopup.Options }) { model.play(g) { context.startActivity(it) } }
             }

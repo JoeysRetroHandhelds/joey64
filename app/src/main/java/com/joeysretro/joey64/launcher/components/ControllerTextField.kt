@@ -54,7 +54,8 @@ fun ControllerTextField(
     modifier: Modifier = Modifier,
     isPassword: Boolean = false,
     showPassword: Boolean = false,
-    onDone: (() -> Unit)? = null,
+    /** Enter: moves focus on itself, true when it did (else focus goes back to the box). */
+    onDone: (() -> Boolean)? = null,
     trailing: (@Composable () -> Unit)? = null,
     /** Typing (keyboard up) from the start: a name popup, where typing is the only thing to do. */
     startTyping: Boolean = false,
@@ -75,7 +76,7 @@ fun ControllerTextField(
     val lit = boxFocused || fieldFocused
 
     fun stopTyping(moveOn: Boolean) {
-        val movedOn = moveOn && (if (onDone != null) { onDone(); true } else focusManager.moveFocus(FocusDirection.Down))
+        val movedOn = moveOn && (if (onDone != null) onDone() else focusManager.moveFocus(FocusDirection.Down))
         if (!movedOn) backToBox.arm()
         keyboard?.hide()
         typing = false

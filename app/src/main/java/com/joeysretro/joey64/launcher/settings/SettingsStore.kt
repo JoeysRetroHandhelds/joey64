@@ -27,6 +27,8 @@ data class LauncherSettings(
     val downloadCheats: Boolean = true,
     /** First run is finished (ROMs folder picked, Import from RetroArch offered); until then the app opens to it. */
     val setupDone: Boolean = false,
+    /** First run's "Where should Joey64 keep saves, states and screenshots?" was answered (screens 3-4, built 2026-11-07). */
+    val dataAsked: Boolean = false,
 )
 
 private val Context.settingsStore: DataStore<Preferences> by preferencesDataStore(name = "launcher_settings")
@@ -47,6 +49,7 @@ class SettingsStore(context: Context) {
             downloadBoxArt = p[BOX_ART] ?: true,
             downloadCheats = p[CHEATS] ?: true,
             setupDone = p[SETUP_DONE] ?: false,
+            dataAsked = p[DATA_ASKED] ?: false,
         )
     }
 
@@ -58,6 +61,7 @@ class SettingsStore(context: Context) {
     suspend fun setDownloadBoxArt(on: Boolean) = store.edit { it[BOX_ART] = on }
     suspend fun setDownloadCheats(on: Boolean) = store.edit { it[CHEATS] = on }
     suspend fun setSetupDone() = store.edit { it[SETUP_DONE] = true }
+    suspend fun setDataAsked() = store.edit { it[DATA_ASKED] = true }
 
     private companion object {
         val THEME = stringPreferencesKey("theme")
@@ -67,5 +71,6 @@ class SettingsStore(context: Context) {
         val BOX_ART = booleanPreferencesKey("download_box_art")
         val CHEATS = booleanPreferencesKey("download_cheats")
         val SETUP_DONE = booleanPreferencesKey("setup_done")
+        val DATA_ASKED = booleanPreferencesKey("data_asked")
     }
 }

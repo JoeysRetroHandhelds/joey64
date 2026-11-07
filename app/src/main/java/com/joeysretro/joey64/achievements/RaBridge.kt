@@ -66,6 +66,8 @@ object RaBridge {
     @Volatile private var appContext: Context? = null
     @Volatile private var richPresence = true
     private var userAgent = "Joey64/${BuildConfig.VERSION_NAME}"
+    /** The User-Agent RetroAchievements gets from Joey64 (with rcheevos' clause once it's loaded), for [RaGameList]. */
+    val agent: String get() = userAgent
 
     /** Which sign-in is under way, so its answer is read right; a cancelled one is undone when it lands. */
     private enum class Login { None, Password, Token, Cancelled }

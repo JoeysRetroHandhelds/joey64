@@ -15,6 +15,7 @@ class LibraryViewsTest {
         players = mapOf("3E5055B6" to 4, "CFE2CB31" to 1),
         listed = setOf(mk.md5, snap.md5),
         members = mapOf(7L to setOf(2L, 3L)),
+        withSets = setOf("a".repeat(32), "b".repeat(32)),
     )
 
     private fun ids(v: LibraryView) = LibraryViews.show(games, v, facts).map { it.id }
@@ -27,12 +28,13 @@ class LibraryViewsTest {
         assertEquals(listOf(1L), ids(LibraryView.Filter(AutoFilter.FourPlayers)))
         assertEquals(listOf(3L), ids(LibraryView.Filter(AutoFilter.Hacks)))
         assertEquals(listOf(2L, 3L), ids(LibraryView.Filter(AutoFilter.NeverPlayed)))
+        assertEquals(listOf(1L, 2L), ids(LibraryView.Filter(AutoFilter.HasAchievements)))
     }
 
     @Test fun countsListFavouritesThenCollectionsThenFilters() {
         val counts = LibraryViews.counts(games, listOf(GameCollection(7, "Party games")), facts)
-        assertEquals(listOf("All games", "Favourites", "Party games", "4 players", "Hacks and translations", "Never played"), counts.keys.map { it.label })
-        assertEquals(listOf(3, 1, 2, 1, 1, 2), counts.values.toList())
+        assertEquals(listOf("All games", "Favourites", "Party games", "4 players", "Hacks and translations", "Never played", "Has achievements"), counts.keys.map { it.label })
+        assertEquals(listOf(3, 1, 2, 1, 1, 2, 2), counts.values.toList())
     }
 
     @Test fun searchMatchesEveryWordAnyCaseWithoutAccents() {

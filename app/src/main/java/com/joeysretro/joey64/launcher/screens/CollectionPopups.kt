@@ -68,6 +68,7 @@ fun ShowPopup(model: LibraryModel, onDismiss: () -> Unit) {
     val view by model.view.collectAsStateWithLifecycle()
     val counts = remember(games, collections, facts) { LibraryViews.counts(games, collections, facts) }
     var focusedCollection by remember { mutableStateOf<GameCollection?>(null) }
+    val signedIn = com.joeysretro.joey64.achievements.RaBridge.account.collectAsStateWithLifecycle().value != null
     var options by remember { mutableStateOf<GameCollection?>(null) }
     var naming by remember { mutableStateOf(false) }
     fun pick(v: LibraryView) { model.show(v); onDismiss() }
@@ -99,7 +100,8 @@ fun ShowPopup(model: LibraryModel, onDismiss: () -> Unit) {
                 }
                 Column(Modifier.weight(1f)) {
                     GroupLabel("Filters")
-                    for (f in AutoFilter.entries) {
+                    // Has achievements only while signed in to RetroAchievements (as the Achievements rows).
+                    for (f in AutoFilter.entries.filter { it != AutoFilter.HasAchievements || signedIn }) {
                         val v = LibraryView.Filter(f)
                         JoeyRow(f.label, Modifier.initialFocus(view == v), sideways = true,
                             trailing = { fo -> TickCount(view == v, counts[v], fo) }) { pick(v) }

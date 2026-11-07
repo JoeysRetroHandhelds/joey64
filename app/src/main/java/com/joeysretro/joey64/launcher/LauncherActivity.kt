@@ -119,12 +119,12 @@ class LauncherActivity : ComponentActivity() {
             // adb shell am broadcast -a com.joeysretro.joey64.SHOW --es what <screen>: a screen that can't
             // otherwise be reached without changing Joey's setup, with made-up data, for checks (light
             // mode). update, update-downloading, update-permission, update-failed (add -testing for a
-            // testing build): the updater's prompts, whose buttons only close them. first-run, import:
+            // testing build): the updater's prompts, whose buttons only close them. first-run, data, import:
             // the setup pages, shown over the library (nothing on them is kept); none goes back.
             val show = object : android.content.BroadcastReceiver() {
                 override fun onReceive(c: android.content.Context, i: android.content.Intent) {
                     val what = i.getStringExtra("what") ?: return
-                    if (what.startsWith("update")) updates.debugShow(what) else model.debugSetupPage(what.takeIf { it == "first-run" || it == "import" })
+                    if (what.startsWith("update")) updates.debugShow(what) else model.debugSetupPage(what.takeIf { it == "first-run" || it == "data" || it == "import" })
                 }
             }
             val showFilter = android.content.IntentFilter("com.joeysretro.joey64.SHOW")
@@ -177,6 +177,8 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             val raAccount by com.joeysretro.joey64.achievements.RaBridge.account.collectAsStateWithLifecycle()
             // Signed out with the Achievements page up: back to the library.
             LaunchedEffect(raAccount == null) { if (raAccount == null && place == RailPlace.Achievements) place = RailPlace.Library }
+            // Signed in: the Has achievements filter's list, fetched again when a day old.
+            LaunchedEffect(raAccount != null) { if (raAccount != null) model.refreshSetList() }
             // Cheats opens over the library or Search results (a game's options), and B goes back there; going anywhere on the rail closes it.
             LaunchedEffect(place) { model.closeCheats(); model.closeAchievements(); model.closeGameSettings() }
             if (home) UpdateChecks(updates)
@@ -192,7 +194,8 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                             val debugPage by model.debugSetup.collectAsStateWithLifecycle()
                             when {
                                 debugPage == "first-run" -> FirstRunScreen(model) { model.debugSetupPage(null) }
-                                debugPage == "import" -> ImportScreen(importModel, s.dataFolder, debugOnly = true) { model.debugSetupPage(null) }
+                                debugPage == "data" -> com.joeysretro.joey64.launcher.screens.DataFolderStep(debugOnly = true) { model.debugSetupPage(null) }
+                                debugPage == "import" -> ImportScreen(importModel, s.dataFolder, debugOnly = true, firstRun = true) { model.debugSetupPage(null) }
                                 folders.isEmpty() -> FirstRunScreen(model) { trees ->
                                     scope.launch {
                                         for (tree in trees) {
@@ -201,8 +204,9 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                                         }
                                     }
                                 }
-                                // Then Import from RetroArch, offered once; Skip or Continue finishes first run.
-                                !s.setupDone -> ImportScreen(importModel, s.dataFolder) { scope.launch { store.setSetupDone() } }
+                                // Then where saves go (screens 3-4), then Import from RetroArch, offered once; Skip or Continue finishes first run.
+                                !s.setupDone && !s.dataAsked -> com.joeysretro.joey64.launcher.screens.DataFolderStep { scope.launch { store.setDataAsked() } }
+                                !s.setupDone -> ImportScreen(importModel, s.dataFolder, firstRun = true) { scope.launch { store.setSetupDone() } }
                                 importAgain -> {
                                     androidx.activity.compose.BackHandler { importAgain = false }
                                     ImportScreen(importModel, s.dataFolder) { importAgain = false }

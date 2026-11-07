@@ -89,6 +89,16 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         JLog.i(TAG, "showing ${v.label}")
     }
 
+    /** Signed in: fetches which games have achievements when that list is a day old, then the filters read it. */
+    fun refreshSetList() {
+        viewModelScope.launch {
+            val changed = withContext(Dispatchers.IO) {
+                com.joeysretro.joey64.achievements.RaGameList.refreshIfOld(getApplication(), com.joeysretro.joey64.achievements.RaBridge.agent)
+            }
+            if (changed) reloadCollections()
+        }
+    }
+
     /** Reads the collections again after a change, and the games (Favourites is a column on them). */
     private suspend fun reloadCollections(games: Boolean = false) = withContext(Dispatchers.IO) {
         val app = getApplication<Application>()
@@ -97,6 +107,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
             players = com.joeysretro.joey64.launcher.library.LibraryViews.players(app),
             listed = com.joeysretro.joey64.launcher.boxart.BoxArtTable.get(app).keys,
             members = db.collectionGames(),
+            withSets = com.joeysretro.joey64.achievements.RaGameList.hashes(app).orEmpty(),
         )
         if (games) _games.value = db.libraryGames()
         // A collection that's gone (deleted) or renamed: the button follows.

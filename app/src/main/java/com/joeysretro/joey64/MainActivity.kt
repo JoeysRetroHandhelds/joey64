@@ -264,36 +264,53 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     // ---- Rumble Pak ---------------------------------------------------------------------------
-    // The core switches the pak's motor on and off; a background thread waits for each change (a
-    // per-vsync poll cost ~60 ms of CPU a second at 120 Hz). Vibrates the gamepad last used if it
-    // has a motor, else the device (handhelds have one built in).
+    // The core switches each player's pak motor on and off; a background thread waits for each change
+    // (a per-vsync poll cost ~60 ms of CPU a second at 120 Hz). Each player vibrates their own pad when
+    // it has a motor (players 2-4 since 2026-11-07); the player with the built-in controls vibrates the
+    // device, and so does player 1 when nobody has the built-in controls (as before: a pad without a motor).
     private var padDeviceId = -1
-    private var rumbling = false
-    private var rumbleVibrator: Vibrator? = null
+    /** Bit p: player p+1's motor is running. */
+    private var rumbling = 0
+    private val rumbleVibrators = arrayOfNulls<Vibrator>(4)
 
-    private fun vibrator(): Vibrator? {
-        val pad = InputDevice.getDevice(padDeviceId)
-        val padVib = if (Build.VERSION.SDK_INT >= 31) pad?.vibratorManager?.defaultVibrator
+    private fun padVibrator(pad: InputDevice?): Vibrator? {
+        val v = if (Build.VERSION.SDK_INT >= 31) pad?.vibratorManager?.defaultVibrator
             else @Suppress("DEPRECATION") pad?.vibrator
-        if (padVib?.hasVibrator() == true) return padVib
+        return v?.takeIf { it.hasVibrator() }
+    }
+
+    private fun vibratorFor(p: Int): Vibrator? {
+        // The pads playing as p, the one last used first; then a connected pad that is p's controller but hasn't been pressed yet.
+        val ids = playerOfDevice.filterValues { it == p }.keys.sortedByDescending { it == padDeviceId }
+        for (id in ids) padVibrator(InputDevice.getDevice(id))?.let { return it }
+        val choice = controls.players.getOrNull(p)?.device
+        if (choice is DeviceChoice.Pad) for (id in InputDevice.getDeviceIds()) {
+            val d = InputDevice.getDevice(id) ?: continue
+            if (PadDevices.isPad(d) && PadDevices.matches(choice, d)) padVibrator(d)?.let { return it }
+        }
+        val builtInPlayer = controls.players.indexOfFirst { it.device == DeviceChoice.BuiltIn }
+        if (p != builtInPlayer && !(p == 0 && builtInPlayer < 0)) return null
         val sys = if (Build.VERSION.SDK_INT >= 31)
             (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
             else @Suppress("DEPRECATION") getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         return sys.takeIf { it.hasVibrator() }
     }
 
-    private fun setRumbling(on: Boolean) {
-        if (on == rumbling) return
-        rumbling = on
-        if (on) {
-            rumbleVibrator = vibrator()
-            JLog.i(TAG, "rumble on: ${rumbleVibrator ?: "no vibrator"}")
-            // Long one-shot, cancelled when the game switches the motor off.
-            rumbleVibrator?.vibrate(VibrationEffect.createOneShot(10_000, VibrationEffect.DEFAULT_AMPLITUDE))
-        } else {
-            rumbleVibrator?.cancel()
-            rumbleVibrator = null
+    private fun setRumbling(mask: Int) {
+        for (p in 0..3) {
+            val on = (mask shr p) and 1 == 1
+            if (on == ((rumbling shr p) and 1 == 1)) continue
+            if (on) {
+                rumbleVibrators[p] = vibratorFor(p)
+                JLog.i(TAG, "rumble player ${p + 1} on: ${rumbleVibrators[p] ?: "no vibrator"}")
+                // Long one-shot, cancelled when the game switches the motor off.
+                rumbleVibrators[p]?.vibrate(VibrationEffect.createOneShot(10_000, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                rumbleVibrators[p]?.cancel()
+                rumbleVibrators[p] = null
+            }
         }
+        rumbling = mask
     }
 
     @Volatile private var resumed = false
@@ -301,7 +318,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     /** Watches RetroAchievements' sign-in state for the pop-ups; ends with the activity. */
     private val uiScope = kotlinx.coroutines.MainScope()
     private val rumbleWatcher = Thread({
-        var on = false
+        var on = 0
         while (!destroyed) {
             val now = NativeBridge.waitRumble(on, 1000)
             if (now != on) { on = now; runOnUiThread { if (resumed) setRumbling(now) } }
@@ -1688,7 +1705,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         volumeKey(0, false)
         fpsHandler.removeCallbacks(gameSharkUp)
         gameSharkButton(false)
-        setRumbling(false)
+        setRumbling(0)
         stickCals.values.forEach { it.save(stickPrefs) }
     }
     override fun onResume() {
@@ -1698,7 +1715,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (started) { reportGameState(loading = false); requestAudioFocus() }
         resumed = true
         stats?.start()
-        setRumbling(NativeBridge.rumble() > 0)
+        setRumbling(NativeBridge.rumble())
         if (!rumbleWatcher.isAlive) rumbleWatcher.start()
     }
     // Item 31 (dev, --es env N64_GAME_STATE=1, Android 13+): tell the system a game is being played

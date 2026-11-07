@@ -81,11 +81,11 @@ object NativeBridge {
     /** The newest frame times in ms (each frame's work, without waits), oldest first, into [out]; returns how many. */
     external fun frameTimes(out: FloatArray): Int
 
-    /** Player 1 Rumble Pak strength, 0 (off) to 65535. */
+    /** Which players' Rumble Pak motors are on: bit p for player p+1. */
     external fun rumble(): Int
 
-    /** Blocks until the Rumble Pak motor is no longer [wasOn], or [timeoutMs] passes; returns whether it is on. */
-    external fun waitRumble(wasOn: Boolean, timeoutMs: Int): Boolean
+    /** Blocks until the motors on ([rumble]'s bits) are no longer [wasMask], or [timeoutMs] passes; returns them. */
+    external fun waitRumble(wasMask: Int, timeoutMs: Int): Int
 
     /**
      * The core's save state (its own data, before RetroArch's wrapping: StateFiles), taken between

@@ -4,13 +4,15 @@ import android.content.Context
 import com.joeysretro.joey64.launcher.data.GameCollection
 import com.joeysretro.joey64.launcher.data.LibraryGame
 
-/** The filters that fill themselves (approved Show popup, 2026-11-04). "Has achievements" comes with RetroAchievements (Phase 7). */
+/** The filters that fill themselves (approved Show popup, 2026-11-04). */
 enum class AutoFilter(val label: String) {
     /** Games that take four players or more, from libretro-database's player counts. */
     FourPlayers("4 players"),
     /** Games not in No-Intro's list (the box-art table): hacks, translations, homebrew. */
     Hacks("Hacks and translations"),
     NeverPlayed("Never played"),
+    /** Games with a RetroAchievements set ([com.joeysretro.joey64.achievements.RaGameList]); listed while signed in. */
+    HasAchievements("Has achievements"),
 }
 
 /** What the library shows: one at a time, named on the Filter button (blue when it isn't All games). */
@@ -30,6 +32,8 @@ class LibraryFacts(
     val listed: Set<String>,
     /** Collection id to its games. */
     val members: Map<Long, Set<Long>>,
+    /** RetroAchievements hashes (lower case) of games with achievements; empty until the list is fetched. */
+    val withSets: Set<String> = emptySet(),
 )
 
 object LibraryViews {
@@ -41,6 +45,7 @@ object LibraryViews {
             AutoFilter.FourPlayers -> (facts.players[game.crc32] ?: 0) >= 4
             AutoFilter.Hacks -> game.md5 !in facts.listed
             AutoFilter.NeverPlayed -> !game.played
+            AutoFilter.HasAchievements -> game.md5.lowercase() in facts.withSets
         }
     }
 

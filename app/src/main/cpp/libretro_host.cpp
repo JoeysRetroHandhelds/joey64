@@ -241,18 +241,26 @@ void noteFrameTime(double ms) {
 // For the counter ("60 FPS | 20 DL/s | 100%"): emulated frames (retro_run calls, the game's speed) and new
 // frames presented (what the game drew: OoT 20 a second once repeats are skipped).
 std::atomic<uint32_t> g_framesRun{0}, g_framesDrawn{0};
-// Rumble Pak, player 1: the core switches each motor on/off; a UI-side thread waits in waitRumble
-// for the motor to change and drives the controller's (or the device's) vibrator. Polling it from a
+// Rumble Pak, players 1-4 (players 2-4 since 2026-11-07; before, the core's calls for ports 1-3 were
+// refused): the core switches each motor on/off; a UI-side thread waits in waitRumble for any player's
+// motor to change and drives that player's controller (or the device's) vibrator. Polling it from a
 // per-vsync callback instead cost ~60 ms of CPU per second on the Duo (120 Hz, debug build).
-std::atomic<uint16_t> g_rumbleWeak{0}, g_rumbleStrong{0};
+std::atomic<uint16_t> g_rumbleWeak[4], g_rumbleStrong[4];   // static storage: start at 0
 std::mutex g_rumbleMutex;
 std::condition_variable g_rumbleChanged;
+// Bit p set: player p+1's motor is on.
+int rumbleMask() {
+    int m = 0;
+    for (int p = 0; p < 4; ++p) if (std::max(g_rumbleWeak[p].load(), g_rumbleStrong[p].load()) > 0) m |= 1 << p;
+    return m;
+}
 bool setRumble(unsigned port, retro_rumble_effect effect, uint16_t strength) {
-    if (port != 0) return false;
-    bool wasOn = std::max(g_rumbleWeak.load(), g_rumbleStrong.load()) > 0;
-    (effect == RETRO_RUMBLE_STRONG ? g_rumbleStrong : g_rumbleWeak) = strength;
-    if ((std::max(g_rumbleWeak.load(), g_rumbleStrong.load()) > 0) != wasOn) {
-        LOGI("rumble %s", wasOn ? "off" : "on");
+    if (port > 3) return false;
+    int was = rumbleMask();
+    (effect == RETRO_RUMBLE_STRONG ? g_rumbleStrong[port] : g_rumbleWeak[port]) = strength;
+    int now = rumbleMask();
+    if (now != was) {
+        LOGI("rumble player %u %s", port + 1, (now >> port) & 1 ? "on" : "off");
         { std::lock_guard<std::mutex> lock(g_rumbleMutex); }
         g_rumbleChanged.notify_all();
     }
@@ -1324,14 +1332,13 @@ JNIEXPORT void JNICALL JNI(setAudio)(JNIEnv*, jobject, jint volume, jboolean mut
 }
 
 JNIEXPORT jint JNICALL JNI(rumble)(JNIEnv*, jobject) {
-    return (jint)std::max(g_rumbleWeak.load(), g_rumbleStrong.load());
+    return (jint)rumbleMask();
 }
 
-JNIEXPORT jboolean JNICALL JNI(waitRumble)(JNIEnv*, jobject, jboolean wasOn, jint timeoutMs) {
-    auto isOn = [] { return std::max(g_rumbleWeak.load(), g_rumbleStrong.load()) > 0; };
+JNIEXPORT jint JNICALL JNI(waitRumble)(JNIEnv*, jobject, jint wasMask, jint timeoutMs) {
     std::unique_lock<std::mutex> lock(g_rumbleMutex);
-    g_rumbleChanged.wait_for(lock, std::chrono::milliseconds(timeoutMs), [&] { return isOn() != (bool)wasOn; });
-    return isOn();
+    g_rumbleChanged.wait_for(lock, std::chrono::milliseconds(timeoutMs), [&] { return rumbleMask() != (int)wasMask; });
+    return (jint)rumbleMask();
 }
 
 JNIEXPORT jint JNICALL JNI(framesRun)(JNIEnv*, jobject) {

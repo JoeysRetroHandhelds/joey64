@@ -199,27 +199,7 @@ private fun folderLabel(context: android.content.Context, tree: String?): String
 private fun moveData(context: android.content.Context, scope: kotlinx.coroutines.CoroutineScope, tree: String?, show: (String) -> Unit, done: (String?) -> Unit) {
     show("Moving…")
     scope.launch {
-        val r = withContext(Dispatchers.IO) {
-            try {
-                val target = if (tree == null) DataFolder.internal(context) else {
-                    RomFolders.keep(context, tree.toUri(), write = true)
-                    DataFolder.picked(context, tree.toUri())
-                }
-                val from = DataFolders.current(context)
-                if (!from.canMoveTo(target)) return@withContext null
-                SrmSync.pushAll(context)
-                val res = DataMover.move(from.space, target.space, DataFolders.KINDS)
-                    .also { com.joeysretro.joey64.launcher.storage.DataFolderRules.hideFromGallery(target.space, DataFolders.KINDS) }
-                val old = DataFolders.treeUri(context)
-                DataFolders.set(context, tree)
-                SettingsStore(context).setDataFolder(tree)
-                // The settings' copy follows (Joey 2026-11-07: "Move settings too").
-                com.joeysretro.joey64.saves.SettingsMirror.moved(context, old)
-                if (old != null && old != tree) try { RomFolders.release(context, old.toUri()) } catch (e: Exception) {}
-                JLog.i(TAG, "data folder: moved ${res.moved}, already there ${res.alreadyThere}, kept ${res.conflicts.size}, failed ${res.failed.size}")
-                res
-            } catch (e: Exception) { JLog.e(TAG, "data folder: move failed: $e"); null }
-        }
+        val r = com.joeysretro.joey64.launcher.storage.DataFolderMove.to(context, tree)
         if (r == null) { show("Couldn't move"); return@launch }
         done(tree)
         val left = r.conflicts.size + r.failed.size

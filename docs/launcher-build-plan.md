@@ -573,6 +573,10 @@ Also agreed: for an ID shared by more than one layout, Auto map first asks for o
   - Frame advance and slow motion (ares, DuckStation, PCSX2, mupen64plus).
   - Overscan crop (RMG, ares, gopher64), likely in Game settings › Picture.
   - Android TV: the leanback launcher entry, a banner, and checking the launcher at TV size (Dolphin, Lemuroid, Mupen64Plus AE).
+- **HDR output, wanted (Joey, 2026-11-06: "Add to plan only", no prototype yet).** Inverse tone mapping in the host's final pass, as RetroArch's HDR (peak nits, paper white, contrast, expand gamut; `gfx/drivers/vulkan_shaders/hdr_common.glsl`) and Dolphin's scRGB output; settings need Joey's mockup. Found 2026-11-06:
+  - HDR screens (HDR10, HLG): Odin 3 (Android 15), Duo (Android 16), Portal and Thor main screen (Android 13). The Flip has none. Peaks reported 420-500 nits, so the gain is small on the handhelds, bigger on an HDR TV over HDMI.
+  - The Thor's Adreno driver offers scRGB (R16G16B16A16_SFLOAT with EXTENDED_SRGB_LINEAR, needs VK_EXT_swapchain_colorspace) and Display P3, not HDR10 ST2084.
+  - Android 14 added letting an app go brighter than SDR white; on Android 13 (Portal, Thor) the compositor may clip it. A prototype would check that first.
 - **From other emulators, later (Joey, 2026-11-06):** ROM patch files applied at launch (.bps/.ips/.xdelta), home-screen shortcuts, Expansion Pak off per game (per-game data; mupen64plus.ini marks 3 games), cheat search (Project64's memory scanner, DuckStation), an input display overlay, clip recording of the last 30 seconds.
 
 ## How each phase is checked

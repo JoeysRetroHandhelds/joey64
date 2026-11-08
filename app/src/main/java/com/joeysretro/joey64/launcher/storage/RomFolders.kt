@@ -17,11 +17,14 @@ data class RomFile(val uri: Uri, val treeUri: Uri, val path: List<String>, val s
  * The rules for ROM folders, kept apart from Android so they are unit tested (RomFolderRulesTest).
  */
 object RomFolderRules {
-    /** Plan: inside a picked folder Joey64 looks for `n64`, `N64` or `Nintendo 64` by itself. */
-    private val N64_NAMES = setOf("n64", "nintendo 64")
+    /**
+     * Plan: inside a picked folder Joey64 looks for `n64`, `N64` or `Nintendo 64` by itself, and for 64DD disks
+     * `n64dd` (ES-DE's name), `64dd` or `Nintendo 64DD`.
+     */
+    private val N64_NAMES = setOf("n64", "nintendo 64", "n64dd", "64dd", "nintendo 64dd")
 
-    /** ROMs and the archives the app unpacks to the cache (plan: Speed). */
-    private val ROM_EXTENSIONS = setOf("z64", "n64", "v64", "zip", "7z")
+    /** ROMs, 64DD disks (.ndd, .d64) and the archives the app unpacks to the cache (plan: Speed). */
+    private val ROM_EXTENSIONS = setOf("z64", "n64", "v64", "ndd", "d64", "zip", "7z")
 
     fun isN64FolderName(name: String) = name.trim().lowercase() in N64_NAMES
 

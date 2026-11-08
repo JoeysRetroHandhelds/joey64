@@ -58,10 +58,11 @@ import java.time.ZoneId
  * time before anything is copied (Keep Joey64's or Use RetroArch's, with dates, and "Do the same
  * for the other N"); Back in that popup cancels the copy, nothing written. [onDone]: Skip or Continue.
  *
- * Not shown yet: the first screen's "You can do this later in Settings › Library." (no Settings yet).
+ * [firstRun]: the first screen's "You can do this later in Settings › Saves." (the mockup said Settings ›
+ * Library; Import from RetroArch is in Saves). Not when it was opened from there.
  */
 @Composable
-fun ImportScreen(model: ImportModel, dataFolder: String?, debugOnly: Boolean = false, onDone: () -> Unit) {
+fun ImportScreen(model: ImportModel, dataFolder: String?, debugOnly: Boolean = false, firstRun: Boolean = false, onDone: () -> Unit) {
     val step by model.step.collectAsStateWithLifecycle()
     val landing = LocalFocusLanding.current
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -87,6 +88,7 @@ fun ImportScreen(model: ImportModel, dataFolder: String?, debugOnly: Boolean = f
                     JoeyButton("Choose RetroArch folder", primary = true, modifier = Modifier.initialFocus(), onClick = choose)
                     JoeyButton("Skip", primary = false, onClick = onDone)
                 }
+                if (firstRun) SetupSmall("You can do this later in Settings › Saves.")
             }
             ImportStep.Looking -> SetupHeading("Looking for saves and states")
             is ImportStep.Found -> if (s.onlyKind != null && !useAnyway) {

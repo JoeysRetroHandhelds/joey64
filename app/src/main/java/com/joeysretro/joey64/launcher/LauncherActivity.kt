@@ -69,6 +69,14 @@ import kotlinx.coroutines.launch
 // Activity.dispatchKeyEvent as library-internal, so lint flags the override and the super call.
 @SuppressLint("RestrictedApi")
 class LauncherActivity : ComponentActivity() {
+    companion object {
+        /**
+         * Between onStart and onStop: the game screen's process restart waits until Android has saved the library's
+         * state (MainActivity.afterLauncherSaved), or the library is dropped from the task when the process goes.
+         */
+        @Volatile var started = false
+    }
+
     private val keys = KeyNormaliser { super.dispatchKeyEvent(it) }
     private val model: LibraryModel by viewModels()
     private val importModel: ImportModel by viewModels()
@@ -78,6 +86,21 @@ class LauncherActivity : ComponentActivity() {
 
     private var raFake: android.content.BroadcastReceiver? = null
     private var debugShow: android.content.BroadcastReceiver? = null
+
+    // A picked data folder holds a copy of the settings (SettingsMirror): a changed copy comes in
+    // when the launcher comes up, and changes (Settings, a game's pause menu or hotkeys) go out.
+    override fun onStart() {
+        super.onStart()
+        started = true
+        // Settings that came in: every screen starts again, so none keeps (and later saves) the old ones.
+        com.joeysretro.joey64.saves.SettingsMirror.sync(this) { runOnUiThread { if (!isFinishing && !isDestroyed) recreate() } }
+    }
+
+    override fun onStop() {
+        com.joeysretro.joey64.saves.SettingsMirror.pushSoon(this)
+        super.onStop()
+        started = false
+    }
 
     override fun onDestroy() {
         raFake?.let { unregisterReceiver(it) }
@@ -90,6 +113,9 @@ class LauncherActivity : ComponentActivity() {
         // The session log (files/logs) starts here when the app opens to the launcher, so first run, the
         // import and library reads are in what a tester sends, not only what happens once a game is up.
         LogFiles.start(this, intent)
+        // Thermal fallback moved from Video to Emulation (2026-11-08): the store moves an older Video file's
+        // value over as it opens, before Video can write that file again without it.
+        com.joeysretro.joey64.emulation.EmuStore(this)
         // RetroAchievements: the kept account signs in now, so Settings shows it with its points.
         com.joeysretro.joey64.achievements.RaBridge.init(this)
         // Debug builds: adb shell am broadcast -a com.joeysretro.joey64.RA_FAKE --ez on true shows the
@@ -106,12 +132,21 @@ class LauncherActivity : ComponentActivity() {
             // adb shell am broadcast -a com.joeysretro.joey64.SHOW --es what <screen>: a screen that can't
             // otherwise be reached without changing Joey's setup, with made-up data, for checks (light
             // mode). update, update-downloading, update-permission, update-failed (add -testing for a
-            // testing build): the updater's prompts, whose buttons only close them. first-run, import:
+            // testing build): the updater's prompts, whose buttons only close them. first-run, data, import:
             // the setup pages, shown over the library (nothing on them is kept); none goes back.
+            // boxart-reset: every downloaded or not-found cover is looked up again now (custom and
+            // hidden ones stay), for checking the box-art source; the old files are overwritten as found.
+            // size: the launcher laid out at another screen's size, `--es size 512x384` (dp; off goes back).
+            // reports-ask: the reports question over the library; reports-send: a report now, even if one
+            // went today (to files/dev_reports_base when it exists, e.g. a local wrangler dev through adb reverse).
             val show = object : android.content.BroadcastReceiver() {
                 override fun onReceive(c: android.content.Context, i: android.content.Intent) {
                     val what = i.getStringExtra("what") ?: return
-                    if (what.startsWith("update")) updates.debugShow(what) else model.debugSetupPage(what.takeIf { it == "first-run" || it == "import" })
+                    if (what == "size") com.joeysretro.joey64.launcher.layout.DevScreen.size = com.joeysretro.joey64.launcher.layout.DevScreen.parse(i.getStringExtra("size"))
+                    else if (what == "boxart-reset") model.debugResetArt()
+                    else if (what == "reports-ask") model.debugAskReports()
+                    else if (what == "reports-send") model.debugSendReports()
+                    else if (what.startsWith("update")) updates.debugShow(what) else model.debugSetupPage(what.takeIf { it == "first-run" || it == "data" || it == "import" })
                 }
             }
             val showFilter = android.content.IntentFilter("com.joeysretro.joey64.SHOW")
@@ -141,13 +176,15 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
         val inputMode = LocalInputModeManager.current
         LaunchedEffect(Unit) { inputMode.requestInputMode(InputMode.Keyboard) }
 
+        // The whole window's shape decides the layout (one column, the bottom bar); debug builds can set another size.
+        com.joeysretro.joey64.launcher.layout.DevFrame { ProvideScreenLayout(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().background(JoeyTheme.colors.page)) {
             if (s == null) return@Column
             val folders = s.romFolders.map { it.toUri() }
             if (folders.isNotEmpty()) {
                 LifecycleResumeEffect(folders) {
                     model.resumed()
-                    model.refresh(folders)
+                    model.autoRefresh(folders)
                     onPauseOrDispose { }
                 }
             }
@@ -155,27 +192,35 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             var place by remember { mutableStateOf(RailPlace.Library) }
             var settingsHints by remember { mutableStateOf(listOf(Hint("B", "Back"))) }
             var onRail by remember { mutableStateOf(false) }
+            // Settings › Saves › Import from RetroArch: the first-run import pages again, then back to that tab.
+            var importAgain by remember { mutableStateOf(false) }
+            var settingsTab by remember { mutableStateOf(com.joeysretro.joey64.launcher.screens.SettingsTab.entries.first()) }
             val cheatsFor by model.cheatsFor.collectAsStateWithLifecycle()
+            val gameSettingsFor by model.gameSettingsFor.collectAsStateWithLifecycle()
             val achievementsFor by model.achievementsFor.collectAsStateWithLifecycle()
             val raAccount by com.joeysretro.joey64.achievements.RaBridge.account.collectAsStateWithLifecycle()
             // Signed out with the Achievements page up: back to the library.
             LaunchedEffect(raAccount == null) { if (raAccount == null && place == RailPlace.Achievements) place = RailPlace.Library }
+            // Signed in: the Has achievements filter's list, fetched again when a day old.
+            LaunchedEffect(raAccount != null) { if (raAccount != null) model.refreshSetList() }
             // Cheats opens over the library or Search results (a game's options), and B goes back there; going anywhere on the rail closes it.
-            LaunchedEffect(place) { model.closeCheats(); model.closeAchievements() }
+            LaunchedEffect(place) { model.closeCheats(); model.closeAchievements(); model.closeGameSettings() }
             if (home) UpdateChecks(updates)
-            Row(Modifier.weight(1f).fillMaxWidth()) {
+            // The rail on the left, or a bar along the bottom in portrait.
+            com.joeysretro.joey64.launcher.components.RailLayout(Modifier.weight(1f).fillMaxWidth(), rail = { horizontal ->
                 val continueGame by model.continueGame.collectAsStateWithLifecycle()
                 LauncherRail(if (home) place else RailPlace.Library, enabled = home, showContinue = home && continueGame != null,
-                    showAchievements = home && raAccount != null, onFocused = { onRail = it }) {
+                    showAchievements = home && raAccount != null, horizontal = horizontal, onFocused = { onRail = it }) {
                     if (it == RailPlace.Continue) model.continuePlaying { intent -> context.startActivity(intent) } else place = it
                 }
-                Box(Modifier.weight(1f).fillMaxSize()) {
-                    ProvideScreenLayout {
+            }) {
+                    Box(Modifier.fillMaxSize()) {
                         CompositionLocalProvider(LocalFocusLanding provides landing) {
                             val debugPage by model.debugSetup.collectAsStateWithLifecycle()
                             when {
                                 debugPage == "first-run" -> FirstRunScreen(model) { model.debugSetupPage(null) }
-                                debugPage == "import" -> ImportScreen(importModel, s.dataFolder, debugOnly = true) { model.debugSetupPage(null) }
+                                debugPage == "data" -> com.joeysretro.joey64.launcher.screens.DataFolderStep(debugOnly = true) { model.debugSetupPage(null) }
+                                debugPage == "import" -> ImportScreen(importModel, s.dataFolder, debugOnly = true, firstRun = true) { model.debugSetupPage(null) }
                                 folders.isEmpty() -> FirstRunScreen(model) { trees ->
                                     scope.launch {
                                         for (tree in trees) {
@@ -184,8 +229,16 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                                         }
                                     }
                                 }
-                                // Then Import from RetroArch, offered once; Skip or Continue finishes first run.
-                                !s.setupDone -> ImportScreen(importModel, s.dataFolder) { scope.launch { store.setSetupDone() } }
+                                // Then where saves go (screens 3-4), then Import from RetroArch, offered once; Skip or Continue finishes first run.
+                                !s.setupDone && !s.dataAsked -> com.joeysretro.joey64.launcher.screens.DataFolderStep { scope.launch { store.setDataAsked() } }
+                                !s.setupDone -> ImportScreen(importModel, s.dataFolder, firstRun = true) { scope.launch { store.setSetupDone() } }
+                                importAgain -> {
+                                    androidx.activity.compose.BackHandler { importAgain = false }
+                                    ImportScreen(importModel, s.dataFolder) { importAgain = false }
+                                }
+                                gameSettingsFor != null -> androidx.compose.runtime.key(gameSettingsFor) {
+                                    com.joeysretro.joey64.launcher.screens.GameSettingsScreen(gameSettingsFor!!, onHints = { settingsHints = it }) { model.closeGameSettings() }
+                                }
                                 cheatsFor != null -> androidx.compose.runtime.key(cheatsFor) {
                                     com.joeysretro.joey64.launcher.screens.CheatsScreen(cheatsFor!!, onHints = { settingsHints = it }) { model.closeCheats() }
                                 }
@@ -193,7 +246,11 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                                     com.joeysretro.joey64.launcher.screens.GameAchievementsScreen(achievementsFor!!, onHints = { settingsHints = it }) { model.closeAchievements() }
                                 }
                                 place == RailPlace.Achievements -> com.joeysretro.joey64.launcher.screens.AchievementsScreen(onHints = { settingsHints = it }) { place = RailPlace.Library }
-                                place == RailPlace.Settings -> SettingsScreen(updates, onHints = { settingsHints = it }) { place = RailPlace.Library }
+                                place == RailPlace.Settings -> SettingsScreen(updates, model, onHints = { settingsHints = it }, startTab = settingsTab,
+                                    startRow = if (settingsTab == com.joeysretro.joey64.launcher.screens.SettingsTab.Saves) "import" else null,
+                                    onImport = { importModel.restart(); settingsTab = com.joeysretro.joey64.launcher.screens.SettingsTab.Saves; importAgain = true }) {
+                                    settingsTab = com.joeysretro.joey64.launcher.screens.SettingsTab.entries.first(); place = RailPlace.Library
+                                }
                                 place == RailPlace.Controls -> ControlsScreen(onHints = { settingsHints = it }) { place = RailPlace.Library }
                                 place == RailPlace.Search -> com.joeysretro.joey64.launcher.screens.SearchScreen(model, onHints = { settingsHints = it }) { place = RailPlace.Library }
                                 else -> LibraryScreen(model) { place = RailPlace.Search }
@@ -201,17 +258,18 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                         }
                     }
                     if (home) UpdatedToast(updates, Modifier.align(Alignment.TopEnd))
-                }
             }
             HintRow(when {
                 !home -> listOf(Hint("A", "Select"))
+                importAgain -> listOf(Hint("A", "Select"), Hint("B", "Back"))
                 onRail -> listOf(Hint("A", "Open"))
                 place == RailPlace.Settings || place == RailPlace.Controls || place == RailPlace.Search || place == RailPlace.Achievements ||
-                    cheatsFor != null || achievementsFor != null -> settingsHints
+                    cheatsFor != null || achievementsFor != null || gameSettingsFor != null -> settingsHints
                 else -> listOf(Hint("A", "Play"), Hint("Start", "Options"), Hint("Y", "Search"))
             })
             if (home) updates.prompt.collectAsStateWithLifecycle().value?.let { UpdatePopup(it, updates) }
         }
+        } }
     }
 }
 

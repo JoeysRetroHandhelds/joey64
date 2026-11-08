@@ -64,6 +64,8 @@ import java.io.File
 class GameOverlay(private val activity: Activity, private val actions: PauseActions) {
     var screen by mutableStateOf<PauseScreen?>(null)
     var title by mutableStateOf("")
+    /** Settings › On screen: pop-ups keep out of the stats' corner. */
+    var onScreen = com.joeysretro.joey64.onscreen.OnScreen()
     var saveSlotName by mutableStateOf("Slot 1")
 
     private val owner = OverlayOwner()
@@ -159,7 +161,8 @@ class GameOverlay(private val activity: Activity, private val actions: PauseActi
     fun show(p: InGamePopup) {
         val o = RaSettings.current(activity)
         popups.stayMs = o.popSeconds * 1_000L
-        placeWindow(popupView, popupAdded, popupSpot, o.popPlace)?.let { popupAdded = it; if (it) popupSpot = o.popPlace }
+        val place = onScreen.popupSpot(o.popPlace)
+        placeWindow(popupView, popupAdded, popupSpot, place)?.let { popupAdded = it; if (it) popupSpot = place }
         popups.add(p, SystemClock.uptimeMillis())
         popup = popups.current
         handler.removeCallbacks(popupTick)
@@ -170,8 +173,12 @@ class GameOverlay(private val activity: Activity, private val actions: PauseActi
      * Ends the pop-up with [key] now if it's the one showing (rcheevos hides a progress one itself). One
      * still waiting behind an unlock stays: its count is still news when its turn comes. Main thread.
      */
-    fun hide(key: String) {
-        if (popups.current?.key != key) return
+    fun hide(key: String, waiting: Boolean = false) {
+        if (popups.current?.key != key) {
+            // [waiting]: one waiting behind newer pop-ups goes too (Paused, under a volume pop-up).
+            if (waiting) popups.remove(key, SystemClock.uptimeMillis())
+            return
+        }
         popups.remove(key, SystemClock.uptimeMillis())
         popup = popups.current
         handler.removeCallbacks(popupTick)

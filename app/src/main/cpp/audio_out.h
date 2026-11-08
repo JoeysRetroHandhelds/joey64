@@ -15,6 +15,16 @@ public:
     void close();
     // Called from the emulation thread. Only blocks if the ring is completely full.
     void write(const int16_t* frames, size_t frameCount);
+    // Fast-forward sound (Settings › Audio): never blocks. Resamples [speed] times faster (sped up, higher
+    // pitch), steered by the ring's fill so a game running below or above that speed neither runs dry nor
+    // piles up; what doesn't fit is dropped. [gain] scales it (Quieter).
+    void writeFast(const int16_t* frames, size_t frameCount, double speed, float gain);
+    // Settings › Audio, any thread, applied in the callback (heard at once): volume 0-100 (a loudness
+    // curve: gain = (v/100)^2), mute, mono (L+R averaged).
+    void setMix(int volumePct, bool mute, bool mono);
+    // Latency (Settings › Audio), read when the stream opens: 0 Auto (20 ms, grows to 150 on
+    // underruns at full speed, as before), 1 Low (10 ms, never grows), 2 Safe (60 ms, grows to 150).
+    void setLatencyMode(int mode) { latencyMode_ = mode; }
     void setPaused(bool p);
     // Audio sync, called before each emulated frame: blocks until the ring holds at most the target
     // plus one frame, so the wait lands before the frame polls input rather than in the middle of it.
@@ -43,6 +53,7 @@ private:
     void reopenIfLost();
     std::mutex streamMutex_;  // stream_ lifetime vs setPaused (UI thread)
     std::atomic<bool> lost_{false};
+    bool stalled_ = false;    // push gave up on a full ring; the emulation thread's own (push, open)
     bool paused_ = false;
     int srcRate_ = 0;
     int64_t retryNs_ = 0;     // when to try opening again after a failed reopen (0 = not failed)
@@ -51,6 +62,10 @@ private:
     size_t cap_ = 0; // in samples
     std::atomic<size_t> r_{0}, w_{0};
     bool push(float s);
+    std::atomic<float> gain_{1.0f};
+    std::atomic<bool> mono_{false};
+    std::atomic<int> latencyMode_{0};
+    bool grow_ = true;       // underruns may raise the target (not on Low)
     size_t fill() const { return (w_.load(std::memory_order_acquire) + cap_ - r_.load(std::memory_order_acquire)) % cap_; }
     int dstRate_ = 48000;
     size_t target_ = 0;      // samples the ring is kept near (audio latency)

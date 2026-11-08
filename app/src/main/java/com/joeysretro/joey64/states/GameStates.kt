@@ -25,7 +25,7 @@ class GameStates(
     context: Context,
     /** The ROM's file name without extension, as the save is named ([saveNameOf]). */
     val saveName: String,
-    private val space: FileSpace = DataFolder.internal(context).space,
+    private val space: FileSpace = com.joeysretro.joey64.launcher.storage.DataFolders.current(context).space,
 ) {
     private val recoveryDir = File(context.filesDir, RECOVERY_DIR)
 
@@ -37,11 +37,12 @@ class GameStates(
     fun save(slot: Int): Boolean {
         val t0 = SystemClock.elapsedRealtime()
         val data = NativeBridge.saveState(TIMEOUT_MS) ?: return false.also { JLog.e(TAG, "slot $slot: the core gave no state") }
+        val achv = NativeBridge.stateProgress()
         // The same moment's picture (the game is paused or between frames, so it's the frame the state holds).
         val png = FramePicture.capturePng()
         val t1 = SystemClock.elapsedRealtime()
         return try {
-            val file = StateFormat.wrap(data)
+            val file = StateFormat.wrap(data, achv)
             writeWhole(StateSlots.fileName(saveName, slot), file)
             // The picture beside it, as RetroArch names it. The old one (RetroArch's, or ours) shows the
             // moment before, so it goes even when there's no new one.
@@ -71,10 +72,11 @@ class GameStates(
         return space.list(listOf(DataKind.States.dir)).firstOrNull { it.name == name }?.modified
     }
 
-    /** Auto, then Slots 1-10, read from the folder in one listing. */
+    /** Auto, then Slots 1-10, then the older quit saves there are (Auto 2 ...), read from the folder in one listing. */
     fun slotFiles(): List<SlotFile> {
         val entries = space.list(listOf(DataKind.States.dir)).associateBy { it.name }
-        return (listOf(StateSlots.AUTO) + (1..StateSlots.COUNT)).map { slot ->
+        val older = (2..StateSlots.AUTO_MAX).map { StateSlots.auto(it) }.filter { StateSlots.fileName(saveName, it) in entries }
+        return (listOf(StateSlots.AUTO) + (1..StateSlots.COUNT) + older).map { slot ->
             val state = entries[StateSlots.fileName(saveName, slot)]
             val thumb = StateSlots.thumbnailName(saveName, slot)
             val picture = if (state != null && thumb in entries) {
@@ -82,6 +84,35 @@ class GameStates(
             } else null
             SlotFile(slot, state?.modified, picture)
         }
+    }
+
+    /**
+     * The quit save: with [keep] above 1 the ones before move down first (Auto to Auto 2, ...), and
+     * any past [keep] go; if the new one can't be written, Auto 2 goes back to Auto. [keep] 1: as [save].
+     */
+    fun saveQuit(keep: Int): Boolean {
+        val k = keep.coerceIn(1, StateSlots.AUTO_MAX)
+        for (n in StateSlots.AUTO_MAX downTo k) removeSlot(StateSlots.auto(n).takeIf { n > 1 } ?: continue)
+        if (k == 1 || !exists(StateSlots.AUTO)) return save(StateSlots.AUTO)
+        for (n in k - 1 downTo 1) moveSlot(StateSlots.auto(n), StateSlots.auto(n + 1))
+        if (save(StateSlots.AUTO)) return true
+        moveSlot(StateSlots.auto(2), StateSlots.AUTO)
+        return false
+    }
+
+    private fun removeSlot(slot: Int) {
+        space.delete(path(StateSlots.fileName(saveName, slot)))
+        space.delete(path(StateSlots.thumbnailName(saveName, slot)))
+    }
+
+    /** Renames [from]'s state and picture to [to]'s names ([to] must be free). */
+    private fun moveSlot(from: Int, to: Int) {
+        val a = StateSlots.fileName(saveName, from)
+        if (!space.exists(path(a))) return
+        removeSlot(to)
+        if (!space.rename(path(a), StateSlots.fileName(saveName, to))) JLog.e(TAG, "can't move $a to ${StateSlots.label(to)}")
+        val t = StateSlots.thumbnailName(saveName, from)
+        if (space.exists(path(t))) space.rename(path(t), StateSlots.thumbnailName(saveName, to))
     }
 
     /** Loads [slot] into the running game; right after start it waits for the core to be ready. */
@@ -92,9 +123,11 @@ class GameStates(
     }
 
     private fun loadBytes(name: String, bytes: ByteArray): Boolean {
-        val data = StateFormat.unwrap(bytes) ?: return false.also { JLog.e(TAG, "$name isn't a state Joey64 can read (${bytes.size} bytes)") }
-        val ok = NativeBridge.loadState(data, TIMEOUT_MS)
-        if (ok) JLog.i(TAG, "load $name: done (${data.size} bytes)") else JLog.e(TAG, "load $name: FAILED (${data.size} bytes)")
+        val parts = StateFormat.read(bytes) ?: return false.also { JLog.e(TAG, "$name isn't a state Joey64 can read (${bytes.size} bytes)") }
+        val data = parts.mem
+        val ok = NativeBridge.loadState(data, parts.achv, TIMEOUT_MS)
+        val achv = parts.achv?.let { ", achievements ${it.size} bytes" } ?: ""
+        if (ok) JLog.i(TAG, "load $name: done (${data.size} bytes$achv)") else JLog.e(TAG, "load $name: FAILED (${data.size} bytes)")
         return ok
     }
 
@@ -124,11 +157,12 @@ class GameStates(
 
     fun saveRecovery(): Boolean {
         val data = NativeBridge.saveState(TIMEOUT_MS) ?: return false
+        val achv = NativeBridge.stateProgress()
         return try {
             recoveryDir.mkdirs()
             val file = File(recoveryDir, RECOVERY_STATE)
             val part = File(recoveryDir, "$RECOVERY_STATE.part")
-            part.writeBytes(StateFormat.wrap(data))
+            part.writeBytes(StateFormat.wrap(data, achv))
             if (!part.renameTo(file)) throw IOException("can't rename ${part.name}")
             val info = Properties().apply {
                 setProperty("save_name", saveName)

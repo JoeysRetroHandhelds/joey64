@@ -21,6 +21,12 @@ object NativeBridge {
      */
     external fun loadGame(romPath: String, saveName: String): Boolean
 
+    /**
+     * Before loadGame: the cartridge to start with a 64DD disk (a romPath ending .ndd/.d64), "" for the disk alone.
+     * F-Zero X Expansion Kit needs F-Zero X (Japan); other disks boot the 64DD IPL with no cartridge.
+     */
+    external fun setDdCart(path: String)
+
     /** Before loadGame: true = Vulkan (parallel-RDP/RSP), false = GLES3 (GLideN64). */
     external fun setRenderer(vulkan: Boolean)
 
@@ -51,10 +57,15 @@ object NativeBridge {
     external fun surfaceResized()
     external fun start()
     external fun pause(paused: Boolean)
+    /** Frame advance: while paused, the game runs one more frame (without sound) and stays paused. */
+    external fun stepFrame()
     external fun stop()
 
     /** Before loadGame: override a core option (M3's profile DB will call this). */
     external fun setOption(key: String, value: String)
+
+    /** Core options for the running game (Game settings from the pause menu): the emulation thread takes them between frames, a paused game on resume. */
+    external fun setOptionsLive(keys: Array<String>, values: Array<String>)
 
     /** Before loadGame: GameShark code ("ADDRESS VALUE" pairs, any separator), applied at load. */
     external fun addCheat(code: String)
@@ -69,22 +80,43 @@ object NativeBridge {
 
     /** Emulated frames since start (wraps); the FPS counter samples it. */
     external fun framesRun(): Int
+    /**
+     * The core shut down, so no frames come: 0 it didn't, 1 it couldn't start the game (a damaged disk or disk save),
+     * 2 it couldn't load the 64DD IPL BIOS (none for the disk's region).
+     */
+    external fun coreShutDown(): Int
     /** New frames presented since start (wraps): what the game drew, without repeats. */
     external fun framesDrawn(): Int
     /** The game's native frame rate (NTSC ~60, PAL 50), for the speed percentage. */
     external fun contentFps(): Double
+    /** The newest frame times in ms (each frame's work, without waits), oldest first, into [out]; returns how many. */
+    external fun frameTimes(out: FloatArray): Int
+    /**
+     * Send reports: the run's numbers since the game loaded into [out] (13 or more); returns how many.
+     * 0 audio underruns, 1 poll->display ms mean (-1 none, OpenGL), 2 its max (0-2 from the 11th second on, past the boot), 3 highest thermal status
+     * (-1 unknown), 4 highest headroom (-1 unknown), 5 Thermal fallback slowdowns, 6 parallel-RDP sync 1/0,
+     * 7 CPU core interpreter 1 / dynarec 0, 8 ms from loading to the first frame (-1 none yet), 9 frames timed,
+     * 10 95th and 11 99th percentile frame time in whole ms (-1 none), 12 frames over 33 ms.
+     */
+    external fun sessionStats(out: DoubleArray): Int
 
-    /** Player 1 Rumble Pak strength, 0 (off) to 65535. */
+    /** Which players' Rumble Pak motors are on: bit p for player p+1. */
     external fun rumble(): Int
 
-    /** Blocks until the Rumble Pak motor is no longer [wasOn], or [timeoutMs] passes; returns whether it is on. */
-    external fun waitRumble(wasOn: Boolean, timeoutMs: Int): Boolean
+    /** Blocks until the motors on ([rumble]'s bits) are no longer [wasMask], or [timeoutMs] passes; returns them. */
+    external fun waitRumble(wasMask: Int, timeoutMs: Int): Int
 
     /**
      * The core's save state (its own data, before RetroArch's wrapping: StateFiles), taken between
      * frames, also while paused. Null if the game isn't running or it took over [timeoutMs].
      */
     external fun saveState(timeoutMs: Int): ByteArray?
+
+    /**
+     * The achievements' progress taken with this thread's last [saveState] (RetroArch's ACHV block),
+     * once; null with no achievement set loaded.
+     */
+    external fun stateProgress(): ByteArray?
 
     /**
      * The last frame the core drew, between frames (also while paused): 8 bytes of width and height
@@ -96,16 +128,35 @@ object NativeBridge {
     external fun resetGame(timeoutMs: Int): Boolean
 
     /**
-     * Puts a state taken by [saveState] (or unwrapped from a RetroArch state) back, between frames.
+     * Puts a state taken by [saveState] (or unwrapped from a RetroArch state) back, between frames,
+     * with the achievements' progress saved with it ([achv]; null: they start over).
      * Right after [start] it waits until the core can take it (about half a second of boot).
      */
-    external fun loadState(data: ByteArray, timeoutMs: Int): Boolean
+    external fun loadState(data: ByteArray, achv: ByteArray?, timeoutMs: Int): Boolean
 
-    /** Fast-forward: no vsync, audio muted, capped at 4x. */
+    /** Fast-forward: no vsync, capped at 4x; its sound follows setAudio (muted by default). */
     external fun setFastForward(on: Boolean)
 
     /** Fast-forward's speed in percent of normal (100 to 400; the thermal cap still applies). Any thread. */
     external fun setFastForwardSpeed(percent: Int)
+
+    /** Slow motion (approved 2026-11-08): percent of full speed (10-99), 0 = off. Its sound follows setAudio's
+     *  fast-forward sound, slower and lower. Fast-forward wins while both are on. Any thread. */
+    external fun setSlowMotion(percent: Int)
+
+    /** Rewind recording: on, a moment every [every] frames, at most [maxMoments] kept. A change starts it over;
+     *  applied on the emulation thread before its next frame. Any thread. */
+    external fun setRewind(on: Boolean, every: Int, maxMoments: Int)
+
+    /** The rewind hotkey held (goes back while held, the game goes on from there when let go). Any thread. */
+    external fun setRewinding(held: Boolean)
+
+    /** [moments that can still be gone back to, most kept, frames gone back since the press, 1 at the oldest]. */
+    external fun rewindInfo(): IntArray
+
+    /** Settings › Audio: volume 0-100, mute, mono, fast-forward sound (0 mute, 1 quieter, 2 full) apply at once;
+     *  latency (0 auto, 1 low, 2 safe) when the audio stream opens, so call it before loadGame. Any thread. */
+    external fun setAudio(volume: Int, mute: Boolean, mono: Boolean, ffSound: Int, latency: Int)
 
     /** RETRO_DEVICE_ID_JOYPAD_* bitmask for N64 [port] 0..3 (Controls, `PlayerInput.buttons`). */
     external fun setButtons(port: Int, mask: Int)

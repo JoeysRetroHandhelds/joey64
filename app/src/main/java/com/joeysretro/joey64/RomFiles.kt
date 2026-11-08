@@ -12,6 +12,8 @@ import org.apache.commons.compress.archivers.sevenz.SevenZFile
  * the core loads ROMs from a path; the first entry that starts like an N64 ROM is the game, as in RetroArch and FZ
  * (No-Intro archives hold exactly one). Archives are told apart by their first bytes, not the file name. A 7z needs
  * random access, so a stream is first copied to a cache file (Apache Commons Compress + XZ for Java decode it).
+ * 64DD disks (.ndd, .d64) have no common first word, so they are told by their file name: a plain one by the name
+ * the caller gives, one in an archive by its entry's name.
  */
 object RomFiles {
     /** First words of an N64 ROM in its three byte orders (z64, v64, n64), as the core's is_valid_rom checks. */
@@ -27,6 +29,10 @@ object RomFiles {
     fun isZip(head: ByteArray) = head.size >= 4 && (0 until 4).all { head[it] == ZIP_MAGIC[it] }
     fun is7z(head: ByteArray) = head.size >= 4 && (0 until 4).all { head[it] == SEVENZ_MAGIC[it] }
     fun isArchive(head: ByteArray) = isZip(head) || is7z(head)
+
+    private val DISK_EXTENSIONS = setOf("ndd", "d64")
+    /** A 64DD disk image by its file name. */
+    fun isDiskName(name: String?) = name != null && name.substringAfterLast('.', "").lowercase() in DISK_EXTENSIONS
 
     /** The first 4 bytes of a stream without consuming them. */
     fun peek(input: PushbackInputStream): ByteArray {
@@ -44,12 +50,12 @@ object RomFiles {
     /**
      * Copies the ROM in [input] to [out]: the stream itself when it is a ROM, the first ROM inside it when it is a
      * zip or 7z. Returns the ROM's own file name for an archive entry ("" for a plain ROM, whose name the caller knows),
-     * or null when there is no N64 ROM in it.
+     * or null when there is no N64 ROM in it. [name]: the file's own name, which says when a plain file is a 64DD disk.
      */
-    fun extract(input: InputStream, out: File): String? {
+    fun extract(input: InputStream, out: File, name: String? = null): String? {
         val pb = PushbackInputStream(input, 4)
         val head = peek(pb)
-        if (isRom(head)) {
+        if (isRom(head) || (isDiskName(name) && !isArchive(head))) {
             write(pb, out)
             return ""
         }
@@ -70,7 +76,7 @@ object RomFiles {
                 val name = e.name.substringAfterLast('/')
                 if (e.isDirectory || skip(e.name)) continue
                 val entry = PushbackInputStream(zip, 4)
-                if (!isRom(peek(entry))) continue
+                if (!isDiskName(name) && !isRom(peek(entry))) continue
                 write(entry, out)
                 return name
             }
@@ -92,7 +98,7 @@ object RomFiles {
                 val e = sz.nextEntry ?: break
                 if (e.isDirectory || !e.hasStream() || skip(e.name)) continue
                 val entry = PushbackInputStream(sz.getInputStream(e), 4)
-                if (!isRom(peek(entry))) continue
+                if (!isDiskName(e.name) && !isRom(peek(entry))) continue
                 write(entry, out)
                 found = e.name.substringAfterLast('/')
             }

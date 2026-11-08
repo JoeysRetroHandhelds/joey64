@@ -172,6 +172,9 @@ fun JoeyDialog(
         @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
         val atTop = atTop || (riseWithKeyboard && androidx.compose.foundation.layout.WindowInsets.Companion.isImeVisible)
         val tapOutside by rememberUpdatedState { if (dismissible) requestClose() }
+        // Its own window: laid out at the launcher's debug size too, and measured for its own
+        // ScreenLayout (in a game, the game's window provides none: its pages were always two columns).
+        com.joeysretro.joey64.launcher.layout.DevFrame { com.joeysretro.joey64.launcher.layout.ProvideScreenLayout(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             // The dim: everything above the hint row. A tap on it is "outside". A tap handler,
             // not a clickable: a clickable is a focus target, and since it holds the card, a tap
@@ -183,7 +186,9 @@ fun JoeyDialog(
                     .fillMaxWidth()
                     .background(c.scrim)
                     .pointerInput(Unit) { detectTapGestures { tapOutside() } }
-                    .then(if (atTop) Modifier.padding(top = 44.dp) else Modifier),
+                    .then(if (atTop) Modifier.padding(top = 44.dp) else Modifier)
+                    // A card never touches the screen's edges: on a narrow screen it's the screen's width less these.
+                    .then(if (fullScreen) Modifier else Modifier.padding(horizontal = 16.dp, vertical = 8.dp)),
                 contentAlignment = if (atTop) Alignment.TopCenter else Alignment.Center,
             ) {
                 val shape = RoundedCornerShape(s.popupCorner)
@@ -243,6 +248,7 @@ fun JoeyDialog(
             }
             HintRow(hints)
         }
+        } }
         // Nothing marked: enter the popup at its first item. After the content, so a marked item
         // that's already attached asks first. (view.requestFocus() only focuses the window, not an
         // item in it: found on device in JoeyOS.)
@@ -319,6 +325,21 @@ fun PopupInfoNote(text: String) {
         androidx.compose.material3.Icon(androidx.compose.ui.res.painterResource(com.joeysretro.joey64.R.drawable.ic_info), contentDescription = null,
             tint = c.gold, modifier = Modifier.padding(end = 8.dp).size(16.dp))
         Text(text, style = JoeyTheme.type.small, color = c.textSecondary)
+    }
+}
+
+/** A warning in a popup, in a box with the warning triangle: what a choice takes away ("L2 is Z for Player 1 ..."). */
+@Composable
+fun PopupWarnNote(text: String) {
+    val c = JoeyTheme.colors
+    androidx.compose.foundation.layout.Row(
+        Modifier.padding(horizontal = 6.dp).padding(top = 4.dp, bottom = 2.dp).fillMaxWidth()
+            .background(c.warnBg, RoundedCornerShape(8.dp)).padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        androidx.compose.material3.Icon(androidx.compose.ui.res.painterResource(com.joeysretro.joey64.R.drawable.ic_alert_triangle), contentDescription = null,
+            tint = c.warn, modifier = Modifier.padding(end = 8.dp, top = 1.dp).size(16.dp))
+        Text(text, style = JoeyTheme.type.small, color = c.warn)
     }
 }
 

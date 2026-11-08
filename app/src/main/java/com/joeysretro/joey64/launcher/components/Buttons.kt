@@ -44,10 +44,14 @@ fun JoeyButton(text: String, primary: Boolean, modifier: Modifier = Modifier, on
     }
 }
 
-/** Buttons side by side, centred, as on the first-run screens. */
+/** Buttons side by side, centred, as on the first-run screens; on a screen too narrow for them, the rest go on the next line. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun ButtonRow(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) { content() }
+    androidx.compose.foundation.layout.FlowRow(modifier,
+        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        itemVerticalAlignment = Alignment.CenterVertically) { content() }
 }
 
 /**

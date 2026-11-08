@@ -30,7 +30,7 @@ class PlayerInput(setup: PlayerSetup) {
 
     /** Whether this player uses [keyCode] for an N64 button (or, with the stick on the D-pad, for the stick). */
     fun uses(keyCode: Int): Boolean = keyCode in keyBits ||
-        (setup.stick == StickSource.DPad && keyCode in DPAD_CODES)
+        (setup.stick.usesDPad && keyCode in DPAD_CODES)
 
     fun key(keyCode: Int, down: Boolean) { if (down) held.add(keyCode) else held.remove(keyCode) }
 
@@ -40,7 +40,11 @@ class PlayerInput(setup: PlayerSetup) {
         hatKeys = (if (hy < -0.5f) 1 else 0) or (if (hy > 0.5f) 2 else 0) or (if (hx < -0.5f) 4 else 0) or (if (hx > 0.5f) 8 else 0)
     }
 
-    fun setTriggers(l: Float, r: Float) { triggerKeys = (if (l > 0.5f) 1 else 0) or (if (r > 0.5f) 2 else 0) }
+    /** Analog L2 / R2 (0..1): pressed past Stick feel's trigger threshold (halfway by default). */
+    fun setTriggers(l: Float, r: Float) {
+        val t = setup.feel.triggerThreshold / 100f
+        triggerKeys = (if (l > t) 1 else 0) or (if (r > t) 2 else 0)
+    }
 
     /** Lets go of everything (the pause menu opened, focus lost). */
     fun release() { held.clear(); hatKeys = 0; triggerKeys = 0; axes.fill(0f) }
@@ -64,9 +68,10 @@ class PlayerInput(setup: PlayerSetup) {
     /** The RetroPad bits for the port: every N64 button whose input is held. */
     fun buttons(): Int {
         var mask = 0
+        val dpadOnStick = setup.stick.usesDPad
         for ((b, input) in setup.buttons) {
             val on = when (input) {
-                is PadInput.Key -> isHeld(input.code)
+                is PadInput.Key -> isHeld(input.code) && !(dpadOnStick && input.code in DPAD_CODES)
                 is PadInput.Axis -> axisValue(input.axis).let { if (input.positive) it > 0.5f else it < -0.5f }
                 null -> false
             }
@@ -75,15 +80,21 @@ class PlayerInput(setup: PlayerSetup) {
         return mask
     }
 
-    /** The N64 stick, -1..1 each way, after the dead zone (calibration is applied to the axes before). */
+    /**
+     * The N64 stick, 1 = a real N64 stick's full tilt (80) each way, up to [StickFeel.MAX], after the dead
+     * zone and Stick feel (calibration is applied to the axes before). The D-pad gives full tilt.
+     */
     fun stick(): Pair<Float, Float> = when (setup.stick) {
-        StickSource.LeftStick -> deadZone(axes[0], axes[1], setup.deadZone)
-        StickSource.RightStick -> deadZone(axes[2], axes[3], setup.deadZone)
-        StickSource.DPad -> {
-            val x = (if (isHeld(KeyEvent.KEYCODE_DPAD_RIGHT)) 1f else 0f) - (if (isHeld(KeyEvent.KEYCODE_DPAD_LEFT)) 1f else 0f)
-            val y = (if (isHeld(KeyEvent.KEYCODE_DPAD_DOWN)) 1f else 0f) - (if (isHeld(KeyEvent.KEYCODE_DPAD_UP)) 1f else 0f)
-            x to y
-        }
+        StickSource.LeftStick -> setup.feel.apply(axes[0], axes[1], setup.deadZone)
+        StickSource.RightStick -> setup.feel.apply(axes[2], axes[3], setup.deadZone)
+        StickSource.DPad -> dpad()
+        StickSource.LeftStickDPad -> dpad().takeIf { it.first != 0f || it.second != 0f } ?: setup.feel.apply(axes[0], axes[1], setup.deadZone)
+    }
+
+    private fun dpad(): Pair<Float, Float> {
+        val x = (if (isHeld(KeyEvent.KEYCODE_DPAD_RIGHT)) 1f else 0f) - (if (isHeld(KeyEvent.KEYCODE_DPAD_LEFT)) 1f else 0f)
+        val y = (if (isHeld(KeyEvent.KEYCODE_DPAD_DOWN)) 1f else 0f) - (if (isHeld(KeyEvent.KEYCODE_DPAD_UP)) 1f else 0f)
+        return x to y
     }
 
     companion object {
@@ -100,6 +111,12 @@ class PlayerInput(setup: PlayerSetup) {
 
         /** The value the host sends for -1..1. */
         fun toRetro(v: Float): Int = (v.coerceIn(-1f, 1f) * 32767).toInt()
+
+        /**
+         * The value the host sends for [stick]'s N64 stick: the core runs at 150% sensitivity
+         * (`mupen64plus-astick-sensitivity`, so 32767 is 120), and 1 (80) is sent as 32767 / 1.5.
+         */
+        fun toRetroStick(v: Float): Int = toRetro(v / StickFeel.MAX)
 
     }
 }

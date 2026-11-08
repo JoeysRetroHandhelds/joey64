@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher.screens
 
+import com.joeysretro.joey64.launcher.components.TwoColumns
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -62,12 +63,14 @@ internal fun GroupLabel(text: String) {
  */
 @Composable
 fun ShowPopup(model: LibraryModel, onDismiss: () -> Unit) {
-    val games = model.games.collectAsStateWithLifecycle().value.orEmpty()
+    // Counted from what the grid lays out (Settings › Library's regions and one version per game).
+    val games = model.shown.collectAsStateWithLifecycle().value.orEmpty()
     val collections by model.collections.collectAsStateWithLifecycle()
     val facts = model.facts.collectAsStateWithLifecycle().value ?: return
     val view by model.view.collectAsStateWithLifecycle()
     val counts = remember(games, collections, facts) { LibraryViews.counts(games, collections, facts) }
     var focusedCollection by remember { mutableStateOf<GameCollection?>(null) }
+    val signedIn = com.joeysretro.joey64.achievements.RaBridge.account.collectAsStateWithLifecycle().value != null
     var options by remember { mutableStateOf<GameCollection?>(null) }
     var naming by remember { mutableStateOf(false) }
     fun pick(v: LibraryView) { model.show(v); onDismiss() }
@@ -84,26 +87,24 @@ fun ShowPopup(model: LibraryModel, onDismiss: () -> Unit) {
             PopupTitle("Show")
             JoeyRow(LibraryView.All.label, Modifier.initialFocus(view == LibraryView.All),
                 trailing = { f -> TickCount(view == LibraryView.All, counts[LibraryView.All], f) }) { pick(LibraryView.All) }
-            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                Column(Modifier.weight(1f)) {
-                    GroupLabel("Collections")
-                    val list = listOf(LibraryView.Favourites) + collections.map { LibraryView.Collection(it.id, it.name) }
-                    for (v in list) {
-                        val own = (v as? LibraryView.Collection)?.let { GameCollection(it.id, it.name) }
-                        JoeyRow(v.label, Modifier.initialFocus(view == v), sideways = true,
-                            onFocused = { on -> if (on) focusedCollection = own else if (focusedCollection == own) focusedCollection = null },
-                            onLongClick = own?.let { { options = it } },
-                            trailing = { f -> TickCount(view == v, counts[v], f) }) { pick(v) }
-                    }
-                    JoeyRow("New collection…", sideways = true) { naming = true }
+            TwoColumns(Modifier.weight(1f, fill = false), gap = 14.dp, left = {
+                GroupLabel("Collections")
+                val list = listOf(LibraryView.Favourites) + collections.map { LibraryView.Collection(it.id, it.name) }
+                for (v in list) {
+                    val own = (v as? LibraryView.Collection)?.let { GameCollection(it.id, it.name) }
+                    JoeyRow(v.label, Modifier.initialFocus(view == v), sideways = true,
+                        onFocused = { on -> if (on) focusedCollection = own else if (focusedCollection == own) focusedCollection = null },
+                        onLongClick = own?.let { { options = it } },
+                        trailing = { f -> TickCount(view == v, counts[v], f) }) { pick(v) }
                 }
-                Column(Modifier.weight(1f)) {
-                    GroupLabel("Filters")
-                    for (f in AutoFilter.entries) {
-                        val v = LibraryView.Filter(f)
-                        JoeyRow(f.label, Modifier.initialFocus(view == v), sideways = true,
-                            trailing = { fo -> TickCount(view == v, counts[v], fo) }) { pick(v) }
-                    }
+                JoeyRow("New collection…", sideways = true) { naming = true }
+            }) {
+                GroupLabel("Filters")
+                // Has achievements only while signed in to RetroAchievements (as the Achievements rows).
+                for (f in AutoFilter.entries.filter { it != AutoFilter.HasAchievements || signedIn }) {
+                    val v = LibraryView.Filter(f)
+                    JoeyRow(f.label, Modifier.initialFocus(view == v), sideways = true,
+                        trailing = { fo -> TickCount(view == v, counts[v], fo) }) { pick(v) }
                 }
             }
         }

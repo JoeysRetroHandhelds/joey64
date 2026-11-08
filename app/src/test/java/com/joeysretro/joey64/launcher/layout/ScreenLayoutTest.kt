@@ -29,6 +29,9 @@ class ScreenLayoutTest {
         assertEquals(ScreenShape.Standard, l.shape)
         assertEquals(3, l.boxArtColumns)
         assertFalse(l.bottomBar)
+        // 640 dp: RG477M / RG476H / RP Nova (1280x960 at 2x) and RG405M (640x480 at 1x) stack Settings.
+        assertTrue(l.singleColumnSettings)
+        assertFalse(ScreenLayout.of(731f, 549f).singleColumnSettings)
     }
 
     @Test fun threeByTwoIsStandard() {
@@ -62,5 +65,20 @@ class ScreenLayoutTest {
         val l = ScreenLayout.of(832f, 468f)
         assertEquals(4, l.boxArtColumns)
         assertFalse(l.singleColumnSettings)
+    }
+    @Test fun thorBottomScreenIsOneColumn() {
+        // 1240x1080 at 369 dpi, the whole window (the rail is inside it since 2026-11-08).
+        val l = ScreenLayout.of(538f, 468f)
+        assertEquals(ScreenShape.Square, l.shape)
+        assertTrue(l.singleColumnSettings)
+        assertEquals(3, l.descriptionLines)
+        assertEquals(3, l.boxArtColumns)
+        assertEquals(2, ScreenLayout.of(832f, 468f).descriptionLines)
+    }
+
+    @Test fun devSizes() {
+        assertEquals(512f to 384f, DevScreen.parse("512x384"))
+        assertEquals(null, DevScreen.parse("off"))
+        assertEquals(null, DevScreen.parse("100x100"))
     }
 }

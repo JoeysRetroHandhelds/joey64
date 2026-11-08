@@ -33,7 +33,9 @@ import java.io.File
  * Achievement pop-ups carry their [badge] picture (approved toast.html / toast2.html): an unlock has
  * a 40 dp badge and three lines, plus [extra] when it was earned offline; [compact] ones (progress,
  * challenge failed) a 30 dp badge and two lines; [framed] ones (Beaten, Mastered) a yellow border.
- * [stayMs] overrides how long it stays (the short ones), else Settings › Pop-ups stay for.
+ * [stayMs] overrides how long it stays (the short ones), else Settings › Pop-ups stay for;
+ * [PopupQueue.UNTIL_HIDDEN] stays until it's hidden (Paused), letting newer ones show over it meanwhile.
+ * [bar] (0 to 1) draws a bar under the lines (the volume).
  */
 data class InGamePopup(
     val key: String,
@@ -46,8 +48,13 @@ data class InGamePopup(
     val framed: Boolean = false,
     val extra: String? = null,
     val stayMs: Long? = null,
+    val bar: Float? = null,
 ) {
-    enum class Kind { Saved, Loaded, Slot, Screenshot, Reset, Problem, Account, Achievement, Progress, ChallengeFailed, Game }
+    enum class Kind { Saved, Loaded, Slot, Screenshot, Reset, Problem, Account, Achievement, Progress, ChallengeFailed, Game, Stats,
+        /** The hotkeys' (approved hotkeys mockup 2026-11-07). */
+        Volume, Mute, Resolution, Paused, NoAchievements,
+        /** Approved Slow motion and Rewind mockup (2026-11-08). */
+        SlowMotion, Rewind }
 }
 
 /**
@@ -68,6 +75,8 @@ class PopupQueue(var stayMs: Long = 5_000) {
         val showing = current
         when {
             showing == null || showing.key == p.key -> { current = p; until = now + stay(p) }
+            // One that stays until hidden lets the new one show now, and comes back after it.
+            showing.stayMs == UNTIL_HIDDEN -> { waiting.removeAll { it.key == p.key }; waiting.addFirst(showing); current = p; until = now + stay(p) }
             else -> { waiting.removeAll { it.key == p.key }; waiting.addLast(p) }
         }
     }
@@ -87,6 +96,11 @@ class PopupQueue(var stayMs: Long = 5_000) {
     }
 
     fun clear() { current = null; waiting.clear() }
+
+    companion object {
+        /** A pop-up's [InGamePopup.stayMs] for one that stays until it's hidden. */
+        const val UNTIL_HIDDEN = Long.MAX_VALUE / 4
+    }
 }
 
 @Composable
@@ -100,12 +114,21 @@ fun InGamePopupCard(p: InGamePopup) {
         InGamePopup.Kind.Account -> R.drawable.ic_user_alert
         InGamePopup.Kind.Achievement, InGamePopup.Kind.Progress, InGamePopup.Kind.Game -> R.drawable.ic_trophy
         InGamePopup.Kind.ChallengeFailed -> R.drawable.ic_target_off
+        InGamePopup.Kind.Stats -> R.drawable.ic_sliders
+        InGamePopup.Kind.Volume -> R.drawable.ic_volume
+        InGamePopup.Kind.Mute -> if (p.name == "Sound off") R.drawable.ic_volume_off else R.drawable.ic_volume
+        InGamePopup.Kind.Resolution -> R.drawable.ic_zoom_in
+        InGamePopup.Kind.Paused -> R.drawable.ic_pause
+        InGamePopup.Kind.NoAchievements -> R.drawable.ic_trophy
+        InGamePopup.Kind.SlowMotion -> R.drawable.ic_clock
+        InGamePopup.Kind.Rewind -> R.drawable.ic_history
     }
     JoeyToast(icon, p.label, p.name, p.line, iconTint = when (p.kind) {
         InGamePopup.Kind.Problem, InGamePopup.Kind.ChallengeFailed -> JoeyTheme.colors.error
-        InGamePopup.Kind.Account, InGamePopup.Kind.Achievement, InGamePopup.Kind.Progress, InGamePopup.Kind.Game -> JoeyTheme.colors.gold
+        InGamePopup.Kind.Account, InGamePopup.Kind.Achievement, InGamePopup.Kind.Progress, InGamePopup.Kind.Game,
+        InGamePopup.Kind.NoAchievements -> JoeyTheme.colors.gold
         else -> null
-    }, badge = p.badge, compact = p.compact, framed = p.framed, extra = p.extra)
+    }, badge = p.badge, compact = p.compact, framed = p.framed, extra = p.extra, bar = p.bar)
 }
 
 /**

@@ -39,14 +39,53 @@ enum class RailPlace(@DrawableRes val icon: Int, val label: String) {
 }
 
 /**
+ * The rail at the left ([content] beside it), or along the bottom when the window is portrait
+ * (the plan's layout rules, [com.joeysretro.joey64.launcher.layout.ScreenLayout.bottomBar]).
+ */
+@Composable
+fun RailLayout(modifier: Modifier = Modifier, rail: @Composable (horizontal: Boolean) -> Unit, content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit) {
+    if (com.joeysretro.joey64.launcher.layout.LocalScreenLayout.current.bottomBar) Column(modifier) {
+        Box(Modifier.weight(1f).fillMaxWidth(), content = content)
+        rail(true)
+    } else androidx.compose.foundation.layout.Row(modifier) {
+        rail(false)
+        Box(Modifier.weight(1f).fillMaxHeight(), content = content)
+    }
+}
+
+/**
  * The slim left rail (approved library design, 2026-11-04): the J64 logo at the top, then the
  * places, Settings pinned at the bottom. Continue only once there's a game to continue
  * ([showContinue]); Achievements while signed in ([showAchievements]). Its places are focus stops (left from the library's first column, or a tap); A
  * opens one. Labels beside the icons are still to come (plan, Phase 1).
  */
 @Composable
-fun LauncherRail(selected: RailPlace, modifier: Modifier = Modifier, enabled: Boolean = true, showContinue: Boolean = false, showAchievements: Boolean = false, onFocused: (Boolean) -> Unit = {}, onSelect: (RailPlace) -> Unit = {}) {
+fun LauncherRail(selected: RailPlace, modifier: Modifier = Modifier, enabled: Boolean = true, showContinue: Boolean = false, showAchievements: Boolean = false,
+                 /** Along the bottom (portrait): the same items left to right, Settings at the right end. */
+                 horizontal: Boolean = false, onFocused: (Boolean) -> Unit = {}, onSelect: (RailPlace) -> Unit = {}) {
     val c = JoeyTheme.colors
+    if (horizontal) {
+        androidx.compose.foundation.layout.Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .height(56.dp)
+                .background(c.surface)
+                .padding(horizontal = 14.dp, vertical = 9.dp)
+                .onFocusChanged { onFocused(it.hasFocus) }
+                .focusGroup(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Image(painterResource(R.drawable.rail_logo), contentDescription = "Joey64", modifier = Modifier.padding(end = 10.dp).size(30.dp))
+            for (place in RailPlace.entries) {
+                if (place == RailPlace.Continue && !showContinue) continue
+                if (place == RailPlace.Achievements && !showAchievements) continue
+                if (place == RailPlace.Settings) Spacer(Modifier.weight(1f))
+                RailItem(place, place == selected, enabled, Modifier.width(48.dp)) { onSelect(place) }
+            }
+        }
+        return
+    }
     Column(
         modifier = modifier
             .width(56.dp)
@@ -64,19 +103,18 @@ fun LauncherRail(selected: RailPlace, modifier: Modifier = Modifier, enabled: Bo
             if (place == RailPlace.Continue && !showContinue) continue
             if (place == RailPlace.Achievements && !showAchievements) continue
             if (place == RailPlace.Settings) Spacer(Modifier.weight(1f))
-            RailItem(place, place == selected, enabled) { onSelect(place) }
+            RailItem(place, place == selected, enabled, Modifier.fillMaxWidth()) { onSelect(place) }
         }
     }
 }
 
 @Composable
-private fun RailItem(place: RailPlace, on: Boolean, enabled: Boolean, onClick: () -> Unit) {
+private fun RailItem(place: RailPlace, on: Boolean, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val c = JoeyTheme.colors
     val (source, focused) = rememberFocusState()
     val shape = RoundedCornerShape(7.dp)
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = modifier
             .height(38.dp)
             .background(if (on) c.chip else c.surface, shape)
             .rowSelection(focused, shape)
@@ -91,7 +129,7 @@ private fun RailItem(place: RailPlace, on: Boolean, enabled: Boolean, onClick: (
 
 /** The JOEY64 wordmark, in the theme's version (the shadow is navy in light mode). */
 @Composable
-fun Wordmark(modifier: Modifier = Modifier) {
+fun Wordmark(modifier: Modifier = Modifier, width: androidx.compose.ui.unit.Dp = 250.dp) {
     val res = if (JoeyTheme.colors.isDark) R.drawable.wordmark_dark else R.drawable.wordmark_light
-    Image(painterResource(res), contentDescription = "Joey64", modifier = modifier.width(250.dp))
+    Image(painterResource(res), contentDescription = "Joey64", modifier = modifier.width(width))
 }

@@ -25,6 +25,26 @@ class StateFormatTest {
         assertArrayEquals(data, StateFormat.unwrap(file))
     }
 
+    @Test fun achievementProgressGoesInAnAchvBlock() {
+        val data = coreData(4321)
+        val achv = ByteArray(37) { (it * 5).toByte() }
+        for (compress in listOf(true, false)) {
+            val file = StateFormat.wrap(data, achv, compress)
+            val parts = StateFormat.read(file)!!
+            assertArrayEquals(data, parts.mem)
+            assertArrayEquals(achv, parts.achv)
+            assertArrayEquals(data, StateFormat.unwrap(file))
+        }
+        // MEM, then ACHV at the next 8-byte boundary (RetroArch's order), then END.
+        val plain = StateFormat.wrap(data, achv, compress = false)
+        val achvAt = 16 + ((data.size + 7) and 7.inv())
+        assertEquals("ACHV", String(plain, achvAt, 4, Charsets.ISO_8859_1))
+        assertEquals("END ", String(plain, achvAt + 8 + 40, 4, Charsets.ISO_8859_1))
+        // Without progress: no ACHV block, and nothing to give back.
+        assertNull(StateFormat.read(StateFormat.wrap(data, ByteArray(0)))!!.achv)
+        assertNull(StateFormat.read(StateFormat.wrap(data))!!.achv)
+    }
+
     @Test fun plainLayoutIsRetroArchs() {
         val data = coreData(13)
         val file = StateFormat.wrap(data, compress = false)

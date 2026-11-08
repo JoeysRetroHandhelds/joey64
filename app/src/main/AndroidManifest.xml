@@ -14,7 +14,11 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:extractNativeLibs="true"
         android:appCategory="game"
+        android:allowBackup="false"
         android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+        <!-- No Android backup (Joey 2026-11-08): its scheduled full backup force-stops the app, and on the Thor
+             it killed a game mid-play (2026-11-07 23:17, signal 9). Joey64's own Back up Joey64 (Settings ›
+             Saves) and a picked data folder are how saves are kept. -->
         <!-- Every config change is handled in place: a recreated activity would stop the running game
              (dark mode switching at sunset, docking to a TV, font size, density) -->
         <activity

@@ -15,6 +15,7 @@
 #include <mutex>
 #include <algorithm>
 #include <string>
+#include <unordered_map>
 
 #include "joeylog.h"
 
@@ -23,6 +24,13 @@ extern "C" {
 #include "rc_api_request.h"
 #include "rhash/md5.h"
 #include "rc_api_runtime.h"
+}
+#include "utf16.h"
+
+// Java strings from rcheevos text (titles, descriptions, JSON), as UTF-16 (utf16.h says why).
+static jstring jstr(JNIEnv* env, const char* s) {
+    std::u16string out = utf8To16(s);
+    return env->NewString(reinterpret_cast<const jchar*>(out.data()), (jsize)out.size());
 }
 
 #define LOG_TAG "joey64ra"
@@ -45,6 +53,17 @@ std::mutex g_hostMutex;
 std::string g_host;                  // what setHost gave rc_client, for awardRequest
 std::atomic<bool> g_gameWanted{false};
 std::atomic<bool> g_enabled{true};     // Settings › RetroAchievements › Achievements
+// The running game's set didn't load (signed out, or the kept sign-in was refused): a sign-in that
+// works during the game loads it then (the in-game Sign-in expired pop-up's sign-in).
+std::atomic<bool> g_loadAgain{false};
+// The core had no RDRAM yet at retro_load_game (mupen64plus-next allocates it on the first retro_run):
+// the set is loaded once ramReady gives it, else rc_client finds every address unreadable and disables
+// every achievement ("Disabled achievement N. Invalid address ...", found on the Thor 2026-11-08).
+std::atomic<bool> g_waitRam{false};
+// A state's achievement progress loaded before the game's set came from the server (Continue loads
+// the auto state at boot): given to rc_client once the set loads.
+std::mutex g_progressMutex;
+std::vector<uint8_t> g_pendingProgress;
 
 struct Env {
     JNIEnv* env = nullptr;
@@ -89,6 +108,30 @@ std::string achievementJson(const rc_client_achievement_t* a) {
     return j.done();
 }
 
+// The game's sets when it has more than one (main set first, then the subsets), each with the
+// user's progress in it: the set tabs (approved mockup 2026-11-08, subsets_mock.png). "" for one set.
+std::string setsJson() {
+    rc_client_subset_list_t* list = rc_client_create_subset_list(g_client);
+    std::string out;
+    if (list && list->num_subsets > 1) {
+        out = "[";
+        for (uint32_t i = 0; i < list->num_subsets; i++) {
+            const rc_client_subset_t* s = list->subsets[i];
+            rc_client_user_game_summary_t sum{};
+            rc_client_get_user_subset_summary(g_client, s->id, &sum);
+            Json j;
+            j.num("id", s->id).str("title", s->title)
+                .num("achievements", sum.num_core_achievements).num("unlocked", sum.num_unlocked_achievements)
+                .num("points", sum.points_core).num("pointsUnlocked", sum.points_unlocked);
+            if (i) out += ',';
+            out += j.done();
+        }
+        out += "]";
+    }
+    if (list) rc_client_destroy_subset_list(list);
+    return out;
+}
+
 std::string gameJson() {
     Json j;
     const rc_client_game_t* g = g_client ? rc_client_get_game_info(g_client) : nullptr;
@@ -99,6 +142,8 @@ std::string gameJson() {
         .num("achievements", sum.num_core_achievements).num("unlocked", sum.num_unlocked_achievements)
         .num("points", sum.points_core).num("pointsUnlocked", sum.points_unlocked)
         .num("beaten", (double)sum.beaten_time).num("completed", (double)sum.completed_time);
+    std::string sets = setsJson();
+    if (!sets.empty()) j.raw("sets", sets);
     return j.done();
 }
 
@@ -116,7 +161,7 @@ void emit(const std::string& json) {
     if (!g_bridge || !g_onEvent) return;
     Env e;
     if (!e.env) return;
-    jstring s = e.env->NewStringUTF(json.c_str());
+    jstring s = jstr(e.env, json.c_str());
     e.env->CallStaticVoidMethod(g_bridge, g_onEvent, s);
     if (e.env->ExceptionCheck()) { e.env->ExceptionDescribe(); e.env->ExceptionClear(); }
     e.env->DeleteLocalRef(s);
@@ -142,8 +187,8 @@ void serverCall(const rc_api_request_t* req, rc_client_server_callback_t cb, voi
     }
     Env e;
     auto* p = new Pending{cb, data};
-    jstring url = e.env->NewStringUTF(req->url);
-    jstring post = req->post_data ? e.env->NewStringUTF(req->post_data) : nullptr;
+    jstring url = jstr(e.env, req->url);
+    jstring post = req->post_data ? jstr(e.env, req->post_data) : nullptr;
     e.env->CallStaticVoidMethod(g_bridge, g_serverCall, url, post, (jlong)(intptr_t)p);
     if (e.env->ExceptionCheck()) { e.env->ExceptionDescribe(); e.env->ExceptionClear(); }
     e.env->DeleteLocalRef(url);
@@ -210,19 +255,38 @@ void onEvent(const rc_client_event_t* ev, rc_client_t*) {
     emit(j.done());
 }
 
+void gameDone(int result, const char* error, rc_client_t*, void*);
+
 void loginDone(int result, const char* error, rc_client_t*, void*) {
     Json j;
     j.str("event", "login").num("result", result).str("error", result == RC_OK ? "" : (error ? error : rc_error_str(result)));
     if (result == RC_OK) j.raw("user", userJson());
     RLOGI("sign-in: %s", result == RC_OK ? "ok" : (error ? error : rc_error_str(result)));
     emit(j.done());
+    if (result != RC_OK || !g_loadAgain || !g_enabled || !g_hash[0]) return;
+    {
+        std::lock_guard<std::mutex> lk(g_ramMutex);
+        if (!g_ram) return; // no game running
+    }
+    g_loadAgain = false;
+    RLOGI("signed in during the game: loading its set");
+    rc_client_begin_load_game(g_client, g_hash, gameDone, nullptr);
 }
 
 void gameDone(int result, const char* error, rc_client_t*, void*) {
     Json j;
     j.str("event", "gameLoaded").num("result", result).str("hash", g_hash)
         .str("error", result == RC_OK ? "" : (error ? error : rc_error_str(result)));
-    if (result == RC_OK) j.raw("game", gameJson());
+    if (result == RC_OK) {
+        std::vector<uint8_t> p;
+        { std::lock_guard<std::mutex> lk(g_progressMutex); p.swap(g_pendingProgress); }
+        if (!p.empty()) {
+            int r = rc_client_deserialize_progress_sized(g_client, p.data(), p.size());
+            RLOGI("state: achievement progress %s once the set loaded (%zu bytes)", r == RC_OK ? "restored" : "not taken", p.size());
+        }
+        j.raw("game", gameJson());
+    }
+    if (result != RC_OK) g_loadAgain = true;
     RLOGI("game %s: %s", g_hash, result == RC_OK ? "identified" : (error ? error : rc_error_str(result)));
     emit(j.done());
 }
@@ -263,22 +327,45 @@ void hashRom(const uint8_t* rom, size_t size, char out[33]) {
 
 namespace Cheevos {
 
-void gameLoaded(const uint8_t* rom, size_t romSize, uint8_t* ram, size_t ramSize) {
-    hashRom(rom, romSize, g_hash);
-    {
-        std::lock_guard<std::mutex> lk(g_ramMutex);
-        g_ram = ram; g_ramSize = ramSize;
-    }
-    RLOGI("game hash %s, RDRAM %zu bytes", g_hash, ramSize);
+// Identifies the game and loads its set, once the RDRAM is there.
+static void startLoad() {
     if (!g_client || !g_hash[0]) return;
     if (!g_enabled) { RLOGI("achievements are off in Settings"); return; }
     const rc_client_user_t* u = rc_client_get_user_info(g_client);
     // Signed in, or a sign-in under way (rc_client waits for it before loading).
-    if (!u && !g_gameWanted) return;
+    if (!u && !g_gameWanted) { g_loadAgain = true; return; }
+    g_loadAgain = false;
     rc_client_begin_load_game(g_client, g_hash, gameDone, nullptr);
 }
 
+void gameLoaded(const uint8_t* rom, size_t romSize, uint8_t* ram, size_t ramSize) {
+    hashRom(rom, romSize, g_hash);
+    {
+        std::lock_guard<std::mutex> lk(g_ramMutex);
+        g_ram = ram; g_ramSize = ram ? ramSize : 0;
+    }
+    RLOGI("game hash %s, RDRAM %zu bytes%s", g_hash, ramSize, ram ? "" : " (not there yet: the set loads after the first frame)");
+    g_waitRam = ram == nullptr;
+    if (ram) startLoad();
+}
+
+bool waitingForRam() { return g_waitRam; }
+
+void ramReady(uint8_t* ram, size_t ramSize) {
+    if (!g_waitRam || !ram) return;
+    {
+        std::lock_guard<std::mutex> lk(g_ramMutex);
+        g_ram = ram; g_ramSize = ramSize;
+    }
+    g_waitRam = false;
+    RLOGI("RDRAM there after the first frame: loading the set");
+    startLoad();
+}
+
 void gameUnloaded() {
+    g_waitRam = false;
+    g_loadAgain = false;
+    { std::lock_guard<std::mutex> lk(g_progressMutex); g_pendingProgress.clear(); }
     if (g_client) rc_client_unload_game(g_client);
     std::lock_guard<std::mutex> lk(g_ramMutex);
     g_ram = nullptr; g_ramSize = 0;
@@ -287,7 +374,29 @@ void gameUnloaded() {
 void doFrame() { if (g_client) rc_client_do_frame(g_client); }
 void idle() { if (g_client) rc_client_idle(g_client); }
 void reset() { if (g_client) rc_client_reset(g_client); }
-void stateLoaded() { if (g_client) rc_client_deserialize_progress_sized(g_client, nullptr, 0); }
+void captureProgress(std::vector<uint8_t>& out) {
+    out.clear();
+    if (!g_client || !rc_client_is_game_loaded(g_client)) return;
+    size_t n = rc_client_progress_size(g_client);
+    if (n == 0) return;
+    out.resize(n);
+    if (rc_client_serialize_progress_sized(g_client, out.data(), n) != RC_OK) out.clear();
+}
+
+void stateLoaded(const uint8_t* progress, size_t size) {
+    {
+        std::lock_guard<std::mutex> lk(g_progressMutex);
+        g_pendingProgress.clear();
+        if (size && (!g_client || !rc_client_is_game_loaded(g_client))) {
+            g_pendingProgress.assign(progress, progress + size);
+            RLOGI("state: achievement progress kept until the set loads (%zu bytes)", size);
+            return;
+        }
+    }
+    if (!g_client) return;
+    int r = rc_client_deserialize_progress_sized(g_client, size ? progress : nullptr, size);
+    if (size) RLOGI("state: achievement progress %s (%zu bytes)", r == RC_OK ? "restored" : "not taken, starting over", size);
+}
 const char* lastHash() { return g_hash; }
 
 } // namespace Cheevos
@@ -311,7 +420,7 @@ JNIEXPORT jstring JNICALL RAJNI(userAgentClause)(JNIEnv* env, jclass) {
     ensureClient();
     char buf[64] = "";
     rc_client_get_user_agent_clause(g_client, buf, sizeof buf);
-    return env->NewStringUTF(buf);
+    return jstr(env, buf);
 }
 
 JNIEXPORT void JNICALL RAJNI(serverResponse)(JNIEnv* env, jclass, jlong handle, jint status, jbyteArray body) {
@@ -375,13 +484,23 @@ JNIEXPORT void JNICALL RAJNI(setHost)(JNIEnv* env, jclass, jstring host) {
 }
 
 JNIEXPORT jstring JNICALL RAJNI(gameInfo)(JNIEnv* env, jclass) {
-    return env->NewStringUTF(gameJson().c_str());
+    return jstr(env, gameJson().c_str());
 }
 
 // Every achievement of the loaded game, grouped as RetroArch shows them (RC_CLIENT_ACHIEVEMENT_LIST_GROUPING_PROGRESS).
 JNIEXPORT jstring JNICALL RAJNI(achievementList)(JNIEnv* env, jclass) {
     std::string out = "[";
     if (g_client && rc_client_is_game_loaded(g_client)) {
+        // Each achievement's set (0 with one set): the lock-state grouping splits every bucket by set,
+        // the progress grouping's shared ones (challenges, recent unlocks, almost there) don't.
+        std::unordered_map<uint32_t, uint32_t> setOf;
+        if (rc_client_achievement_list_t* bySet = rc_client_create_achievement_list(g_client,
+                RC_CLIENT_ACHIEVEMENT_CATEGORY_CORE_AND_UNOFFICIAL, RC_CLIENT_ACHIEVEMENT_LIST_GROUPING_LOCK_STATE)) {
+            for (uint32_t b = 0; b < bySet->num_buckets; b++)
+                for (uint32_t i = 0; i < bySet->buckets[b].num_achievements; i++)
+                    setOf[bySet->buckets[b].achievements[i]->id] = bySet->buckets[b].subset_id;
+            rc_client_destroy_achievement_list(bySet);
+        }
         rc_client_achievement_list_t* list = rc_client_create_achievement_list(g_client,
             RC_CLIENT_ACHIEVEMENT_CATEGORY_CORE_AND_UNOFFICIAL, RC_CLIENT_ACHIEVEMENT_LIST_GROUPING_PROGRESS);
         for (uint32_t b = 0; list && b < list->num_buckets; b++) {
@@ -391,13 +510,15 @@ JNIEXPORT jstring JNICALL RAJNI(achievementList)(JNIEnv* env, jclass) {
                 std::string a = achievementJson(bucket.achievements[i]);
                 a.pop_back();
                 Json extra; extra.str("section", bucket.label).num("sectionType", bucket.bucket_type);
+                auto s = setOf.find(bucket.achievements[i]->id);
+                if (s != setOf.end() && s->second) extra.num("set", s->second);
                 out += a + "," + extra.done().substr(1);
             }
         }
         if (list) rc_client_destroy_achievement_list(list);
     }
     out += "]";
-    return env->NewStringUTF(out.c_str());
+    return jstr(env, out.c_str());
 }
 
 // The offline queue (RaUnlockQueue): an unlock rc_client couldn't send before its game was left,
@@ -426,7 +547,7 @@ JNIEXPORT jstring JNICALL RAJNI(awardRequest)(JNIEnv* env, jclass, jint id, jstr
         rc_api_destroy_request(&req);
         if (h) env->ReleaseStringUTFChars(hash, h);
     }
-    return env->NewStringUTF(out.c_str());
+    return jstr(env, out.c_str());
 }
 
 // Whether rc_client has a game loaded (it then retries its own unlocks).
@@ -435,7 +556,7 @@ JNIEXPORT jboolean JNICALL RAJNI(gameLoaded)(JNIEnv*, jclass) {
 }
 
 JNIEXPORT jstring JNICALL RAJNI(lastHash)(JNIEnv* env, jclass) {
-    return env->NewStringUTF(g_hash);
+    return jstr(env, g_hash);
 }
 
 } // extern "C"

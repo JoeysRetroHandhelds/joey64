@@ -1,5 +1,11 @@
 package com.joeysretro.joey64.launcher.screens
 
+import com.joeysretro.joey64.launcher.components.TwoColumns
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.core.net.toUri
+import androidx.compose.foundation.horizontalScroll
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -11,6 +17,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -60,9 +67,11 @@ import com.joeysretro.joey64.launcher.update.AppUpdates
 import com.joeysretro.joey64.launcher.update.UpdateModel
 import com.joeysretro.joey64.launcher.update.UpdateModel.RowState
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import com.joeysretro.joey64.JLog
 
 /** The Settings tabs built so far, in the approved order (General, Audio and Library come with their pages). */
-enum class SettingsTab(val label: String) { Appearance("Appearance"), Video("Video"), RetroAchievements("RetroAchievements"), About("About") }
+enum class SettingsTab(val label: String) { Appearance("Appearance"), Video("Video"), Emulation("Emulation"), Audio("Audio"), OnScreen("On screen"), Saves("Saves"), Library("Library"), RetroAchievements("RetroAchievements"), About("About") }
 
 /**
  * Settings (approved Settings mockups, 2026-11-05). The tabs that are built, L1/R1 (or a tap)
@@ -71,28 +80,42 @@ enum class SettingsTab(val label: String) { Appearance("Appearance"), Video("Vid
  * own settings), opening the same popups as Controls'.
  */
 @Composable
-fun SettingsScreen(updates: UpdateModel, onHints: (List<Hint>) -> Unit, onClose: () -> Unit) {
+fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher.LibraryModel, onHints: (List<Hint>) -> Unit, onImport: () -> Unit = {}, startTab: SettingsTab = SettingsTab.entries.first(), startRow: String? = null, onClose: () -> Unit) {
     BackHandler(onBack = onClose)
     val landing = LocalFocusLanding.current
     val c = JoeyTheme.colors
     val s = JoeyTheme.spacing
-    var tab by remember { mutableStateOf(SettingsTab.entries.first()) }
-    // Video's game ([GamesForPopup]): null = All games.
+    var tab by remember { mutableStateOf(startTab) }
+    // Video's or Audio's game ([GamesForPopup]): null = All games.
     var target by remember { mutableStateOf<String?>(null) }
     var targetTitle by remember { mutableStateOf<String?>(null) }
-    var gamesPopup by remember { mutableStateOf(0) } // 1 = Video for, 2 = Pick a game
+    var gamesPopup by remember { mutableStateOf(0) } // 1 = Video for / Audio for, 2 = Pick a game
     // The open tab's own buttons (Video: Y), offered what Settings doesn't use itself.
     var tabControl by remember { mutableStateOf<((Control) -> Boolean)?>(null) }
     val context = LocalContext.current
     val videoStore = remember { com.joeysretro.joey64.video.VideoStore(context) }
+    val audioStore = remember { com.joeysretro.joey64.audio.AudioStore(context) }
+    val emuStore = remember { com.joeysretro.joey64.emulation.EmuStore(context) }
+    val perGame = tab == SettingsTab.Video || tab == SettingsTab.Emulation || tab == SettingsTab.Audio
+    // Start: Reset tab (approved mockup B, 2026-11-07). Library, RetroAchievements and About have nothing to reset.
+    // Not while Saves runs a backup, restore or move: the tab is built again after a reset, which would stop it.
+    var savesBusy by remember { mutableStateOf(false) }
+    val resettable = tab in RESETTABLE && !(tab == SettingsTab.Saves && savesBusy)
+    var resetAsk by remember { mutableStateOf(false) }
+    // Bumped by a reset: the tab is built again and reads its settings anew.
+    var resetGen by remember { mutableIntStateOf(0) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     // Each tab lands focus on its first row as it opens.
     LaunchedEffect(tab) { landing?.arm() }
+    // A reset builds the tab again: focus lands on its first row, not the rail.
+    LaunchedEffect(resetGen) { if (resetGen > 0) landing?.arm() }
     DisposableEffect(Unit) {
         val handler: (Control) -> Boolean = { ctl ->
             val tabs = SettingsTab.entries
             when (ctl) {
                 Control.TabPrev -> { tab = tabs[(tab.ordinal + tabs.size - 1) % tabs.size]; true }
                 Control.TabNext -> { tab = tabs[(tab.ordinal + 1) % tabs.size]; true }
+                Control.Options -> { if (tab in RESETTABLE && !(tab == SettingsTab.Saves && savesBusy)) resetAsk = true; true }
                 else -> tabControl?.invoke(ctl) ?: false
             }
         }
@@ -100,37 +123,136 @@ fun SettingsScreen(updates: UpdateModel, onHints: (List<Hint>) -> Unit, onClose:
         onDispose { ControlBus.pop(handler) }
     }
     Column(Modifier.fillMaxSize().padding(horizontal = s.margin).padding(top = 14.dp, bottom = 8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Settings", style = JoeyTheme.type.pageTitle, color = c.text, modifier = Modifier.weight(1f))
-            if (tab == SettingsTab.Video) PageChip((targetTitle ?: "All games") + "  ›", R.drawable.ic_sliders, on = target != null) { gamesPopup = 1 }
+        com.joeysretro.joey64.launcher.components.PageHeader("Settings") {
+            if (perGame) PageChip((targetTitle ?: "All games") + "  ›", R.drawable.ic_sliders, on = target != null) { gamesPopup = 1 }
         }
-        Row(Modifier.padding(top = 6.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            for (t in SettingsTab.entries) {
-                val on = t == tab
-                Text(t.label, style = JoeyTheme.type.tab, color = if (on) c.text else c.textSecondary,
-                    modifier = Modifier
-                        .then(if (on) Modifier.background(c.chip, RoundedCornerShape(6.dp)) else Modifier)
-                        .pointerInput(t) { detectTapGestures { tab = t } }
-                        .padding(horizontal = 12.dp, vertical = 4.dp))
-            }
-        }
-        key(tab, target) {
-            if (tab != SettingsTab.Video) tabControl = null
+        SettingsTabs(SettingsTab.entries.map { it.label }, tab.ordinal) { tab = SettingsTab.entries[it] }
+        key(tab, target, resetGen) {
+            if (!perGame && tab != SettingsTab.OnScreen) tabControl = null
+            val hints: (List<Hint>) -> Unit = { onHints(if (resettable) withResetHint(it) else it) }
             when (tab) {
-                SettingsTab.Appearance -> AppearanceTab(onHints, Modifier.weight(1f))
-                SettingsTab.Video -> VideoTab(target, onHints, { tabControl = it }, Modifier.weight(1f))
+                SettingsTab.Appearance -> AppearanceTab(hints, Modifier.weight(1f))
+                SettingsTab.Video -> VideoTab(target, hints, { tabControl = it }, Modifier.weight(1f))
+                SettingsTab.Emulation -> EmulationTab(target, hints, { tabControl = it }, Modifier.weight(1f))
+                SettingsTab.Audio -> AudioTab(target, hints, { tabControl = it }, Modifier.weight(1f))
+                SettingsTab.OnScreen -> OnScreenTab(hints, { tabControl = it }, Modifier.weight(1f))
+                SettingsTab.Saves -> SavesTab({ h -> onHints(if (tab in RESETTABLE && !savesBusy) withResetHint(h) else h) }, onImport, Modifier.weight(1f),
+                    startRow ?: "quit", onBusy = { savesBusy = it })
+                SettingsTab.Library -> LibraryTab(library, onHints, Modifier.weight(1f))
                 SettingsTab.RetroAchievements -> RaTab(onHints, Modifier.weight(1f))
                 SettingsTab.About -> AboutTab(updates, { onHints(it.dropLast(1) + Hint("L/R", "Tab") + it.last()) }, Modifier.weight(1f))
             }
         }
     }
     when (gamesPopup) {
-        1 -> GamesForPopup("Video for", "A game's own settings are used instead of All games when it starts.", target,
+        1 -> if (tab == SettingsTab.Emulation) GamesForPopup("Emulation for", "A game's own settings are used instead of All games when it starts.", target,
+            gamesWithOwn = { emuStore.gamesWithOwn() }, changeCount = { emuStore.game(it)?.size ?: 0 },
+            removeLabel = "Remove the game's settings", onDismiss = { gamesPopup = 0 },
+            onPick = { save, title -> target = save; targetTitle = title; gamesPopup = 0 },
+            onPickGame = { gamesPopup = 2 }, onRemoved = { emuStore.removeGame(it) })
+        else if (tab == SettingsTab.Audio) GamesForPopup("Audio for", "A game's own Volume and Latency are used instead of All games when it starts.", target,
+            gamesWithOwn = { audioStore.gamesWithOwn() }, changeCount = { audioStore.game(it)?.size ?: 0 },
+            removeLabel = "Remove the game's settings", onDismiss = { gamesPopup = 0 },
+            onPick = { save, title -> target = save; targetTitle = title; gamesPopup = 0 },
+            onPickGame = { gamesPopup = 2 }, onRemoved = { audioStore.removeGame(it) })
+        else GamesForPopup("Video for", "A game's own settings are used instead of All games when it starts.", target,
             gamesWithOwn = { videoStore.gamesWithOwn() }, changeCount = { videoStore.game(it)?.size ?: 0 },
             removeLabel = "Remove the game's settings", onDismiss = { gamesPopup = 0 },
             onPick = { save, title -> target = save; targetTitle = title; gamesPopup = 0 },
             onPickGame = { gamesPopup = 2 }, onRemoved = { videoStore.removeGame(it) })
         2 -> PickGamePopup("Its settings start as All games'.", { gamesPopup = 1 }) { save, title -> target = save; targetTitle = title; gamesPopup = 0 }
+    }
+    if (resetAsk) {
+        val close = { resetAsk = false }
+        fun done() { resetAsk = false; resetGen++; JLog.i("Joey64Settings", "reset tab ${tab.name}${if (target != null) " for a game" else ""}") }
+        val game = target
+        if (perGame && game != null) {
+            // A game picked in the chip: drop its own settings on this tab, as X on it in the chip's list does.
+            val name = targetTitle ?: game
+            val n = when (tab) {
+                SettingsTab.Video -> videoStore.game(game)?.size ?: 0
+                SettingsTab.Emulation -> emuStore.game(game)?.size ?: 0
+                else -> audioStore.game(game)?.size ?: 0
+            }
+            if (n == 0) NothingToResetPopup("$name uses All games' ${tab.label}", "It has no ${tab.label} settings of its own.", close)
+            else ResetTabPopup("Use All games for $name?", "${changesGo(n, "on this tab")}, and it uses All games' ${tab.label} again.",
+                "Keep its settings", "Use All games", close) {
+                when (tab) {
+                    SettingsTab.Video -> videoStore.removeGame(game)
+                    SettingsTab.Emulation -> emuStore.removeGame(game)
+                    else -> audioStore.removeGame(game)
+                }
+                done()
+            }
+        } else {
+            val note = when (tab) {
+                SettingsTab.Video, SettingsTab.Emulation, SettingsTab.Audio -> "Every row goes back to its default for All games. Games with their own ${tab.label} settings keep them."
+                SettingsTab.OnScreen -> "Every row goes back to its default. The achievement pop-ups are RetroAchievements' too, so they change there as well."
+                SettingsTab.Saves -> "Every row goes back to its default. The data folder, your saves, states and backups stay as they are."
+                else -> "Every row goes back to its default."
+            }
+            ResetTabPopup("Reset ${tab.label}?", note, "Keep my settings", "Reset to defaults", close) {
+                when (tab) {
+                    SettingsTab.Appearance -> {
+                        val d = com.joeysretro.joey64.launcher.settings.LauncherSettings()
+                        val store = com.joeysretro.joey64.launcher.settings.SettingsStore(context)
+                        scope.launch { store.setTheme(d.theme); store.setPopupTheme(d.popupTheme) }
+                    }
+                    SettingsTab.Video -> videoStore.saveAll(emptyMap())
+                    SettingsTab.Emulation -> emuStore.saveAll(emptyMap())
+                    SettingsTab.Audio -> audioStore.saveAll(emptyMap())
+                    SettingsTab.OnScreen -> {
+                        com.joeysretro.joey64.onscreen.OnScreenStore(context).save(com.joeysretro.joey64.onscreen.OnScreen())
+                        val dr = com.joeysretro.joey64.achievements.RaOptions()
+                        com.joeysretro.joey64.achievements.RaSettings.update(context) {
+                            it.copy(popUnlocks = dr.popUnlocks, popProgress = dr.popProgress, popSummary = dr.popSummary)
+                        }
+                    }
+                    SettingsTab.Saves -> com.joeysretro.joey64.saves.SavesStore(context).save(com.joeysretro.joey64.saves.SavesOptions())
+                    else -> {}
+                }
+                done()
+            }
+        }
+    }
+}
+
+/** The tabs Start resets (approved mockup B): the ones with settings of their own. */
+private val RESETTABLE = setOf(SettingsTab.Appearance, SettingsTab.Video, SettingsTab.Emulation, SettingsTab.Audio, SettingsTab.OnScreen, SettingsTab.Saves)
+
+/** Settings' tab row (L1 / R1 move along it; a tap picks one), also Game settings' Video and Audio. */
+@Composable
+internal fun SettingsTabs(
+    labels: List<String>, on: Int,
+    /** A count after each label, dimmer (a game's set tabs: "Bonus 48"). */
+    counts: List<Int?> = emptyList(),
+    /** Tabs with a dot after the label (a set with an active challenge). */
+    dots: Set<Int> = emptySet(),
+    onTap: (Int) -> Unit,
+) {
+    val c = JoeyTheme.colors
+    // More tabs than the width holds (eight since Library): the row scrolls, keeping the one in use
+    // in view, and a label never wraps or shrinks.
+    val bring = remember(labels.size) { List(labels.size) { androidx.compose.foundation.relocation.BringIntoViewRequester() } }
+    LaunchedEffect(on) { bring.getOrNull(on)?.bringIntoView() }
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 6.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        labels.forEachIndexed { i, label ->
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier
+                .bringIntoViewRequester(bring[i])
+                .then(if (i == on) Modifier.background(c.chip, RoundedCornerShape(6.dp)) else Modifier)
+                .pointerInput(i) { detectTapGestures { onTap(i) } }
+                .padding(horizontal = 12.dp, vertical = 4.dp)) {
+                val count = counts.getOrNull(i)
+                val text = if (count == null) androidx.compose.ui.text.AnnotatedString(label) else androidx.compose.ui.text.buildAnnotatedString {
+                    append(label)
+                    pushStyle(androidx.compose.ui.text.SpanStyle(color = if (i == on) c.textSecondary else c.textDim, fontWeight = androidx.compose.ui.text.font.FontWeight.Normal))
+                    append("  $count")
+                    pop()
+                }
+                Text(text, style = JoeyTheme.type.tab, color = if (i == on) c.text else c.textSecondary, maxLines = 1, softWrap = false)
+                if (i in dots) Box(Modifier.padding(start = 6.dp).size(7.dp).background(c.tagChallenge, androidx.compose.foundation.shape.CircleShape))
+            }
+        }
     }
 }
 
@@ -152,6 +274,9 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
     val testing by updates.testing.collectAsStateWithLifecycle()
     var focused by remember { mutableStateOf("chk") }
     var copied by remember { mutableStateOf(false) }
+    // The popup open over About: "oss" (the licences list), "gpl" (Joey64's licence) or "reports" (Send reports).
+    var open by remember { mutableStateOf<String?>(null) }
+    var reportsOn by remember { mutableStateOf(com.joeysretro.joey64.reports.ReportPrefs.on(context)) }
     // "Checked 10 minutes ago" stays true as time passes.
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { delay(30_000); now = System.currentTimeMillis() } }
@@ -161,45 +286,58 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
         onHints(when (focused) {
             "chk" -> if (row == RowState.Checking) listOf(Hint("B", "Back")) else listOf(Hint("A", "Check"), Hint("B", "Back"))
             "copy" -> listOf(Hint("A", "Copy"), Hint("B", "Back"))
+            "gpl", "oss" -> listOf(Hint("A", "Read"), Hint("B", "Back"))
+            "rep" -> listOf(Hint("A", "Change"), Hint("B", "Back"))
+            "src" -> listOf(Hint("A", "Open"), Hint("B", "Back"))
             else -> listOf(Hint("B", "Back"))
         })
     }
 
     Column(modifier.fillMaxWidth()) {
-        Row(Modifier.weight(1f).fillMaxWidth().focusRestorer().focusGroup(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            Column(Modifier.weight(1f)) {
-                Row(Modifier.padding(start = 8.dp, top = 2.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Image(painterResource(R.drawable.rail_logo), contentDescription = null, modifier = Modifier.size(52.dp))
-                    Column(Modifier.padding(start = 14.dp)) {
-                        Text("Joey64", style = JoeyTheme.type.popupTitle, color = c.text)
-                        Text("N64 for Android", style = JoeyTheme.type.note, color = c.textDim)
-                    }
-                }
-                // A tap leaves nothing focused, and Compose won't focus a row in touch mode: back to
-                // controller mode, then focus goes to Check for updates, as the mockup shows.
-                VersionRow(updates, testing) { inputMode.requestInputMode(InputMode.Keyboard); landing?.arm() }
-                JoeyRow("Check for updates", modifier = Modifier.initialFocus(), onFocused = { if (it) focused = "chk" },
-                    trailing = { f -> CheckValue(row, updates.lastCheck, now, f) }) { updates.checkNow() }
-                JoeyRow("Core", value = info.core, onFocused = { if (it) focused = "core" })
-                JoeyRow("Renderer", value = AboutInfo.renderer(context), onFocused = { if (it) focused = "rdr" })
-                JoeyRow("Device", value = info.device, onFocused = { if (it) focused = "dev" })
-                JoeyRow("Copy device info", value = if (copied) "Copied" else null, onFocused = { if (it) focused = "copy" }) {
-                    val clip = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clip.setPrimaryClip(ClipData.newPlainText("Joey64 device info", AboutInfo.report(context, info)))
-                    copied = true
+        TwoColumns(Modifier.weight(1f), left = {
+            Row(Modifier.padding(start = 8.dp, top = 2.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Image(painterResource(R.drawable.rail_logo), contentDescription = null, modifier = Modifier.size(52.dp))
+                Column(Modifier.padding(start = 14.dp)) {
+                    Text("Joey64", style = JoeyTheme.type.popupTitle, color = c.text)
+                    Text("N64 for Android", style = JoeyTheme.type.note, color = c.textDim)
                 }
             }
-            Column(Modifier.weight(1f)) {
-                SectionLabel("Licence")
-                InfoRow("Joey64 is free software", "GPL 3.0 or later")
-                // The notes of the release this build came from, kept when the updater downloaded it.
-                val notes = remember { AppUpdates.notes(context, updates.installed) }
-                if (!notes.isNullOrBlank()) {
-                    SectionLabel("What's new in ${updates.installed}")
-                    Text(notes, style = JoeyTheme.type.note, color = c.textSecondary,
-                        modifier = Modifier.padding(horizontal = s.rowPadH), maxLines = 8,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                }
+            // A tap leaves nothing focused, and Compose won't focus a row in touch mode: back to
+            // controller mode, then focus goes to Check for updates, as the mockup shows.
+            VersionRow(updates, testing) { inputMode.requestInputMode(InputMode.Keyboard); landing?.arm() }
+            JoeyRow("Check for updates", modifier = Modifier.initialFocus(), sideways = true, onFocused = { if (it) focused = "chk" },
+                trailing = { f -> CheckValue(row, updates.lastCheck, now, f) }) { updates.checkNow() }
+            JoeyRow("Core", value = info.core, sideways = true, onFocused = { if (it) focused = "core" })
+            JoeyRow("Renderer", value = AboutInfo.renderer(context), sideways = true, onFocused = { if (it) focused = "rdr" })
+            JoeyRow("Device", value = info.device, sideways = true, onFocused = { if (it) focused = "dev" })
+            JoeyRow("Copy device info", value = if (copied) "Copied" else null, sideways = true, onFocused = { if (it) focused = "copy" }) {
+                val clip = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clip.setPrimaryClip(ClipData.newPlainText("Joey64 device info", AboutInfo.report(context, info)))
+                copied = true
+            }
+        }) {
+            // Reports (approved reports mockup 2026-11-08, screen 1): at the top of the right column.
+            SectionLabel("Reports")
+            JoeyRow("Send reports", value = if (reportsOn) "On ›" else "Off ›", sideways = true, onFocused = { if (it) focused = "rep" }) { open = "reports" }
+            SectionLabel("Licence")
+            JoeyRow("Joey64 is free software", value = "GPL 3.0 or later ›", sideways = true, onFocused = { if (it) focused = "gpl" }) { open = "gpl" }
+            JoeyRow("Source code", value = "joey64 on GitHub ›", sideways = true, onFocused = { if (it) focused = "src" }) {
+                try { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, "https://${JOEY64_LICENCE.url}".toUri())) }
+                catch (e: Exception) { /* no browser */ }
+            }
+            SectionLabel("Credits")
+            JoeyRow("Open-source licences", value = "${OSS_ENTRIES.size} ›", sideways = true, onFocused = { if (it) focused = "oss" }) { open = "oss" }
+            JoeyRow("Box art", value = "ScreenScraper", sideways = true, onFocused = { if (it) focused = "art" })
+            JoeyRow("Game list", value = "No-Intro · libretro", sideways = true, onFocused = { if (it) focused = "db" })
+            JoeyRow("Cheats", value = "Project64 · RMG · FZ · libretro", sideways = true, onFocused = { if (it) focused = "cht" })
+            JoeyRow("Controllers", value = "SDL · RetroArch", sideways = true, onFocused = { if (it) focused = "ctl" })
+            // The notes of the release this build came from, kept when the updater downloaded it.
+            val notes = remember { AppUpdates.notes(context, updates.installed) }
+            if (!notes.isNullOrBlank()) {
+                SectionLabel("What's new in ${updates.installed}")
+                Text(notes, style = JoeyTheme.type.note, color = c.textSecondary,
+                    modifier = Modifier.padding(horizontal = s.rowPadH), maxLines = 8,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             }
         }
         Spacer(Modifier.height(6.dp))
@@ -208,9 +346,24 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
             "core" -> "Core" to "The emulator core this build runs: ${info.coreDetail}."
             "rdr" -> "Renderer" to "What draws the games on this device, picked when a game starts."
             "dev" -> "Device" to info.deviceDetail
+            "rep" -> "Send reports" to "Off: Joey64 sends nothing. On: how games run on this device, games with no cover, and crashes, to help make Joey64 better."
+            "gpl" -> "Joey64 is free software" to "Under the GNU General Public License 3.0 or later: use it, share it, change it. Select to read it."
+            "src" -> "Source code" to "The code this build is made from: ${JOEY64_LICENCE.url}."
+            "oss" -> "Open-source licences" to "The projects Joey64 is built from, and the licence each one is under."
+            "art" -> "Box art" to "Covers come from ScreenScraper (screenscraper.fr), downloaded once per game. A hack without a cover of its own gets the original game's."
+            "db" -> "Game list" to "Game names from No-Intro's lists, through libretro-database."
+            "cht" -> "Cheats" to "From Project64, Rosalie's Mupen GUI, M64Plus FZ (retroben's codes) and libretro-database, each under its own licence."
+            "ctl" -> "Controllers" to "Auto map's controller table is built from SDL_GameControllerDB and RetroArch's joypad autoconfig."
             else -> "Copy device info" to "Copies the version, core, renderer and device, for a bug report."
         }
         DescriptionLine(title, text)
+    }
+    when (open) {
+        "oss" -> OssListPopup { open = null }
+        "gpl" -> LicenceTextPopup(JOEY64_LICENCE) { open = null }
+        "reports" -> SendReportsPopup(reportsOn, onDismiss = { open = null },
+            onSet = { on -> com.joeysretro.joey64.reports.ReportPrefs.setOn(context, on); reportsOn = on; open = null },
+            onResetId = { com.joeysretro.joey64.reports.ReportPrefs.newId(context) })
     }
 }
 

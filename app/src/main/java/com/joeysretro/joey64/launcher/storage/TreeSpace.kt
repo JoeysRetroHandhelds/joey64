@@ -39,9 +39,15 @@ class TreeSpace(
 
     fun documentUri(docId: String): Uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
 
-    private fun children(docId: String): List<Child> {
+    private fun children(docId: String): List<Child> = childrenOrNull(docId) ?: emptyList()
+
+    /**
+     * The folder's listing, or null when it couldn't be read. A failed listing isn't kept: kept as empty, the next
+     * write took the file for missing and created "name (1)" beside it, which then got the save (code audit 2026-11-07).
+     */
+    private fun childrenOrNull(docId: String): List<Child>? {
         synchronized(lock) { listings[docId] }?.let { return it }
-        val out = query(docId)
+        val out = query(docId) ?: return null
         synchronized(lock) { listings[docId] = out }
         return out
     }
@@ -49,11 +55,12 @@ class TreeSpace(
     /** Drops the cached listing of the folder [docId], after something in it changed. */
     private fun changed(docId: String) = synchronized(lock) { listings.remove(docId) }
 
-    private fun query(docId: String): List<Child> {
+    private fun query(docId: String): List<Child>? {
         val uri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, docId)
         val out = ArrayList<Child>()
         try {
-            resolver.query(uri, PROJECTION, null, null, null)?.use { c ->
+            val cursor = resolver.query(uri, PROJECTION, null, null, null) ?: run { JLog.w(TAG, "listing $docId: no answer"); return null }
+            cursor.use { c ->
                 while (c.moveToNext()) {
                     val isDir = c.getString(2) == Document.MIME_TYPE_DIR
                     out += Child(
@@ -70,6 +77,7 @@ class TreeSpace(
         } catch (e: Exception) {
             // A folder deleted under us, or the permission was revoked in system settings.
             JLog.w(TAG, "listing $docId failed: $e")
+            return null
         }
         return out
     }
@@ -93,7 +101,8 @@ class TreeSpace(
         synchronized(lock) { dirIds[dir] }?.let { return it }
         val parent = dirId(dir.dropLast(1), create) ?: return null
         val name = dir.last()
-        val found = children(parent).firstOrNull { it.entry.isDir && it.entry.name == name }?.docId
+        val listing = childrenOrNull(parent) ?: return null
+        val found = listing.firstOrNull { it.entry.isDir && it.entry.name == name }?.docId
             ?: if (create) createDocument(parent, Document.MIME_TYPE_DIR, name) else null
         if (found != null) synchronized(lock) { dirIds[dir] = found }
         return found
@@ -125,7 +134,7 @@ class TreeSpace(
         // The write changes the file's size and date in the folder's listing.
         changed(parent)
         val name = path.last()
-        children(parent).firstOrNull { it.entry.name == name }?.let { return if (it.entry.isDir) null else it.docId }
+        (childrenOrNull(parent) ?: return null).firstOrNull { it.entry.name == name }?.let { return if (it.entry.isDir) null else it.docId }
         val mime = if (name.endsWith(".png", ignoreCase = true)) "image/png" else "application/octet-stream"
         return createDocument(parent, mime, name)
     }

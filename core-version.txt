@@ -1,7 +1,7 @@
 # The core bundled in app/src/main/jniLibs (written by devtools/bundle-core.sh; the .so itself is not committed)
 repo: JoeysRetroHandhelds/joey64-core
-branch: gliden64-update
-commit: ef0928f8b6ac8414ef593479292176d5e4904054 2026-11-06 20:30:47 -0600 Merge branch 'gpu2' into gliden64-update
-uncommitted: none
-built: 2026-11-06 20:33
-md5: b712353db834cb7568c106af529b9bea
+branch: state-return
+commit: 92e7fbaa03f5ca541f73321e5bf776e219282d27 2026-11-08 13:39:45 -0600 Save states: go back to the frontend right after a save or load job
+uncommitted: new_dynarec.c (line ending only, no change with whitespace ignored)
+built: 2026-11-08 13:39
+md5: 16298e1dca8d89c8268aa560ae26618b

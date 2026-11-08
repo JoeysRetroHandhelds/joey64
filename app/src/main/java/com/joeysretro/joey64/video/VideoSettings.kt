@@ -27,7 +27,6 @@ enum class VideoKey(val key: String, val default: String) {
     Renderer("renderer", "auto"),
     Driver("driver", "auto"),
     Pacing("pacing", "lowest"),
-    Thermal("thermal", "off"),
     ViAa("vi_aa", "on"),
     ViBilinear("vi_bilinear", "on"),
     DitherFilter("dither_filter", "on"),
@@ -36,7 +35,11 @@ enum class VideoKey(val key: String, val default: String) {
     Deinterlace("deinterlace", "bob"),
     Supersample("supersample", "off"),
     NativeTexLod("native_tex_lod", "off"),
-    NativeTexRect("native_tex_rect", "on");
+    NativeTexRect("native_tex_rect", "on"),
+    /** Widescreen code (version A, 2026-11-08): "off"; All games "auto" (When a game has one); a game a version's cheat name. */
+    Widescreen("widescreen", "off"),
+    /** 60 fps code, stored as [Widescreen]. */
+    Fps("fps60", "off");
 
     companion object {
         fun of(key: String) = entries.firstOrNull { it.key == key }
@@ -45,19 +48,19 @@ enum class VideoKey(val key: String, val default: String) {
         /** Rows that only do something when the game is drawn above Native (1x). */
         val UPSCALE_ONLY = setOf(Supersample, NativeTexLod, NativeTexRect)
         /** Rows read when the game starts, not while it runs. */
-        val AT_START = setOf(Resolution, Renderer, Driver, Pacing, Thermal, Supersample, NativeTexLod, NativeTexRect)
+        val AT_START = setOf(Resolution, Renderer, Driver, Pacing, Supersample, NativeTexLod, NativeTexRect, Widescreen, Fps)
     }
 }
 
 /** One choice of a setting: the stored value, what the row shows, and the line under it in the popup. */
-data class VideoChoice(val value: String, val label: String, val detail: String? = null)
+data class VideoChoice(val value: String, val label: String, val detail: String? = null, val experimental: Boolean = false)
 
 object VideoChoices {
     val resolution = listOf(
         VideoChoice("1", "Native (1x)", "The N64's own size: the most accurate and the fastest"),
         VideoChoice("2", "2x"), VideoChoice("4", "4x"), VideoChoice("8", "8x", "Strong devices only"))
     val aspect = listOf(
-        VideoChoice("auto", "Auto", "4:3, or 16:9 when a widescreen cheat is on"),
+        VideoChoice("auto", "Auto", "4:3, or 16:9 when Widescreen is on"),
         VideoChoice("4:3", "4:3", "The N64's own shape"),
         VideoChoice("16:9", "16:9", "For widescreen cheats and hacks"),
         VideoChoice("stretch", "Stretch to the screen", "Fills the screen, the picture is pulled wider"))
@@ -79,12 +82,14 @@ object VideoChoices {
     val pacing = listOf(
         VideoChoice("lowest", "Lowest lag", "Each frame shows as soon as it's ready"),
         VideoChoice("steady", "Steady", "Each frame shows for the same time on 120 Hz screens. More lag"),
-        VideoChoice("timed", "Steady, less lag", "Steady, with frames timed to the screen"))
+        VideoChoice("timed", "Steady, less lag", "Steady, with frames timed to the screen", experimental = true))
     val look = listOf(
         VideoChoice("original", "Original", "The N64's own soft picture"),
         VideoChoice("sharp", "Sharp", "Edge smoothing and soft scaling off"),
         VideoChoice("sharper", "Sharper", "Dither smoothing off too, so the dither grain shows"))
     val deinterlace = listOf(VideoChoice("bob", "Bob", "Smooth, a little flicker"), VideoChoice("weave", "Weave", "Sharp, combing on movement"))
+    /** All games' Widescreen and 60 fps (a game's own popup lists its versions instead). */
+    val extrasAll = listOf(VideoChoice("off", "Off", "Only games you turn it on for"), VideoChoice("auto", "When a game has one"))
     val supersample = listOf(
         VideoChoice("off", "Off"), VideoChoice("1/2", "2x"), VideoChoice("1/4", "4x"), VideoChoice("1/8", "8x"))
 
@@ -98,10 +103,13 @@ object VideoChoices {
         VideoKey.Pacing -> pacing
         VideoKey.Deinterlace -> deinterlace
         VideoKey.Supersample -> supersample
+        VideoKey.Widescreen, VideoKey.Fps -> extrasAll
         else -> onOff
     }
 
-    fun label(key: VideoKey, value: String): String = of(key).firstOrNull { it.value == value }?.label ?: value
+    fun label(key: VideoKey, value: String): String = of(key).firstOrNull { it.value == value }?.label
+        // A game's own Widescreen / 60 fps: the version's cheat name, as its popup names it.
+        ?: if (key == VideoKey.Widescreen || key == VideoKey.Fps) GameExtras.fpsLabel(value) else value
 }
 
 /** Video settings with every key filled in: All games over the defaults, then a game's own keys. */
@@ -170,16 +178,15 @@ data class VideoApply(
             }
             val env = LinkedHashMap<String, String>()
             when (v[VideoKey.Pacing]) { "steady" -> env["N64_SWAP_INTERVAL"] = "1"; "timed" -> env["N64_SWAP_INTERVAL"] = "2" }
-            if (v.on(VideoKey.Thermal)) env["N64_THERMAL_GOV"] = "1"
             return VideoApply(opts, env, sharpScale = parallel && !v.on(VideoKey.ViBilinear))
         }
 
-        /** The picture's shape as W:H (0:0 = stretch to the screen). */
-        fun aspect(v: VideoSettings, widescreenOn: Boolean): Pair<Int, Int> = when (v[VideoKey.Aspect]) {
+        /** The picture's shape as W:H (0:0 = stretch to the screen); Auto takes the widescreen code's [widescreen] shape. */
+        fun aspect(v: VideoSettings, widescreen: Pair<Int, Int>?): Pair<Int, Int> = when (v[VideoKey.Aspect]) {
             "16:9" -> 16 to 9
             "stretch" -> 0 to 0
             "4:3" -> 4 to 3
-            else -> if (widescreenOn) 16 to 9 else 4 to 3
+            else -> widescreen ?: (4 to 3)
         }
     }
 }

@@ -101,6 +101,9 @@ class ImportModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Back from the Found screen to the offer. */
+    /** From the start again (Settings › Saves › Import from RetroArch). */
+    fun restart() { _step.value = ImportStep.Offer }
+
     fun back() {
         if (_step.value is ImportStep.Found) _step.value = ImportStep.Offer
     }

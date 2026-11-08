@@ -77,8 +77,9 @@ object TreeRules {
 
 /** Data folder rules that only need a [FileSpace], so they're unit tested (DataMoverTest). */
 object DataFolderRules {
-    fun hideFromGallery(space: FileSpace) {
-        for (kind in DataKind.entries.filter { it.hiddenFromGallery }) {
+    /** [kinds]: only these folders (a move of some kinds shouldn't make empty folders for the rest). */
+    fun hideFromGallery(space: FileSpace, kinds: Collection<DataKind> = DataKind.entries) {
+        for (kind in kinds.filter { it.hiddenFromGallery }) {
             val path = listOf(kind.dir, DataKind.NO_MEDIA)
             if (!space.exists(path)) runCatching { space.openWrite(path).close() }
         }

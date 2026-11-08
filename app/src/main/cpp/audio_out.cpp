@@ -19,6 +19,9 @@ int64_t nowNs() {
 
 bool AudioOut::open(int srcRate) {
     std::lock_guard<std::mutex> lk(streamMutex_);
+    // A second open (another game in this process) closes the stream it had first.
+    if (stream_) { AAudioStream_requestStop(stream_); AAudioStream_close(stream_); stream_ = nullptr; }
+    stalled_ = false;
     srcRate_ = srcRate;
     paused_ = false;
     lost_ = false;
@@ -54,6 +57,12 @@ bool AudioOut::openStream() {
     AAudioStreamBuilder_setChannelCount(b, 2);
     AAudioStreamBuilder_setFormat(b, AAUDIO_FORMAT_PCM_FLOAT);
     AAudioStreamBuilder_setPerformanceMode(b, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
+    // A game's sound, matching the audio focus MainActivity takes (Settings › Audio, Play alongside other apps).
+    const char* usage = getenv("N64_AUDIO_USAGE");
+    if (!usage || *usage != '0') {
+        AAudioStreamBuilder_setUsage(b, AAUDIO_USAGE_GAME);
+        AAudioStreamBuilder_setContentType(b, AAUDIO_CONTENT_TYPE_SONIFICATION);
+    }
     // Exclusive = AAudio's MMAP path where the device allows it, else AAudio falls back to shared (Flip).
     // Device latency: Duo 14-16 -> 10 ms, Odin 3 14 -> 9 ms. N64_AUDIO_EXCLUSIVE=0 turns it off.
     const char* excl = getenv("N64_AUDIO_EXCLUSIVE");
@@ -69,7 +78,11 @@ bool AudioOut::openStream() {
     baseStep_ = step_ = (double)srcRate / dstRate;
     drcI_ = 0; frames_ = 0;
     // ~20 ms kept queued (stereo samples) to start; the rest of the ring is slack for slow frames.
-    target_ = (size_t)dstRate * kTargetMs / 1000 * 2;
+    // Settings › Audio's Latency: Low starts at 10 ms and stays, Safe starts at 60.
+    const int mode = latencyMode_.load();
+    const int startMs = mode == 1 ? 10 : mode == 2 ? 60 : kTargetMs;
+    grow_ = mode != 1;
+    target_ = (size_t)dstRate * startMs / 1000 * 2;
     pos_ = 0.0; prev_[0] = prev_[1] = 0;
     cap_ = (size_t)dstRate / 5 * 2; // ~200 ms stereo
     ring_.assign(cap_, 0);
@@ -82,9 +95,10 @@ bool AudioOut::openStream() {
     // 32 ms of extra latency). Start at 2 bursts; takeStats adds a burst per xrun.
     AAudioStream_setBufferSizeInFrames(stream_, 2 * AAudioStream_getFramesPerBurst(stream_));
     xruns_ = 0;
-    LOGI("audio: core %d Hz -> device %d Hz, perf mode %d, sharing %d, burst %d, buffer %d of %d", srcRate, dstRate,
+    LOGI("audio: core %d Hz -> device %d Hz, perf mode %d, sharing %d, burst %d, buffer %d of %d, latency %s (target %d ms)", srcRate, dstRate,
          AAudioStream_getPerformanceMode(stream_), AAudioStream_getSharingMode(stream_), AAudioStream_getFramesPerBurst(stream_),
-         AAudioStream_getBufferSizeInFrames(stream_), AAudioStream_getBufferCapacityInFrames(stream_));
+         AAudioStream_getBufferSizeInFrames(stream_), AAudioStream_getBufferCapacityInFrames(stream_),
+         mode == 1 ? "low" : mode == 2 ? "safe" : "auto", startMs);
     AAudioStream_requestStart(stream_);
     return true;
 }
@@ -186,7 +200,7 @@ void AudioOut::takeStats(bool keepingUp, double& fillMs, double& targetMs, int& 
     fillSum_ = 0; fillCount_ = 0;
     underruns = underruns_.exchange(0);
     size_t step = (size_t)dstRate_ / 100 * 2; // 10 ms
-    if (underruns && keepingUp && frames_ > 600 && ms((double)(target_ + step)) <= kMaxTargetMs)
+    if (grow_ && underruns && keepingUp && frames_ > 600 && ms((double)(target_ + step)) <= kMaxTargetMs)
         target_ += step;
     targetMs = ms((double)target_);
 }
@@ -197,9 +211,12 @@ bool AudioOut::push(float s) {
     size_t next = (w + 1) % cap_;
     int spins = 0;
     while (next == r_.load(std::memory_order_acquire)) { // full: wait for consumer
-        if (lost_ || ++spins > 2000) return false;       // ~give up, avoid deadlock on pause
+        // Once a wait gave up, drop samples without waiting until the consumer moves again: a stream that stalls
+        // without reporting an error cost ~0.5 s on every write, so the game crawled.
+        if (lost_ || stalled_ || ++spins > 2000) { stalled_ = true; return false; } // ~give up, avoid deadlock on pause
         std::this_thread::sleep_for(std::chrono::microseconds(250));
     }
+    stalled_ = false;
     ring_[w] = s;
     w_.store(next, std::memory_order_release);
     return true;
@@ -220,6 +237,42 @@ void AudioOut::write(const int16_t* frames, size_t frameCount) {
     }
 }
 
+void AudioOut::writeFast(const int16_t* frames, size_t frameCount, double speed, float gain) {
+    if (!stream_ || !cap_) return;
+    // Steer around the target: up to half again faster when the ring fills, slower when it empties.
+    const size_t f = fill();
+    fillSum_ += f; ++fillCount_; // the stats line's fill, as waitForRoom keeps it outside fast-forward
+    double err = std::max(-1.0, std::min(1.0, ((double)f - (double)target_) / (double)target_));
+    // Below 1: slow motion (approved 2026-11-08), its sound slower and lower.
+    const double step = baseStep_ * std::max(0.1, speed) * (1.0 + 0.5 * err);
+    const float k = gain * (1.0f / 32768);
+    for (size_t i = 0; i < frameCount; ++i) {
+        const int16_t* cur = frames + i * 2;
+        while (pos_ < 1.0) {
+            size_t w = w_.load(std::memory_order_relaxed);
+            size_t next = (w + 2) % cap_;
+            // Full (fewer than 2 free samples): drop the rest of this batch.
+            if ((w + 1) % cap_ == r_.load(std::memory_order_acquire) || next == r_.load(std::memory_order_acquire)) {
+                prev_[0] = frames[(frameCount - 1) * 2]; prev_[1] = frames[(frameCount - 1) * 2 + 1];
+                pos_ = 0; return;
+            }
+            ring_[w] = (prev_[0] + (cur[0] - prev_[0]) * (float)pos_) * k;
+            ring_[(w + 1) % cap_] = (prev_[1] + (cur[1] - prev_[1]) * (float)pos_) * k;
+            w_.store(next, std::memory_order_release);
+            pos_ += step;
+        }
+        pos_ -= 1.0;
+        prev_[0] = cur[0]; prev_[1] = cur[1];
+    }
+}
+
+void AudioOut::setMix(int volumePct, bool mute, bool mono) {
+    float v = std::max(0, std::min(100, volumePct)) / 100.0f;
+    gain_ = mute ? 0.0f : v * v;
+    mono_ = mono;
+    LOGI("audio: volume %d%%%s%s", volumePct, mute ? ", muted" : "", mono ? ", mono" : "");
+}
+
 aaudio_data_callback_result_t AudioOut::cb(AAudioStream*, void* user, void* data, int32_t frames) {
     auto* self = static_cast<AudioOut*>(user);
     auto* out = static_cast<float*>(data);
@@ -233,6 +286,12 @@ aaudio_data_callback_result_t AudioOut::cb(AAudioStream*, void* user, void* data
         }
         out[i] = self->ring_[r];
         self->r_.store((r + 1) % self->cap_, std::memory_order_release);
+    }
+    const float g = self->gain_.load(std::memory_order_relaxed);
+    if (self->mono_.load(std::memory_order_relaxed)) {
+        for (size_t i = 0; i + 1 < samples; i += 2) { float m = (out[i] + out[i + 1]) * 0.5f * g; out[i] = out[i + 1] = m; }
+    } else if (g != 1.0f) {
+        for (size_t i = 0; i < samples; ++i) out[i] *= g;
     }
     return AAUDIO_CALLBACK_RESULT_CONTINUE;
 }

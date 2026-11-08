@@ -63,7 +63,7 @@ data class CheatChoices(val on: Map<String, CheatOn> = emptyMap(), val own: List
 class GameCheats(
     context: Context,
     val saveName: String,
-    private val space: FileSpace = DataFolder.internal(context).space,
+    private val space: FileSpace = com.joeysretro.joey64.launcher.storage.DataFolders.current(context).space,
 ) {
     private val path = listOf(DataKind.Cheats.dir, "$saveName.json")
 

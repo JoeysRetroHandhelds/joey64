@@ -106,6 +106,76 @@ class ControlsTest {
         assertEquals(mine, Hotkeys.fromJson(mine.toJson()))
     }
 
+    @Test fun theNewHotkeysHaveTheirDefaultsAndOnItsOwnIsSaved() {
+        val d = Hotkeys()
+        assertEquals(KeyEvent.KEYCODE_DPAD_UP, d.keys[HotkeyAction.VolumeUp])
+        assertEquals(KeyEvent.KEYCODE_DPAD_DOWN, d.keys[HotkeyAction.VolumeDown])
+        for (a in listOf(HotkeyAction.Mute, HotkeyAction.Pause, HotkeyAction.Achievements, HotkeyAction.UpscaleUp, HotkeyAction.UpscaleDown))
+            assertNull(a.name, d.keys[a])
+        assertEquals(setOf(HotkeyAction.PauseMenu), d.alone)
+        // Mute on L2 on its own.
+        val m = d.withKey(HotkeyAction.Mute, KeyEvent.KEYCODE_BUTTON_L2).withAlone(HotkeyAction.Mute, true)
+        assertEquals(HotkeyAction.Mute, m.actionFor(KeyEvent.KEYCODE_BUTTON_L2, alone = true))
+        assertNull(m.actionFor(KeyEvent.KEYCODE_BUTTON_L2, alone = false))
+        assertEquals(m, Hotkeys.fromJson(m.toJson()))
+        // The pause menu with the hotkey button: Select + Back.
+        val pm = d.withAlone(HotkeyAction.PauseMenu, false)
+        assertEquals(HotkeyAction.PauseMenu, pm.actionFor(KeyEvent.KEYCODE_BACK, alone = false))
+        assertNull(pm.actionFor(KeyEvent.KEYCODE_BACK, alone = true))
+        assertEquals(pm, Hotkeys.fromJson(pm.toJson()))
+    }
+
+    @Test fun pickingATakenButtonTakesItFromTheOtherHotkey() {
+        val h = Hotkeys().withKey(HotkeyAction.Pause, KeyEvent.KEYCODE_BUTTON_Y)
+        assertEquals(KeyEvent.KEYCODE_BUTTON_Y, h.keys[HotkeyAction.Pause])
+        assertNull(h.keys[HotkeyAction.Screenshot])
+        assertEquals(HotkeyAction.Pause, h.actionFor(KeyEvent.KEYCODE_BUTTON_Y, alone = false))
+        // Back on its own is the pause menu's; Select + Back is a different press, so both keep it.
+        val b = Hotkeys().withKey(HotkeyAction.Mute, KeyEvent.KEYCODE_BACK)
+        assertEquals(KeyEvent.KEYCODE_BACK, b.keys[HotkeyAction.PauseMenu])
+        assertEquals(KeyEvent.KEYCODE_BACK, b.keys[HotkeyAction.Mute])
+        // Turning Mute's "Needs the hotkey button" off makes it Back on its own: the pause menu loses Back.
+        val c = b.withAlone(HotkeyAction.Mute, true)
+        assertEquals(KeyEvent.KEYCODE_BACK, c.keys[HotkeyAction.Mute])
+        assertNull(c.keys[HotkeyAction.PauseMenu])
+        // Clearing takes nothing from anyone.
+        assertEquals(Hotkeys().keys - HotkeyAction.Save, Hotkeys().withKey(HotkeyAction.Save, null).keys - HotkeyAction.Save)
+    }
+
+    @Test fun aVersion3FileGetsTheNewHotkeysWhereTheirButtonIsFree() {
+        // The user had put Load state on Select + Up; Volume down's Down is free.
+        val v3 = Hotkeys.fromJson(JSONObject("""{"version":3,"button":109,"keys":{"Load":${KeyEvent.KEYCODE_DPAD_UP},"Quit":${KeyEvent.KEYCODE_BUTTON_B}}}"""))
+        assertNull(v3.keys[HotkeyAction.VolumeUp])
+        assertEquals(KeyEvent.KEYCODE_DPAD_DOWN, v3.keys[HotkeyAction.VolumeDown])
+        assertEquals(KeyEvent.KEYCODE_BUTTON_B, v3.keys[HotkeyAction.Quit]) // picked in version 3: kept, not moved
+        assertEquals(setOf(HotkeyAction.PauseMenu), v3.alone)
+    }
+
+    @Test fun slowMotionAndRewindDefaultsAndSettings() {
+        // Approved mockup 2026-11-08: Slow motion not set, Rewind hotkey button + L2, recording Off, 1 min, every 2 frames.
+        val d = Hotkeys()
+        assertNull(d.keys[HotkeyAction.SlowMotion])
+        assertEquals(KeyEvent.KEYCODE_BUTTON_L2, d.keys[HotkeyAction.Rewind])
+        assertFalse(d.isAlone(HotkeyAction.Rewind))
+        assertEquals(SlowMode.Toggle, d.slowMode)
+        assertEquals(50, d.slowSpeed)
+        assertFalse(d.rewindOn)
+        assertEquals(60, d.rewindSeconds)
+        assertEquals(2, d.rewindEvery)
+        val h = d.copy(slowMode = SlowMode.Hold, slowSpeed = 30, rewindOn = true, rewindSeconds = 120, rewindEvery = 4)
+        assertEquals(h, Hotkeys.fromJson(h.toJson()))
+        // Odd values in the file fall back to the defaults.
+        val odd = Hotkeys.fromJson(JSONObject("""{"version":4,"slowSpeed":55,"rewindSeconds":45,"rewindEvery":3}"""))
+        assertEquals(50, odd.slowSpeed); assertEquals(60, odd.rewindSeconds); assertEquals(2, odd.rewindEvery)
+        // A version 4 file gets Rewind on Select + L2, unless the user already gave L2 to a hotkey.
+        assertEquals(KeyEvent.KEYCODE_BUTTON_L2, Hotkeys.fromJson(JSONObject("""{"version":4,"button":109,"keys":{"Save":103}}""")).keys[HotkeyAction.Rewind])
+        assertNull(Hotkeys.fromJson(JSONObject("""{"version":4,"button":109,"keys":{"Mute":${KeyEvent.KEYCODE_BUTTON_L2}}}""")).keys[HotkeyAction.Rewind])
+        // The popup's memory line: 1 min at every 2 frames is about 141 MB (80 KB a moment).
+        assertEquals(141, Hotkeys.rewindMb(60, 2))
+        assertEquals("1 min", Hotkeys.rewindSecondsLabel(60)); assertEquals("30 s", Hotkeys.rewindSecondsLabel(30))
+        assertEquals("Every frame", Hotkeys.rewindEveryLabel(1)); assertEquals("Every 2 frames", Hotkeys.rewindEveryLabel(2))
+    }
+
     @Test fun fastForwardAndQuitSettingsAreKept() {
         val h = Hotkeys().copy(ffMode = FastForwardMode.Adaptive, ffSpeed = 250, quitTo = QuitTo.Exit)
         assertEquals(h, Hotkeys.fromJson(h.toJson()))

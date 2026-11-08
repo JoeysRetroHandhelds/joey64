@@ -23,7 +23,7 @@ DuckStation's settings file can't be read (permission denied). Cemu's has little
 - **RetroAchievements:** Hardcore, Leaderboards, Encore, Spectator, Unofficial, Rich presence, Challenge badges, Progress, Screenshot on unlock, Save badges for offline, Pop-up place and time, Badge place, Sign in and out.
 - **About:** updates, device info.
 - **Controls, per player and per game:** controller, buttons, D-pad, C buttons, stick, dead zone, pak.
-- **Hotkeys:** hotkey button, Save, Load, Next and Previous slot, Pause menu, Fast-forward (mode, speed), Screenshot, GameShark, Reset, Quit (to library or exit).
+- **Hotkeys:** hotkey button, Save, Load, Next and Previous slot, Volume up and down, Mute, Upscale up and down, Pause menu, Pause, Fast-forward (mode, speed), Screenshot, Stats overlay, Achievements, GameShark, Reset, Quit (to library or exit); each with the hotkey button or on its own.
 - **Other:** cheats, collections, save states with slots, the pause menu.
 
 Video, audio and emulation have no user settings. They're automatic, or dev switches only: renderer, upscale, aspect, swap interval, smoother timing.
@@ -82,9 +82,9 @@ Joey64 has no audio settings at all.
 
 | Setting | Who has it | N64 | Plan |
 |---|---|---|---|
-| Slow motion | ARMSX2, RA, Dolphin (speed limit) | Med | planned (wanted) |
+| Slow motion | ARMSX2, RA, Dolphin (speed limit) | Med | built 2026-11-08 (Controls › Hotkeys) |
 | Frame advance | RA, FZ, ARMSX2 | Low | planned (wanted) |
-| Rewind | RA | Med | planned (measure cost first) |
+| Rewind | RA | Med | built 2026-11-08 (Controls › Hotkeys; measured first) |
 | Speed limit off / custom % | Dolphin, ARMSX2, Eden, Azahar | Low (fast-forward covers it) | new |
 | Overclock (count per op) | FZ, RA core option | Med (fixes lag in some games) | partly: smoother timing is automatic per game |
 | VI refresh rate | FZ | Low | new |
@@ -115,7 +115,7 @@ These are actions other apps can bind that Joey64 can't.
 | Save to slot N / load from slot N (each slot its own key) | ARMSX2 (0–9) | Med | new |
 | Save state and exit | ARMSX2 | Med | new |
 | Show or hide the stats overlay | ARMSX2, RA | Med | new (needs section 2) |
-| Slow motion, frame advance, rewind | ARMSX2, RA, FZ | Med | planned (with the features) |
+| Slow motion, frame advance, rewind | ARMSX2, RA, FZ | Med | built (frame advance 2026-11-07, the others 2026-11-08) |
 | Speed up / speed down step | FZ | Low | new |
 | Volume up / down, mute | RA | Med | new |
 | Open achievements | ARMSX2 | Med | new (pause menu has it) |
@@ -146,8 +146,8 @@ These are actions other apps can bind that Joey64 can't.
 
 | Setting | Who has it | N64 | Plan |
 |---|---|---|---|
-| Sort (name, last played, play time) and region filter | FZ, RA | Med | partly: collections and filters |
-| Cover size, names on tiles | ARMSX2, FZ | Med | new |
+| Sort (name, last played, play time) and region filter | FZ, RA | Med | built 2026-11-08 (Settings › Library) |
+| Cover size, names on tiles | ARMSX2, FZ | Med | built 2026-11-08 (Settings › Library) |
 | App language | Eden, Dolphin | Med (before Play Store) | new |
 | Picture-in-picture | Eden | Low | new |
 | Home-screen shortcuts | many | Med | planned later |
@@ -158,7 +158,7 @@ These are actions other apps can bind that Joey64 can't.
 
 ## 9. Per-game overrides
 
-ARMSX2, Dolphin, Eden, FZ and RA let **every** setting above be set per game. Joey64 has per-game controls only, plus planned Picture and Texture pack. Per-game video, audio and emulation are listed under "Not in this plan".
+ARMSX2, Dolphin, Eden, FZ and RA let **every** setting above be set per game. Joey64 has per-game Controls, Video and Audio (Settings' game chip, or Game settings from the library and the pause menu, built 2026-11-07), plus planned Picture and Texture pack. Per-game video, audio and emulation are listed under "Not in this plan".
 
 ## Biggest gaps
 
@@ -241,7 +241,7 @@ Each needs a mockup from Joey first.
   - 64DD: check the core supports it first
   - Transfer Pak
   - CPU core, under Advanced, per game
-  - Performance mode: Balanced, Max or Battery saver
+  - Performance mode: Balanced, Max or Battery saver (dropped 2026-11-08: measured, no difference)
   - Thermal fallback on or off, under Advanced
 - **Drop:**
   - Speed limit
@@ -270,7 +270,7 @@ Each needs a mockup from Joey first.
 - **Keep:**
   - Cycle the stats overlay
   - Slow motion
-  - Frame advance and pause/unpause
+  - Frame advance and pause/unpause (built 2026-11-07: the Pause and Frame advance hotkeys)
   - Rewind, with rewind
   - Volume up and down, mute
   - Open achievements
@@ -369,21 +369,21 @@ Each item needs Joey's mockup first. The order puts what players miss most first
    - cutout
    - black frame insertion
    - Advanced: renderer, parallel-RDP VI options, frame pacing, GPU driver
-2. **Settings › Audio:**
+2. **Settings › Audio.** **Built 2026-11-07** (launcher/phase0), all but time stretch: tested, not now (Joey 2026-11-07), tracked in the README:
    - volume
    - mute
    - fast-forward sound
    - mono
    - play alongside other apps
    - Advanced: latency, time stretch (test first)
-3. **Stick feel, in Controls:**
+3. **Stick feel, in Controls.** **Built 2026-11-07** (launcher/phase0), with Left stick and D-pad as the Stick choice for "D-pad as the stick":
    - stick range
    - response curve
    - octagon gate
    - D-pad as the stick
    - invert and swap axes
    - Advanced: anti-dead zone, trigger threshold
-4. **Stats overlay:**
+4. **Stats overlay.** **Built 2026-11-07** (launcher/phase0, Settings › On screen), as the approved mockup:
    - presets: Off, Simple, Full, Custom
    - FPS, speed %, VPS, frame times
    - CPU and GPU load, battery, RAM
@@ -391,17 +391,17 @@ Each item needs Joey's mockup first. The order puts what players miss most first
    - settings summary
    - position and size
    - pop-ups on or off by type
-5. **Game settings:**
+5. **Game settings.** **Built 2026-11-07** (launcher/phase0, `screens/GameSettingsScreen.kt`), as the approved mockup:
    - from the pause menu and from the library
    - changed marks with Reset to All games
    - copy to another game
-6. **New hotkeys and single-button hotkeys:**
+6. **New hotkeys and single-button hotkeys.** **Built 2026-11-07** (launcher/phase0), as the approved hotkeys mockup:
    - cycle the overlay
    - volume and mute
    - open achievements
    - upscale up and down
    - pause/unpause
-7. **Saves:**
+7. **Saves:** built 2026-11-07 (Settings › Saves, `docs/launcher-build-plan.md`)
    - auto-save on quit on or off
    - Continue: Ask, Always or Never
    - how many auto saves to keep
@@ -409,11 +409,12 @@ Each item needs Joey's mockup first. The order puts what players miss most first
    - back up and restore all app data, with exporting saves only or settings only
    - Import from RetroArch again
    - data folder location
-8. **Emulation:**
-   - performance mode: Balanced, Max or Battery saver
+8. **Emulation:** built 2026-11-08 (approved mockup with Joey's answers: overclock Auto / Normal / 2x / 4x, thermal fallback moved from Video, Expansion Pak greyed for games that need it); Performance mode dropped after measuring (Joey 2026-11-08)
+   - performance mode: dropped (Thor: Max and Battery saver no different from today)
    - Advanced: overclock, CPU core, thermal fallback
    - Expansion Pak off per game
-9. **Library:**
+   - slow motion and rewind: in Controls › Hotkeys next to Fast-forward (Joey 2026-11-08), not here
+9. **Library:** built 2026-11-08 (approved mockup, "Approve as drawn"), all of:
    - sort
    - region filter
    - cover size and columns
@@ -431,7 +432,7 @@ Each item needs Joey's mockup first. The order puts what players miss most first
 11. **With features already planned:**
     - turbo, with its hotkey
     - undo, with its hotkey
-    - slow motion, frame advance and rewind, each with hotkeys (rewind: measure first)
+    - slow motion, frame advance and rewind, each with hotkeys (built 2026-11-07 and 2026-11-08)
     - Picture shaders and bezels, with their hotkeys, and tab 10's additions
     - rumble strength and Transfer Pak
     - touch controls

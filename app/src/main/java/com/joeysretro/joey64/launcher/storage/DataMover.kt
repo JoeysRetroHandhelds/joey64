@@ -12,6 +12,10 @@ enum class DataKind(val dir: String, val hiddenFromGallery: Boolean = false) {
     Textures("textures", hiddenFromGallery = true),
     Cheats("cheats", hiddenFromGallery = true),
     BoxArt("boxart", hiddenFromGallery = true),
+    /** Save RAM backups (Settings › Saves › Back up saves). */
+    Backups("backups", hiddenFromGallery = true),
+    /** BIOS files (the 64DD IPLs, BiosImport / BiosSync). */
+    Bios("bios", hiddenFromGallery = true),
     ;
 
     companion object {

@@ -92,13 +92,13 @@ fun GamesForPopup(
     }
 }
 
-/** Pick a game: the library; its settings start as All games' (on the first change). */
+/** Pick a game: the library; its settings start as All games' (on the first change). [exclude]: a game's title left out (Copy's own game). */
 @Composable
-fun PickGamePopup(subtitle: String, onDismiss: () -> Unit, onPick: (String, String) -> Unit) {
+fun PickGamePopup(subtitle: String, onDismiss: () -> Unit, exclude: String? = null, onPick: (String, String) -> Unit) {
     val context = LocalContext.current
     var games by remember { mutableStateOf<List<LibraryGame>?>(null) }
     LaunchedEffect(Unit) {
-        games = withContext(Dispatchers.IO) { try { LibraryDb.get(context).libraryGames() } catch (e: Exception) { JLog.e(TAG, "library: $e"); emptyList() } }
+        games = withContext(Dispatchers.IO) { try { LibraryDb.get(context).libraryGames().filter { it.title != exclude } } catch (e: Exception) { JLog.e(TAG, "library: $e"); emptyList() } }
     }
     JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Back")), width = 470.dp) {
         Column {

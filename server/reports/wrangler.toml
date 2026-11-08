@@ -1,0 +1,24 @@
+name = "joey64-reports"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+
+# The Joey64 Cloudflare account (JoeysRetroHandhelds), so a deploy can never land in another account wrangler is logged in to.
+# Log in with XDG_CONFIG_HOME=C:\Users\Joey\.joey64-cloudflare (see README).
+account_id = "f59e0cc0aa0d2f4f5c99f0659d1fb57e"
+
+# Devices reach it at the workers.dev address. Preview URLs stay off: every old version would
+# otherwise keep its own public address with the same database bound.
+workers_dev = true
+preview_urls = false
+
+# The reports database (created 2026-11-08 in the Joey64 account).
+[[d1_databases]]
+binding = "DB"
+database_name = "joey64-reports"
+database_id = "1588b528-c34a-4082-b520-744c545571bb"
+
+# Posts per IP address: the address is only counted here, never stored.
+[[ratelimits]]
+name = "PER_IP"
+namespace_id = "6401"
+simple = { limit = 10, period = 60 }

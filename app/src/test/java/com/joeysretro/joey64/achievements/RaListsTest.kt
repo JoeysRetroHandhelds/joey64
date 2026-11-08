@@ -71,4 +71,32 @@ class RaListsTest {
         assertEquals(true, a[0].almostThere)
         assertEquals(emptyList<RaAchievement>(), RaAchievement.parseList("not json"))
     }
+
+    // Set tabs (approved mockup 2026-11-08, subsets_mock.png).
+    @Test fun setsParseOnlyWhenThereIsMoreThanOne() {
+        val two = org.json.JSONObject("""{"id":10003,"achievements":115,"sets":[{"id":4189,"title":"Super Mario 64","achievements":115,"unlocked":13,"points":1000,"pointsUnlocked":130},{"id":4782,"title":"Super Mario 64 [Subset - Bonus]","achievements":48,"unlocked":1,"points":240,"pointsUnlocked":1}]}""")
+        val g = RaGame.parse(1, two, 0)
+        assertEquals(listOf(4189, 4782), g.sets.map { it.id })
+        assertEquals("Main set", RaLists.setLabel(0, g.sets[0]))
+        assertEquals("Bonus", RaLists.setLabel(1, g.sets[1]))
+        assertEquals("Bonus · 1 of 48 unlocked · 1 of 240 points", RaLists.setSummary("Bonus", g.sets[1], AchFilter.All, 48))
+        assertEquals("Bonus · Locked · 47 of 48", RaLists.setSummary("Bonus", g.sets[1], AchFilter.Locked, 47))
+        val one = org.json.JSONObject("""{"id":1,"sets":[{"id":7,"title":"x","achievements":3}]}""")
+        assertEquals(emptyList<RaSet>(), RaGame.parse(1, one, 0).sets)
+        assertEquals("Bonus", RaLists.setLabel(1, RaSet(1, "Bonus", 1, 0, 1, 0)))
+    }
+
+    @Test fun gameLineCountsTheOtherSets() {
+        val s = RaSet(1, "a", 10, 0, 10, 0)
+        assertEquals("1 of 40 unlocked · 2 points · + 2 sets", RaLists.gameLine(game(1, 40, 1).copy(sets = listOf(s, s, s))))
+        assertEquals("1 of 40 unlocked · 2 points · + 1 set", RaLists.gameLine(game(1, 40, 1).copy(sets = listOf(s, s))))
+        assertEquals("1 of 40 unlocked · 2 points", RaLists.gameLine(game(1, 40, 1)))
+    }
+
+    @Test fun achievementsKeepTheirSet() {
+        val a = RaAchievement.parseList("""[{"id":78008,"set":4782},{"id":1}]""")
+        assertEquals(listOf(4782, 0), a.map { it.set })
+        assertEquals(listOf(78008), RaLists.inSet(a, 4782).map { it.id })
+        assertEquals(2, RaLists.inSet(a, null).size)
+    }
 }

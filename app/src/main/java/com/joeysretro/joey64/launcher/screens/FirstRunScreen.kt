@@ -49,7 +49,7 @@ import kotlinx.coroutines.launch
  * another folder when it was the first, a line under the list otherwise). Back takes the last
  * folder off the list. [onUse] saves the folders; Import from RetroArch follows ([ImportScreen]).
  *
- * Screens 3-4 (where saves go) wait for the core to open saves by descriptor.
+ * Screens 3-4 (where saves go) follow: [DataFolderStep].
  */
 @Composable
 fun FirstRunScreen(model: LibraryModel, onUse: (List<Uri>) -> Unit) {

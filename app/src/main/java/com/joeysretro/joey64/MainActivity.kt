@@ -47,6 +47,7 @@ import com.joeysretro.joey64.controls.PakDb
 import com.joeysretro.joey64.controls.PadDevices
 import com.joeysretro.joey64.controls.PlayerInput
 import com.joeysretro.joey64.controls.QuitTo
+import com.joeysretro.joey64.controls.SlowMode
 
 class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
@@ -57,26 +58,48 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private var switching = false
     private val mine get() = !switching && (owner == null || owner === this)
 
-    private fun hasRom(i: Intent?) = i?.data != null || i?.getStringExtra("rom") != null || i?.getStringExtra(EXTRA_ROM_PATH) != null
+    private fun hasRom(i: Intent?) = i?.data != null || (devBuild && i?.getStringExtra("rom") != null) || i?.getStringExtra(EXTRA_ROM_PATH) != null
+
+    /**
+     * Debug builds only: the adb switches (--es env/opts/cheats/driver/renderer/rom, --ez sharp/sharp2/nocap,
+     * test.z64). This activity takes ROMs from other apps, and those must not set the process environment, core
+     * options or cheats of a release build (code audit 2026-11-07).
+     */
+    private val devBuild get() = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+    private fun devString(name: String): String? = if (devBuild) intent?.getStringExtra(name) else null
+    private fun devFlag(name: String): Boolean = devBuild && intent?.getBooleanExtra(name, false) == true
+
+    /** A save name as a file name only: a "/" or ".." in one handed over put the save outside saves/. */
+    private fun cleanSaveName(name: String) = name.replace('/', '_').replace('\\', '_').let { if (it == "." || it == "..") "_" else it }
+
+    /**
+     * The ROM switchGame or a settings restart handed over (EXTRA_ROM_PATH, EXTRA_SAVE_NAME). Other apps can send
+     * these extras too, so a release build takes only a ROM in Joey64's own cache, where both unpack it.
+     */
+    private fun handedRom(): Pair<String, String>? {
+        val path = intent?.getStringExtra(EXTRA_ROM_PATH) ?: return null
+        if (!devBuild) {
+            val cache = cacheDir.canonicalFile.path + File.separator
+            val f = try { File(path).canonicalFile.path } catch (e: java.io.IOException) { null }
+            if (f == null || !f.startsWith(cache)) { JLog.e(TAG, "handed ROM outside Joey64's cache, not loaded: $path"); return null }
+        }
+        return path to cleanSaveName(intent?.getStringExtra(EXTRA_SAVE_NAME) ?: "")
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         LogFiles.start(this, intent)
-        if (gameLoaded && hasRom(intent)) { switching = true; switchGame(); return }
+        if (gameLoaded && hasRom(intent)) { switching = true; afterLauncherSaved { if (!isDestroyed) switchGame() }; return }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // Dev check (2026-11-05 recheck): whether this device offers sustained performance mode (checked before only on the Flip and Portal)
         JLog.w(TAG, "sustained performance mode supported: " +
             (getSystemService(POWER_SERVICE) as android.os.PowerManager).isSustainedPerformanceModeSupported)
+        // Settings › Emulation for this game (before Video: it moves an older Video file's Thermal fallback over).
+        emuAtStart = com.joeysretro.joey64.emulation.EmuStore(this).forGame(earlySaveName())
         // Settings › Video for this game (All games, then its own rows), read before anything starts.
         video = com.joeysretro.joey64.video.VideoStore(this).forGame(earlySaveName())
-        // Fill the camera cutout: the window reaches behind it only when asked (it matters for Stretch).
-        window.attributes.layoutInDisplayCutoutMode = if (video.on(com.joeysretro.joey64.video.VideoKey.Cutout))
-            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_NEVER
-        requestedOrientation = when (video[com.joeysretro.joey64.video.VideoKey.Orientation]) {
-            "portrait" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-            "auto" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER
-            else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        }
+        videoAtStart = video
+        applyWindowVideo()
         // Render straight into the activity's window, like RetroArch's NativeActivity, not a SurfaceView:
         // Qualcomm's frame pacing library (libpenguin, vendor.perf.framepacing) hooks SurfaceView layers of
         // games and runs a 120 Hz vsync loop in our process (Duo: ~17 ms of CPU a second). The window's
@@ -94,87 +117,70 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
         // Dev: --es env "PARALLEL_RDP_UBERSHADER=1,KEY=value" (process environment, read by the core).
         // Set before setupGpu: the driver hooks (N64_KGSL_PRIO) read it while the custom driver loads
-        intent?.getStringExtra("env")?.split(',')?.forEach { kv ->
+        devString("env")?.split(',')?.forEach { kv ->
             val (k, v) = kv.split('=', limit = 2).takeIf { it.size == 2 } ?: return@forEach
             android.system.Os.setenv(k.trim(), v.trim(), true)
         }
-        // KGSL GPU priority 1 for the bundled Turnip's contexts on the Odin 3 only (Joey 2026-11-07): +3.6% uncapped
-        // there (odin3-gpu2, 13 of 14 games up); flat on the Portal (portal-gpu2), so other devices keep the driver's
-        // own priority. Before setupGpu: the hook reads it as the driver loads. --es env N64_KGSL_PRIO= (empty) turns it off.
-        if (Build.MODEL == "Odin3" && android.system.Os.getenv("N64_KGSL_PRIO") == null)
-            android.system.Os.setenv("N64_KGSL_PRIO", "1", true)
-        // Frame pacing and Thermal fallback (Settings › Video) are read by the host from the environment; --es env wins.
-        for ((k, v) in com.joeysretro.joey64.video.VideoApply.of(video, true).env)
+        // The per-device switches the driver reads as it loads (GpuRules.beforeDriver: the Odin 3's KGSL priority).
+        applyGpuSettings(GpuRules.beforeDriver(Build.MODEL))
+        // Frame pacing (Settings › Video) and Thermal fallback (Settings › Emulation) are read by the host from the
+        // environment; --es env wins.
+        for ((k, v) in com.joeysretro.joey64.video.VideoApply.of(video, true).env + com.joeysretro.joey64.emulation.EmuApply.of(emuAtStart, true).env)
             if (android.system.Os.getenv(k) == null) android.system.Os.setenv(k, v, true)
         // Driver and renderer by GPU (setupGpu), or Settings › Video's choice. Override with: am start ... --es renderer parallel|gliden64
         val renderer = setupGpu()
+        parallel = renderer == "parallel"
         NativeBridge.setRenderer(renderer == "parallel")
+        onScreen = onScreenStore.read()
         // Settings > About shows the renderer the last game started with (the launcher can't probe Vulkan itself).
         getSharedPreferences("device", MODE_PRIVATE).edit().putString("renderer", renderer).apply()
-        // Early acquire on Mali (Flip) by default (Joey 2026-11-05): after 30 new frames in a row the next frame
-        // acquires its swapchain image early. Flip compat 82/82 (flip-early30); no gain on the 120 Hz Adrenos
-        // (Duo, Odin 3, Portal), where GoldenEye judders with it, so it stays off there. --es env wins.
-        if ("Mali" in gpuName && android.system.Os.getenv("N64_EARLY_ACQUIRE") == null)
-            android.system.Os.setenv("N64_EARLY_ACQUIRE", "30", true)
-        // Single-threaded RDP command processing on Mali (README item 36, 2026-11-06): parallel-RDP handles commands
-        // on the emulation thread instead of handing them to a worker through a ring. Flip +3.7% uncapped (14 games x
-        // 2, none slower), compat 82/82 with nothing drawn wrong (flip-st). Adreno keeps the ring (Duo mixed:
-        // Banjo -6.4%, Paper Mario -5.7%). --es env PARALLEL_RDP_SINGLE_THREADED_COMMAND=0 turns it off.
-        if ("Mali" in gpuName && android.system.Os.getenv("PARALLEL_RDP_SINGLE_THREADED_COMMAND") == null)
-            android.system.Os.setenv("PARALLEL_RDP_SINGLE_THREADED_COMMAND", "1", true)
-        // Smoother timing (CountPerOp=1, README item 15) for the games that lag on hardware, strong devices only
-        // (Joey 2026-11-06; compat passed on the Odin 3 and Portal, odin3-/portal-smoothc): Adreno 730 and up (Portal,
-        // Odin 3, Thor). The host picks the games (kSmootherGames). --es env N64_SMOOTHER=0|1 wins.
-        val adreno = Regex("""Adreno \(TM\) (\d{3})""").find(gpuName)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-        if (adreno >= 730 && android.system.Os.getenv("N64_SMOOTHER") == null)
-            android.system.Os.setenv("N64_SMOOTHER", "1", true)
-        // parallel-RDP synchronous by default on Adreno: async there gives black screens (Yoshi's Story,
-        // Resident Evil 2, Cruis'n USA) or halts (New Tetris), and sync costs ~1-2 ms a frame (Odin 3, Duo).
-        // On Mali (Flip) sync can cost a third of the frame rate, so async plus kSyncRdpGames. --es opts wins.
-        if ("Adreno" in gpuName) NativeBridge.setOption("mupen64plus-parallel-rdp-synchronous", "True")
-        // No pipeline pre-build on Adreno (Joey 2026-11-07): with the driver cache cold (after a driver update or a
-        // cleared cache) building the saved list first stalled ~0.6 s at start in every game on the Portal
-        // (portal-pbfirst), on-demand compiling 63-170 ms; warm launches wait 0 ms either way. Mali keeps it.
-        // --es env N64_RDP_PREBUILD=1 turns it back on.
-        if ("Adreno" in gpuName && android.system.Os.getenv("N64_RDP_PREBUILD") == null)
-            android.system.Os.setenv("N64_RDP_PREBUILD", "0", true)
+        // The switches that differ by GPU (early acquire, single-threaded commands, lazy RDP worker, compile thread,
+        // smoother timing, parallel-RDP synchronous): one table, GpuRules.settings, with the reasons. --es env/opts win.
+        applyGpuSettings(GpuRules.settings(gpuFamily))
+        // Settings › Emulation's Overclock popup says what Auto gives here: smoother timing on this device or not.
+        getSharedPreferences("device", MODE_PRIVATE).edit().putBoolean("smoother", android.system.Os.getenv("N64_SMOOTHER") == "1").apply()
         // Settings › Video: resolution and the N64 video filters (core options), the picture's shape, integer
         // scaling, black frames, colour and sharpening. The dev switches below still win.
         val vApply = com.joeysretro.joey64.video.VideoApply.of(video, renderer == "parallel")
         for ((k, v) in vApply.coreOptions) NativeBridge.setOption(k, capUpscaling(k, v))
+        // The stats overlay's "parallel-RDP 2x" (after the Duo's cap; a dev --es opts upscale isn't shown).
+        statsRenderer = if (renderer == "parallel") "parallel-RDP " + capUpscaling("mupen64plus-parallel-rdp-upscaling",
+            vApply.coreOptions["mupen64plus-parallel-rdp-upscaling"] ?: "1x") else "GLideN64 " + (vApply.coreOptions["mupen64plus-EnableNativeResFactor"] ?: "1") + "x"
+        if (renderer == "parallel") playUpscale = capUpscaling(UPSCALE_KEY, vApply.coreOptions[UPSCALE_KEY] ?: "1x")
         if (vApply.sharpScale) NativeBridge.setSharp(true)
         applyVideoDisplay()
+        devSharp = devFlag("sharp2") || devFlag("sharp")
         // Sharp display (opt-in; the native look stays the default): the VI's anti-aliasing and bilinear
         // blur off, and a sharp-bilinear final scale. Dev: --ez sharp true, until the settings screen exists.
         // --ez sharp2 true (experiment, Joey 2026-11-05): Sharp plus the VI dither filter off. That filter blurs the
         // games' dither pattern away and is most of the native softness (Flip screenshots: edge contrast +28% with it
         // off, +9% for VI AA off); the price is the dither grain showing on flat surfaces.
-        val sharp2 = intent?.getBooleanExtra("sharp2", false) == true
-        if (sharp2 || intent?.getBooleanExtra("sharp", false) == true) {
+        val sharp2 = devFlag("sharp2")
+        if (sharp2 || devFlag("sharp")) {
             NativeBridge.setOption("mupen64plus-parallel-rdp-vi-aa", "False")
             NativeBridge.setOption("mupen64plus-parallel-rdp-vi-bilinear", "False")
             if (sharp2) NativeBridge.setOption("mupen64plus-parallel-rdp-dither-filter", "False")
             NativeBridge.setSharp(true)
         }
         // Dev: --es opts "mupen64plus-parallel-rdp-synchronous=False,key=value"
-        intent?.getStringExtra("opts")?.split(',')?.forEach { kv ->
+        devString("opts")?.split(',')?.forEach { kv ->
             val (k, v) = kv.split('=', limit = 2).takeIf { it.size == 2 } ?: return@forEach
             NativeBridge.setOption(k.trim(), capUpscaling(k.trim(), v.trim()))
         }
         // Dev: --es cheats "D11E3184 2881,811E3184 2001;<next cheat>"
-        intent?.getStringExtra("cheats")?.split(';')?.filter { it.isNotBlank() }?.forEach { NativeBridge.addCheat(it) }
+        devString("cheats")?.split(';')?.filter { it.isNotBlank() }?.forEach { NativeBridge.addCheat(it) }
         if (!NativeBridge.loadCore(coreFile.absolutePath, sys.absolutePath, saves.absolutePath)) {
             JLog.e(TAG, "Core failed to load: $coreFile"); finish()
         }
     }
 
-    // ---- FPS counter ----------------------------------------------------------------------------
-    // Top-left: new frames presented per second, sampled twice a second.
+    // ---- Stats overlay (Settings › On screen, approved mockup 2026-11-07) ---------------------------
     private val fpsHandler = Handler(Looper.getMainLooper())
-    private var fpsView: TextView? = null
-    private var fpsLastFrames = 0
-    private var fpsLastDrawn = 0
-    private var fpsLastTime = 0L
+    private var stats: StatsOverlay? = null
+    private val onScreenStore by lazy { com.joeysretro.joey64.onscreen.OnScreenStore(this) }
+    private var onScreen = com.joeysretro.joey64.onscreen.OnScreen()
+    private var statsDriver = ""
+    private var statsRenderer = ""
 
     // Android batches joystick moves (sticks, hat D-pads, analog triggers) to the next frame:
     // Odin 2 Portal 10 ms -> 0.5 ms from event to dispatch. Requested on the decor view because
@@ -216,81 +222,80 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         requestUnbufferedJoystick()
-        if (fpsView != null) return
-        val dp = resources.displayMetrics.density
-        val view = TextView(this).apply {
-            textSize = 14f
-            setTextColor(Color.WHITE)
-            setShadowLayer(3 * dp, 0f, 0f, Color.BLACK)
-            includeFontPadding = false // the text's top sits at the window edge, not a line gap below it
+        if (stats != null || destroyed) return
+        stats = StatsOverlay(this, windowManager).also {
+            it.device = statsDevice()
+            it.driver = statsDriver
+            it.renderer = statsRenderer
+            it.apply(onScreen)
+            if (resumed) it.start()
         }
-        val lp = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_PANEL,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.END // top left is for RetroAchievements popups
-            x = (4 * dp).toInt(); y = (2 * dp).toInt() // tucked into the corner (Joey, 2026-11-04)
-            token = window.decorView.windowToken
-            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-        }
-        windowManager.addView(view, lp)
-        fpsView = view
     }
 
-    private val fpsTick = object : Runnable {
-        override fun run() {
-            val now = SystemClock.elapsedRealtime()
-            val frames = NativeBridge.framesRun()
-            val drawn = NativeBridge.framesDrawn()
-            if (fpsLastTime != 0L && now > fpsLastTime) {
-                // FPS = emulated frames (the game's speed), DL/s = frames the game drew (OoT: 20)
-                val fps = (frames - fpsLastFrames) * 1000.0 / (now - fpsLastTime)
-                val dls = (drawn - fpsLastDrawn) * 1000.0 / (now - fpsLastTime)
-                val target = NativeBridge.contentFps()
-                val speed = if (target > 0) fps * 100 / target else 0.0
-                fpsView?.text = "%.0f FPS | %.0f DL/s | %.0f%% SPEED".format(fps, dls, speed)
-            }
-            fpsLastFrames = frames
-            fpsLastDrawn = drawn
-            fpsLastTime = now
-            fpsHandler.postDelayed(this, 500)
-        }
+    /** "AYN Thor · SM8550 · Adreno 740": the device, its chip (Android 12+) and GPU. */
+    private fun statsDevice(): String {
+        val name = if (Build.MODEL.startsWith(Build.MANUFACTURER, ignoreCase = true)) Build.MODEL
+            else Build.MANUFACTURER.replaceFirstChar { it.uppercase() } + " " + Build.MODEL
+        val soc = if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL.takeIf { it.isNotBlank() && it != Build.UNKNOWN } else null
+        return listOfNotNull(name, soc, gpuName.replace("(TM) ", "").takeIf { it.isNotEmpty() }).joinToString(" · ")
+    }
+
+    /** The stats hotkey: the next of Off, Simple, Full, Custom, saved, with a pop-up naming it. */
+    private fun stepStats() {
+        onScreen = onScreenStore.update { it.copy(stats = it.stats.next) }
+        overlay?.onScreen = onScreen
+        stats?.apply(onScreen)
+        if (onScreen.popHotkeys) overlay?.show(InGamePopup("stats", InGamePopup.Kind.Stats, "Stats overlay", onScreen.stats.label, onScreen.stats.detail, stayMs = 2_000))
     }
 
     // ---- Rumble Pak ---------------------------------------------------------------------------
-    // The core switches the pak's motor on and off; a background thread waits for each change (a
-    // per-vsync poll cost ~60 ms of CPU a second at 120 Hz). Vibrates the gamepad last used if it
-    // has a motor, else the device (handhelds have one built in).
+    // The core switches each player's pak motor on and off; a background thread waits for each change
+    // (a per-vsync poll cost ~60 ms of CPU a second at 120 Hz). Each player vibrates their own pad when
+    // it has a motor (players 2-4 since 2026-11-07); the player with the built-in controls vibrates the
+    // device, and so does player 1 when nobody has the built-in controls (as before: a pad without a motor).
     private var padDeviceId = -1
-    private var rumbling = false
-    private var rumbleVibrator: Vibrator? = null
+    /** Bit p: player p+1's motor is running. */
+    private var rumbling = 0
+    private val rumbleVibrators = arrayOfNulls<Vibrator>(4)
 
-    private fun vibrator(): Vibrator? {
-        val pad = InputDevice.getDevice(padDeviceId)
-        val padVib = if (Build.VERSION.SDK_INT >= 31) pad?.vibratorManager?.defaultVibrator
+    private fun padVibrator(pad: InputDevice?): Vibrator? {
+        val v = if (Build.VERSION.SDK_INT >= 31) pad?.vibratorManager?.defaultVibrator
             else @Suppress("DEPRECATION") pad?.vibrator
-        if (padVib?.hasVibrator() == true) return padVib
+        return v?.takeIf { it.hasVibrator() }
+    }
+
+    private fun vibratorFor(p: Int): Vibrator? {
+        // The pads playing as p, the one last used first; then a connected pad that is p's controller but hasn't been pressed yet.
+        val ids = playerOfDevice.filterValues { it == p }.keys.sortedByDescending { it == padDeviceId }
+        for (id in ids) padVibrator(InputDevice.getDevice(id))?.let { return it }
+        val choice = controls.players.getOrNull(p)?.device
+        if (choice is DeviceChoice.Pad) for (id in InputDevice.getDeviceIds()) {
+            val d = InputDevice.getDevice(id) ?: continue
+            if (PadDevices.isPad(d) && PadDevices.matches(choice, d)) padVibrator(d)?.let { return it }
+        }
+        val builtInPlayer = controls.players.indexOfFirst { it.device == DeviceChoice.BuiltIn }
+        if (p != builtInPlayer && !(p == 0 && builtInPlayer < 0)) return null
         val sys = if (Build.VERSION.SDK_INT >= 31)
             (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
             else @Suppress("DEPRECATION") getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         return sys.takeIf { it.hasVibrator() }
     }
 
-    private fun setRumbling(on: Boolean) {
-        if (on == rumbling) return
-        rumbling = on
-        if (on) {
-            rumbleVibrator = vibrator()
-            JLog.i(TAG, "rumble on: ${rumbleVibrator ?: "no vibrator"}")
-            // Long one-shot, cancelled when the game switches the motor off.
-            rumbleVibrator?.vibrate(VibrationEffect.createOneShot(10_000, VibrationEffect.DEFAULT_AMPLITUDE))
-        } else {
-            rumbleVibrator?.cancel()
-            rumbleVibrator = null
+    private fun setRumbling(mask: Int) {
+        for (p in 0..3) {
+            val on = (mask shr p) and 1 == 1
+            if (on == ((rumbling shr p) and 1 == 1)) continue
+            if (on) {
+                rumbleVibrators[p] = vibratorFor(p)
+                JLog.i(TAG, "rumble player ${p + 1} on: ${rumbleVibrators[p] ?: "no vibrator"}")
+                // Long one-shot, cancelled when the game switches the motor off.
+                rumbleVibrators[p]?.vibrate(VibrationEffect.createOneShot(10_000, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                rumbleVibrators[p]?.cancel()
+                rumbleVibrators[p] = null
+            }
         }
+        rumbling = mask
     }
 
     @Volatile private var resumed = false
@@ -298,7 +303,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     /** Watches RetroAchievements' sign-in state for the pop-ups; ends with the activity. */
     private val uiScope = kotlinx.coroutines.MainScope()
     private val rumbleWatcher = Thread({
-        var on = false
+        var on = 0
         while (!destroyed) {
             val now = NativeBridge.waitRumble(on, 1000)
             if (now != on) { on = now; runOnUiThread { if (resumed) setRumbling(now) } }
@@ -318,7 +323,96 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     private fun setFastForward(on: Boolean, percent: Int = hotkeys.ffSpeed) {
         NativeBridge.setFastForwardSpeed(percent)
-        if (on != fastForward) { fastForward = on; NativeBridge.setFastForward(on) }
+        if (on != fastForward) { sessionMark(); fastForward = on; NativeBridge.setFastForward(on) }
+        if (on && slowMotion) setSlowMotion(false) // straight to fast-forward
+    }
+
+    // ---- Slow motion and Rewind (approved mockup 2026-11-08; Controls > Hotkeys) -----------------------------
+    // Slow motion: Toggle or Hold, at Hotkeys.slowSpeed; a pop-up stays while it's on. Rewind: held, the game goes
+    // back while Hotkeys.rewindOn records; the pop-up says how far, and the game goes on from there when let go.
+    private var slowMotion = false
+    private var slowHeld = false
+    private var rewindHeld = false
+    /** The rewind settings last given to the host (a change starts the recording over). */
+    private var rewindApplied: Triple<Boolean, Int, Int>? = null
+
+    private fun setSlowMotion(on: Boolean) {
+        if (on == slowMotion) return
+        if (on && com.joeysretro.joey64.achievements.RaHardcore.on()) { popHardcore("Slow motion"); return }
+        sessionMark(); slowMotion = on
+        if (on && fastForward) { ffHeld = false; setFastForward(false) }
+        NativeBridge.setSlowMotion(if (on) hotkeys.slowSpeed else 0)
+        if (on) overlay?.show(InGamePopup("slow", InGamePopup.Kind.SlowMotion, "Slow motion", "${hotkeys.slowSpeed}%",
+            if (hotkeys.slowMode == SlowMode.Hold) "Let go to go back to full speed" else "Press again to go back to full speed",
+            stayMs = com.joeysretro.joey64.launcher.ingame.PopupQueue.UNTIL_HIDDEN))
+        else overlay?.hide("slow", waiting = true)
+        JLog.i(TAG, "slow motion ${if (on) "on, ${hotkeys.slowSpeed}%" else "off"}")
+    }
+
+    /** The slow motion hotkey went down or up (only the press counts for Toggle). */
+    private fun slowMotionKey(down: Boolean) {
+        if (hotkeys.slowMode == SlowMode.Toggle) { if (down) setSlowMotion(!slowMotion); return }
+        slowHeld = down
+        setSlowMotion(down)
+    }
+
+    private fun slowMotionRelease() { if (slowHeld) { slowHeld = false; setSlowMotion(false) } }
+
+    private fun popHardcore(what: String) =
+        pop("hardcore", InGamePopup.Kind.Problem, what, "Not in Hardcore", "RetroAchievements Hardcore is on")
+
+    /** Gives the host the rewind settings (at start, and when Controls change over the paused game). */
+    private fun applyRewind() {
+        val on = hotkeys.rewindOn && !com.joeysretro.joey64.achievements.RaHardcore.on()
+        val t = Triple(on, hotkeys.rewindEvery, hotkeys.rewindSeconds * 60 / hotkeys.rewindEvery)
+        if (t == rewindApplied) return
+        rewindApplied = t
+        NativeBridge.setRewind(t.first, t.second, t.third)
+    }
+
+    private val rewindPoll = object : Runnable {
+        override fun run() {
+            if (!rewindHeld || destroyed) return
+            showRewind()
+            fpsHandler.postDelayed(this, 100)
+        }
+    }
+
+    private fun showRewind() {
+        val i = NativeBridge.rewindInfo()
+        val kept = Hotkeys.rewindSecondsLabel(hotkeys.rewindSeconds)
+        val bar = if (i[1] > 0) i[0].toFloat() / i[1] else 0f
+        if (i[3] == 1) overlay?.show(InGamePopup("rewind", InGamePopup.Kind.Rewind, "Rewinding", "Can't go further back",
+            "$kept kept: Controls › Hotkeys › Rewind", stayMs = com.joeysretro.joey64.launcher.ingame.PopupQueue.UNTIL_HIDDEN, bar = 0f))
+        else overlay?.show(InGamePopup("rewind", InGamePopup.Kind.Rewind, "Rewinding", "${(i[2] + 30) / 60} s back", "",
+            stayMs = com.joeysretro.joey64.launcher.ingame.PopupQueue.UNTIL_HIDDEN, bar = bar))
+    }
+
+    /** The rewind hotkey went down or up: back while held. */
+    private fun rewindKey(down: Boolean) {
+        if (down) {
+            if (rewindHeld) return
+            if (com.joeysretro.joey64.achievements.RaHardcore.on()) { popHardcore("Rewind"); return }
+            if (!hotkeys.rewindOn) {
+                pop("rewind", InGamePopup.Kind.Problem, "Rewind", "Rewind is off", "Turn it on in Controls › Hotkeys › Rewind")
+                return
+            }
+            sessionMark(); rewindHeld = true
+            if (fastForward) { ffHeld = false; setFastForward(false) }
+            NativeBridge.setRewinding(true)
+            fpsHandler.removeCallbacks(rewindPoll)
+            fpsHandler.post(rewindPoll)
+        } else rewindRelease()
+    }
+
+    private fun rewindRelease() {
+        if (!rewindHeld) return
+        rewindHeld = false
+        NativeBridge.setRewinding(false)
+        fpsHandler.removeCallbacks(rewindPoll)
+        val back = NativeBridge.rewindInfo()[2]
+        JLog.i(TAG, "rewind: let go after $back frames")
+        overlay?.hide("rewind", waiting = true)
     }
 
     private fun toggleFastForward() = setFastForward(!fastForward)
@@ -349,7 +443,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     // Dev: --es driver system|turnip
 
     // storage16: 16-bit storage buffers, which parallel-RDP requires (1 yes, 0 no, -1 not asked: before Vulkan 1.1)
-    private class VkGpu(val vendor: Int, val major: Int, val minor: Int, val storage16: Int, val name: String) {
+    private class VkGpu(val vendor: Int, val major: Int, val minor: Int, val storage16: Int, val name: String, val driver: String = "",
+                        /** maxStorageBufferRange in MB (0: not known). */ val storageRangeMb: Int = 0) {
         val vulkan11 get() = major > 1 || (major == 1 && minor >= 1)
         val adreno get() = vendor == 0x5143
         val mali get() = vendor == 0x13B5
@@ -357,31 +452,38 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     private fun parseGpu(s: String): VkGpu? {
-        val p = s.split('|', limit = 4).takeIf { it.size == 4 } ?: return null
+        // vendor|major.minor|16-bit storage|maxStorageBufferRange MB|name|driver
+        val p = s.split('|', limit = 6).takeIf { it.size >= 5 } ?: return null
         val v = p[1].split('.').mapNotNull { it.toIntOrNull() }.takeIf { it.size == 2 } ?: return null
-        return VkGpu(p[0].toIntOrNull() ?: return null, v[0], v[1], p[2].toIntOrNull() ?: -1, p[3])
+        return VkGpu(p[0].toIntOrNull() ?: return null, v[0], v[1], p[2].toIntOrNull() ?: -1, p[4], p.getOrNull(5).orEmpty(), p[3].toIntOrNull() ?: 0)
     }
 
     /** Picks and installs the Vulkan driver; returns the renderer, "parallel" or "gliden64". */
     private fun setupGpu(): String {
         val system = parseGpu(NativeBridge.probeVulkan(false))
+        val kgsl = kgslModel()
+        val systemFamily = GpuRules.family(system?.vendor ?: 0, system?.name.orEmpty(), kgsl)
+        val auto = GpuRules.autoDriver(systemFamily)
         val videoDriver = when (video[com.joeysretro.joey64.video.VideoKey.Driver]) {
             "system" -> "system"
-            "bundled" -> if (system != null && "Adreno (TM) 722" in system.name) "faux123" else "turnip"
+            "bundled" -> if (auto.value == GpuRules.Driver.FAUX123) "faux123" else "turnip"
             else -> null
         }
         val dev = devDriver()
-        val lib = dev ?: when (intent?.getStringExtra("driver") ?: videoDriver) {
+        // The start-up trial (GpuTrial) runs only on Auto's own choice: nothing in Settings, no dev driver or switch.
+        val autoOnly = dev == null && devString("driver") == null && videoDriver == null && devString("renderer") == null &&
+            video[com.joeysretro.joey64.video.VideoKey.Renderer] != "gliden64" && video[com.joeysretro.joey64.video.VideoKey.Renderer] != "parallel"
+        val trialPick = if (autoOnly) GpuTrial(trialStore(), packageManager.getPackageInfo(packageName, 0).lastUpdateTime.toString(),
+            system?.name ?: "none").also { trial = it }.decide() else null
+        val level = trialPick?.level ?: 0
+        val lib = dev ?: when (devString("driver") ?: videoDriver) {
             "system" -> null
             "turnip" -> bundledDriver(TURNIP)
             "faux123" -> bundledDriver(TURNIP_FAUX123)
-            else -> when {
-                // The Duo's Adreno 722: faux123's Turnip (Duo fixes) draws Mario Party 2's text boxes without the
-                // stray lines the general build leaves, and passed the 82-game compat run (2026-11-04)
-                system != null && system.adreno && "Adreno (TM) 722" in system.name ->
-                    bundledDriver(TURNIP_FAUX123) ?: bundledDriver(TURNIP)
-                system != null && system.adreno && TURNIP_GPUS.containsMatchIn(system.name) -> bundledDriver(TURNIP)
-                else -> null
+            else -> if (level >= 1) null else when (auto.value) {
+                GpuRules.Driver.FAUX123 -> bundledDriver(TURNIP_FAUX123) ?: bundledDriver(TURNIP)
+                GpuRules.Driver.TURNIP -> bundledDriver(TURNIP)
+                GpuRules.Driver.SYSTEM -> null
             }
         }
         var custom: VkGpu? = null
@@ -393,25 +495,33 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         }
         val gpu = custom ?: system
         gpuName = gpu?.name ?: ""
-        // parallel-RDP also needs 16-bit storage buffers: without them it fails to start and the core crashes
-        // (Adreno 610, Snapdragon 665: missing on both drivers, so GLideN64 there)
-        val parallel = gpu != null && gpu.vulkan11 && gpu.storage16 == 1 && (custom != null || gpu.mali)
+        gpuFamily = GpuRules.family(gpu?.vendor ?: 0, gpuName, kgsl)
+        storageRangeMb = gpu?.storageRangeMb ?: 0
+        statsDriver = statsDriverName(lib?.takeIf { custom != null }, dev != null, gpu?.driver.orEmpty())
+        val rendererPick = GpuRules.autoRenderer(gpu != null && gpu.vulkan11, gpu != null && gpu.storage16 == 1, custom != null, gpuFamily)
+        // The trial's level 1 is the system driver (its renderer by the rule above); level 2, or level 1 when Auto was
+        // already the system driver, is GLideN64 as well.
+        val trialGl = trialPick != null && (level >= 2 || (level == 1 && auto.value == GpuRules.Driver.SYSTEM))
+        val parallel = rendererPick.value == "parallel" && !trialGl
         if (gpu != null && gpu.vulkan11 && gpu.storage16 != 1) JLog.w(TAG, "GPU ${gpu.name}: no 16-bit storage buffers, parallel-RDP can't run")
         JLog.i(TAG, "GPU: ${gpu ?: "no Vulkan"}, driver ${if (custom != null) lib!!.relativeTo(gpuDriverDir).path else "system"}, " +
             "default renderer ${if (parallel) "parallel" else "gliden64"}")
+        // Which rule picked what (README item 38 e: a tester's log says it).
+        JLog.i(TAG, "GPU rules: family $systemFamily; Auto driver: ${auto.rule}; Auto renderer: ${rendererPick.rule}; " +
+            "trial: ${trialPick?.what ?: "off (driver or renderer not left on Auto)"}${if (trialGl) ", so GLideN64" else ""}")
         // What Auto picks here, for Settings › Video's "Auto · ..." (the launcher can't probe Vulkan itself):
         // the renderer by GPU, and the driver that ran when nothing but Auto chose it (a dev driver in
         // files/drivers counts: it is what Auto uses then).
         val prefs = getSharedPreferences("device", MODE_PRIVATE).edit()
         prefs.putString("auto_renderer", if (parallel) "parallel" else "gliden64")
-        if (intent?.getStringExtra("driver") == null && videoDriver == null) prefs.putString("driver", when {
+        if (devString("driver") == null && videoDriver == null) prefs.putString("driver", when {
             custom == null -> "system"
             dev != null -> "custom"
             lib?.parentFile?.name == "faux123" -> "faux123"
             else -> "turnip"
         })
         prefs.apply()
-        intent?.getStringExtra("renderer")?.let { return it }
+        devString("renderer")?.let { return it }
         // Settings › Video › Renderer: parallel-RDP only where it can start (Vulkan 1.1 with 16-bit storage), else
         // the core crashes; it may still draw wrong on a stock Adreno driver, which is the user's choice there.
         return when (video[com.joeysretro.joey64.video.VideoKey.Renderer]) {
@@ -423,22 +533,248 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     private var gpuName = ""
+    private var gpuFamily = GpuRules.Family(GpuRules.Vendor.OTHER, 0, "")
+    private var storageRangeMb = 0
+    /** Auto's start-up trial on this GPU; null when the driver or renderer was picked. */
+    private var trial: GpuTrial? = null
 
-    /** Settings › Video for the game this screen was started for (onCreate). */
+    /** /sys/class/kgsl/kgsl-3d0/gpu_model ("Adreno740v2"), when this device lets the app read it. */
+    private fun kgslModel(): String? = try { File("/sys/class/kgsl/kgsl-3d0/gpu_model").readText().trim().takeIf { it.isNotEmpty() } } catch (_: Exception) { null }
+
+    private fun trialStore() = object : GpuTrial.Store {
+        val prefs = getSharedPreferences("gpu_trial", MODE_PRIVATE)
+        override fun get(key: String) = prefs.getString(key, null)
+        // commit: on disk before the start that may crash
+        override fun put(key: String, value: String?) { prefs.edit().putString(key, value).commit() }
+        override fun keys(): Set<String> = prefs.all.keys
+    }
+
+    /** GpuRules' switches, unless --es env (a variable) or --es opts (a core option, applied after these) sets them. */
+    private fun applyGpuSettings(list: List<GpuRules.Setting>) {
+        for (st in list) {
+            if (st.coreOption) NativeBridge.setOption(st.key, st.value)
+            else if (android.system.Os.getenv(st.key) == null) android.system.Os.setenv(st.key, st.value, true)
+            else continue
+            JLog.i(TAG, "GPU setting ${st.key}=${st.value} (${st.rule})")
+        }
+    }
+
+    /** Polls for the first drawn frame of a trial start, then marks the trial good. */
+    private val trialWatch = object : Runnable {
+        override fun run() {
+            val t = trial ?: return
+            if (NativeBridge.framesDrawn() > 0) { t.drew(); JLog.i(TAG, "GPU trial: a frame was drawn, good"); return }
+            if (!isFinishing) fpsHandler.postDelayed(this, 250)
+        }
+    }
+
+    /**
+     * The stats overlay's driver: the bundled ones by their release (devtools/drivers/bundled.json, keep these
+     * in step when a driver is updated), a dev driver by its file, the system's by what it reports.
+     */
+    private fun statsDriverName(lib: File?, dev: Boolean, reported: String): String = when {
+        lib == null -> "System driver" + reported.substringAfter(", ", "").takeIf { it.isNotEmpty() && it.length <= 24 }?.let { " $it" }.orEmpty()
+        dev -> "Dev driver ${lib.name}"
+        lib.parentFile?.name == "faux123" -> "Turnip faux123 v1.2.7"
+        else -> "Turnip Gen8 V38"
+    }
+
+    /** The widescreen and 60 fps codes this game started with (Settings › Video), from [prepareGame]. */
+    private var extrasOn = com.joeysretro.joey64.video.ExtrasOn.NONE
+
+    /**
+     * On [gameIo]: [rom]'s widescreen and 60 fps versions from its kept cheat lists (the scan downloads them; nothing is
+     * fetched here), and the ones Video's rows pick. None while Hardcore is on.
+     */
+    private fun gameExtras(rom: String): com.joeysretro.joey64.video.ExtrasOn {
+        val keys = headerKeys(rom)
+        if (keys.isEmpty()) return com.joeysretro.joey64.video.ExtrasOn.NONE
+        val v = videoAtStart
+        if (v[com.joeysretro.joey64.video.VideoKey.Widescreen] == "off" && v[com.joeysretro.joey64.video.VideoKey.Fps] == "off")
+            return com.joeysretro.joey64.video.ExtrasOn.NONE
+        val lists = kotlinx.coroutines.runBlocking { com.joeysretro.joey64.cheats.CheatLists(this@MainActivity).sourcesForGame(keys, download = false) }
+            ?: return com.joeysretro.joey64.video.ExtrasOn.NONE.copy(log = "lists not downloaded")
+        val x = com.joeysretro.joey64.video.GameExtras.from(lists, keys.first())
+        return com.joeysretro.joey64.video.ExtrasOn.of(x, v, com.joeysretro.joey64.achievements.RaHardcore.on())
+    }
+
+    /** [rom]'s header game code ("NDOE"), or null ("" a 64DD disk with no cartridge, or unreadable). */
+    private fun romGameCode(rom: String): String? = if (rom.isEmpty()) null else try {
+        val buf = File(rom).inputStream().use { i -> ByteArray(0x40).also { b -> if (i.read(b) < b.size) throw java.io.IOException("short ROM") } }
+        val order = com.joeysretro.joey64.launcher.library.RomByteOrder.of(buf) ?: throw java.io.IOException("not an N64 ROM")
+        order.toBigEndian(buf, buf.size)
+        com.joeysretro.joey64.launcher.library.RomReader.parseHeader(buf).gameCode
+    } catch (e: Exception) {
+        JLog.e(TAG, "emulation: can't read the ROM header: $e"); null
+    }
+
+    /** The cheat lists' keys for [rom]'s header ("" a 64DD disk with no cartridge: none). */
+    private fun headerKeys(rom: String): List<String> = if (rom.isEmpty()) emptyList() else try {
+        val buf = File(rom).inputStream().use { i -> ByteArray(0x40).also { b -> if (i.read(b) < b.size) throw java.io.IOException("short ROM") } }
+        val order = com.joeysretro.joey64.launcher.library.RomByteOrder.of(buf) ?: throw java.io.IOException("not an N64 ROM")
+        order.toBigEndian(buf, buf.size)
+        com.joeysretro.joey64.cheats.CheatLogic.keys(com.joeysretro.joey64.cheats.CheatLogic.keyOf(
+            com.joeysretro.joey64.launcher.library.RomReader.parseHeader(buf)))
+    } catch (e: Exception) {
+        JLog.e(TAG, "cheats: can't read the ROM header: $e"); emptyList()
+    }
+
+    /** Settings › Video for the game this screen was started for (onCreate), then as Game settings changes it in game. */
     private var video = com.joeysretro.joey64.video.VideoSettings.DEFAULTS
+    /** Video as the game started: the rows read only at start (VideoKey.AT_START) keep these values until a restart. */
+    private var videoAtStart = com.joeysretro.joey64.video.VideoSettings.DEFAULTS
+    private var audioAtStart: com.joeysretro.joey64.audio.AudioSettings? = null
+    /** Settings › Emulation as the game started (every row is read only at start). */
+    private var emuAtStart = com.joeysretro.joey64.emulation.EmuSettings.DEFAULTS
+    private var parallel = false
+    /** --ez sharp / sharp2 (dev): they set the N64 filters themselves, so Game settings leaves those alone. */
+    private var devSharp = false
+    /** The ROM and save name the game started with, for Restart now. */
+    private var startRom: String? = null
+    private var startSave: String? = null
+    /** Start-only rows the restart question was already asked about (key to value), so it's asked once per change. */
+    private val restartAsked = HashMap<String, String>()
+
+    /** Fill the camera cutout (the window reaches behind it only when asked; it matters for Stretch) and Screen orientation. */
+    private fun applyWindowVideo() {
+        window.attributes = window.attributes.apply {
+            layoutInDisplayCutoutMode = if (video.on(com.joeysretro.joey64.video.VideoKey.Cutout))
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_NEVER
+        }
+        requestedOrientation = when (video[com.joeysretro.joey64.video.VideoKey.Orientation]) {
+            "portrait" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            "auto" -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+            else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        }
+    }
+
+    /**
+     * Back from Game settings (approved mockup 2026-11-07, screen 9): Video and Audio read again. What
+     * can change while the game runs does now (the picture's shape, colour, sharpening, black frames,
+     * the N64 filters, cutout, orientation; volume, mute, mono, fast-forward sound); the rows read
+     * only at start (AT_START) keep the values the game started with until it starts again.
+     */
+    private fun applyGameSettings(saveName: String) {
+        val fresh = com.joeysretro.joey64.video.VideoStore(this).forGame(saveName)
+        val atStart = com.joeysretro.joey64.video.VideoKey.AT_START
+        val next = com.joeysretro.joey64.video.VideoSettings(fresh.values.filterKeys { it !in atStart } + videoAtStart.values.filterKeys { it in atStart })
+        val before = video
+        video = next
+        applyVideoDisplay()
+        applyWindowVideo()
+        if (!devSharp) {
+            val was = com.joeysretro.joey64.video.VideoApply.of(before, parallel)
+            val now = com.joeysretro.joey64.video.VideoApply.of(next, parallel)
+            val changed = now.coreOptions.filter { (k, v) -> was.coreOptions[k] != v }
+            if (changed.isNotEmpty()) {
+                NativeBridge.setOptionsLive(changed.keys.toTypedArray(), changed.map { (k, v) -> capUpscaling(k, v) }.toTypedArray())
+                JLog.i(TAG, "game settings: core options now ${changed}")
+            }
+            if (now.sharpScale != was.sharpScale) NativeBridge.setSharp(now.sharpScale)
+        }
+        val a = applyAudioNow(saveName)
+        val start = audioAtStart ?: a
+        JLog.i(TAG, "game settings: audio volume ${a.volume}, mute ${a.on(com.joeysretro.joey64.audio.AudioKey.Mute)}, ff sound ${a.ffMode}, latency kept ${start.latencyMode}; video aspect ${next[com.joeysretro.joey64.video.VideoKey.Aspect]}")
+    }
+
+    /** The start-only rows whose saved value differs from the one the game started with: name (value) for each, in row order. */
+    private fun pendingAtStart(saveName: String): List<Triple<String, String, String>> {
+        val out = ArrayList<Triple<String, String, String>>()
+        val v = com.joeysretro.joey64.video.VideoStore(this).forGame(saveName)
+        for (k in com.joeysretro.joey64.video.VideoKey.entries) {
+            if (k !in com.joeysretro.joey64.video.VideoKey.AT_START || v[k] == videoAtStart[k]) continue
+            out += Triple("v:" + k.name, startRowName(k.name), com.joeysretro.joey64.video.VideoChoices.label(k, v[k]))
+        }
+        val e = com.joeysretro.joey64.emulation.EmuStore(this).forGame(saveName)
+        for (k in com.joeysretro.joey64.emulation.EmuKey.entries) {
+            if (e[k] == emuAtStart[k]) continue
+            out += Triple("e:" + k.name, startRowName(k.name), com.joeysretro.joey64.emulation.EmuChoices.label(k, e[k]))
+        }
+        val start = audioAtStart
+        if (start != null) {
+            val a = com.joeysretro.joey64.audio.AudioStore(this).forGame(saveName)
+            for (k in com.joeysretro.joey64.audio.AudioKey.entries) {
+                if (k !in com.joeysretro.joey64.audio.AudioKey.AT_START || a[k] == start[k]) continue
+                out += Triple("a:" + k.name, startRowName(k.name), com.joeysretro.joey64.audio.AudioChoices.label(k, a[k]))
+            }
+        }
+        return out
+    }
+
+    private fun startRowName(key: String) = when (key) {
+        "Driver" -> "GPU driver"; "Pacing" -> "Frame pacing"; "Thermal" -> "Thermal fallback"; "Supersample" -> "Supersampling"
+        "NativeTexLod" -> "Native texture detail"; "NativeTexRect" -> "Native 2D (TEX_RECT)"; "Apps" -> "Play alongside other apps"
+        "Fps" -> "60 fps"; "CpuCore" -> "CPU core"; "ExpansionPak" -> "Expansion Pak"
+        else -> key
+    }
+
+    /**
+     * Resuming after Game settings changed a row read only at start (mockup screen 10): asks once per
+     * change whether to restart. True when the question is up instead of the game.
+     */
+    private fun askRestart(): Boolean {
+        val st = states ?: return false
+        val pending = pendingAtStart(st.saveName)
+        if (pending.isEmpty() || pending.all { (id, _, value) -> restartAsked[id] == value }) return false
+        for ((id, _, value) in pending) restartAsked[id] = value
+        val names = pending.map { (_, name, value) -> "$name ($value)" }
+        val list = if (names.size == 1) names[0] else names.dropLast(1).joinToString(", ") + " and " + names.last()
+        overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Restart("$list ${if (names.size == 1) "applies" else "apply"} when the game next starts.")
+        return true
+    }
+
+    /**
+     * Restart now: the auto slot is written, then the game screen starts again in a fresh process
+     * (RestartActivity, as switchGame) and loads it. The game's own screen is finished first, so Back
+     * from the new one goes where it went before (the library). Without a written state the game
+     * starts from the beginning.
+     */
+    private fun restartForSettings() {
+        val st = states ?: return
+        val rom = startRom ?: return
+        if (quitting) return
+        quitting = true
+        overlay?.screen = null
+        sessionMark(); menuOpen = false
+        NativeBridge.pause(true)
+        stateHandler.removeCallbacks(recoveryTick)
+        stateHandler.post {
+            // Always saved, Save on quit or not: the restart loads it straight back.
+            val saved = !startLoadFailed && st.saveQuit(savesOpts.quitSaves)
+            if (saved) st.clearRecovery()
+            JLog.i(TAG, "game settings: restarting for the new settings, auto slot ${if (saved) "written" else "not written"}")
+            runOnUiThread {
+                val next = Intent(this, MainActivity::class.java).apply {
+                    intent.extras?.let { putExtras(it) }
+                    removeExtra("rom")
+                    intent.data?.let { d ->
+                        if (!hasExtra(EXTRA_SOURCE_URI)) putExtra(EXTRA_SOURCE_URI, d.toString())
+                        if (!hasExtra(EXTRA_SOURCE_NAME)) displayName(d)?.let { putExtra(EXTRA_SOURCE_NAME, it) }
+                    }
+                    putExtra(EXTRA_ROM_PATH, rom)
+                    putExtra(EXTRA_SAVE_NAME, startSave ?: st.saveName)
+                    if (saved) putExtra(EXTRA_LOAD_STATE, STATE_AUTO) else removeExtra(EXTRA_LOAD_STATE)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                if (owner === this) { NativeBridge.stop(); owner = null }
+                finish()
+                RestartActivity.restart(this, next)
+            }
+        }
+    }
 
     /** The save name the launcher gave, or the one the ROM's file name makes, before the ROM is read (null: the dev path). */
     private fun earlySaveName(): String? {
         val i = intent ?: return null
-        i.getStringExtra(EXTRA_SAVE_NAME)?.takeIf { it.isNotEmpty() }?.let { return it }
-        val file = i.getStringExtra(EXTRA_SOURCE_NAME) ?: i.getStringExtra("rom") ?: i.data?.let { displayName(it) } ?: return null
+        i.getStringExtra(EXTRA_SAVE_NAME)?.takeIf { it.isNotEmpty() }?.let { return cleanSaveName(it) }
+        val file = i.getStringExtra(EXTRA_SOURCE_NAME) ?: (if (devBuild) i.getStringExtra("rom") else null) ?: i.data?.let { displayName(it) } ?: return null
         return saveName(file)
     }
 
     /** The host's display state from [video]: shape, integer scaling, black frames, colour, sharpening. */
     private fun applyVideoDisplay() {
         val v = video
-        val (aw, ah) = com.joeysretro.joey64.video.VideoApply.aspect(v, widescreenOn = false)
+        val (aw, ah) = com.joeysretro.joey64.video.VideoApply.aspect(v, extrasOn.shape)
         NativeBridge.setDisplay(aw, ah, v.on(com.joeysretro.joey64.video.VideoKey.Integer), v.on(com.joeysretro.joey64.video.VideoKey.Bfi))
         NativeBridge.setColour(v.int(com.joeysretro.joey64.video.VideoKey.Brightness), v.int(com.joeysretro.joey64.video.VideoKey.Contrast), v.int(com.joeysretro.joey64.video.VideoKey.Saturation), v.int(com.joeysretro.joey64.video.VideoKey.Gamma))
         NativeBridge.setSharpen(when (v[com.joeysretro.joey64.video.VideoKey.Sharpen]) { "cas" -> 1; "fsr" -> 2; else -> 0 }, v.int(com.joeysretro.joey64.video.VideoKey.SharpenStrength))
@@ -447,12 +783,20 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     // parallel-RDP at 4x on the Adreno 722 (Retroid Pocket Duo) drops most geometry (characters
     // vanish, the screen flickers between layers) on both Turnip builds tried, and runs at 40-55 fps
     // anyway; 2x renders correctly at 60. The Adreno 740 is fine at 4x.
+    //
+    // parallel-RDP binds the upscaled RDRAM (8 MB x factor^2) as one storage buffer, so the factor can't go past
+    // what maxStorageBufferRange holds: Adreno reports 128 MB on Qualcomm's driver and Turnip (Thor, 2026-11-07),
+    // so 4x (128 MB) is its top and 8x (512 MB) was a black screen at 19-35 fps.
     private fun capUpscaling(key: String, value: String): String {
-        if (key != "mupen64plus-parallel-rdp-upscaling" || value !in setOf("4x", "8x") || "Adreno (TM) 722" !in gpuName) return value
-        // Dev: --ez nocap true lifts the cap, to try other drivers
-        if (intent?.getBooleanExtra("nocap", false) == true) return value
-        JLog.w(TAG, "parallel-RDP upscaling $value capped at 2x on $gpuName")
-        return "2x"
+        if (key != UPSCALE_KEY) return value
+        val f = value.removeSuffix("x").toIntOrNull() ?: return value
+        // Dev: --ez nocap true lifts the caps, to try other drivers
+        if (devFlag("nocap")) return value
+        var top = GpuRules.upscaleTop(gpuFamily).value
+        if (storageRangeMb > 0) while (top > 1 && 8 * top * top > storageRangeMb) top /= 2
+        if (f <= top) return value
+        JLog.w(TAG, "parallel-RDP upscaling $value capped at ${top}x on $gpuName (storage buffer range $storageRangeMb MB)")
+        return "${top}x"
     }
 
     private val gpuDriverDir get() = File(filesDir, "gpu_driver").apply { mkdirs() }
@@ -494,16 +838,18 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
      */
     private fun resolveRom(): Pair<String, String>? {
         // Handed over by switchGame from the process before this one: the ROM is already unpacked.
-        intent?.getStringExtra(EXTRA_ROM_PATH)?.let { return it to (intent.getStringExtra(EXTRA_SAVE_NAME) ?: "") }
+        if (intent?.hasExtra(EXTRA_ROM_PATH) == true) return handedRom()
         intent?.data?.let { uri ->
-            val inner = copyToCache(uri) ?: run { JLog.e(TAG, "No N64 ROM in $uri"); return null }
+            val shown = displayName(uri)
+            val inner = copyToCache(uri, shown) ?: run { JLog.e(TAG, "No N64 ROM in $uri"); return null }
             if (inner.isNotEmpty()) JLog.i(TAG, "ROM $inner from archive $uri")
-            return romCache.absolutePath to saveName(displayName(uri) ?: inner)
+            val save = saveName(shown ?: inner)
+            return placeDisk(inner.ifEmpty { shown }, save) to save
         }
         // Some Android 11 devices (Retroid Pocket Flip) block adb from Android/data: there, copy the
         // ROM into internal storage with run-as instead.
         val dirs = listOfNotNull(getExternalFilesDir(null), filesDir)
-        intent?.getStringExtra("rom")?.let { name ->
+        devString("rom")?.let { name ->
             val rom = dirs.map { File(it, "roms/$name") }.firstOrNull { it.exists() }
                 ?: run { JLog.e(TAG, "ROM $name not found in roms/"); return null }
             if (!RomFiles.isArchive(rom.inputStream().use { i -> ByteArray(4).also { i.read(it) } }))
@@ -511,30 +857,55 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             val inner = rom.inputStream().use { RomFiles.extract(it, romCache) }
                 ?: run { JLog.e(TAG, "No N64 ROM in $name"); return null }
             JLog.i(TAG, "ROM $inner from archive $name")
-            return romCache.absolutePath to saveName(rom.name)
+            return placeDisk(inner, saveName(rom.name)) to saveName(rom.name)
         }
+        if (!devBuild) return null
         return dirs.map { File(it, "test.z64") }.firstOrNull { it.exists() }?.let { it.absolutePath to "" }
     }
 
     private fun saveName(fileName: String) = GameStates.saveNameOf(fileName)
 
+    /**
+     * A 64DD disk just unpacked to [romCache] ([name] is its file name) moves to cache/dd/<save name>.<ext>, since the
+     * core names the disk's save after the disk's file: saves/<that>.disk_save, as RetroArch does (the whole disk,
+     * written as the game writes it). A ROM stays where it is.
+     */
+    private fun placeDisk(name: String?, saveName: String): String {
+        if (!RomFiles.isDiskName(name) || saveName.isEmpty()) return romCache.absolutePath
+        val dir = File(cacheDir, "dd").apply { mkdirs() }
+        dir.listFiles()?.forEach { it.delete() }
+        val disk = File(dir, "$saveName.${name!!.substringAfterLast('.')}")
+        if (!romCache.renameTo(disk)) { romCache.copyTo(disk, true); romCache.delete() }
+        return disk.absolutePath
+    }
+
+    /**
+     * The cartridge for a 64DD disk, unpacked to cache/dd-cart.rom: EXTRA_DD_CART (a content URI), or, dev, `--es ddcart
+     * <file in roms/>`. Null: the disk alone.
+     */
+    private fun resolveDdCart(): String? {
+        val out = File(cacheDir, "dd-cart.rom")
+        val given = intent?.getStringExtra(EXTRA_DD_CART)
+        val inner = when {
+            given != null -> try { contentResolver.openInputStream(Uri.parse(given))?.use { RomFiles.extract(it, out) } } catch (e: Exception) { JLog.e(TAG, "64DD cartridge $given: $e"); null }
+            else -> devString("ddcart")?.let { name ->
+                listOfNotNull(getExternalFilesDir(null), filesDir).map { File(it, "roms/$name") }.firstOrNull { it.exists() }
+                    ?.inputStream()?.use { RomFiles.extract(it, out) }
+            }
+        } ?: return null
+        JLog.i(TAG, "64DD cartridge ${inner.ifEmpty { given ?: "" }}")
+        return out.absolutePath
+    }
     /** The running game's cheat-list keys (CheatLogic.keys), read from its header at start. */
     private var cheatKeys: List<String> = emptyList()
 
     /** The cheats the user left on for this game ([GameCheats]), given to the core before it loads the game. */
     private fun applyCheats(rom: String, saveName: String) {
-        cheatKeys = try {
-            val buf = File(rom).inputStream().use { i -> ByteArray(0x40).also { b -> if (i.read(b) < b.size) throw java.io.IOException("short ROM") } }
-            val order = com.joeysretro.joey64.launcher.library.RomByteOrder.of(buf) ?: throw java.io.IOException("not an N64 ROM")
-            order.toBigEndian(buf, buf.size)
-            com.joeysretro.joey64.cheats.CheatLogic.keys(com.joeysretro.joey64.cheats.CheatLogic.keyOf(
-                com.joeysretro.joey64.launcher.library.RomReader.parseHeader(buf)))
-        } catch (e: Exception) {
-            JLog.e(TAG, "cheats: can't read the ROM header: $e"); emptyList()
-        }
+        cheatKeys = headerKeys(rom) // "": a 64DD disk with no cartridge, no header
         if (saveName.isEmpty()) return
-        val lines = com.joeysretro.joey64.cheats.GameCheats(this, saveName).read().codeLines()
+        val lines = com.joeysretro.joey64.cheats.GameCheats(this, saveName).read().codeLines() + extrasOn.codeLines
         for (l in lines) NativeBridge.addCheat(l)
+        cheatsMost = lines.size
         JLog.i(TAG, "cheats: ${lines.size} on, keys ${cheatKeys.joinToString()}")
     }
 
@@ -552,24 +923,127 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
      * name would also let a hack that keeps the original file name overwrite the real game's save), "" for a plain
      * ROM, or null when it holds no N64 ROM.
      */
-    private fun copyToCache(uri: Uri): String? =
-        contentResolver.openInputStream(uri)?.use { RomFiles.extract(it, romCache) }
+    private fun copyToCache(uri: Uri, name: String?): String? =
+        contentResolver.openInputStream(uri)?.use { RomFiles.extract(it, romCache, name) }
+
+    /** What [prepareGame] got ready off the main thread: the ROM, its save name, a 64DD disk's cartridge, Settings › Saves. */
+    private class Prepared(val rom: String, val saveName: String, val ddCart: String?, val savesOpts: com.joeysretro.joey64.saves.SavesOptions,
+                           val extras: com.joeysretro.joey64.video.ExtrasOn)
+    /** [prepareGame] stopped because a 64DD disk's cartridge didn't unpack. */
+    @Volatile private var cartFailed = false
+    /** [prepareGame] is running on [gameIo]. */
+    private var preparing = false
+    /** Ready, waiting for a surface (it went away while the files were copied). */
+    private var prepared: Prepared? = null
+    private var surfaceUp = false
 
     override fun surfaceCreated(holder: SurfaceHolder) {
         if (!mine) return
         NativeBridge.setSurface(holder.surface)
-        if (!started) {
-            val (rom, saveName) = resolveRom() ?: run { JLog.e(TAG, "No ROM. Push one to ${getExternalFilesDir(null)}/test.z64"); return }
-            reportGameState(loading = true)
-            applyControls(rom, saveName)
-            applyCheats(rom, saveName)
-            // RetroAchievements: signs in with the kept account first, so the game is identified as it loads.
-            com.joeysretro.joey64.achievements.RaBridge.init(this)
-            if (NativeBridge.loadGame(rom, saveName)) {
-                NativeBridge.start(); started = true; owner = this; gameLoaded = true
-                startStates(saveName)
+        surfaceUp = true
+        if (started) return
+        prepared?.let { launchGame(it); return }
+        if (preparing) return
+        // The file work before a game loads (unpacking the ROM, the 64DD BIOS, a picked data folder's saves, the
+        // save backups: a 64DD disk save is 64.9 MB) runs off the main thread (code audit 2, finding 1).
+        preparing = true
+        reportGameState(loading = true)
+        gameIo.execute {
+            val p = try { prepareGame() } catch (e: Exception) { JLog.e(TAG, "can't get the game ready: $e"); null }
+            runOnUiThread {
+                preparing = false
+                if (destroyed) return@runOnUiThread
+                if (p == null) { reportGameState(loading = false); notStarted(cart = cartFailed); return@runOnUiThread }
+                prepared = p
+                if (surfaceUp) launchGame(p)
             }
+        }
+    }
+
+    /** On [gameIo]: everything before loadGame that reads or writes files. Null: no ROM. */
+    private fun prepareGame(): Prepared? {
+        val (rom, saveName) = resolveRom() ?: run { JLog.e(TAG, "No ROM. Push one to ${getExternalFilesDir(null)}/test.z64"); return null }
+        val disk = RomFiles.isDiskName(rom)
+        // A 64DD disk: the IPL BIOS comes from the data folder's bios/ (the core reads its copy in files/system).
+        if (disk) com.joeysretro.joey64.launcher.storage.BiosSync.refresh(this)
+        val ddCart = if (disk) resolveDdCart() else null
+        // A cartridge was given and didn't unpack: the disk alone would start with no word of it (code audit 2).
+        if (disk && ddCart == null && (intent?.getStringExtra(EXTRA_DD_CART) != null || devString("ddcart") != null)) {
+            JLog.e(TAG, "64DD: the cartridge didn't unpack, not starting the disk alone")
+            cartFailed = true
+            return null
+        }
+        // Settings › Saves: a copy of the save RAM before the core can write it (Back up saves).
+        val opts = com.joeysretro.joey64.saves.SavesStore(this).read()
+        // A picked data folder: its copy of the save RAM comes into files/saves, where the core reads it.
+        com.joeysretro.joey64.launcher.storage.SrmSync.pull(this, saveName)
+        com.joeysretro.joey64.saves.SaveBackups.maybeBackUp(com.joeysretro.joey64.launcher.storage.DataFolders.current(this).space,
+            saveName, opts.backups, opts.backupsKeep)
+        return Prepared(rom, saveName, ddCart, opts, gameExtras(if (disk) ddCart ?: "" else rom))
+    }
+
+    /** On the main thread, with a surface: the rest of the start. */
+    private fun launchGame(p: Prepared) {
+        prepared = null
+        val rom = p.rom; val saveName = p.saveName; val ddCart = p.ddCart
+        startRom = rom; startSave = saveName
+        NativeBridge.setDdCart(ddCart ?: "")
+        applyControls(rom, saveName)
+        extrasOn = p.extras // before applyCheats, which hands the core their codes
+        applyCheats(if (RomFiles.isDiskName(rom)) ddCart ?: "" else rom, saveName)
+        applyAudio(saveName)
+        savesOpts = p.savesOpts
+        // Settings › Emulation: Overclock, CPU core, Expansion Pak (never Off for a game that needs it). --es opts wins.
+        val code = romGameCode(if (RomFiles.isDiskName(rom)) ddCart ?: "" else rom)
+        val eApply = com.joeysretro.joey64.emulation.EmuApply.of(emuAtStart, com.joeysretro.joey64.emulation.ExpansionPak.needed(code))
+        val devOpts = devString("opts").orEmpty()
+        for ((k, v) in eApply.coreOptions) if (!devOpts.contains("$k=")) NativeBridge.setOption(k, v)
+        if (eApply.coreOptions.isNotEmpty()) JLog.i(TAG, "emulation ($code): ${eApply.coreOptions}")
+        // A 60 fps code makes the game's CPU work harder: the CPU runs at counter factor 1 (the smoother timing's
+        // CountPerOp=1), unless Overclock is set or --es opts sets it.
+        if (p.extras.fps && !eApply.overclockSet && !devOpts.contains("mupen64plus-CountPerOp=")) NativeBridge.setOption("mupen64plus-CountPerOp", "1")
+        if (p.extras.shape != null) applyVideoDisplay()
+        JLog.i(TAG, "widescreen / 60 fps: ${p.extras.log}")
+        // RetroAchievements: signs in with the kept account first, so the game is identified as it loads.
+        com.joeysretro.joey64.achievements.RaBridge.init(this)
+        trial?.begin()
+        if (NativeBridge.loadGame(rom, saveName)) {
+            NativeBridge.start(); started = true; owner = this; gameLoaded = true
+            if (trial != null) fpsHandler.postDelayed(trialWatch, 250)
+            startStates(saveName)
+            startSession(rom, saveName)
+            fpsHandler.postDelayed(shutdownWatch, SHUTDOWN_POLL_MS)
             reportGameState(loading = false)
+        } else {
+            trial?.cancel()
+            reportGameState(loading = false)
+            notStarted(cart = false)
+        }
+    }
+
+    /** The game couldn't start (no ROM, a cartridge that didn't unpack, the core refused it): back to what started it, not a black screen. */
+    private fun notStarted(cart: Boolean) {
+        JLog.e(TAG, "the game didn't start, closing the game screen")
+        if (cart) intent?.let { com.joeysretro.joey64.launcher.GameStartFailed.diskNeedsCart(it) }
+        finish()
+    }
+
+    /**
+     * The core shut down (a 64DD disk whose region has no IPL BIOS: code audit 2, finding 2): no frames come, so the game
+     * screen closes instead of staying black, and the library asks for the BIOS again ([GameStartFailed]).
+     */
+    private val shutdownWatch = object : Runnable {
+        override fun run() {
+            if (destroyed || isFinishing) return
+            val why = NativeBridge.coreShutDown()
+            if (why == 0) { fpsHandler.postDelayed(this, SHUTDOWN_POLL_MS); return }
+            val noIpl = why == 2
+            JLog.e(TAG, "the core shut down: the game did not start${if (noIpl) " (no 64DD IPL BIOS for the disk's region)" else ""}, closing the game screen")
+            // Not the GPU's doing: the start doesn't count against Auto's trial (a no-op once a frame was drawn).
+            trial?.cancel()
+            // Only a missing IPL is asked for; a damaged disk or disk save just goes back.
+            if (noIpl) intent?.let { com.joeysretro.joey64.launcher.GameStartFailed.diskNeedsBios(it) }
+            finish()
         }
     }
 
@@ -586,6 +1060,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
      */
     private var startLoadFailed = false
 
+    /** Settings › Saves, read when the game starts (approved Saves mockup 2026-11-07). */
+    private var savesOpts = com.joeysretro.joey64.saves.SavesOptions()
+    private val recoveryEveryMs get() = savesOpts.recoveryMinutes * 60_000L
+
     /** The game is up: load the state the launcher asked for (Continue), and start the recovery state's timer. */
     private fun startStates(saveName: String) {
         if (saveName.isEmpty()) { JLog.i(TAG, "states: off for a ROM without a name (the dev path)"); return }
@@ -595,6 +1073,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         overlay = GameOverlay(this, pauseActions).also {
             it.title = givenTitle ?: saveName
             it.saveSlotName = slotName(currentSlot())
+            it.onScreen = onScreen
         }
         // RetroAchievements no longer takes the kept sign-in (the password changed on the website): say so
         // once the game is up (approved sign-in mockup g). Signing in again is in Settings › RetroAchievements.
@@ -627,7 +1106,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             STATE_RECOVERY -> stateHandler.post { startLoadFailed = !st.loadRecovery() }
             else -> JLog.e(TAG, "states: unknown state to load: $which")
         }
-        stateHandler.postDelayed(recoveryTick, RECOVERY_EVERY_MS)
+        // A picked data folder gets the save RAM the core wrote, every 30 s when it changed (and on exit).
+        stateHandler.postDelayed(srmTick, SRM_PUSH_MS)
+        // Settings › Saves › Recovery state Off: none is written, so none is offered after a crash.
+        if (recoveryEveryMs > 0) stateHandler.postDelayed(recoveryTick, recoveryEveryMs)
+        else stateHandler.post { st.clearRecovery() }
         // Dev (--es env N64_POPUP_TEST=1): a pop-up kept on screen the whole time, renewed every 4 s,
         // to measure what one costs (plan, Phase 3: the measure).
         if (android.system.Os.getenv("N64_POPUP_TEST") == "1") fpsHandler.post(popupTest)
@@ -652,12 +1135,84 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         return RecentlyPlayed.Entry(title ?: saveName, file, uri, path, saveName, System.currentTimeMillis())
     }
 
+    private val srmTick = object : Runnable {
+        override fun run() {
+            val st = states ?: return
+            com.joeysretro.joey64.launcher.storage.SrmSync.push(this@MainActivity, st.saveName)
+            stateHandler.postDelayed(this, SRM_PUSH_MS)
+        }
+    }
+
+    // ---- reports (approved reports mockup, version A, Joey 2026-11-08) ----------------------------------
+    // Send reports on: this play session (time at normal speed, frames run and drawn) goes to files/reports,
+    // and the library sends it with the next report. Off: nothing is recorded. Dev starts (--es env/opts,
+    // renderer or driver overrides) are tests, not play: not recorded either.
+    private var session: com.joeysretro.joey64.reports.SessionTracker? = null
+    /** The most cheat codes on at once this session (reports: a game that misbehaves with cheats on). */
+    private var cheatsMost = 0
+    private val sessionStats = DoubleArray(16)
+
+    private fun startSession(rom: String, saveName: String) {
+        if (!com.joeysretro.joey64.reports.ReportPrefs.on(this)) return
+        if (listOf("env", "opts", "renderer", "driver").any { intent?.hasExtra(it) == true }) { JLog.i(TAG, "reports: a dev start, not recorded"); return }
+        val md5 = intent?.getStringExtra(EXTRA_MD5) ?: romMd5(rom) ?: return
+        // Settings that differ from the defaults: Video's for this game (all of them count for speed), Audio's.
+        val v = com.joeysretro.joey64.video.VideoStore(this).forGame(saveName.ifEmpty { null })
+        val a = com.joeysretro.joey64.audio.AudioStore(this).forGame(saveName.ifEmpty { null })
+        val settings = org.json.JSONObject()
+        for (k in com.joeysretro.joey64.video.VideoKey.entries) if (v[k] != k.default) settings.put("video." + k.key, v[k])
+        for (k in com.joeysretro.joey64.audio.AudioKey.entries) if (a[k] != k.default) settings.put("audio." + k.key, a[k])
+        for (k in com.joeysretro.joey64.emulation.EmuKey.entries) if (emuAtStart[k] != k.default) settings.put("emulation." + k.key, emuAtStart[k])
+        // The widescreen / 60 fps versions actually on (the rows above say what was asked for).
+        extrasOn.widescreenName?.let { settings.put("on.widescreen", it) }
+        extrasOn.fpsName?.let { settings.put("on.fps", it) }
+        val scale = if (parallel) (playUpscale ?: "1x").removeSuffix("x").toIntOrNull() ?: 1
+            else statsRenderer.substringAfter("GLideN64 ").removeSuffix("x").trim().toIntOrNull() ?: 1
+        val base = org.json.JSONObject().apply {
+            put("md5", md5.lowercase())
+            put("renderer", if (parallel) "parallel" else "gliden64")
+            put("scale", scale)
+            put("settings", settings)
+            put("gpu", gpuName.replace("(TM) ", ""))
+            put("driver", statsDriver)
+            @Suppress("DEPRECATION") val shown = if (Build.VERSION.SDK_INT >= 30) display else windowManager.defaultDisplay
+            shown?.refreshRate?.takeIf { it > 0 }?.let { put("refreshHz", Math.round(it)) }
+            put("fromState", intent?.getStringExtra(EXTRA_LOAD_STATE) != null)
+            put("cheats", cheatsMost)
+        }
+        // The library's report with no session yet names the GPU and driver from here.
+        getSharedPreferences("device", MODE_PRIVATE).edit().putString("report_gpu", gpuName.replace("(TM) ", "")).putString("report_driver", statsDriver).apply()
+        session = com.joeysretro.joey64.reports.SessionTracker(File(com.joeysretro.joey64.reports.ReportFiles.open(this), "${android.os.Process.myPid()}.json"),
+            com.joeysretro.joey64.reports.ReportFiles.pending(this), base)
+        sessionMark()
+        fpsHandler.postDelayed(sessionTick, SESSION_TICK_MS)
+    }
+
+    /** Playing at normal speed right now: not paused, no menu, no fast-forward. */
+    private val sessionCounting get() = resumed && !menuOpen && !hotkeyPaused && !fastForward && !quitting
+
+    /** Closes the stretch since the last mark, counted if play was counting through it. */
+    private fun sessionMark() {
+        val s = session ?: return
+        s.tick(sessionCounting, NativeBridge.framesRun(), NativeBridge.framesDrawn(), android.os.SystemClock.elapsedRealtime())
+        s.native(sessionStats, NativeBridge.sessionStats(sessionStats))
+    }
+
+    private val sessionTick = object : Runnable {
+        override fun run() {
+            val s = session ?: return
+            sessionMark()
+            stateHandler.post { s.writeOpen() }
+            fpsHandler.postDelayed(this, SESSION_TICK_MS)
+        }
+    }
+
     /** Every few minutes while playing (not while paused or quitting), the recovery state. */
     private val recoveryTick = object : Runnable {
         override fun run() {
             val st = states ?: return
-            if (resumed && !quitting && !menuOpen) st.saveRecovery()
-            stateHandler.postDelayed(this, RECOVERY_EVERY_MS)
+            if (resumed && !quitting && !menuOpen && !hotkeyPaused) st.saveRecovery()
+            stateHandler.postDelayed(this, recoveryEveryMs)
         }
     }
 
@@ -678,14 +1233,16 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         slotPrefs.edit().putInt("slot/" + st.saveName, slot).apply()
         overlay?.saveSlotName = slotName(slot)
     }
-    private fun slotName(slot: Int) = if (slot == StateSlots.AUTO) "Auto" else "Slot $slot"
+    private fun slotName(slot: Int) = StateSlots.label(slot)
 
     private fun openMenu() {
         val o = overlay ?: return
-        menuOpen = true
+        sessionMark(); menuOpen = true
+        achievementsDirect = false
         NativeBridge.pause(true)
         // Held buttons and sticks are let go: the menu's window takes the pad from here.
         hotkeyHeld = false
+        volumeKey(0, false)
         gameSharkButton(false)
         releaseAll()
         o.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Menu()
@@ -693,8 +1250,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     /**
      * Tap to open (plan, Phase 7): tapping an achievement pop-up or the challenge badges opens the
-     * pause menu's Achievements at that achievement. The pop-up windows can't be touched (the game
-     * keeps the pad), so the game's window checks where a tap lands. Other pop-ups do nothing.
+     * pause menu's Achievements at that achievement; tapping Sign-in expired opens the sign-in popup
+     * over the paused game. The pop-up windows can't be touched (the game keeps the pad), so the
+     * game's window checks where a tap lands. Other pop-ups do nothing.
      */
     private var tapDown: GameOverlay.Tap? = null
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
@@ -715,10 +1273,18 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private fun opensAchievements(t: GameOverlay.Tap) = when (t) {
         is GameOverlay.Tap.Badges -> true
         is GameOverlay.Tap.Popup -> t.popup.kind in setOf(InGamePopup.Kind.Achievement, InGamePopup.Kind.Progress,
-            InGamePopup.Kind.ChallengeFailed, InGamePopup.Kind.Game)
+            InGamePopup.Kind.ChallengeFailed, InGamePopup.Kind.Game) || signsIn(t)
     }
 
+    private fun signsIn(t: GameOverlay.Tap) = t is GameOverlay.Tap.Popup && t.popup.key == "ra" && t.popup.kind == InGamePopup.Kind.Account
+
     private fun openAchievementsAt(t: GameOverlay.Tap) {
+        if (signsIn(t)) {
+            overlay?.hide("ra")
+            openMenu()
+            overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.SignIn
+            return
+        }
         val id = when (t) {
             is GameOverlay.Tap.Badges -> t.newest
             is GameOverlay.Tap.Popup -> t.popup.key.substringAfter('-', "").toIntOrNull()
@@ -732,9 +1298,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private fun sendCheats() {
         val st = states ?: return
         stateHandler.post {
-            val lines = com.joeysretro.joey64.cheats.GameCheats(this@MainActivity, st.saveName).read().codeLines()
+            // The widescreen / 60 fps codes the game started with stay with the cheats.
+            val lines = com.joeysretro.joey64.cheats.GameCheats(this@MainActivity, st.saveName).read().codeLines() + extrasOn.codeLines
             NativeBridge.setCheats(lines.toTypedArray())
             JLog.i(TAG, "cheats: ${lines.size} on")
+            if (lines.size > cheatsMost) { cheatsMost = lines.size; session?.put("cheats", cheatsMost) }
         }
     }
 
@@ -758,7 +1326,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     private fun closeMenu() {
         overlay?.screen = null
-        menuOpen = false
+        sessionMark(); menuOpen = false
+        achievementsDirect = false
+        // Resume goes on after the Pause hotkey too (approved hotkeys mockup 2026-11-07).
+        if (hotkeyPaused) { sessionMark(); hotkeyPaused = false; overlay?.hide("paused", waiting = true) }
         if (resumed && !quitting) NativeBridge.pause(false)
     }
 
@@ -773,7 +1344,21 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         }
 
     private val pauseActions = object : com.joeysretro.joey64.launcher.ingame.PauseActions {
-        override fun resume() = closeMenu()
+        override fun resume() { if (!askRestart()) closeMenu() }
+        override fun openGameSettings() {
+            val st = states ?: return
+            overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.GameSettings(st.saveName)
+        }
+        override fun closeGameSettings() {
+            states?.let { applyGameSettings(it.saveName) }
+            reloadControls()
+            if (menuOpen) overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Menu(com.joeysretro.joey64.launcher.ingame.MenuRow.GameSettings)
+        }
+        override val gameSettingsLabel: String get() = states?.let {
+            com.joeysretro.joey64.launcher.gamesettings.GameSettingsModel(this@MainActivity).summary(it.saveName).label
+        } ?: ""
+        override fun restartNow() = restartForSettings()
+        override fun restartLater() = closeMenu()
         override fun openSave() = openPicker(save = true)
         override fun openLoad() = openPicker(save = false)
         override fun openControls() {
@@ -795,7 +1380,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         override fun openAchievements() {
             overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Achievements()
         }
+        override fun closeSignIn() { closeMenu() }
         override fun closeAchievements() {
+            // Opened by the Achievements hotkey: B goes back to the game, not the menu.
+            if (achievementsDirect) { closeMenu(); return }
             if (menuOpen) overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Menu(com.joeysretro.joey64.launcher.ingame.MenuRow.Achievements)
         }
         override fun pressGameShark() {
@@ -863,6 +1451,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     /** Read when the game starts (Controls are changed in the launcher, or in the pause menu with the game paused). */
     private var hotkeys = Hotkeys()
     private var hotkeyHatX = 0
+    private var hotkeyHatY = 0
 
     private fun hotkey(action: HotkeyAction) {
         when (action) {
@@ -871,21 +1460,191 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             HotkeyAction.NextSlot -> stepSlot(1)
             HotkeyAction.PrevSlot -> stepSlot(-1)
             HotkeyAction.Screenshot -> hotkeyScreenshot()
+            HotkeyAction.Stats -> stepStats()
             HotkeyAction.Reset -> stateHandler.post { val ok = resetNow(); runOnUiThread { popReset(ok) } }
             HotkeyAction.Quit -> quitToLibrary()
             HotkeyAction.PauseMenu -> if (!menuOpen) openMenu()
             HotkeyAction.FastForward -> toggleFastForward()
+            HotkeyAction.SlowMotion -> setSlowMotion(!slowMotion)
+            HotkeyAction.Rewind -> {}  // both edges, in hotkeyEdge
             HotkeyAction.GameShark -> {}  // both edges, in dispatchKeyEvent
+            HotkeyAction.VolumeUp -> stepVolume(5)
+            HotkeyAction.VolumeDown -> stepVolume(-5)
+            HotkeyAction.Mute -> toggleMute()
+            HotkeyAction.UpscaleUp -> stepUpscale(1)
+            HotkeyAction.UpscaleDown -> stepUpscale(-1)
+            HotkeyAction.Pause -> togglePause()
+            HotkeyAction.FrameAdvance -> frameAdvance()
+            HotkeyAction.Achievements -> openAchievementsHotkey()
         }
     }
 
-    /** The hotkey button is held: a hat D-pad's left / right are the D-pad keys' hotkeys. */
+    /**
+     * A hotkey's press or release (with the hotkey button, or on its own): fast-forward, GameShark and
+     * the volume use both edges, the pause menu opens on release (its window would get the release
+     * otherwise), the rest fire on the press. The game sees neither edge.
+     */
+    private fun hotkeyEdge(action: HotkeyAction, event: KeyEvent, down: Boolean) {
+        val up = event.action == KeyEvent.ACTION_UP
+        if (quitting) return
+        when (action) {
+            HotkeyAction.GameShark -> if (down) { fpsHandler.removeCallbacks(gameSharkUp); gameSharkButton(true) } else if (up) gameSharkRelease()
+            HotkeyAction.FastForward -> if (down || up) fastForwardKey(down)
+            HotkeyAction.SlowMotion -> if (down || up) slowMotionKey(down)
+            HotkeyAction.Rewind -> if (down || up) rewindKey(down)
+            HotkeyAction.VolumeUp, HotkeyAction.VolumeDown -> if (down || up) volumeKey(if (action == HotkeyAction.VolumeUp) 5 else -5, down)
+            HotkeyAction.PauseMenu -> if (up && !event.isCanceled && !menuOpen) openMenu()
+            else -> if (down) hotkey(action)
+        }
+    }
+
+    // ---- Sound, Picture, Pause and Achievements hotkeys (approved hotkeys mockup, 2026-11-07) ----------
+    /** The volume hotkey held: 5% now, then every [VOLUME_REPEAT_MS] after [VOLUME_FIRST_REPEAT_MS]. 0: none held. */
+    private var volumeHeld = 0
+    private val volumeRepeat = object : Runnable {
+        override fun run() {
+            if (volumeHeld == 0 || destroyed) return
+            stepVolume(volumeHeld)
+            fpsHandler.postDelayed(this, VOLUME_REPEAT_MS)
+        }
+    }
+    private fun volumeKey(step: Int, down: Boolean) {
+        fpsHandler.removeCallbacks(volumeRepeat)
+        if (!down) { volumeHeld = 0; return }
+        if (volumeHeld == step) return
+        volumeHeld = step
+        stepVolume(step)
+        fpsHandler.postDelayed(volumeRepeat, VOLUME_FIRST_REPEAT_MS)
+    }
+
+    /** Settings › Audio's sound for this game, now (volume, mute, mono, fast-forward sound; latency stays as started). */
+    private fun applyAudioNow(saveName: String): com.joeysretro.joey64.audio.AudioSettings {
+        val a = com.joeysretro.joey64.audio.AudioStore(this).forGame(saveName)
+        val start = audioAtStart ?: a
+        NativeBridge.setAudio(a.volume, a.on(com.joeysretro.joey64.audio.AudioKey.Mute), a.on(com.joeysretro.joey64.audio.AudioKey.Mono), a.ffMode, start.latencyMode)
+        return a
+    }
+
+    /** 5% louder or quieter, saved where Settings › Audio would: the game's own Volume if it has one, else All games'. */
+    private fun stepVolume(step: Int) {
+        val save = states?.saveName ?: return
+        val store = com.joeysretro.joey64.audio.AudioStore(this)
+        val own = store.game(save)
+        val gameHas = own?.containsKey(com.joeysretro.joey64.audio.AudioKey.Volume) == true
+        val now = store.forGame(save).volume
+        // To the next 5% step (a volume set between steps lands on one).
+        val next = (if (step > 0) (now / 5 + 1) * 5 else ((now + 4) / 5 - 1) * 5).coerceIn(0, 100)
+        if (next != now) {
+            if (gameHas) store.saveGame(save, own!! + (com.joeysretro.joey64.audio.AudioKey.Volume to next.toString()))
+            else store.saveAll(store.all() + (com.joeysretro.joey64.audio.AudioKey.Volume to next.toString()))
+            applyAudioNow(save)
+        }
+        JLog.i(TAG, "volume hotkey: $now -> $next (${if (gameHas) "this game" else "All games"})")
+        pop("volume", InGamePopup.Kind.Volume, "Volume", "$next%", "Settings › Audio, " + if (gameHas) "this game" else "All games", bar = next / 100f)
+    }
+
+    /** Settings › Audio's Mute (All games), off or on. */
+    private fun toggleMute() {
+        val save = states?.saveName ?: return
+        val store = com.joeysretro.joey64.audio.AudioStore(this)
+        val muted = !store.forGame(save).on(com.joeysretro.joey64.audio.AudioKey.Mute)
+        store.saveAll(store.all() + (com.joeysretro.joey64.audio.AudioKey.Mute to if (muted) "on" else "off"))
+        applyAudioNow(save)
+        JLog.i(TAG, "mute hotkey: ${if (muted) "sound off" else "sound on"}")
+        pop("mute", InGamePopup.Kind.Mute, "Mute", if (muted) "Sound off" else "Sound on", if (muted) "Stays off until you press it again" else "")
+    }
+
+    /** parallel-RDP's Resolution in this play (Settings › Video's at the start, after the Duo's cap); null on GLideN64. */
+    private var playUpscale: String? = null
+
+    /** Resolution one step up or down for this play only: parallel-RDP reads it between frames; GLideN64 only at start. */
+    private fun stepUpscale(step: Int) {
+        val now = playUpscale
+        if (!parallel || now == null) {
+            pop("upscale", InGamePopup.Kind.Problem, "Resolution", "Can't change while playing", "GLideN64 reads it when the game starts: Settings › Video")
+            return
+        }
+        val top = UPSCALES.indexOf(capUpscaling(UPSCALE_KEY, UPSCALES.last()))
+        val i = UPSCALES.indexOf(now).coerceAtLeast(0) + step
+        if (i > top) { pop("upscale", InGamePopup.Kind.Resolution, "Resolution", "Already the highest", ""); return }
+        if (i < 0) { pop("upscale", InGamePopup.Kind.Resolution, "Resolution", "Already the lowest", ""); return }
+        val next = UPSCALES[i]
+        playUpscale = next
+        NativeBridge.setOptionsLive(arrayOf(UPSCALE_KEY), arrayOf(next))
+        statsRenderer = "parallel-RDP $next"
+        stats?.renderer = statsRenderer
+        val kept = com.joeysretro.joey64.video.VideoChoices.label(com.joeysretro.joey64.video.VideoKey.Resolution,
+            videoAtStart[com.joeysretro.joey64.video.VideoKey.Resolution])
+        JLog.i(TAG, "upscale hotkey: $now -> $next for this play")
+        pop("upscale", InGamePopup.Kind.Resolution, "Resolution", if (i == 0) "Native (1x)" else next, "This play only. Settings › Video keeps $kept")
+    }
+
+    /** Stopped by the Pause hotkey: no menu, the pop-up stays until it's pressed again (or the menu's Resume). */
+    private var hotkeyPaused = false
+    private fun togglePause() {
+        if (menuOpen) return
+        sessionMark(); hotkeyPaused = !hotkeyPaused
+        if (hotkeyPaused) {
+            NativeBridge.pause(true)
+            releaseAll()
+            overlay?.show(InGamePopup("paused", InGamePopup.Kind.Paused, "Paused", pausedLine(), "", stayMs = com.joeysretro.joey64.launcher.ingame.PopupQueue.UNTIL_HIDDEN))
+        } else {
+            overlay?.hide("paused", waiting = true)
+            if (resumed) NativeBridge.pause(false)
+        }
+        JLog.i(TAG, "pause hotkey: ${if (hotkeyPaused) "paused" else "going on"}")
+    }
+
+    /** The Paused pop-up's line: how to go on (Pause has no button by default: then the pause menu's Resume), and Frame advance when it has one. */
+    private fun pausedLine(): String {
+        val pause = hotkeys.keys[HotkeyAction.Pause] != null
+        // Short enough for the pop-up's one line.
+        return if (hotkeys.keys[HotkeyAction.FrameAdvance] == null) (if (pause) "Press Pause again to go on" else "Resume from the pause menu to go on")
+            else (if (pause) "Pause: go on" else "Menu: Resume") + " · Frame advance: one frame"
+    }
+
+    /** Frame advance: running, it pauses (as Pause); paused by a hotkey, one more frame each press. */
+    private fun frameAdvance() {
+        if (menuOpen) return
+        if (!hotkeyPaused) { togglePause(); return }
+        NativeBridge.stepFrame()
+    }
+
+    /** The Achievements hotkey opened the page (B goes back to the game). */
+    private var achievementsDirect = false
+    private fun openAchievementsHotkey() {
+        if (menuOpen) return
+        val ra = com.joeysretro.joey64.achievements.RaBridge
+        if (ra.gameInfo() == "null" && ra.debugCache == null) {
+            if (ra.account.value == null) pop("achievements", InGamePopup.Kind.NoAchievements, "Achievements", "Signed out", "Sign in at Settings › RetroAchievements")
+            else pop("achievements", InGamePopup.Kind.NoAchievements, "Achievements", "None for this game", "RetroAchievements has no set for it")
+            return
+        }
+        openMenu()
+        achievementsDirect = true
+        overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Achievements(toGame = true)
+    }
+
+    /** The hotkey button is held: a hat D-pad's directions are the D-pad keys' hotkeys (Up / Down hold for the volume). */
     private fun hotkeyHat(event: MotionEvent) {
         val hx = event.getAxisValue(MotionEvent.AXIS_HAT_X)
         val x = if (hx < -0.5f) -1 else if (hx > 0.5f) 1 else 0
         if (x != 0 && x != hotkeyHatX && !quitting)
             hotkeys.actionFor(if (x < 0) KeyEvent.KEYCODE_DPAD_LEFT else KeyEvent.KEYCODE_DPAD_RIGHT, alone = false)?.let { hotkey(it) }
         hotkeyHatX = x
+        val hy = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
+        val y = if (hy < -0.5f) -1 else if (hy > 0.5f) 1 else 0
+        if (y != hotkeyHatY) {
+            if (volumeHeld != 0) volumeKey(0, false)
+            if (y != 0 && !quitting) hotkeys.actionFor(if (y < 0) KeyEvent.KEYCODE_DPAD_UP else KeyEvent.KEYCODE_DPAD_DOWN, alone = false)?.let {
+                when (it) {
+                    HotkeyAction.VolumeUp -> volumeKey(5, true)
+                    HotkeyAction.VolumeDown -> volumeKey(-5, true)
+                    else -> hotkey(it)
+                }
+            }
+        }
+        hotkeyHatY = y
     }
 
     private fun hotkeySave() {
@@ -941,9 +1700,18 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     // Every state pop-up (slot, saved, loaded, empty) has the key "state": the newest takes the place
     // of the one showing, so "Slot 3 saved" doesn't wait behind "Slot 3, Empty".
-    private fun pop(key: String, kind: InGamePopup.Kind, label: String, name: String, line: String) {
+    private fun pop(key: String, kind: InGamePopup.Kind, label: String, name: String, line: String, bar: Float? = null) {
         if (destroyed) return
-        overlay?.show(InGamePopup(key, kind, label, name, line))
+        // Settings › On screen › Pop-ups (problems always show).
+        val off = when (kind) {
+            InGamePopup.Kind.Saved, InGamePopup.Kind.Loaded, InGamePopup.Kind.Slot -> !onScreen.popStates
+            InGamePopup.Kind.Screenshot -> !onScreen.popScreenshots
+            InGamePopup.Kind.Reset -> !onScreen.popReset
+            InGamePopup.Kind.Volume, InGamePopup.Kind.Mute, InGamePopup.Kind.Resolution -> !onScreen.popHotkeys
+            else -> false
+        }
+        if (off) return
+        overlay?.show(InGamePopup(key, kind, label, name, line, bar = bar))
     }
 
     private fun popSaved(slot: Int, ok: Boolean) {
@@ -984,7 +1752,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         stateHandler.removeCallbacks(recoveryTick)
         stateHandler.post {
             if (startLoadFailed) JLog.e(TAG, "states: the state asked for at start didn't load, so the auto slot is kept as it was")
-            else st.save(StateSlots.AUTO)
+            else if (!savesOpts.saveOnQuit) JLog.i(TAG, "states: Save on quit is off, no quit save written")
+            else st.saveQuit(savesOpts.quitSaves)
             st.clearRecovery()
             recent?.let { RecentlyPlayed.record(this, it.copy(lastPlayed = System.currentTimeMillis())) }
             // Quit to: the library (or the frontend that started the game), or out of Joey64 altogether:
@@ -994,7 +1763,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) { if (mine) NativeBridge.surfaceResized() }
-    override fun surfaceDestroyed(holder: SurfaceHolder) { if (mine) NativeBridge.setSurface(null) }
+    override fun surfaceDestroyed(holder: SurfaceHolder) { surfaceUp = false; if (mine) NativeBridge.setSurface(null) }
 
     /**
      * A ROM arrived while a game is loaded in this process (a frontend sending a second game). The core cannot load
@@ -1002,8 +1771,40 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
      * game screen again in a fresh process (RestartActivity), passing the unpacked path and save name so no URI grant
      * has to survive the restart. The intent's other extras (env, opts, renderer, ...) go along.
      */
+    /**
+     * Runs [then] once the library (LauncherActivity, in this process) has had its state saved, so the process restart
+     * in [switchGame] doesn't drop it: Android removes an activity whose process dies before its state was saved
+     * ("app died, no saved state", Thor 2026-11-07), and Quit to library then went to the home screen. Right away when
+     * the library isn't showing; after 2 s at the latest.
+     */
+    private fun afterLauncherSaved(then: () -> Unit) {
+        if (!com.joeysretro.joey64.launcher.LauncherActivity.started) { then(); return }
+        val app = application
+        val handler = android.os.Handler(mainLooper)
+        var done = false
+        lateinit var watch: android.app.Application.ActivityLifecycleCallbacks
+        val go = { if (!done) { done = true; app.unregisterActivityLifecycleCallbacks(watch); then() } }
+        watch = object : android.app.Application.ActivityLifecycleCallbacks {
+            override fun onActivitySaveInstanceState(a: android.app.Activity, out: Bundle) {
+                if (a is com.joeysretro.joey64.launcher.LauncherActivity) handler.post { go() }
+            }
+            override fun onActivityCreated(a: android.app.Activity, b: Bundle?) {}
+            override fun onActivityStarted(a: android.app.Activity) {}
+            override fun onActivityResumed(a: android.app.Activity) {}
+            override fun onActivityPaused(a: android.app.Activity) {}
+            override fun onActivityStopped(a: android.app.Activity) {}
+            override fun onActivityDestroyed(a: android.app.Activity) {}
+        }
+        app.registerActivityLifecycleCallbacks(watch)
+        handler.postDelayed({ go() }, 2000)
+    }
+
     private fun switchGame() {
         JLog.i(TAG, "new ROM while a game is loaded: restarting the process for it")
+        // A game screen still open (a frontend sent a ROM mid-game): the new one replaces the task. None open (the
+        // library's Play after Quit to library): the task keeps the library under the new game screen, so its Quit to
+        // library goes back there (2026-11-07: CLEAR_TASK here sent every second game's quit to the home screen).
+        val clearTask = owner != null
         owner?.let { NativeBridge.stop(); it.finish() }
         owner = null
         // The game before is closed on purpose: nothing to recover for it.
@@ -1019,8 +1820,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             }
             putExtra(EXTRA_ROM_PATH, rom)
             putExtra(EXTRA_SAVE_NAME, saveName)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (clearTask) addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK)
         }
+        // This screen only hands over: gone before the new one comes, so Back from it doesn't land here.
+        if (!clearTask) finish()
         RestartActivity.restart(this, next)
     }
     override fun surfaceRedrawNeeded(holder: SurfaceHolder) {}
@@ -1031,7 +1835,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         super.onWindowFocusChanged(hasFocus)
         // The hotkey button's release goes to whichever window has focus (the menu, the notification
         // shade): let go of it here, or B alone would quit to the library afterwards.
-        if (!hasFocus) { hotkeyHeld = false; fastForwardRelease(); if (!menuOpen) gameSharkButton(false); return }
+        if (!hasFocus) { hotkeyHeld = false; fastForwardRelease(); slowMotionRelease(); rewindRelease(); if (!menuOpen) gameSharkButton(false); return }
         requestUnbufferedJoystick()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.setDecorFitsSystemWindows(false)
@@ -1070,6 +1874,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (!controlsStore.hasAll()) controlsStore.saveAll(PadDevices.firstSet())
         controls = controlsStore.forGame(saveName.ifEmpty { null })
         hotkeys = controlsStore.hotkeys()
+        applyRewind()
         for (i in 0..3) players[i].setup = controls.players[i]
         playerOfDevice.clear()
         portsPresent = 1
@@ -1077,6 +1882,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         NativeBridge.setPortsPresent(portsPresent)
         NativeBridge.setOption("mupen64plus-alt-map", "True")
         NativeBridge.setOption("mupen64plus-astick-deadzone", "0") // PlayerInput applies the player's own
+        // Stick feel's Range and octagon gate reach past 80: the core maps 32767 to 120 (PlayerInput.toRetroStick).
+        NativeBridge.setOption("mupen64plus-astick-sensitivity", "150")
         val md5 by lazy { intent?.getStringExtra(EXTRA_MD5) ?: romMd5(rom) }
         val rumbleGames by lazy { PakDb.load(this) }
         for (i in 0..3) {
@@ -1147,6 +1954,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val save = currentSaveName
         controls = controlsStore.forGame(save.ifEmpty { null })
         hotkeys = controlsStore.hotkeys()
+        applyRewind()
+        if (slowMotion) NativeBridge.setSlowMotion(hotkeys.slowSpeed)
         for (i in 0..3) { players[i].setup = controls.players[i]; players[i].release(); push(i) }
         playerOfDevice.clear()
         var ports = 1
@@ -1157,7 +1966,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         for (i in 0..3) {
             val p = controls.players[i]
             val pak = if (p.pak == Pak.Auto) PakDb.auto(rumbleGames, md5) else p.pak
-            if (pak != paks[i]) { paks[i] = pak; NativeBridge.setOption("mupen64plus-pak${i + 1}", pak.core!!) }
+            // Live: the game is loaded, and setOption writes the option table the emulation thread reads unlocked.
+            if (pak != paks[i]) { paks[i] = pak; NativeBridge.setOptionsLive(arrayOf("mupen64plus-pak${i + 1}"), arrayOf(pak.core!!)) }
         }
         JLog.i(TAG, "controls: changed in game, " + controls.players.mapIndexed { i, p -> "P${i + 1} ${deviceLabel(p.device)} (${paks[i].name})" }.joinToString(", "))
     }
@@ -1177,7 +1987,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val input = players[p]
         NativeBridge.setButtons(p, input.buttons())
         val (x, y) = input.stick()
-        NativeBridge.setAnalog(p, 0, PlayerInput.toRetro(x), PlayerInput.toRetro(y))
+        NativeBridge.setAnalog(p, 0, PlayerInput.toRetroStick(x), PlayerInput.toRetroStick(y))
     }
 
     private fun releaseAll() {
@@ -1190,16 +2000,16 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val inGame = states != null && overlay != null && mine
         val code = event.keyCode
         val down = event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0
-        // The pause menu's button (Back by default) opens it on release (the menu's window would get the release otherwise).
-        if (inGame && code == hotkeys.keys[HotkeyAction.PauseMenu]) {
+        // The pause menu's button on its own (Back by default) opens it on release (the menu's window would get the release otherwise).
+        if (inGame && hotkeys.isAlone(HotkeyAction.PauseMenu) && code == hotkeys.keys[HotkeyAction.PauseMenu]) {
             if (event.action == KeyEvent.ACTION_UP && !event.isCanceled && !quitting && !menuOpen) openMenu()
             return true
         }
         // The hotkey button held makes the next button a hotkey.
         if (inGame && code == hotkeys.button) {
             when (event.action) {
-                KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) { hotkeyHeld = true; hotkeyHatX = 0 }
-                KeyEvent.ACTION_UP -> { hotkeyHeld = false; gameSharkRelease(); fastForwardRelease() }
+                KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) { hotkeyHeld = true; hotkeyHatX = 0; hotkeyHatY = 0 }
+                KeyEvent.ACTION_UP -> { hotkeyHeld = false; gameSharkRelease(); fastForwardRelease(); slowMotionRelease(); rewindRelease(); volumeKey(0, false) }
             }
             return true
         }
@@ -1207,28 +2017,17 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             gameSharkRelease()
             return true
         }
+        // A volume hotkey let go after the hotkey button: the repeat stops.
+        if (volumeHeld != 0 && event.action == KeyEvent.ACTION_UP &&
+            (code == hotkeys.keys[HotkeyAction.VolumeUp] || code == hotkeys.keys[HotkeyAction.VolumeDown])) volumeKey(0, false)
         if (hotkeyHeld && inGame) {
-            hotkeys.actionFor(code, alone = false)?.let { action ->
-                if (action == HotkeyAction.GameShark) {
-                    if (down && !quitting) { fpsHandler.removeCallbacks(gameSharkUp); gameSharkButton(true) }
-                    return true
-                }
-                if (action == HotkeyAction.FastForward) {
-                    if (!quitting && (down || event.action == KeyEvent.ACTION_UP)) fastForwardKey(down)
-                    return true
-                }
-                // Both edges are the hotkey's: the game never sees them.
-                if (down && !quitting) hotkey(action)
-                return true
-            }
+            // Both edges are the hotkey's: the game never sees them.
+            hotkeys.actionFor(code, alone = false)?.let { action -> hotkeyEdge(action, event, down); return true }
         }
         val p = playerFor(event.device, event.deviceId)
         if (KeyEvent.isGamepadButton(code) || p >= 0) usePad(event.device, event.deviceId)
-        // A button on its own (Back for the pause menu), unless this player plays with it.
-        if (p < 0 || !players[p].uses(code)) hotkeys.actionFor(code, alone = true)?.let { action ->
-            if (down && !quitting) hotkey(action)
-            return true
-        }
+        // A hotkey on its own wins over the game's use of the button (the Hotkeys popup says so).
+        if (inGame) hotkeys.actionFor(code, alone = true)?.let { action -> hotkeyEdge(action, event, down); return true }
         if (p < 0 || !players[p].uses(code)) return super.dispatchKeyEvent(event)
         if (inputLat && event.action == KeyEvent.ACTION_DOWN) noteInputLat(event.eventTime, true, 0)
         when (event.action) {
@@ -1252,7 +2051,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val (rx, ry) = cal.apply(1, event.getAxisValue(MotionEvent.AXIS_Z), event.getAxisValue(MotionEvent.AXIS_RZ))
         input.setAxes(lx, ly, rx, ry)
         // With the hotkey button held, left / right change the slot and don't reach the game (as the D-pad keys).
-        input.setHat(if (hotkeyHeld) 0f else event.getAxisValue(MotionEvent.AXIS_HAT_X), event.getAxisValue(MotionEvent.AXIS_HAT_Y))
+        input.setHat(if (hotkeyHeld) 0f else event.getAxisValue(MotionEvent.AXIS_HAT_X), if (hotkeyHeld) 0f else event.getAxisValue(MotionEvent.AXIS_HAT_Y))
         // Analog triggers (Thor reports both keys and BRAKE/GAS axes).
         val lt = maxOf(event.getAxisValue(MotionEvent.AXIS_LTRIGGER), event.getAxisValue(MotionEvent.AXIS_BRAKE))
         val rt = maxOf(event.getAxisValue(MotionEvent.AXIS_RTRIGGER), event.getAxisValue(MotionEvent.AXIS_GAS))
@@ -1265,31 +2064,68 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         return true
     }
 
+    /** Settings › Audio for this game (All games, then its own Volume and Latency), before the stream opens. */
+    private fun applyAudio(saveName: String?) {
+        val a = com.joeysretro.joey64.audio.AudioStore(this).forGame(saveName)
+        audioAtStart = a
+        audioApps = a.on(com.joeysretro.joey64.audio.AudioKey.Apps)
+        NativeBridge.setAudio(a.volume, a.on(com.joeysretro.joey64.audio.AudioKey.Mute), a.on(com.joeysretro.joey64.audio.AudioKey.Mono), a.ffMode, a.latencyMode)
+        JLog.i(TAG, "audio settings: volume ${a.volume}, ff sound ${a.ffMode}, latency ${a.latencyMode}, play alongside other apps $audioApps")
+        requestAudioFocus()
+    }
+
+    // Play alongside other apps Off (the default): the game takes audio focus while it runs, so other apps'
+    // music or video pauses; given back on pause. On: no request, both mix.
+    private var audioApps = false
+    private var focusRequest: android.media.AudioFocusRequest? = null
+    private fun requestAudioFocus() {
+        if (audioApps || focusRequest != null) return
+        val am = getSystemService(AUDIO_SERVICE) as android.media.AudioManager
+        val req = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_GAME)
+                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
+            .setOnAudioFocusChangeListener { JLog.i(TAG, "audio focus change $it") }
+            .build()
+        val r = am.requestAudioFocus(req)
+        focusRequest = req
+        JLog.i(TAG, "audio focus requested: $r")
+    }
+    private fun abandonAudioFocus() {
+        val req = focusRequest ?: return
+        (getSystemService(AUDIO_SERVICE) as android.media.AudioManager).abandonAudioFocusRequest(req)
+        focusRequest = null
+    }
+
     override fun onPause() {
         super.onPause()
         if (!mine) return
+        sessionMark(); session?.writeOpen()
         NativeBridge.pause(true)
+        abandonAudioFocus()
         // Leaving the game (quit, home, another app): its progress is kept while rc_client still has it.
         raCache?.keepNow()
         reportGameState(loading = false, playing = false)
-        fpsHandler.removeCallbacks(fpsTick)
+        stats?.stop()
         resumed = false
         hotkeyHeld = false
         fastForwardRelease()
+        slowMotionRelease()
+        rewindRelease()
+        volumeKey(0, false)
         fpsHandler.removeCallbacks(gameSharkUp)
         gameSharkButton(false)
-        setRumbling(false)
+        setRumbling(0)
         stickCals.values.forEach { it.save(stickPrefs) }
     }
     override fun onResume() {
         super.onResume()
         if (!mine) return
-        if (!menuOpen) NativeBridge.pause(false)
-        if (started) reportGameState(loading = false)
-        fpsLastTime = 0L
-        fpsHandler.post(fpsTick)
+        if (!menuOpen && !hotkeyPaused) NativeBridge.pause(false)
+        if (started) { reportGameState(loading = false); requestAudioFocus() }
+        session?.tick(false, NativeBridge.framesRun(), NativeBridge.framesDrawn(), android.os.SystemClock.elapsedRealtime())
         resumed = true
-        setRumbling(NativeBridge.rumble() > 0)
+        stats?.start()
+        setRumbling(NativeBridge.rumble())
         if (!rumbleWatcher.isAlive) rumbleWatcher.start()
     }
     // Item 31 (dev, --es env N64_GAME_STATE=1, Android 13+): tell the system a game is being played
@@ -1308,17 +2144,21 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     override fun onDestroy() {
+        if (isFinishing) { fpsHandler.removeCallbacks(sessionTick); session?.finish(); session = null }
         uiScope.cancel()
         debugStick?.let { unregisterReceiver(it) }
         debugDump?.let { unregisterReceiver(it) }
         debugLogs?.let { unregisterReceiver(it) }
         debugRaEvent?.let { unregisterReceiver(it) }
         destroyed = true
-        fpsView?.let { windowManager.removeView(it) }
+        stats?.destroy()
         raPopups?.stop()
         raCache?.stop()
         overlay?.destroy()
         if (owner === this) { NativeBridge.stop(); owner = null } else if (owner == null && !switching) NativeBridge.stop()
+        // The save RAM and a 64DD disk save written as the core stopped, into a picked data folder: on [gameIo], after
+        // any start still copying and before the next one (a disk save is 64.9 MB; code audit 2, finding 1).
+        startSave?.let { save -> val app = applicationContext; gameIo.execute { com.joeysretro.joey64.launcher.storage.SrmSync.push(app, save) } }
         // Closed on purpose (Back, or a frontend sending the next game): no recovery state is due.
         if (isFinishing && states != null) { stateHandler.removeCallbacks(recoveryTick); states?.clearRecovery() }
         if (states != null) stateThread.quitSafely()
@@ -1361,9 +2201,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         }
         // adb push ev.json /sdcard/Android/data/com.joeysretro.joey64/files/ra_event.json
         // adb shell am broadcast -a com.joeysretro.joey64.RA_EVENT  -> hands that rcheevos event JSON to the
-        // listeners as if the core had sent it (pop-up checks without a real unlock); --es file x.json for another file
+        // listeners as if the core had sent it (pop-up checks without a real unlock); --es file x.json for another file;
+        // --ez expired true puts up the Sign-in expired pop-up as a refused kept sign-in would (false takes it back)
         debugRaEvent = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, i: Intent) {
+                if (i.hasExtra("expired")) { com.joeysretro.joey64.achievements.RaBridge.debugExpired(i.getBooleanExtra("expired", true)); return }
                 val f = File(getExternalFilesDir(null), i.getStringExtra("file") ?: "ra_event.json")
                 val text = try { f.readText() } catch (e: Exception) { JLog.e(TAG, "RA_EVENT: can't read $f: $e"); return }
                 // One event per line, sent a second apart (an unlock, then what follows it).
@@ -1391,6 +2233,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val gameRunning get() = owner != null
         /** A game was loaded in this process; the core cannot load a second one, so a new ROM restarts the process. */
         private var gameLoaded = false
+        private const val SHUTDOWN_POLL_MS = 500L
+        /** Game start and quit file work, one job at a time in order, for every instance (they share cache/current.rom and saves/). */
+        private val gameIo = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "joey64-gameio") }
         /** switchGame -> the next process: the ROM already unpacked, and its save name. */
         const val EXTRA_ROM_PATH = "com.joeysretro.joey64.ROM_PATH"
         const val EXTRA_SAVE_NAME = "com.joeysretro.joey64.SAVE_NAME"
@@ -1403,20 +2248,27 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         const val EXTRA_TITLE = "com.joeysretro.joey64.TITLE"
         /** The ROM's MD5 (.z64 order), from the launcher: Auto pak looks it up without hashing the ROM again. */
         const val EXTRA_MD5 = "com.joeysretro.joey64.MD5"
+        private const val SESSION_TICK_MS = 5_000L
+        /** A 64DD disk's cartridge, as a content URI (F-Zero X Expansion Kit: F-Zero X (Japan)); without it a disk boots alone. */
+        const val EXTRA_DD_CART = "com.joeysretro.joey64.DD_CART"
         const val STATE_AUTO = "auto"
         const val STATE_RECOVERY = "recovery"
+        private const val SRM_PUSH_MS = 30_000L
         /** "Every few minutes" (approved 2026-11-05). */
-        private const val RECOVERY_EVERY_MS = 2 * 60_000L
         /** The pause menu's "Press GameShark button": how long it holds it (approved 2026-11-07: a second). */
         private const val GAMESHARK_PRESS_MS = 1_000L
         /** The hotkey's shortest hold: a few frames, so a quick tap reaches the game. */
         private const val GAMESHARK_MIN_MS = 200L
+        private const val UPSCALE_KEY = "mupen64plus-parallel-rdp-upscaling"
+        /** parallel-RDP's Resolution steps for the Upscale hotkeys (the Duo stops at 2x, [capUpscaling]). */
+        private val UPSCALES = listOf("1x", "2x", "4x", "8x")
+        private const val VOLUME_FIRST_REPEAT_MS = 400L
+        private const val VOLUME_REPEAT_MS = 150L
         private const val STATE_TIMEOUT_MS = 10_000
         const val TAG = "Joey64"
         // Bundled in assets/drivers/ (see assets/licenses/): Turnip (Mesa freedreno).
         const val TURNIP = "libvulkan_freedreno.so"
         // Same file name in its own folder: the driver is loaded by that name
         const val TURNIP_FAUX123 = "faux123/libvulkan_freedreno.so"
-        val TURNIP_GPUS = Regex("""Adreno \(TM\) [678]\d\d""")
     }
 }

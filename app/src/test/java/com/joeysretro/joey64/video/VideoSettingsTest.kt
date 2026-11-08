@@ -24,7 +24,7 @@ class VideoSettingsTest {
         assertEquals("Bob", a.coreOptions["mupen64plus-parallel-rdp-deinterlace-method"])
         assertTrue(a.env.isEmpty())
         assertFalse(a.sharpScale)
-        assertEquals(4 to 3, VideoApply.aspect(v, widescreenOn = false))
+        assertEquals(4 to 3, VideoApply.aspect(v, widescreen = null))
     }
 
     @Test fun gameKeysOverAllGames() {
@@ -55,17 +55,18 @@ class VideoSettingsTest {
         assertFalse(a.sharpScale)
     }
 
-    @Test fun pacingAndThermalGoToTheEnvironment() {
+    @Test fun pacingGoesToTheEnvironment() {
         assertEquals("1", VideoApply.of(VideoSettings(mapOf(VideoKey.Pacing to "steady")), true).env["N64_SWAP_INTERVAL"])
         assertEquals("2", VideoApply.of(VideoSettings(mapOf(VideoKey.Pacing to "timed")), true).env["N64_SWAP_INTERVAL"])
-        assertEquals("1", VideoApply.of(VideoSettings(mapOf(VideoKey.Thermal to "on")), true).env["N64_THERMAL_GOV"])
     }
 
     @Test fun aspectChoices() {
-        fun asp(s: String, ws: Boolean = false) = VideoApply.aspect(VideoSettings(mapOf(VideoKey.Aspect to s)), ws)
-        assertEquals(16 to 9, asp("auto", ws = true))
+        fun asp(s: String, ws: Pair<Int, Int>? = null) = VideoApply.aspect(VideoSettings(mapOf(VideoKey.Aspect to s)), ws)
+        assertEquals(16 to 9, asp("auto", ws = 16 to 9))
+        assertEquals(21 to 9, asp("auto", ws = 21 to 9))
+        assertEquals(4 to 3, asp("auto"))
         assertEquals(16 to 9, asp("16:9"))
-        assertEquals(4 to 3, asp("4:3", ws = true))
+        assertEquals(4 to 3, asp("4:3", ws = 16 to 9))
         assertEquals(0 to 0, asp("stretch"))
     }
 

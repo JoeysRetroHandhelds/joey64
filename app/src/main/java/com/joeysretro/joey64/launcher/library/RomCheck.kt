@@ -16,12 +16,12 @@ import java.util.zip.ZipInputStream
 object RomCheck {
     fun isN64(name: String, input: InputStream): Boolean = when (name.substringAfterLast('.', "").lowercase()) {
         "zip" -> zipHoldsRom(input)
-        else -> startsLikeRom(input)
+        else -> if (RomReader.isDiskName(name)) RomReader.diskSized(input) else startsLikeRom(input)
     }
 
-    /** The 7z in [channel] holds an N64 ROM. Closes [channel]. */
+    /** The 7z in [channel] holds an N64 ROM or 64DD disk. Closes [channel]. */
     fun isN64In7z(channel: SeekableByteChannel): Boolean =
-        ArchiveReader.firstIn7z(channel) { _, input -> if (startsLikeRom(input)) true else null } ?: false
+        ArchiveReader.firstIn7z(channel) { name, input -> if (if (RomReader.isDiskName(name)) RomReader.diskSized(input) else startsLikeRom(input)) true else null } ?: false
 
     private fun startsLikeRom(input: InputStream): Boolean {
         val head = ByteArray(4)
@@ -35,7 +35,7 @@ object RomCheck {
             val e = zip.nextEntry ?: break
             val leaf = e.name.substringAfterLast('/')
             if (e.isDirectory || e.name.startsWith("__MACOSX/") || leaf.startsWith("._")) continue
-            found = startsLikeRom(zip)
+            found = if (RomReader.isDiskName(leaf)) RomReader.diskSized(zip) else startsLikeRom(zip)
         }
         found
     } catch (e: java.util.zip.ZipException) {

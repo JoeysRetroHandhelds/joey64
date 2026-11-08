@@ -11,7 +11,14 @@ class RaBridgeTest {
         assertTrue(RaBridge.isLocalHost("http://127.0.0.1:8080"))
         assertTrue(RaBridge.isLocalHost("http://localhost:9000"))
         assertTrue(RaBridge.isLocalHost("http://[::1]:8080"))
-        assertTrue(RaBridge.isLocalHost("http://127.0.0.1"))
+        assertTrue(RaBridge.isLocalHost("http://127.0.0.1:8080/"))
+        // PPSSPP's rules (2026-11-07): http only, a port, nothing after the host.
+        assertFalse(RaBridge.isLocalHost("http://127.0.0.1"))
+        assertFalse(RaBridge.isLocalHost("https://127.0.0.1:8080"))
+        assertFalse(RaBridge.isLocalHost("http://127.0.0.1:8080/dorequest.php"))
+        assertFalse(RaBridge.isLocalHost("http://127.0.0.1:8080?x=1"))
+        assertFalse(RaBridge.isLocalHost("http://127.0.0.1:8080#x"))
+        assertFalse(RaBridge.isLocalHost("http://127.0.0.1:99999"))
         // Anything that could carry the account's token off the device.
         assertFalse(RaBridge.isLocalHost("http://192.168.1.20:8080"))
         assertFalse(RaBridge.isLocalHost("https://evil.example"))

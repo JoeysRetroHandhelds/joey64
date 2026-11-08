@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher.screens
 
+import com.joeysretro.joey64.launcher.components.TwoColumns
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -17,6 +18,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -40,10 +43,15 @@ import com.joeysretro.joey64.launcher.components.DescriptionLine
 import com.joeysretro.joey64.launcher.components.Hint
 import com.joeysretro.joey64.launcher.components.JoeyDialog
 import com.joeysretro.joey64.launcher.components.JoeyRow
+import com.joeysretro.joey64.launcher.components.PopupNote
 import com.joeysretro.joey64.launcher.components.PopupTitle
+import com.joeysretro.joey64.launcher.components.RowTag
 import com.joeysretro.joey64.launcher.components.SectionLabel
 import com.joeysretro.joey64.launcher.components.initialFocus
 import com.joeysretro.joey64.launcher.controls.Control
+import com.joeysretro.joey64.launcher.theme.JoeyTheme
+import com.joeysretro.joey64.video.ExtraKind
+import com.joeysretro.joey64.video.GameExtras
 import com.joeysretro.joey64.video.VideoChoices
 import com.joeysretro.joey64.video.VideoKey
 import com.joeysretro.joey64.video.VideoSettings
@@ -55,14 +63,17 @@ import kotlin.math.pow
 
 /**
  * Settings › Video (approved mockup, 2026-11-07: scratchpad build_video.py). Left, Picture:
- * Resolution, Aspect ratio, Integer scaling, Screen orientation, Fill the camera cutout. Right,
+ * Resolution, Aspect ratio, Widescreen, 60 fps (approved version A, 2026-11-08: build_enh.py), Integer scaling,
+ * Screen orientation, Fill the camera cutout. Right,
  * Look: Colour (popup with a preview), Sharpening, Black frame insertion; Advanced: one row that
- * opens Renderer, driver, timing (with N64 video filters inside). For All games or one game
+ * opens Renderer, driver, pacing (with N64 video filters inside; Thermal fallback moved to Emulation 2026-11-08). For All games or one game
  * ([target], the chip in Settings' header): a game keeps only the rows changed for it, each with
  * the yellow dot, and Y puts the focused row back to All games.
  */
 @Composable
-fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean)?) -> Unit, modifier: Modifier = Modifier) {
+fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean)?) -> Unit, modifier: Modifier = Modifier,
+             /** Game settings' changed row to open at: a row id ("res", "col"), "adv:<row>" or "filters:<row>". */
+             start: String? = null) {
     val context = LocalContext.current
     val store = remember { VideoStore(context) }
     var version by remember { mutableIntStateOf(0) }
@@ -70,8 +81,19 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
     val all = remember(version) { store.all() }
     val own = remember(version, target) { target?.let { store.game(it) } ?: emptyMap() }
     val v = VideoSettings.resolve(all, own)
-    var focused by remember { mutableStateOf("res") }
-    var popup by remember { mutableStateOf<VPopup?>(null) }
+    val startRow = when {
+        start == null -> "res"
+        start.startsWith("adv:") || start.startsWith("filters:") -> "adv"
+        else -> start
+    }
+    var focused by remember { mutableStateOf(startRow) }
+    var popup by remember { mutableStateOf<VPopup?>(when {
+        start == "col" -> VPopup.Colour
+        start == "shp" -> VPopup.Sharpen
+        start?.startsWith("adv:") == true -> VPopup.Advanced(start.substringAfter(':'))
+        start?.startsWith("filters:") == true -> VPopup.Filters(start.substringAfter(':'))
+        else -> null
+    }) }
 
     fun set(changes: Map<VideoKey, String>) {
         if (target == null) store.saveAll(all + changes) else store.saveGame(target, own + changes)
@@ -85,9 +107,36 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
     }
     fun dot(vararg keys: VideoKey) = target != null && keys.any { it in own }
 
+    // Widescreen and 60 fps: a game's versions from its cheat lists (downloaded now if they aren't kept); All games
+    // shows how many games have them. Null while loading.
+    val extras by androidx.compose.runtime.produceState<GameExtras?>(null, target) {
+        value = if (target == null) GameExtras.NONE else withContext(Dispatchers.IO) {
+            val game = com.joeysretro.joey64.launcher.data.LibraryDb.get(context).gameWithFile(target, com.joeysretro.joey64.states.GameStates::saveNameOf)
+            val keys = com.joeysretro.joey64.cheats.CheatLogic.keys(game?.headerKey)
+            val lists = com.joeysretro.joey64.cheats.CheatLists(context).sourcesForGame(keys, download = true)
+            if (lists == null) GameExtras.NONE else GameExtras.from(lists, keys.firstOrNull())
+        }
+    }
+    val counts = remember(target) { if (target == null) com.joeysretro.joey64.cheats.CheatLists(context).extrasCounts() else null }
+    val hardcore = com.joeysretro.joey64.achievements.RaHardcore.on()
+    val fpsTitle = if (extras?.pal == true) "50 fps" else "60 fps"
+    /** The row's value, and whether it can be changed (greyed: Hardcore, or no code for this game). */
+    fun extraValue(k: ExtraKind): Pair<String, Boolean> {
+        val key = if (k == ExtraKind.Widescreen) VideoKey.Widescreen else VideoKey.Fps
+        val x = extras
+        return when {
+            hardcore -> "Off in Hardcore" to false
+            target == null -> VideoChoices.label(key, v[key]) to true
+            x == null -> "" to false
+            x.of(k).isEmpty() -> "None for this game" to false
+            else -> (x.pick(k, v[key])?.label ?: "Off") to true
+        }
+    }
+
     val rowKeys: Map<String, List<VideoKey>> = mapOf(
         "res" to listOf(VideoKey.Resolution), "asp" to listOf(VideoKey.Aspect), "int" to listOf(VideoKey.Integer),
         "ori" to listOf(VideoKey.Orientation), "cut" to listOf(VideoKey.Cutout), "col" to COLOUR_KEYS,
+        "ws" to listOf(VideoKey.Widescreen), "fps" to listOf(VideoKey.Fps),
         "shp" to listOf(VideoKey.Sharpen, VideoKey.SharpenStrength), "bfi" to listOf(VideoKey.Bfi), "adv" to ADVANCED_KEYS)
 
     LaunchedEffect(target) {
@@ -98,36 +147,44 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
     }
 
     Column(modifier.fillMaxSize()) {
-        Row(Modifier.weight(1f).fillMaxWidth().focusRestorer().focusGroup(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            Column(Modifier.weight(1f)) {
-                SectionLabel("Picture")
-                @Composable
-                fun row(id: String, label: String, k: VideoKey, first: Boolean = false) =
-                    JoeyRow(label, if (first) Modifier.initialFocus() else Modifier, value = VideoChoices.label(k, v[k]), sideways = true,
-                        dot = dot(k), onFocused = { if (it) focused = id }) { popup = VPopup.Choice(k) }
-                row("res", "Resolution", VideoKey.Resolution, first = true)
-                row("asp", "Aspect ratio", VideoKey.Aspect)
-                row("int", "Integer scaling", VideoKey.Integer)
-                row("ori", "Screen orientation", VideoKey.Orientation)
-                row("cut", "Fill the camera cutout", VideoKey.Cutout)
+        // Seven rows: the last ones scroll into view (approved version A shows Fill the camera cutout below the fold).
+        TwoColumns(Modifier.weight(1f), left = {
+            SectionLabel("Picture")
+            @Composable
+            fun row(id: String, label: String, k: VideoKey) =
+                JoeyRow(label, Modifier.initialFocus(startRow == id), value = VideoChoices.label(k, v[k]), sideways = true,
+                    dot = dot(k), onFocused = { if (it) focused = id }) { popup = VPopup.Choice(k) }
+            row("res", "Resolution", VideoKey.Resolution)
+            row("asp", "Aspect ratio", VideoKey.Aspect)
+            for ((id, k) in listOf("ws" to ExtraKind.Widescreen, "fps" to ExtraKind.Fps)) {
+                val key = if (k == ExtraKind.Widescreen) VideoKey.Widescreen else VideoKey.Fps
+                val (value, enabled) = extraValue(k)
+                JoeyRow(if (k == ExtraKind.Widescreen) "Widescreen" else fpsTitle, Modifier.initialFocus(startRow == id), value = value,
+                    enabled = enabled, sideways = true, dot = dot(key), experimental = true, onFocused = { if (it) focused = id }) { popup = VPopup.Extra(k) }
             }
-            Column(Modifier.weight(1f)) {
-                SectionLabel("Look")
-                val colourDefault = COLOUR_KEYS.all { v[it] == it.default }
-                JoeyRow("Colour", value = (if (colourDefault) "Default" else "Changed") + "  ›", sideways = true, dot = dot(*COLOUR_KEYS.toTypedArray()),
-                    onFocused = { if (it) focused = "col" }) { popup = VPopup.Colour }
-                JoeyRow("Sharpening", value = sharpenValue(v), sideways = true, dot = dot(VideoKey.Sharpen, VideoKey.SharpenStrength),
-                    onFocused = { if (it) focused = "shp" }) { popup = VPopup.Sharpen }
-                JoeyRow("Black frame insertion", value = VideoChoices.label(VideoKey.Bfi, v[VideoKey.Bfi]), sideways = true, dot = dot(VideoKey.Bfi),
-                    onFocused = { if (it) focused = "bfi" }) { popup = VPopup.Choice(VideoKey.Bfi) }
-                SectionLabel("Advanced")
-                JoeyRow("Renderer, driver, timing", value = "›", sideways = true, dot = dot(*ADVANCED_KEYS.toTypedArray()),
-                    onFocused = { if (it) focused = "adv" }) { popup = VPopup.Advanced("renderer") }
-            }
+            row("int", "Integer scaling", VideoKey.Integer)
+            row("ori", "Screen orientation", VideoKey.Orientation)
+            row("cut", "Fill the camera cutout", VideoKey.Cutout)
+        }) {
+            SectionLabel("Look")
+            val colourDefault = COLOUR_KEYS.all { v[it] == it.default }
+            JoeyRow("Colour", Modifier.initialFocus(startRow == "col"), value = (if (colourDefault) "Default" else "Changed") + "  ›", sideways = true, dot = dot(*COLOUR_KEYS.toTypedArray()),
+                onFocused = { if (it) focused = "col" }) { popup = VPopup.Colour }
+            JoeyRow("Sharpening", Modifier.initialFocus(startRow == "shp"), value = sharpenValue(v), sideways = true, dot = dot(VideoKey.Sharpen, VideoKey.SharpenStrength),
+                onFocused = { if (it) focused = "shp" }) { popup = VPopup.Sharpen }
+            JoeyRow("Black frame insertion", Modifier.initialFocus(startRow == "bfi"), value = VideoChoices.label(VideoKey.Bfi, v[VideoKey.Bfi]), sideways = true, dot = dot(VideoKey.Bfi), experimental = true,
+                onFocused = { if (it) focused = "bfi" }) { popup = VPopup.Choice(VideoKey.Bfi) }
+            SectionLabel("Advanced")
+            JoeyRow("Renderer, driver, pacing", Modifier.initialFocus(startRow == "adv"), value = "›", sideways = true, dot = dot(*ADVANCED_KEYS.toTypedArray()),
+                onFocused = { if (it) focused = "adv" }) { popup = VPopup.Advanced("renderer") }
         }
         Spacer(Modifier.height(6.dp))
         val changed = target != null && rowKeys[focused].orEmpty().any { it in own }
-        val (title, text) = describe(focused, v)
+        val (title, text) = when (focused) {
+            "ws" -> "Widescreen" to extraText(ExtraKind.Widescreen, hardcore, target != null && extras?.widescreen?.isEmpty() == true)
+            "fps" -> fpsTitle to extraText(ExtraKind.Fps, hardcore, target != null && extras?.fps?.isEmpty() == true)
+            else -> describe(focused, v)
+        }
         DescriptionLine(title, if (changed) "Changed for this game. ${allGamesNote(focused, VideoSettings.resolve(all, null))}" else text)
     }
 
@@ -144,12 +201,25 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
             onLook = { popup = VPopup.Look },
             onChoice = { k, row -> popup = VPopup.Choice(k, VPopup.Filters(row)) },
             onToggle = { k -> set(k, if (k == VideoKey.Deinterlace) (if (v[k] == "bob") "weave" else "bob") else if (v.on(k)) "off" else "on") })
+        is VPopup.Extra -> {
+            val key = if (p.kind == ExtraKind.Widescreen) VideoKey.Widescreen else VideoKey.Fps
+            val x = extras
+            if (target == null) ExtraPopup(if (p.kind == ExtraKind.Widescreen) "Widescreen" else "60 fps", "All games",
+                VideoChoices.extrasAll.map { ch -> ExtraOption(ch.value, ch.label, if (ch.value == GameExtras.ALL) countsLine(counts) else ch.detail, false) },
+                v[key], if (p.kind == ExtraKind.Fps) FPS_NOTE else null, onDismiss = { popup = null }) { set(key, it); popup = null }
+            else if (x != null) ExtraPopup(if (p.kind == ExtraKind.Widescreen) "Widescreen" else fpsTitle, target,
+                listOf(ExtraOption("off", "Off", null, false)) + x.of(p.kind).map { ExtraOption(it.name, it.label, it.detail, it.wip) },
+                x.pick(p.kind, v[key])?.name ?: "off",
+                listOfNotNull(if (p.kind == ExtraKind.Fps) FPS_NOTE else null, credit(x.source[p.kind])).joinToString(" "),
+                onDismiss = { popup = null }) { set(key, it); popup = null }
+            // Still loading the game's lists: the popup opens once they're read.
+        }
         VPopup.Look -> LookPopup(v.look, onDismiss = { popup = VPopup.Filters("look") }) { set(VideoSettings.LOOKS.getValue(it)); popup = VPopup.Filters("look") }
     }
 }
 
 private val COLOUR_KEYS = listOf(VideoKey.Brightness, VideoKey.Contrast, VideoKey.Saturation, VideoKey.Gamma)
-private val ADVANCED_KEYS = listOf(VideoKey.Renderer, VideoKey.Driver, VideoKey.Pacing, VideoKey.Thermal) + VideoKey.LOOK_KEYS +
+private val ADVANCED_KEYS = listOf(VideoKey.Renderer, VideoKey.Driver, VideoKey.Pacing) + VideoKey.LOOK_KEYS +
     listOf(VideoKey.Deinterlace, VideoKey.Supersample, VideoKey.NativeTexLod, VideoKey.NativeTexRect)
 
 private sealed class VPopup {
@@ -158,26 +228,29 @@ private sealed class VPopup {
     object Sharpen : VPopup()
     data class Advanced(val row: String) : VPopup()
     data class Filters(val row: String) : VPopup()
+    data class Extra(val kind: ExtraKind) : VPopup()
     object Look : VPopup()
 }
 
-private fun sharpenValue(v: VideoSettings) = if (v[VideoKey.Sharpen] == "off") "Off"
+internal fun sharpenValue(v: VideoSettings) = if (v[VideoKey.Sharpen] == "off") "Off"
     else "${VideoChoices.label(VideoKey.Sharpen, v[VideoKey.Sharpen])} · ${v.int(VideoKey.SharpenStrength)}%"
 
 private fun describe(row: String, v: VideoSettings): Pair<String, String> = when (row) {
     "res" -> "Resolution" to "Native draws the game at the N64's own size, the most accurate and the fastest. Higher is sharper but slower. Applies when the game next starts."
-    "asp" -> "Aspect ratio" to "The shape of the picture. Auto is 4:3, and 16:9 when a widescreen cheat is on."
+    "asp" -> "Aspect ratio" to "The shape of the picture. Auto is 4:3, and 16:9 when Widescreen is on."
     "int" -> "Integer scaling" to "Scales by whole numbers only, so every pixel is the same size. Leaves a border."
     "ori" -> "Screen orientation" to "Which way the game is shown. Landscape on handhelds."
     "cut" -> "Fill the camera cutout" to "Draws the picture behind the camera hole, for Stretch to the screen."
     "col" -> "Colour" to "Brightness, contrast, saturation and gamma."
     "shp" -> "Sharpening" to "Makes edges crisper after scaling."
-    "bfi" -> "Black frame insertion" to "On 120 Hz screens, a black frame between pictures: less motion blur, a darker picture and a little more lag. Does nothing on 60 Hz screens."
-    else -> "Renderer, driver, timing" to "For when something looks or runs wrong. Auto is right for most people."
+    "bfi" -> "Black frame insertion" to "Experimental. On 120 Hz screens, a black frame between pictures: less motion blur, a darker picture and a little more lag. Does nothing on 60 Hz screens."
+    else -> "Renderer, driver, pacing" to "For when something looks or runs wrong. Auto is right for most people."
 }
 
 private fun allGamesNote(row: String, all: VideoSettings): String = when (row) {
     "res" -> "All games uses ${VideoChoices.label(VideoKey.Resolution, all[VideoKey.Resolution])}."
+    "ws" -> "All games uses ${VideoChoices.label(VideoKey.Widescreen, all[VideoKey.Widescreen])}."
+    "fps" -> "All games uses ${VideoChoices.label(VideoKey.Fps, all[VideoKey.Fps])}."
     "asp" -> "All games uses ${VideoChoices.label(VideoKey.Aspect, all[VideoKey.Aspect])}."
     "int" -> "All games uses ${VideoChoices.label(VideoKey.Integer, all[VideoKey.Integer])}."
     "ori" -> "All games uses ${VideoChoices.label(VideoKey.Orientation, all[VideoKey.Orientation])}."
@@ -197,9 +270,57 @@ private fun title(k: VideoKey) = when (k) {
     VideoKey.Renderer -> "Renderer"
     VideoKey.Driver -> "GPU driver"
     VideoKey.Pacing -> "Frame pacing"
-    VideoKey.Thermal -> "Thermal fallback"
     VideoKey.Supersample -> "Supersampling"
+    VideoKey.Widescreen -> "Widescreen"
+    VideoKey.Fps -> "60 fps"
     else -> k.key
+}
+
+private const val FPS_NOTE = "The game runs at 60 frames a second instead of 30. Joey64 also runs the N64's CPU faster for it, so a weaker device may slow down."
+
+/** The line under the focused Widescreen / 60 fps row (approved version A, screens 1, 3, 5 and 6). */
+private fun extraText(k: ExtraKind, hardcore: Boolean, none: Boolean): String = when {
+    hardcore -> "Off while RetroAchievements Hardcore is on. Your pick comes back when it's off."
+    none -> if (k == ExtraKind.Widescreen) "There's no widescreen code for this game yet." else "There's no 60 fps code for this game yet."
+    k == ExtraKind.Widescreen -> "Experimental: some games glitch with it. Shows more of the game at the sides, for a wide screen. The picture switches to 16:9 with it. Some games draw the HUD wider. Applies when the game next starts."
+    else -> "Experimental: some games glitch with it. $FPS_NOTE Applies when the game next starts."
+}
+
+/** All games' "When a game has one": how many games the downloaded lists have codes for. */
+private fun countsLine(c: Pair<Int, Int>?): String? = c?.let { (ws, fps) -> "$ws games have a widescreen code, $fps have 60 fps" }
+
+/** Where a game's codes came from, in small type (approved version A, screen 2). */
+private fun credit(source: String?): String? = when (source) {
+    null -> null
+    "joey64" -> "Codes from Joey64's own list."
+    "project64" -> "Codes from Project64's enhancements."
+    "libretro" -> "Codes from libretro's cheat database."
+    "fz-retroben" -> "Codes from M64Plus FZ (retroben)."
+    "rmg-custom" -> "Codes from Rosalie's Mupen GUI."
+    else -> "Codes from $source."
+}
+
+private data class ExtraOption(val value: String, val label: String, val detail: String?, val wip: Boolean)
+
+/** Widescreen or 60 fps (version A, screens 2 to 4): Off and the game's versions (or All games' two), the tick on the one in use. */
+@Composable
+private fun ExtraPopup(title: String, subtitle: String?, options: List<ExtraOption>, current: String, note: String?,
+                       onDismiss: () -> Unit, onPick: (String) -> Unit) {
+    val c = JoeyTheme.colors
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 490.dp) {
+        Column {
+            PopupTitle(title, subtitle)
+            for (o in options) {
+                val on = o.value == current
+                JoeyRow(o.label, Modifier.initialFocus(on), detail = o.detail,
+                    trailing = if (on || o.wip) { _ ->
+                        if (o.wip) RowTag("WIP", c.gold, c.chip)
+                        if (on) PickerTick()
+                    } else null) { onPick(o.value) }
+            }
+            if (note != null) PopupNote(note)
+        }
+    }
 }
 
 /** The approved small popup: a title and the choices with their lines, the tick on the one in use. */
@@ -211,7 +332,7 @@ private fun ChoicePopup(k: VideoKey, current: String, onDismiss: () -> Unit, onP
             PopupTitle(title(k))
             for (ch in choices) {
                 val on = ch.value == current
-                JoeyRow(ch.label, Modifier.initialFocus(on), detail = ch.detail,
+                JoeyRow(ch.label, Modifier.initialFocus(on), detail = ch.detail, experimental = ch.experimental,
                     trailing = if (on) { _ -> PickerTick() } else null) { onPick(ch.value) }
             }
         }
@@ -220,8 +341,8 @@ private fun ChoicePopup(k: VideoKey, current: String, onDismiss: () -> Unit, onP
 
 /** A row that changes its value with Left / Right (◀ value ▶ while focused), as fast-forward's Speed. */
 @Composable
-private fun StepRow(label: String, value: String, steps: List<Int>, current: Int, focused: Boolean, first: Boolean,
-                    enabled: Boolean = true, onFocused: (Boolean) -> Unit, onStep: (Int) -> Unit) {
+internal fun StepRow(label: String, value: String, steps: List<Int>, current: Int, focused: Boolean, first: Boolean,
+                     enabled: Boolean = true, dot: Boolean = false, onFocused: (Boolean) -> Unit, onStep: (Int) -> Unit) {
     JoeyRow(label, Modifier.initialFocus(first).onPreviewKeyEvent { e ->
         val n = e.nativeKeyEvent
         val step = when (n.keyCode) { KeyEvent.KEYCODE_DPAD_LEFT -> -1; KeyEvent.KEYCODE_DPAD_RIGHT -> 1; else -> 0 }
@@ -231,7 +352,7 @@ private fun StepRow(label: String, value: String, steps: List<Int>, current: Int
             onStep(steps[i.coerceIn(0, steps.lastIndex)])
         }
         true
-    }, value = if (focused && enabled) "◀ $value ▶" else value, enabled = enabled, sideways = true, onFocused = onFocused)
+    }, value = if (focused && enabled) "◀ $value ▶" else value, enabled = enabled, sideways = true, dot = dot, onFocused = onFocused)
 }
 
 /** Colour (mockup 3): the four values with Left / Right, the picture beside them showing the result. X resets all four. */
@@ -281,11 +402,14 @@ private fun title2(k: VideoKey) = when (k) { VideoKey.Brightness -> "Brightness"
 @Composable
 private fun produceSource(context: Context) = androidx.compose.runtime.produceState<Bitmap?>(null) {
     value = withContext(Dispatchers.IO) {
-        val f = File(context.filesDir, "screenshots").listFiles { x -> x.isFile && x.name.endsWith(".png") }?.maxByOrNull { it.lastModified() }
+        // In the data folder in use (Settings › Saves › Data folder).
+        val space = com.joeysretro.joey64.launcher.storage.DataFolders.current(context).space
+        val dir = com.joeysretro.joey64.launcher.storage.DataKind.Screenshots.dir
+        val f = space.list(listOf(dir)).filter { !it.isDir && it.name.endsWith(".png") }.maxByOrNull { it.modified }
             ?: return@withContext null
         try {
             val o = BitmapFactory.Options().apply { inSampleSize = 2 }
-            BitmapFactory.decodeFile(f.absolutePath, o)?.let { Bitmap.createScaledBitmap(it, 240, 180, true) }
+            space.openRead(listOf(dir, f.name))?.use { BitmapFactory.decodeStream(it, null, o) }?.let { Bitmap.createScaledBitmap(it, 240, 180, true) }
         } catch (e: Exception) { null }
     }
 }
@@ -360,7 +484,7 @@ private fun SharpenPopup(v: VideoSettings, onDismiss: () -> Unit, onSet: (VideoK
 /** What Auto picked at the last game start (MainActivity writes it). */
 private fun lastPick(context: Context, what: String): String? = context.getSharedPreferences("device", Context.MODE_PRIVATE).getString(what, null)
 
-/** Renderer, driver, timing (mockup 5): two columns; each row opens its choices; N64 video filters opens its own popup. */
+/** Renderer, driver, pacing (mockup 5): two columns; each row opens its choices; N64 video filters opens its own popup. */
 @Composable
 private fun AdvancedPopup(context: Context, v: VideoSettings, startRow: String, onDismiss: () -> Unit,
                           onOpen: (VideoKey, String) -> Unit, onFilters: () -> Unit) {
@@ -371,30 +495,25 @@ private fun AdvancedPopup(context: Context, v: VideoSettings, startRow: String, 
     val look = VideoChoices.look.firstOrNull { it.value == v.look }?.label ?: "Custom"
     JoeyDialog(onDismiss = onDismiss, width = 680.dp, hints = listOf(Hint("A", "Change"), Hint("B", "Back"))) {
         Column {
-            PopupTitle("Renderer, driver, timing", "Auto is right for most people. Changes apply when the game next starts.")
-            Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                Column(Modifier.weight(1f)) {
-                    JoeyRow("Renderer", Modifier.initialFocus(startRow == "renderer"), value = auto(VideoKey.Renderer, renderer), sideways = true,
-                        onFocused = { if (it) row = "renderer" }) { onOpen(VideoKey.Renderer, "renderer") }
-                    JoeyRow("GPU driver", Modifier.initialFocus(startRow == "driver"), value = auto(VideoKey.Driver, driver), sideways = true,
-                        onFocused = { if (it) row = "driver" }) { onOpen(VideoKey.Driver, "driver") }
-                    JoeyRow("Frame pacing", Modifier.initialFocus(startRow == "pacing"), value = VideoChoices.label(VideoKey.Pacing, v[VideoKey.Pacing]), sideways = true,
-                        onFocused = { if (it) row = "pacing" }) { onOpen(VideoKey.Pacing, "pacing") }
-                }
-                Column(Modifier.weight(1f)) {
-                    JoeyRow("N64 video filters", Modifier.initialFocus(startRow == "filters"), value = "$look  ›", sideways = true,
-                        onFocused = { if (it) row = "filters" }) { onFilters() }
-                    JoeyRow("Thermal fallback", Modifier.initialFocus(startRow == "thermal"), value = VideoChoices.label(VideoKey.Thermal, v[VideoKey.Thermal]), sideways = true,
-                        onFocused = { if (it) row = "thermal" }) { onOpen(VideoKey.Thermal, "thermal") }
-                }
+            PopupTitle("Renderer, driver, pacing", "Auto is right for most people. Renderer, GPU driver and frame pacing apply when the game next starts.")
+            TwoColumns(Modifier.weight(1f, fill = false), gap = 18.dp, left = {
+                JoeyRow("Renderer", Modifier.initialFocus(startRow == "renderer"), value = auto(VideoKey.Renderer, renderer), sideways = true,
+                    onFocused = { if (it) row = "renderer" }) { onOpen(VideoKey.Renderer, "renderer") }
+                JoeyRow("GPU driver", Modifier.initialFocus(startRow == "driver"), value = auto(VideoKey.Driver, driver), sideways = true,
+                    onFocused = { if (it) row = "driver" }) { onOpen(VideoKey.Driver, "driver") }
+                JoeyRow("Frame pacing", Modifier.initialFocus(startRow == "pacing"), value = VideoChoices.label(VideoKey.Pacing, v[VideoKey.Pacing]), sideways = true,
+                    experimental = VideoChoices.of(VideoKey.Pacing).any { it.value == v[VideoKey.Pacing] && it.experimental },
+                    onFocused = { if (it) row = "pacing" }) { onOpen(VideoKey.Pacing, "pacing") }
+            }) {
+                JoeyRow("N64 video filters", Modifier.initialFocus(startRow == "filters"), value = "$look  ›", sideways = true,
+                    onFocused = { if (it) row = "filters" }) { onFilters() }
             }
             Spacer(Modifier.height(6.dp))
             when (row) {
                 "renderer" -> DescriptionLine("Renderer", "parallel-RDP draws like the real N64. GLideN64 is the fallback for GPUs that can't run it. Auto picks by GPU and game.")
                 "driver" -> DescriptionLine("GPU driver", "Joey64's Turnip fixes parallel-RDP on Adreno GPUs. A driver that can't run falls back to the system's.")
-                "pacing" -> DescriptionLine("Frame pacing", "Lowest lag shows each frame as soon as it's ready. Steady shows each one for the same time on 120 Hz screens, for a little more lag.")
-                "filters" -> DescriptionLine("N64 video filters", "The N64's own picture filters, for parallel-RDP.")
-                else -> DescriptionLine("Thermal fallback", "Lowers the fast-forward speed as the device gets hot.")
+                "pacing" -> DescriptionLine("Frame pacing", "Lowest lag shows each frame as soon as it's ready. Steady shows each one for the same time on 120 Hz screens, for a little more lag. Steady, less lag is experimental.")
+                else -> DescriptionLine("N64 video filters", "The N64's own picture filters, for parallel-RDP.")
             }
         }
     }
@@ -416,21 +535,18 @@ private fun FiltersPopup(v: VideoSettings, startRow: String, onDismiss: () -> Un
     JoeyDialog(onDismiss = onDismiss, width = 680.dp, hints = listOf(Hint("A", "Change"), Hint("B", "Back"))) {
         Column {
             PopupTitle("N64 video filters")
-            Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                Column(Modifier.weight(1f)) {
-                    JoeyRow("Look", Modifier.initialFocus(startRow == "look"), value = look, sideways = true, onFocused = { if (it) row = "look" }) { onLook() }
-                    toggle("aa", "Edge smoothing (VI AA)", VideoKey.ViAa)
-                    toggle("bil", "Soft scaling (VI bilinear)", VideoKey.ViBilinear)
-                    toggle("dith", "Dither smoothing", VideoKey.DitherFilter)
-                    toggle("div", "Divot filter", VideoKey.Divot)
-                }
-                Column(Modifier.weight(1f)) {
-                    toggle("gd", "Gamma dither", VideoKey.GammaDither)
-                    toggle("di", "Interlaced games", VideoKey.Deinterlace)
-                    toggle("ss", "Supersampling", VideoKey.Supersample)
-                    toggle("lod", "Native texture detail", VideoKey.NativeTexLod)
-                    toggle("tr", "Native 2D (TEX_RECT)", VideoKey.NativeTexRect)
-                }
+            TwoColumns(Modifier.weight(1f, fill = false), gap = 18.dp, left = {
+                JoeyRow("Look", Modifier.initialFocus(startRow == "look"), value = look, sideways = true, onFocused = { if (it) row = "look" }) { onLook() }
+                toggle("aa", "Edge smoothing (VI AA)", VideoKey.ViAa)
+                toggle("bil", "Soft scaling (VI bilinear)", VideoKey.ViBilinear)
+                toggle("dith", "Dither smoothing", VideoKey.DitherFilter)
+                toggle("div", "Divot filter", VideoKey.Divot)
+            }) {
+                toggle("gd", "Gamma dither", VideoKey.GammaDither)
+                toggle("di", "Interlaced games", VideoKey.Deinterlace)
+                toggle("ss", "Supersampling", VideoKey.Supersample)
+                toggle("lod", "Native texture detail", VideoKey.NativeTexLod)
+                toggle("tr", "Native 2D (TEX_RECT)", VideoKey.NativeTexRect)
             }
             Spacer(Modifier.height(6.dp))
             val upscaleNote = if (native) " Only with Resolution 2x or more." else ""

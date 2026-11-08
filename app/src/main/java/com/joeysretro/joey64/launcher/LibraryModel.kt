@@ -17,6 +17,10 @@ import com.joeysretro.joey64.states.StateSlots
 import com.joeysretro.joey64.launcher.data.LibraryDb
 import com.joeysretro.joey64.launcher.settings.SettingsStore
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import com.joeysretro.joey64.launcher.library.LibraryArrange
 import com.joeysretro.joey64.launcher.data.LibraryGame
 import com.joeysretro.joey64.launcher.library.GameLauncher
 import com.joeysretro.joey64.launcher.library.LibraryScanner
@@ -63,9 +67,19 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private val _games = MutableStateFlow<List<LibraryGame>?>(null)
-    /** Null until the database has been read once. */
-    val games: StateFlow<List<LibraryGame>?> = _games
+    /** Every game in the ROM folders, hidden ones too, by title; null until the database has been read once. */
+    private val _all = MutableStateFlow<List<LibraryGame>?>(null)
+    /**
+     * The games without hidden ones, in Settings › Library's Sort by order (approved mockup 2026-11-08):
+     * what Search, the options and the Show popup's collections read. Null until the database has been read once.
+     */
+    val games: StateFlow<List<LibraryGame>?> = combine(_all, settings.settings) { all, s ->
+        all?.let { l -> LibraryArrange.sort(l.filter { it.hiddenAt == null }, s.sortBy, s.favouritesFirst) }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    /** Settings › Library › Hidden games: the hidden ones, the last hidden first. */
+    val hidden: StateFlow<List<LibraryGame>> = combine(_all, settings.settings) { all, _ ->
+        all.orEmpty().filter { it.hiddenAt != null }.sortedByDescending { it.hiddenAt }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     private val _reading = MutableStateFlow<Progress?>(null)
     /** Non-null while new or changed files are being read: files read, files to read. */
     val reading: StateFlow<Progress?> = _reading
@@ -84,9 +98,38 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     /** Null until the player table, No-Intro's list and the collections are read. */
     val facts: StateFlow<com.joeysretro.joey64.launcher.library.LibraryFacts?> = _facts
 
+    /**
+     * What the library grid lays out before its view (All games, a collection, a filter): [games] in the
+     * ticked Regions, one version per game when that's on (Settings › Library, approved 2026-11-08).
+     */
+    val shown: StateFlow<List<LibraryGame>?> = combine(games, settings.settings, _facts) { g, s, f ->
+        g?.let { LibraryArrange.visible(it, s.regions, s.oneVersion, f?.listed.orEmpty()) }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** A game's options › Hide game, or Hidden games › Show again. Its saves, play time and collections stay. */
+    fun setHidden(game: LibraryGame, hide: Boolean, onDone: () -> Unit = {}) {
+        viewModelScope.launch {
+            _all.value = withContext(Dispatchers.IO) {
+                db.setHidden(game.id, if (hide) System.currentTimeMillis() else null); db.libraryGames()
+            }
+            JLog.i(TAG, "${game.title} ${if (hide) "hidden" else "shown again"}")
+            onDone()
+        }
+    }
+
     fun show(v: com.joeysretro.joey64.launcher.library.LibraryView) {
         _view.value = v
         JLog.i(TAG, "showing ${v.label}")
+    }
+
+    /** Signed in: fetches which games have achievements when that list is a day old, then the filters read it. */
+    fun refreshSetList() {
+        viewModelScope.launch {
+            val changed = withContext(Dispatchers.IO) {
+                com.joeysretro.joey64.achievements.RaGameList.refreshIfOld(getApplication(), com.joeysretro.joey64.achievements.RaBridge.agent)
+            }
+            if (changed) reloadCollections()
+        }
     }
 
     /** Reads the collections again after a change, and the games (Favourites is a column on them). */
@@ -97,8 +140,9 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
             players = com.joeysretro.joey64.launcher.library.LibraryViews.players(app),
             listed = com.joeysretro.joey64.launcher.boxart.BoxArtTable.get(app).keys,
             members = db.collectionGames(),
+            withSets = com.joeysretro.joey64.achievements.RaGameList.hashes(app).orEmpty(),
         )
-        if (games) _games.value = db.libraryGames()
+        if (games) _all.value = db.libraryGames()
         // A collection that's gone (deleted) or renamed: the button follows.
         val v = _view.value
         if (v is com.joeysretro.joey64.launcher.library.LibraryView.Collection) {
@@ -147,8 +191,26 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
 
     init {
         viewModelScope.launch {
-            _games.value = withContext(Dispatchers.IO) { db.libraryGames() }
+            _all.value = withContext(Dispatchers.IO) { db.libraryGames() }
             try { reloadCollections() } catch (e: Exception) { JLog.e(TAG, "can't read collections" + "\n" + Log.getStackTraceString(e)) }
+        }
+        // A disk the library started didn't start (no IPL for its region, or its cartridge didn't unpack): ask again.
+        viewModelScope.launch {
+            GameStartFailed.failed.collect { failed ->
+                if (failed == null) return@collect
+                GameStartFailed.take()
+                val md5 = failed.intent.getStringExtra(com.joeysretro.joey64.MainActivity.EXTRA_MD5)
+                val game = (_all.value ?: withContext(Dispatchers.IO) { db.libraryGames() }).firstOrNull { it.md5 == md5 }
+                if (game == null) { JLog.w(TAG, "a 64DD disk didn't start, and it isn't in the library ($md5)"); return@collect }
+                val code = GameLauncher.cartCode(game)
+                if (failed.need == GameStartFailed.Need.Cart && code != null) {
+                    JLog.i(TAG, "${game.title} didn't start (its $code cartridge didn't unpack): asking for it")
+                    _needsCart.value = NeedsCart(game, code, failed.intent.getStringExtra(com.joeysretro.joey64.MainActivity.EXTRA_LOAD_STATE))
+                } else if (failed.need == GameStartFailed.Need.Bios) {
+                    JLog.i(TAG, "${game.title} didn't start (no IPL for its region): asking for the 64DD BIOS")
+                    _needsBios.value = NeedsBios(game, failed.intent, failedStart = true)
+                }
+            }
         }
         app.getSystemService(ConnectivityManager::class.java)?.registerDefaultNetworkCallback(network)
     }
@@ -163,11 +225,19 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         if (!settings.settings.first().downloadBoxArt) return
         art = viewModelScope.launch {
             var got = 0
-            val outcome = boxArt.fetch {
+            val started = android.os.SystemClock.elapsedRealtime()
+            _artPaused.value = false
+            val outcome = try {
+                boxArt.fetch(maxWidth = if (settings.settings.first().boxArtLow) BoxArt.LOW_WIDTH else BoxArt.HIGH_WIDTH,
+                    onProgress = { done, total -> _art.value = Progress(done, total, started) }) {
                 // Covers appear as they come, a few at a time.
-                if (++got % 4 == 0) _games.value = db.libraryGames()
+                if (++got % 4 == 0) _all.value = db.libraryGames()
             }
-            _games.value = withContext(Dispatchers.IO) { db.libraryGames() }
+            } finally {
+                _art.value = null
+            }
+            _artPaused.value = outcome is BoxArt.Outcome.Done && outcome.busy
+            _all.value = withContext(Dispatchers.IO) { db.libraryGames() }
             waitingForNetwork = outcome is BoxArt.Outcome.Offline
             if (outcome is BoxArt.Outcome.Offline) {
                 val prefs = getApplication<Application>().getSharedPreferences("box_art", android.content.Context.MODE_PRIVATE)
@@ -181,9 +251,24 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
 
     fun offlineSeen() { _offline.value = false }
 
+    private val _art = MutableStateFlow<Progress?>(null)
+    /** Covers downloading (approved 2026-11-07: "Getting box art" over the grid), null when not. */
+    val artProgress: StateFlow<Progress?> = _art
+    private val _artPaused = MutableStateFlow(false)
+    /** ScreenScraper stopped answering (busy, closed or today's limit): "Box art paused" until the next run. */
+    val artPaused: StateFlow<Boolean> = _artPaused
+
+    /** Debug builds (SHOW boxart-reset): look every downloaded and not-found cover up again. */
+    fun debugResetArt() {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { db.debugForgetArt() }
+            fetchArt(newGames = false)
+        }
+    }
+
     /** [game]'s cover file, null when it shows none (a title tile). */
     fun cover(game: LibraryGame): java.io.File? = when (game.art) {
-        com.joeysretro.joey64.launcher.data.ArtKind.Libretro -> boxArt.file(game.md5)
+        com.joeysretro.joey64.launcher.data.ArtKind.Downloaded -> boxArt.file(game.md5)
         com.joeysretro.joey64.launcher.data.ArtKind.Custom -> boxArt.customFile(game.md5)
         else -> null
     }
@@ -196,7 +281,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     /** Change box art: Downloaded art or No box art. */
     suspend fun chooseArt(game: LibraryGame, kind: com.joeysretro.joey64.launcher.data.ArtKind) {
         withContext(Dispatchers.IO) { db.chooseArt(game.id, kind) }
-        _games.value = withContext(Dispatchers.IO) { db.libraryGames() }
+        _all.value = withContext(Dispatchers.IO) { db.libraryGames() }
     }
 
     /** Change box art › Choose image: [image] (a picked document) becomes the game's cover. */
@@ -205,7 +290,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
             try { boxArt.saveCustom(game.md5, image); db.chooseArt(game.id, com.joeysretro.joey64.launcher.data.ArtKind.Custom); true }
             catch (e: Exception) { JLog.w(TAG, "can't use that image for ${game.title}" + "\n" + Log.getStackTraceString(e)); false }
         }
-        if (ok) _games.value = withContext(Dispatchers.IO) { db.libraryGames() }
+        if (ok) _all.value = withContext(Dispatchers.IO) { db.libraryGames() }
         return ok
     }
 
@@ -273,18 +358,72 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         else viewModelScope.launch(Dispatchers.IO) { GameStates.Recovery.clear(getApplication()) }
     }
 
+    /** Settings › Saves › Continue on Play is Ask, and [game] has a quit save from [quitAt]. */
+    data class AskContinue(val game: LibraryGame, val quitAt: Long)
+    private val _askContinue = MutableStateFlow<AskContinue?>(null)
+    /** "You quit this game 2 hours ago. Go on from there?" (approved Saves mockup 2026-11-07, screen 4). */
+    val askContinue: StateFlow<AskContinue?> = _askContinue
+
+    /**
+     * Play in the library or Search: Settings › Saves › Continue on Play says whether a game with a
+     * quit save starts from the beginning (Never), goes on from it (Always) or asks ([askContinue]).
+     */
+    fun playAsked(game: LibraryGame, start: (Intent) -> Unit) {
+        if (starting) return
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            val how = withContext(Dispatchers.IO) { com.joeysretro.joey64.saves.SavesStore(app).read().continueOnPlay }
+            val quitAt = if (how == com.joeysretro.joey64.saves.ContinueOnPlay.Never) null
+                else withContext(Dispatchers.IO) { launcher.saveNameFor(game)?.let { GameStates(app, it).savedAt(StateSlots.AUTO) } }
+            when {
+                quitAt == null -> play(game, null, start)
+                how == com.joeysretro.joey64.saves.ContinueOnPlay.Always -> play(game, com.joeysretro.joey64.MainActivity.STATE_AUTO, start)
+                else -> _askContinue.value = AskContinue(game, quitAt)
+            }
+        }
+    }
+
+    /** The Ask popup's answer: Continue (true), Start over (false; the quit save stays), B (null: nothing starts). */
+    fun continueAnswered(carryOn: Boolean?, start: (Intent) -> Unit) {
+        val ask = _askContinue.value ?: return
+        _askContinue.value = null
+        if (carryOn == null) return
+        play(ask.game, if (carryOn) com.joeysretro.joey64.MainActivity.STATE_AUTO else null, start)
+    }
+
     /** Continue: the last game, from its auto slot. */
     fun continuePlaying(start: (Intent) -> Unit) {
         val g = _continueGame.value ?: return
         play(g, com.joeysretro.joey64.MainActivity.STATE_AUTO, start)
     }
 
-    /** The launcher is in front again: a game it started has ended. */
+    // ---- reports (approved reports mockup, version A, Joey 2026-11-08) ---------------------------------
+
+    private val _askReports = MutableStateFlow(false)
+    /** "Help make Joey64 better?": once, the first time a game ends and the library is in front again. */
+    val askReports: StateFlow<Boolean> = _askReports
+
+    /** The question's answer: Send reports (true) or No thanks (false; B too). Never asked again. */
+    fun reportsAnswered(on: Boolean) {
+        _askReports.value = false
+        val app = getApplication<Application>()
+        com.joeysretro.joey64.reports.ReportPrefs.setOn(app, on)
+        JLog.i(TAG, "reports: ${if (on) "on" else "off"} (the library's question)")
+    }
+
+    /** Debug builds (SHOW reports-ask / reports-send): the question now; a report now, even if one went today. */
+    fun debugAskReports() { _askReports.value = true }
+    fun debugSendReports() { viewModelScope.launch { com.joeysretro.joey64.reports.ReportSender.maybeSend(getApplication(), force = true) } }
+
+    /** The launcher is in front again: a game it started has ended. Reports: today's goes now, if it hasn't. */
     fun resumed() {
+        val app = getApplication<Application>()
+        viewModelScope.launch { com.joeysretro.joey64.reports.ReportSender.maybeSend(app) }
         val p = plays
         if (!p.contains("game")) { checkStates(); return }
         val id = p.getLong("game", 0); val up = p.getLong("uptime", 0); val wall = p.getLong("wall", 0)
         p.edit().clear().apply()
+        if (!com.joeysretro.joey64.reports.ReportPrefs.asked(app)) _askReports.value = true
         val ms = android.os.SystemClock.uptimeMillis() - up
         // Negative: the device restarted since (uptime begins again), so the length isn't known.
         if (ms <= 0) { checkStates(); return }
@@ -296,9 +435,73 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Brings the library up to date with [folders]: quick when nothing changed (sizes and dates only). */
-    fun refresh(folders: List<Uri>) {
-        if (scan?.isActive == true || folders.isEmpty()) return
+    /** Settings › Library: how many games each ROM folder (tree URI) holds. */
+    suspend fun folderCounts(): Map<String, Int> = withContext(Dispatchers.IO) { db.gamesPerFolder() }
+
+    /** How many games leave the library when [tree] is removed (games another folder has stay). */
+    suspend fun gamesOnlyIn(tree: String): Int = withContext(Dispatchers.IO) { db.gamesOnlyIn(tree) }
+
+    /**
+     * Settings › Library › Remove: the folder's files leave the library (a read under way stops
+     * first, so it can't put them back). The games' own rows (play time, favourites, collections)
+     * stay, and the folder's files find them again if it comes back.
+     */
+    fun removeFolder(tree: String) {
+        scan?.cancel()
+        viewModelScope.launch {
+            _all.value = withContext(Dispatchers.IO) { db.forgetFolder(tree); db.libraryGames() }
+        }
+    }
+
+    /** The folders the last read covered: a folder added (or removed) is read whatever Look for new games says. */
+    private var readFolders: Set<Uri>? = null
+
+    /**
+     * The launcher is in front: reads the folders as Settings › Library › Look for new games says (When
+     * Joey64 starts: every time, as before; Once a day: the first time each day; Only when I ask: never),
+     * and always when the folders changed since the last read.
+     */
+    fun autoRefresh(folders: List<Uri>) {
+        viewModelScope.launch {
+            val s = settings.settings.first()
+            val today = java.time.LocalDate.now().toEpochDay()
+            val changed = readFolders != folders.toSet()
+            if (!changed && !LibraryArrange.lookNow(s.lookFor, s.lastLookDay, today)) return@launch
+            if (refresh(folders) && s.lookFor == com.joeysretro.joey64.launcher.library.LookFor.Daily) settings.setLastLookDay(today)
+        }
+    }
+
+    private val _looking = MutableStateFlow(false)
+    /** A read is under way (Look now's row: "Looking…" until files are being read, then [reading]'s count). */
+    val looking: StateFlow<Boolean> = _looking
+
+    private val _lookResult = MutableStateFlow<String?>(null)
+    /** Look now's outcome on its row once the read ends: "Up to date", "3 new games", "1 game gone". Null while none. */
+    val lookResult: StateFlow<String?> = _lookResult
+    fun clearLookResult() { _lookResult.value = null }
+
+    /** Settings › Library › Look now: reads the folders now, and says how it went ([lookResult]). */
+    fun lookNow(folders: List<Uri>) {
+        _lookResult.value = null
+        val before = _all.value?.size
+        if (!refresh(folders)) return
+        val job = scan ?: return
+        viewModelScope.launch {
+            job.join()
+            val n = (_all.value?.size ?: 0) - (before ?: 0)
+            _lookResult.value = when {
+                before == null || n == 0 -> "Up to date"
+                n > 0 -> if (n == 1) "1 new game" else "$n new games"
+                else -> if (n == -1) "1 game gone" else "${-n} games gone"
+            }
+        }
+    }
+
+    /** Brings the library up to date with [folders]: quick when nothing changed (sizes and dates only). False: one is already under way. */
+    fun refresh(folders: List<Uri>): Boolean {
+        if (scan?.isActive == true || folders.isEmpty()) return false
+        readFolders = folders.toSet()
+        _looking.value = true
         scan = viewModelScope.launch {
             var newGames = false
             try {
@@ -306,17 +509,19 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                 newGames = scanner.scan(folders) { done, total ->
                     _reading.value = Progress(done, total, started)
                     // New games appear as they're read, a few at a time.
-                    if (done % 6 == 0 || done == total) _games.value = db.libraryGames()
+                    if (done % 6 == 0 || done == total) _all.value = db.libraryGames()
                 }.read > 0
             } catch (e: Exception) {
                 JLog.w(TAG, "library read failed" + "\n" + Log.getStackTraceString(e))
             } finally {
                 _reading.value = null
-                _games.value = withContext(Dispatchers.IO) { db.libraryGames() }
+                _looking.value = false
+                _all.value = withContext(Dispatchers.IO) { db.libraryGames() }
             }
             fetchArt(newGames)
             fetchCheats()
         }
+        return true
     }
 
     private val cheatLists = com.joeysretro.joey64.cheats.CheatLists(app)
@@ -326,7 +531,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     private suspend fun fetchCheats() {
         if (cheats?.isActive == true) return
         if (!settings.settings.first().downloadCheats) return
-        val keys = _games.value.orEmpty().mapNotNull { g -> com.joeysretro.joey64.cheats.CheatLogic.keys(g.headerKey).takeIf { it.isNotEmpty() } }
+        val keys = _all.value.orEmpty().mapNotNull { g -> com.joeysretro.joey64.cheats.CheatLogic.keys(g.headerKey).takeIf { it.isNotEmpty() } }
         if (keys.isEmpty()) return
         cheats = viewModelScope.launch { cheatLists.prefetch(keys) }
     }
@@ -348,12 +553,119 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
 
     fun closeCheats() { _cheatsFor.value = null }
 
+    private val _gameSettingsFor = MutableStateFlow<com.joeysretro.joey64.launcher.gamesettings.GameRef?>(null)
+    /** The game whose Game settings page is open in the library's place (a game's options › Game settings), or null. */
+    val gameSettingsFor: StateFlow<com.joeysretro.joey64.launcher.gamesettings.GameRef?> = _gameSettingsFor
+
+    fun openGameSettings(game: LibraryGame) {
+        viewModelScope.launch {
+            // The settings files are named like the game's save, as the game reads them.
+            val saveName = withContext(Dispatchers.IO) { launcher.saveNameFor(game) } ?: run {
+                JLog.e(TAG, "game settings: no readable file for ${game.title}"); return@launch
+            }
+            _gameSettingsFor.value = com.joeysretro.joey64.launcher.gamesettings.GameRef(saveName, game.title)
+        }
+    }
+
+    fun closeGameSettings() { _gameSettingsFor.value = null }
+
+    /** The options' Game settings value: "3 changed" or "Same as All games"; null when the game has no readable file. */
+    suspend fun gameSettingsLabel(game: LibraryGame): String? = withContext(Dispatchers.IO) {
+        launcher.saveNameFor(game)?.let { com.joeysretro.joey64.launcher.gamesettings.GameSettingsModel(getApplication<Application>()).summary(it).label }
+    }
+
     private val _achievementsFor = MutableStateFlow<com.joeysretro.joey64.launcher.screens.AchievementsGame?>(null)
     /** The game whose Achievements page is open in the library's place (a game's options › Achievements), or null. */
     val achievementsFor: StateFlow<com.joeysretro.joey64.launcher.screens.AchievementsGame?> = _achievementsFor
 
     fun openAchievements(game: LibraryGame) { _achievementsFor.value = com.joeysretro.joey64.launcher.screens.AchievementsGame(game.id, game.title) }
     fun closeAchievements() { _achievementsFor.value = null }
+
+    /**
+     * A 64DD disk's Play with no 64DD BIOS in the data folder's bios/ (approved 2026-11-07); [missed]: the last pick had none.
+     * [failedStart]: the disk was started and the core shut down (its region's IPL wasn't there, code audit 2): a pick then
+     * counts only when bios/ has the Japan IPL every retail disk starts from.
+     */
+    data class NeedsBios(val game: LibraryGame, val intent: Intent, val missed: Boolean = false, val failedStart: Boolean = false)
+    private val _needsBios = MutableStateFlow<NeedsBios?>(null)
+    /** "This game needs the 64DD BIOS", or null. */
+    val needsBios: StateFlow<NeedsBios?> = _needsBios
+
+    /** The folder picked in [needsBios]'s popup: saved when they hold a 64DD BIOS, and then the game starts. */
+    fun biosPicked(folder: Uri, start: (Intent) -> Unit) {
+        val ask = _needsBios.value ?: return
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            val ready = withContext(Dispatchers.IO) {
+                try { com.joeysretro.joey64.launcher.storage.BiosImport.importFolder(app, folder) } catch (e: Exception) { JLog.e(TAG, "64DD BIOS: $e") }
+                if (ask.failedStart) com.joeysretro.joey64.launcher.storage.BiosImport.readyForRetail(app)
+                else com.joeysretro.joey64.launcher.storage.BiosImport.ready(app)
+            }
+            if (ready) { _needsBios.value = null; go(ask.game, ask.intent, start) } else _needsBios.value = ask.copy(missed = true)
+        }
+    }
+
+    fun biosCancelled() { _needsBios.value = null }
+
+    /**
+     * Play on an add-on 64DD disk (F-Zero X Expansion Kit, Dezaemon DD) whose cartridge, header game [code], isn't in
+     * the library (Joey 2026-11-07, popup A); [missed]: the last folder picked didn't have it.
+     */
+    data class NeedsCart(val game: LibraryGame, val code: String, val loadState: String?, val missed: Boolean = false)
+    private val _needsCart = MutableStateFlow<NeedsCart?>(null)
+    /** "This disk needs F-Zero X (Japan)", or null. */
+    val needsCart: StateFlow<NeedsCart?> = _needsCart
+
+    /** Starts [intent], unless it is a disk whose cartridge isn't in the library: then [needsCart] asks for it. */
+    private fun go(game: LibraryGame, intent: Intent, start: (Intent) -> Unit) {
+        val code = intent.getStringExtra(GameLauncher.EXTRA_NEEDS_CART)
+        if (code != null) {
+            JLog.i(TAG, "${game.title} needs the $code cartridge, which isn't in the library: asking for it")
+            _needsCart.value = NeedsCart(game, code, intent.getStringExtra(com.joeysretro.joey64.MainActivity.EXTRA_LOAD_STATE))
+        } else { started(game); start(intent) }
+    }
+
+    /**
+     * The folder picked in [needsCart]'s popup: read into the library; when it has the cartridge it stays a ROM folder
+     * and the disk starts with it, else it is left out again (its grant released) and the popup says so.
+     */
+    fun cartPicked(folder: Uri, start: (Intent) -> Unit) {
+        val ask = _needsCart.value ?: return
+        val tree = folder.toString()
+        // After a library read already under way (it may be reading this folder's games too).
+        val before = scan
+        scan = viewModelScope.launch {
+            before?.join()
+            val app = getApplication<Application>()
+            val listed = tree in settings.settings.first().romFolders
+            val intent = withContext(Dispatchers.IO) {
+                try {
+                    if (!listed) RomFolders.keep(app, folder, write = false)
+                    scanner.scan(listOf(folder))
+                } catch (e: Exception) { JLog.e(TAG, "can't read the picked folder: $e") }
+                // The start itself decides: it opens the cartridge's file, where a library row alone can be stale
+                // (2026-11-07: a cartridge moved out of a granted folder still counted as found).
+                val found = try { launcher.intentFor(ask.game, ask.loadState) } catch (e: Exception) { JLog.e(TAG, "can't start ${ask.game.title}: $e"); null }
+                    ?.takeIf { it.getStringExtra(GameLauncher.EXTRA_NEEDS_CART) == null }
+                if (found != null) {
+                    if (!listed) { settings.addRomFolder(tree); JLog.i(TAG, "ROM folder added for the ${ask.code} cartridge") }
+                    found
+                } else {
+                    if (!listed) {
+                        db.forgetFolder(tree)
+                        if (tree != com.joeysretro.joey64.launcher.storage.DataFolders.treeUri(app)) try { RomFolders.release(app, folder) } catch (e: Exception) {}
+                    }
+                    null
+                }
+            }
+            _all.value = withContext(Dispatchers.IO) { db.libraryGames() }
+            if (intent != null) {
+                _needsCart.value = null; started(ask.game); start(intent)
+            } else _needsCart.value = ask.copy(missed = true)
+        }
+    }
+
+    fun cartCancelled() { _needsCart.value = null }
 
     /** Gets [game] ready and hands [start] its intent. One at a time: a second press while a zip unpacks does nothing. */
     fun play(game: LibraryGame, loadState: String? = null, start: (Intent) -> Unit) {
@@ -362,7 +674,12 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 val intent = withContext(Dispatchers.IO) { launcher.intentFor(game, loadState) }
-                if (intent != null) { started(game); start(intent) } else JLog.w(TAG, "no readable file for ${game.title}")
+                val app = getApplication<Application>()
+                if (intent != null && intent.getBooleanExtra(GameLauncher.EXTRA_IS_DISK, false) &&
+                    !withContext(Dispatchers.IO) { com.joeysretro.joey64.launcher.storage.BiosImport.ready(app) }) {
+                    JLog.i(TAG, "${game.title} is a 64DD disk and there's no 64DD BIOS: asking for it")
+                    _needsBios.value = NeedsBios(game, intent)
+                } else if (intent != null) go(game, intent, start) else JLog.w(TAG, "no readable file for ${game.title}")
             } finally {
                 starting = false
             }

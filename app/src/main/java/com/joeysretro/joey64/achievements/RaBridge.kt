@@ -66,6 +66,8 @@ object RaBridge {
     @Volatile private var appContext: Context? = null
     @Volatile private var richPresence = true
     private var userAgent = "Joey64/${BuildConfig.VERSION_NAME}"
+    /** The User-Agent RetroAchievements gets from Joey64 (with rcheevos' clause once it's loaded), for [RaGameList]. */
+    val agent: String get() = userAgent
 
     /** Which sign-in is under way, so its answer is read right; a cancelled one is undone when it lands. */
     private enum class Login { None, Password, Token, Cancelled }
@@ -117,6 +119,9 @@ object RaBridge {
         _signIn.value = SignInState.Idle
     }
 
+    /** Debug builds (RA_EVENT --ez expired): as if the kept sign-in were refused, without touching the account. */
+    fun debugExpired(on: Boolean) { _expired.value = on }
+
     fun clearSignInError() { if (_signIn.value != SignInState.Busy) _signIn.value = SignInState.Idle }
 
     fun signOut() {
@@ -155,10 +160,17 @@ object RaBridge {
         return true
     }
 
+    /**
+     * PPSSPP's rules (its AchievementsHostOverrideReceiver.isAllowedHost, the strictest of the emulators RAOfflineProxy
+     * reaches; Joey 2026-11-07): plain http to a loopback address with a port, nothing else in it (no user info, path
+     * past "/", query or fragment). RAOfflineProxy sends "http://127.0.0.1:<port>". [::1] is taken as well.
+     */
     fun isLocalHost(host: String): Boolean {
         val uri = try { URI(host.trim()) } catch (e: Exception) { return false }
-        if (uri.scheme != "http" && uri.scheme != "https") return false
-        if (uri.userInfo != null) return false
+        if (uri.scheme != "http" || uri.isOpaque) return false
+        if (uri.rawUserInfo != null || uri.rawQuery != null || uri.rawFragment != null) return false
+        if (!uri.rawPath.isNullOrEmpty() && uri.rawPath != "/") return false
+        if (uri.port !in 0..65535) return false
         val h = uri.host ?: return false
         return h == "127.0.0.1" || h.equals("localhost", ignoreCase = true) || h == "[::1]" || h == "::1"
     }

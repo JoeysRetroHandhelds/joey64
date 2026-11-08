@@ -12,6 +12,8 @@ add_library(joey64host SHARED
     joeylog.cpp
     vk_context.cpp
     vk_post.cpp
+    rewind_test.cpp
+    rewind.cpp
     achievements.cpp)
 
 add_subdirectory(third_party/libadrenotools)
@@ -27,7 +29,7 @@ target_compile_definitions(rcheevos PUBLIC RC_DISABLE_LUA)
 target_compile_options(rcheevos PRIVATE -O2 -w)
 
 target_include_directories(joey64host PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(joey64host android log EGL GLESv3 aaudio dl adrenotools rcheevos)
+target_link_libraries(joey64host android log EGL GLESv3 aaudio dl adrenotools rcheevos z)
 # Optimized even in debug builds (the only kind so far): at -O0 the host's audio resampler and
 # ring took 4-7% of all CPU on the Retroid Flip.
 target_compile_options(joey64host PRIVATE -O2)

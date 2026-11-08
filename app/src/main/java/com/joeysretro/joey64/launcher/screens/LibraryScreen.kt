@@ -73,8 +73,11 @@ import com.joeysretro.joey64.launcher.theme.JoeyTheme
  */
 @Composable
 fun LibraryScreen(model: LibraryModel, onSearch: () -> Unit) {
-    val games by model.games.collectAsStateWithLifecycle()
+    // Settings › Library's order, regions and one version per game (approved 2026-11-08); hidden games left out.
+    val games by model.shown.collectAsStateWithLifecycle()
     val reading by model.reading.collectAsStateWithLifecycle()
+    val art by model.artProgress.collectAsStateWithLifecycle()
+    val artPaused by model.artPaused.collectAsStateWithLifecycle()
     val view by model.view.collectAsStateWithLifecycle()
     val facts by model.facts.collectAsStateWithLifecycle()
     val landing = LocalFocusLanding.current
@@ -85,6 +88,14 @@ fun LibraryScreen(model: LibraryModel, onSearch: () -> Unit) {
     model.recovery.collectAsStateWithLifecycle().value?.let { offer ->
         RecoveryPopup(offer) { carryOn -> model.recoveryAnswered(carryOn) { context.startActivity(it) } }
     }
+    model.askContinue.collectAsStateWithLifecycle().value?.let { ask ->
+        AskContinuePopup(ask) { carryOn -> model.continueAnswered(carryOn) { context.startActivity(it) } }
+    }
+    // Reports, asked once (approved reports mockup 2026-11-08, screen 5); never over another question.
+    val askingSomething = model.recovery.collectAsStateWithLifecycle().value != null || model.askContinue.collectAsStateWithLifecycle().value != null
+    if (model.askReports.collectAsStateWithLifecycle().value && !askingSomething) AskReportsPopup(model::reportsAnswered)
+    NeedsBiosPopup(model) { context.startActivity(it) }
+    NeedsCartPopup(model) { context.startActivity(it) }
     var showing by remember { mutableStateOf(false) }
     if (showing) ShowPopup(model) { showing = false }
 
@@ -106,8 +117,20 @@ fun LibraryScreen(model: LibraryModel, onSearch: () -> Unit) {
                 ProgressLine(r, width = 320.dp, centred = false)
             }
         }
-        com.joeysretro.joey64.launcher.components.PageChip(view.label, com.joeysretro.joey64.R.drawable.ic_filter,
-            Modifier.padding(start = JoeyTheme.spacing.margin, top = 12.dp), on = view != com.joeysretro.joey64.launcher.library.LibraryView.All) { showing = true }
+        // The filter chip, and at the right end of its line (Joey 2026-11-07) covers downloading, the same
+        // progress line as reading, or why they paused.
+        androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().padding(start = JoeyTheme.spacing.margin, end = JoeyTheme.spacing.margin, top = 12.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            com.joeysretro.joey64.launcher.components.PageChip(view.label, com.joeysretro.joey64.R.drawable.ic_filter,
+                on = view != com.joeysretro.joey64.launcher.library.LibraryView.All) { showing = true }
+            androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+            art?.takeIf { reading == null }?.let { a ->
+                ProgressLine(a, width = 160.dp, label = "Getting box art")
+            }
+            if (artPaused && art == null && reading == null) {
+                Text("Box art paused · ScreenScraper is busy. Joey64 will try again later.", style = JoeyTheme.type.note, color = c.textDim)
+            }
+        }
         val f = facts
         val list = remember(all, view, f) { if (f == null) all else com.joeysretro.joey64.launcher.library.LibraryViews.show(all, view, f) }
         // Taking the last game out of a collection from its own options empties the view: the grid
@@ -129,6 +152,12 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
     /** Focuses the first tile (Search's Enter: the first result, not the tile under the box). */
     firstTile: androidx.compose.ui.focus.FocusRequester? = null) {
     val context = LocalContext.current
+    // Settings › Library › Covers (approved mockup 2026-11-08): cover size and names.
+    val store = remember { com.joeysretro.joey64.launcher.settings.SettingsStore(context) }
+    val look = store.settings.collectAsStateWithLifecycle(initialValue = null).value
+    val size = look?.coverSize ?: com.joeysretro.joey64.launcher.library.CoverSize.Medium
+    val names = look?.names ?: com.joeysretro.joey64.launcher.library.NamesMode.DEFAULT
+    val style = look?.nameStyle ?: com.joeysretro.joey64.launcher.library.NameStyle.Short
     // The game whose tile has focus, for Start; null while focus is elsewhere.
     var focusedGame by remember { mutableStateOf<LibraryGame?>(null) }
     var popup by remember { mutableStateOf<Pair<Long, GamePopup>?>(null) }
@@ -150,7 +179,7 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
     popup?.let { (id, which) ->
         val g = list.firstOrNull { it.id == id } ?: model.games.value?.firstOrNull { it.id == id }
         if (g == null) popup = null
-        else GamePopups(g, which, model, onPopup = { next -> popup = next?.let { id to it } }) { model.play(g) { context.startActivity(it) } }
+        else GamePopups(g, which, model, onPopup = { next -> popup = next?.let { id to it } }) { model.playAsked(g) { context.startActivity(it) } }
     }
     run {
         // Focus moving to a row half off screen scrolls it fully in with a row gap to spare, so the
@@ -159,17 +188,17 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
         val gap = with(LocalDensity.current) { 16.dp.toPx() }
         CompositionLocalProvider(LocalBringIntoViewSpec provides remember(gap) { RowGapSpec(gap) }) {
         LazyVerticalGrid(
-            columns = GridCells.Fixed(LocalScreenLayout.current.boxArtColumns),
+            columns = GridCells.Fixed(com.joeysretro.joey64.launcher.library.LibraryArrange.columns(LocalScreenLayout.current.boxArtColumns, size)),
             contentPadding = PaddingValues(horizontal = JoeyTheme.spacing.margin, vertical = 14.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
             modifier = Modifier.fillMaxSize().focusRestorer().focusGroup(),
         ) {
             itemsIndexed(list, key = { _, g -> g.id }) { i, g ->
-                GameTile(g, model.cover(g), Modifier.initialFocus(firstFocus && i == 0)
+                GameTile(g, model.cover(g), names, com.joeysretro.joey64.launcher.library.LibraryArrange.title(g, style), Modifier.initialFocus(firstFocus && i == 0)
                     .then(if (i == 0 && firstTile != null) Modifier.focusRequester(firstTile) else Modifier),
                     onFocus = { on -> if (on) focusedGame = g else if (focusedGame?.id == g.id) focusedGame = null },
-                    onOptions = { popup = g.id to GamePopup.Options }) { model.play(g) { context.startActivity(it) } }
+                    onOptions = { popup = g.id to GamePopup.Options }) { model.playAsked(g) { context.startActivity(it) } }
             }
         }
         }
@@ -192,19 +221,22 @@ private class RowGapSpec(private val margin: Float) : BringIntoViewSpec {
 
 /**
  * A game's tile: its cover, filling the tile (libretro's are ~1.43:1, the tile 1.45:1, so a sliver
- * is cropped), or without one, its name on a plain tile the size and shape of a cover. While a
- * cover loads the tile is plain, so a name doesn't flash up first.
+ * is cropped), or without one a plain tile the size and shape of a cover. While a cover loads the
+ * tile is plain, so a name doesn't flash up first. Settings › Library › Names (approved 2026-11-08):
+ * Only without box art puts [name] on a plain tile, Under the cover puts it under every tile, Off never.
  */
 @Composable
-private fun GameTile(game: LibraryGame, cover: File?, modifier: Modifier = Modifier, onFocus: (Boolean) -> Unit,
+private fun GameTile(game: LibraryGame, cover: File?, names: com.joeysretro.joey64.launcher.library.NamesMode, name: String,
+                     modifier: Modifier = Modifier, onFocus: (Boolean) -> Unit,
                      onOptions: () -> Unit, onClick: () -> Unit) {
     val c = JoeyTheme.colors
     val (source, focused) = rememberFocusState()
     LaunchedEffect(focused) { onFocus(focused) }
     val picture by rememberCover(cover)
     val shape = RoundedCornerShape(4.dp)
+    Column(modifier.fillMaxWidth()) {
     Box(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(1.45f)
             .coverSelection(focused)
@@ -215,9 +247,15 @@ private fun GameTile(game: LibraryGame, cover: File?, modifier: Modifier = Modif
         val p = picture
         when {
             p != null -> Image(p, contentDescription = game.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(shape))
-            cover == null -> Text(game.title, style = JoeyTheme.type.tile, color = c.textSecondary, textAlign = TextAlign.Center,
-                maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(10.dp))
+            cover == null && names == com.joeysretro.joey64.launcher.library.NamesMode.NoArt ->
+                Text(name, style = JoeyTheme.type.tile, color = c.textSecondary, textAlign = TextAlign.Center,
+                    maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(10.dp))
         }
+    }
+    if (names == com.joeysretro.joey64.launcher.library.NamesMode.Under) {
+        Text(name, style = JoeyTheme.type.note, color = if (focused) c.gold else c.textSecondary, maxLines = 1,
+            overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp, start = 2.dp, end = 2.dp))
+    }
     }
 }
 
@@ -234,6 +272,35 @@ private fun OfflinePopup(onOk: () -> Unit) {
             PromptText(AnnotatedString("Joey64 couldn't connect. Box art downloads by itself next time you're online."))
             JoeyOption("OK", modifier = Modifier.initialFocus(), onClick = onOk)
         }
+    }
+}
+
+/**
+ * Settings › Saves › Continue on Play is Ask (approved Saves mockup 2026-11-07, screen 4): the game's
+ * name, when it was quit, Continue or Start over. B closes it and nothing starts.
+ */
+@Composable
+internal fun AskContinuePopup(ask: LibraryModel.AskContinue, onAnswer: (Boolean?) -> Unit) {
+    JoeyDialog(onDismiss = { onAnswer(null) }, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 440.dp) {
+        Column {
+            PopupTitle(ask.game.title, "You quit this game ${quitAgo(ask.quitAt, System.currentTimeMillis())}. Go on from there?")
+            JoeyOption("Continue", modifier = Modifier.initialFocus()) { onAnswer(true) }
+            JoeyOption("Start over") { onAnswer(false) }
+        }
+    }
+}
+
+/** "2 hours ago", "yesterday" ... for the Ask popup. */
+internal fun quitAgo(at: Long, now: Long): String {
+    val min = ((now - at) / 60_000L).coerceAtLeast(0)
+    return when {
+        min < 1 -> "less than a minute ago"
+        min == 1L -> "a minute ago"
+        min < 60 -> "$min minutes ago"
+        min < 120 -> "an hour ago"
+        min < 24 * 60 -> "${min / 60} hours ago"
+        min < 48 * 60 -> "yesterday"
+        else -> "${min / (24 * 60)} days ago"
     }
 }
 

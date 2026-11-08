@@ -19,7 +19,7 @@ import com.joeysretro.joey64.launcher.library.RomInfo
  * the file is renamed or moved, or the same ROM sits in two folders.
  */
 object LibrarySchema {
-    const val VERSION = 5
+    const val VERSION = 6
 
     val V1 = listOf(
         // md5: RetroAchievements' N64 hash, the MD5 of the ROM in big-endian (.z64) byte order.
@@ -159,6 +159,14 @@ object LibrarySchema {
         "ALTER TABLE ra_sets ADD COLUMN list_json TEXT",
     )
 
+    /**
+     * Version 6 (Settings › Library, approved mockup 2026-11-08): Hidden games. A game's options › Hide game
+     * sets when; the game leaves the library, Search and the filters, and its saves stay.
+     */
+    val V6 = listOf(
+        "ALTER TABLE games ADD COLUMN hidden_at INTEGER",
+    )
+
     /** Tables the cache owns; emptied on sign-out. */
     val RA_CACHE = listOf("ra_achievements", "ra_sets")
 }
@@ -176,6 +184,17 @@ data class LibraryGame(
     val favourite: Boolean = false,
     /** The header's "CRC1-CRC2-CC", the cheat lists' key; null until the ROM is read again (V4). */
     val headerKey: String? = null,
+    /** The header's 4-character game code ("NALE"); hacks keep the original's, so the player counts fall back to it. */
+    val headerId: String? = null,
+    /** Settings › Library's sorts and regions (approved mockup 2026-11-08). */
+    val lastPlayedAt: Long? = null,
+    val playSeconds: Long = 0,
+    val addedAt: Long = 0,
+    /** The header's destination code ('E', 'J', 'P' ...); null until the file is read again (V3), and for disks. */
+    val region: Char? = null,
+    val revision: Int? = null,
+    /** When Hide game hid it; null = shown. */
+    val hiddenAt: Long? = null,
 )
 
 /** A collection the user made (Phase 5). Favourites isn't one: it's games.favorite, always first. */
@@ -183,8 +202,8 @@ data class GameCollection(val id: Long, val name: String)
 
 /** What a game's tile shows, from `box_art.kind` (V2). Null: no row yet, not looked up. */
 enum class ArtKind(val db: String) {
-    /** A downloaded libretro cover. */
-    Libretro("libretro"),
+    /** A downloaded cover (ScreenScraper; libretro-thumbnails before 2026-11-07, kept under the same name). */
+    Downloaded("libretro"),
     /** Looked up, nothing found: a title tile. */
     None("none"),
     /** A picture the user chose (Details, Change box art). */
@@ -192,7 +211,7 @@ enum class ArtKind(val db: String) {
     /** No box art, by the user's choice: a title tile, never looked up again. */
     Hidden("hidden");
 
-    val shows get() = this == Libretro || this == Custom
+    val shows get() = this == Downloaded || this == Custom
 
     companion object {
         fun of(db: String?) = entries.firstOrNull { it.db == db }
@@ -215,7 +234,13 @@ data class GameDetails(
 )
 
 /** A game whose cover hasn't been looked up against the current listing: its first file's name, without extension. */
-data class ArtLookup(val gameId: Long, val md5: String, val fileName: String)
+/** A game's box_art row as [LibraryDb.artOfGames] reads it. */
+data class ArtRow(val gameId: Long, val md5: String, val kind: String?, val cover: String?)
+
+/** A cover event for reports: [kind] "none" or "replaced" (with the [cover] it had), [title] the file name without extension. */
+data class CoverReport(val md5: String, val header: String?, val kind: String, val cover: String?, val title: String)
+
+data class ArtLookup(val gameId: Long, val md5: String, val fileName: String, val crc32: String = "", val romSize: Long = 0)
 
 /** One of a game's files in a picked ROM folder. */
 data class GameFile(val uri: String, val treeUri: String, val name: String)
@@ -234,7 +259,7 @@ class LibraryDb private constructor(context: Context) :
     }
 
     override fun onCreate(db: SQLiteDatabase) {
-        for (sql in LibrarySchema.V1 + LibrarySchema.V2 + LibrarySchema.V3 + LibrarySchema.V4 + LibrarySchema.V5) db.execSQL(sql)
+        for (sql in LibrarySchema.V1 + LibrarySchema.V2 + LibrarySchema.V3 + LibrarySchema.V4 + LibrarySchema.V5 + LibrarySchema.V6) db.execSQL(sql)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -252,6 +277,7 @@ class LibraryDb private constructor(context: Context) :
             db.execSQL("UPDATE files SET size = -1")
         }
         if (oldVersion < 5) for (sql in LibrarySchema.V5) db.execSQL(sql)
+        if (oldVersion < 6) for (sql in LibrarySchema.V6) db.execSQL(sql)
     }
 
     /** Adds a finished play session and keeps the game's total and last-played in step. */
@@ -267,6 +293,94 @@ class LibraryDb private constructor(context: Context) :
                 "UPDATE games SET play_seconds = play_seconds + ?, last_played_at = MAX(IFNULL(last_played_at, 0), ?) WHERE id = ?",
                 arrayOf<Any>(seconds, startedAt + seconds * 1000, gameId),
             )
+        }
+    }
+
+    /**
+     * The library's lists for Settings › Saves › Back up Joey64 (approved Saves mockup 2026-11-07): every
+     * game by MD5 with its favourite mark and play times, and the collections by name. ROM files and box
+     * art aren't in it: the scan finds them again.
+     */
+    fun exportLists(): org.json.JSONObject {
+        val db = readableDatabase
+        val games = org.json.JSONArray()
+        db.rawQuery("SELECT md5, crc32, header_id, title, added_at, last_played_at, favorite, hidden_at FROM games", null).use { c ->
+            while (c.moveToNext()) games.put(org.json.JSONObject().apply {
+                put("md5", c.getString(0)); put("crc32", c.getString(1)); if (!c.isNull(2)) put("header_id", c.getString(2))
+                put("title", c.getString(3)); put("added_at", c.getLong(4)); if (!c.isNull(5)) put("last_played_at", c.getLong(5))
+                put("favorite", c.getInt(6) != 0); if (!c.isNull(7)) put("hidden_at", c.getLong(7))
+            })
+        }
+        val sessions = org.json.JSONArray()
+        db.rawQuery("SELECT g.md5, s.started_at, s.seconds FROM play_sessions s JOIN games g ON g.id = s.game_id", null).use { c ->
+            while (c.moveToNext()) sessions.put(org.json.JSONArray().put(c.getString(0)).put(c.getLong(1)).put(c.getLong(2)))
+        }
+        val collections = org.json.JSONArray()
+        db.rawQuery("SELECT id, name, position, created_at FROM collections ORDER BY position", null).use { c ->
+            while (c.moveToNext()) {
+                val list = org.json.JSONArray()
+                db.rawQuery("SELECT g.md5 FROM collection_games cg JOIN games g ON g.id = cg.game_id WHERE cg.collection_id = ? ORDER BY cg.position",
+                    arrayOf(c.getLong(0).toString())).use { g -> while (g.moveToNext()) list.put(g.getString(0)) }
+                collections.put(org.json.JSONObject().apply { put("name", c.getString(1)); put("position", c.getInt(2)); put("created_at", c.getLong(3)); put("games", list) })
+            }
+        }
+        return org.json.JSONObject().apply { put("games", games); put("sessions", sessions); put("collections", collections) }
+    }
+
+    /**
+     * Brings back [exportLists]' lists: games missing here are added (they show once a ROM folder has
+     * them), each game's favourite mark is the backup's, play sessions not here are added (totals worked
+     * out again), and a collection of the same name gets the backup's games. Games not in the backup stay.
+     */
+    fun importLists(o: org.json.JSONObject, now: Long = System.currentTimeMillis()) {
+        writableDatabase.transaction {
+            fun idOf(md5: String) = rawQuery("SELECT id FROM games WHERE md5 = ?", arrayOf(md5)).use { c -> if (c.moveToFirst()) c.getLong(0) else null }
+            val games = o.optJSONArray("games") ?: org.json.JSONArray()
+            for (i in 0 until games.length()) {
+                val g = games.getJSONObject(i)
+                val md5 = g.optString("md5").lowercase().takeIf { it.length == 32 } ?: continue
+                insertWithOnConflict("games", null, ContentValues().apply {
+                    put("md5", md5); put("crc32", g.optString("crc32")); if (g.has("header_id")) put("header_id", g.optString("header_id"))
+                    put("title", g.optString("title", md5)); put("added_at", g.optLong("added_at", now))
+                }, SQLiteDatabase.CONFLICT_IGNORE)
+                update("games", ContentValues().apply {
+                    put("favorite", if (g.optBoolean("favorite")) 1 else 0)
+                    if (g.has("hidden_at")) put("hidden_at", g.optLong("hidden_at")) else putNull("hidden_at")
+                }, "md5 = ?", arrayOf(md5))
+            }
+            val touched = mutableSetOf<Long>()
+            val sessions = o.optJSONArray("sessions") ?: org.json.JSONArray()
+            for (i in 0 until sessions.length()) {
+                val s = sessions.optJSONArray(i) ?: continue
+                val id = idOf(s.optString(0).lowercase()) ?: continue
+                val at = s.optLong(1); val sec = s.optLong(2)
+                val have = rawQuery("SELECT 1 FROM play_sessions WHERE game_id = ? AND started_at = ?", arrayOf(id.toString(), at.toString())).use { it.moveToFirst() }
+                if (!have && sec > 0) {
+                    insertOrThrow("play_sessions", null, ContentValues().apply { put("game_id", id); put("started_at", at); put("seconds", sec) })
+                    touched += id
+                }
+            }
+            for (id in touched) execSQL(
+                "UPDATE games SET play_seconds = (SELECT IFNULL(SUM(seconds), 0) FROM play_sessions WHERE game_id = ?1)," +
+                    " last_played_at = MAX(IFNULL(last_played_at, 0), (SELECT IFNULL(MAX(started_at + seconds * 1000), 0) FROM play_sessions WHERE game_id = ?1)) WHERE id = ?1",
+                arrayOf<Any>(id))
+            val collections = o.optJSONArray("collections") ?: org.json.JSONArray()
+            for (i in 0 until collections.length()) {
+                val c = collections.getJSONObject(i)
+                val name = c.optString("name").takeIf { it.isNotBlank() } ?: continue
+                var cid = rawQuery("SELECT id FROM collections WHERE name = ?", arrayOf(name)).use { r -> if (r.moveToFirst()) r.getLong(0) else null }
+                if (cid == null) {
+                    val pos = rawQuery("SELECT IFNULL(MAX(position), -1) + 1 FROM collections", null).use { r -> r.moveToFirst(); r.getInt(0) }
+                    cid = insertOrThrow("collections", null, ContentValues().apply { put("name", name); put("position", pos); put("created_at", c.optLong("created_at", now)) })
+                }
+                delete("collection_games", "collection_id = ?", arrayOf(cid.toString()))
+                val list = c.optJSONArray("games") ?: org.json.JSONArray()
+                var p = 0
+                for (k in 0 until list.length()) {
+                    val id = idOf(list.optString(k).lowercase()) ?: continue
+                    insertWithOnConflict("collection_games", null, ContentValues().apply { put("collection_id", cid); put("game_id", id); put("position", p++) }, SQLiteDatabase.CONFLICT_IGNORE)
+                }
+            }
         }
     }
 
@@ -300,7 +414,9 @@ class LibraryDb private constructor(context: Context) :
                     put("region", info.header.region.code.code)
                     put("revision", info.header.revision)
                     put("rom_size", info.size)
-                    put("header_key", com.joeysretro.joey64.cheats.CheatLogic.keyOf(info.header))
+                    // A 64DD disk has no header CRCs, so no cheat-list key (every disk would share 00000000-00000000-4A).
+                    if (info.header.crc1 == 0L && info.header.crc2 == 0L) putNull("header_key")
+                    else put("header_key", com.joeysretro.joey64.cheats.CheatLogic.keyOf(info.header))
                 }, "md5 = ?", arrayOf(info.md5))
             }
             val row = ContentValues().apply {
@@ -325,6 +441,24 @@ class LibraryDb private constructor(context: Context) :
     }
 
     /** Files that left their folder. Their games stay (play time and collections can't be scanned back); the library lists games with a file. */
+    /** Games per ROM folder (tree URI), files not read yet or not ROMs left out. */
+    fun gamesPerFolder(): Map<String, Int> =
+        readableDatabase.rawQuery("SELECT tree_uri, COUNT(DISTINCT game_id) FROM files WHERE game_id IS NOT NULL GROUP BY tree_uri", null).use { c ->
+            buildMap { while (c.moveToNext()) put(c.getString(0), c.getInt(1)) }
+        }
+
+    /** Games in [treeUri] that no other folder has: the ones that leave the library with it. */
+    fun gamesOnlyIn(treeUri: String): Int =
+        readableDatabase.rawQuery("SELECT COUNT(DISTINCT f.game_id) FROM files f WHERE f.tree_uri = ? AND f.game_id IS NOT NULL" +
+            " AND NOT EXISTS (SELECT 1 FROM files o WHERE o.game_id = f.game_id AND o.tree_uri <> ?)", arrayOf(treeUri, treeUri)).use { c ->
+            if (c.moveToFirst()) c.getInt(0) else 0
+        }
+
+    /** A ROM folder taken off the list: its files go, its games stay (play time, favourites). */
+    fun forgetFolder(treeUri: String) {
+        writableDatabase.delete("files", "tree_uri = ?", arrayOf(treeUri))
+    }
+
     fun forgetFiles(uris: Collection<String>) {
         if (uris.isEmpty()) return
         writableDatabase.transaction {
@@ -332,16 +466,20 @@ class LibraryDb private constructor(context: Context) :
         }
     }
 
-    /** The library: every game with at least one file in a ROM folder, by title. */
+    /** The library: every game with at least one file in a ROM folder, by title; hidden ones too ([LibraryGame.hiddenAt]). */
     fun libraryGames(): List<LibraryGame> =
         readableDatabase.rawQuery(
-            "SELECT g.id, g.title, g.md5, a.kind, g.crc32, g.last_played_at IS NOT NULL, g.favorite, g.header_key FROM games g LEFT JOIN box_art a ON a.game_id = g.id" +
+            "SELECT g.id, g.title, g.md5, a.kind, g.crc32, g.last_played_at IS NOT NULL, g.favorite, g.header_key, g.header_id," +
+                " g.last_played_at, g.play_seconds, g.added_at, g.region, g.revision, g.hidden_at FROM games g LEFT JOIN box_art a ON a.game_id = g.id" +
                 " WHERE EXISTS (SELECT 1 FROM files f WHERE f.game_id = g.id) ORDER BY g.title COLLATE NOCASE",
             null,
         ).use { c ->
             buildList {
                 while (c.moveToNext()) add(LibraryGame(c.getLong(0), c.getString(1), c.getString(2), ArtKind.of(c.getString(3)),
-                    crc32 = c.getString(4), played = c.getInt(5) != 0, favourite = c.getInt(6) != 0, headerKey = c.getString(7)))
+                    crc32 = c.getString(4), played = c.getInt(5) != 0, favourite = c.getInt(6) != 0, headerKey = c.getString(7),
+                    headerId = c.getString(8), lastPlayedAt = if (c.isNull(9)) null else c.getLong(9), playSeconds = c.getLong(10),
+                    addedAt = c.getLong(11), region = if (c.isNull(12)) null else c.getInt(12).toChar(),
+                    revision = if (c.isNull(13)) null else c.getInt(13), hiddenAt = if (c.isNull(14)) null else c.getLong(14)))
             }
         }
 
@@ -360,6 +498,11 @@ class LibraryDb private constructor(context: Context) :
             while (c.moveToNext()) m.getOrPut(c.getLong(0)) { HashSet() }.add(c.getLong(1))
             m
         }
+
+    /** Hide game (Settings › Library › Hidden games shows it again): [at] when, null to show it. */
+    fun setHidden(gameId: Long, at: Long?) {
+        writableDatabase.execSQL("UPDATE games SET hidden_at = ? WHERE id = ?", arrayOf<Any?>(at, gameId))
+    }
 
     fun setFavourite(gameId: Long, on: Boolean) {
         writableDatabase.execSQL("UPDATE games SET favorite = ? WHERE id = ?", arrayOf<Any>(if (on) 1 else 0, gameId))
@@ -440,7 +583,7 @@ class LibraryDb private constructor(context: Context) :
             )
         }
 
-    /** The user's Change box art choice: [kind] Custom, Hidden, or Libretro again; the libretro cover's name stays. */
+    /** The user's Change box art choice: [kind] Custom, Hidden, or Downloaded again; the downloaded cover's name stays. */
     fun chooseArt(gameId: Long, kind: ArtKind) {
         writableDatabase.transaction {
             val row = ContentValues().apply { put("kind", kind.db) }
@@ -451,18 +594,83 @@ class LibraryDb private constructor(context: Context) :
     }
 
     /**
-     * Games to look up against the cover listing fetched at [listedAt]: never looked up, or
-     * "none" against an older listing. Library games only.
+     * Games whose cover to look up: never looked up, or "none" when checked before [listedAt] or
+     * against libretro-thumbnails (cover null; ScreenScraper's "none" rows say "screenscraper").
+     * Library games only.
      */
     fun artToLookUp(listedAt: Long): List<ArtLookup> =
         readableDatabase.rawQuery(
-            "SELECT g.id, g.md5, (SELECT f.name FROM files f WHERE f.game_id = g.id ORDER BY f.seen_at DESC LIMIT 1) n" +
+            "SELECT g.id, g.md5, (SELECT f.name FROM files f WHERE f.game_id = g.id ORDER BY f.seen_at DESC LIMIT 1) n, g.crc32, g.rom_size" +
                 " FROM games g LEFT JOIN box_art a ON a.game_id = g.id" +
-                " WHERE n IS NOT NULL AND (a.kind IS NULL OR (a.kind = 'none' AND a.checked_at < ?)) ORDER BY g.title COLLATE NOCASE",
+                " WHERE n IS NOT NULL AND (a.kind IS NULL OR (a.kind = 'none' AND (a.checked_at < ? OR a.cover IS NULL))) ORDER BY g.title COLLATE NOCASE",
             arrayOf(listedAt.toString()),
-        ).use { c -> buildList { while (c.moveToNext()) add(ArtLookup(c.getLong(0), c.getString(1), c.getString(2).substringBeforeLast('.'))) } }
+        ).use { c -> buildList { while (c.moveToNext()) add(ArtLookup(c.getLong(0), c.getString(1), c.getString(2).substringBeforeLast('.'), c.getString(3) ?: "", if (c.isNull(4)) 0 else c.getLong(4))) } }
+
+    /**
+     * Reports: library games ScreenScraper had no cover for ("none"), and games whose downloaded cover
+     * (ScreenScraper's or Joey64's own) the user replaced with their own image or No box art: chooseArt
+     * changes the kind only, so the cover it had is still in the row.
+     */
+    fun coverReports(): List<CoverReport> =
+        readableDatabase.rawQuery(
+            "SELECT g.md5, g.header_id, a.kind, a.cover, (SELECT f.name FROM files f WHERE f.game_id = g.id ORDER BY f.seen_at DESC LIMIT 1) n" +
+                " FROM games g JOIN box_art a ON a.game_id = g.id" +
+                " WHERE n IS NOT NULL AND ((a.kind = 'none' AND a.cover = 'screenscraper')" +
+                " OR (a.kind IN ('custom', 'hidden') AND (a.cover LIKE 'screenscraper:%' OR a.cover LIKE 'joey64:%')))" +
+                " ORDER BY g.title COLLATE NOCASE",
+            null,
+        ).use { c -> buildList { while (c.moveToNext()) add(CoverReport(c.getString(0), c.getString(1), if (c.getString(2) == "none") "none" else "replaced", c.getString(3), c.getString(4).substringBeforeLast('.'))) } }
+
+    /** The ROM header's game code ("NSME") of each game in [md5s] that has one. */
+    fun headersOf(md5s: Set<String>): Map<String, String> {
+        if (md5s.isEmpty()) return emptyMap()
+        return md5s.chunked(500).flatMap { chunk ->
+            readableDatabase.rawQuery("SELECT md5, header_id FROM games WHERE header_id IS NOT NULL AND md5 IN (" + chunk.joinToString(",") { "?" } + ")",
+                chunk.toTypedArray()).use { c -> buildList { while (c.moveToNext()) add(c.getString(0) to c.getString(1)) } }
+        }.toMap()
+    }
+
+    /** Library games with an MD5 in [md5s], with what their tile shows now (kind and cover null: not looked up yet). */
+    fun artOfGames(md5s: Set<String>): List<ArtRow> {
+        if (md5s.isEmpty()) return emptyList()
+        return md5s.chunked(500).flatMap { chunk ->
+            readableDatabase.rawQuery(
+                "SELECT g.id, g.md5, a.kind, a.cover FROM games g LEFT JOIN box_art a ON a.game_id = g.id" +
+                    " WHERE g.md5 IN (" + chunk.joinToString(",") { "?" } + ") AND EXISTS (SELECT 1 FROM files f WHERE f.game_id = g.id)",
+                chunk.toTypedArray(),
+            ).use { c -> buildList { while (c.moveToNext()) add(ArtRow(c.getLong(0), c.getString(1), c.getString(2), c.getString(3))) } }
+        }
+    }
+
+    /** Debug builds only (SHOW boxart-reset): downloaded and not-found covers are looked up again; custom and hidden stay. */
+    fun debugForgetArt() {
+        writableDatabase.delete("box_art", "kind IN ('libretro', 'none')", null)
+    }
 
     /** Records what [gameId] shows; see [LibrarySchema.V2]. */
+    /**
+     * Marks the "none" covers of games with an MD5 in [md5s], checked before [before], for a lookup at the next run
+     * (checked_at 0). Returns how many.
+     */
+    fun retryNone(md5s: Set<String>, before: Long): Int {
+        if (md5s.isEmpty() || before <= 0) return 0
+        var n = 0
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            for (chunk in md5s.chunked(500)) {
+                db.compileStatement("UPDATE box_art SET checked_at = 0 WHERE kind = 'none' AND checked_at > 0 AND checked_at < ? " +
+                    "AND game_id IN (SELECT id FROM games WHERE md5 IN (" + chunk.joinToString(",") { "?" } + "))").use { st ->
+                    st.bindLong(1, before)
+                    chunk.forEachIndexed { i, m -> st.bindString(i + 2, m) }
+                    n += st.executeUpdateDelete()
+                }
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+        return n
+    }
+
     fun setArt(gameId: Long, kind: String, cover: String?, checkedAt: Long) {
         writableDatabase.insertWithOnConflict("box_art", null, ContentValues().apply {
             put("game_id", gameId)
@@ -471,6 +679,13 @@ class LibraryDb private constructor(context: Context) :
             put("checked_at", checkedAt)
         }, SQLiteDatabase.CONFLICT_REPLACE)
     }
+
+    /** Games in the library whose header game code is [code] ("CFZJ"), most recently played first: a 64DD disk's cartridge. */
+    fun gamesWithCode(code: String): List<LibraryGame> =
+        readableDatabase.rawQuery("SELECT g.id, g.title, g.md5 FROM games g WHERE g.header_id = ? " +
+            "AND EXISTS (SELECT 1 FROM files f WHERE f.game_id = g.id) ORDER BY g.last_played_at DESC", arrayOf(code)).use { c ->
+            buildList { while (c.moveToNext()) add(LibraryGame(c.getLong(0), c.getString(1), c.getString(2))) }
+        }
 
     /** A game's files, most recently seen first (the same ROM can sit in two folders). */
     fun filesOf(gameId: Long): List<GameFile> =

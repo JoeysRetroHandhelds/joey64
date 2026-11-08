@@ -71,6 +71,8 @@ enum class GamePopup { Options, Details, Collections }
  */
 @Composable
 fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup: (GamePopup?) -> Unit, onPlay: () -> Unit) {
+    // The grid's landing (the popup's own is provided inside JoeyDialog): Hide game sends focus back to the first game.
+    val gridLanding = LocalFocusLanding.current
     var boxArt by remember { mutableStateOf(false) }
     var naming by remember { mutableStateOf(false) }
     // Read again after a Box art choice, so the popup shows the new cover.
@@ -79,6 +81,8 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
     val inDetails = popup == GamePopup.Details
     // Achievements only while signed in to RetroAchievements (approved: no signed-out state).
     val signedIn = com.joeysretro.joey64.achievements.RaBridge.account.collectAsState().value != null
+    // Game settings' value (approved mockup 2026-11-07): "3 changed" or "Same as All games".
+    val gameSettings by produceState<String?>(null, game.id) { value = model.gameSettingsLabel(game) }
     JoeyDialog(
         onDismiss = { onPopup(null) },
         hints = when (popup) {
@@ -98,11 +102,16 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
                 GamePopup.Options -> {
                     JoeyOption("Play", modifier = Modifier.initialFocus()) { onPopup(null); onPlay() }
                     JoeyOption("Details") { onPopup(GamePopup.Details) }
+                    gameSettings?.let { JoeyOption("Game settings", value = "$it  ›") { onPopup(null); model.openGameSettings(game) } }
                     com.joeysretro.joey64.launcher.components.PopupDivider()
                     JoeyOption("Cheats", value = "›") { onPopup(null); model.openCheats(game) }
                     if (signedIn) JoeyOption("Achievements", value = "›") { onPopup(null); model.openAchievements(game) }
                     com.joeysretro.joey64.launcher.components.PopupDivider()
                     JoeyOption("Add to collection", value = "›") { onPopup(GamePopup.Collections) }
+                    // Settings › Library (approved mockup 2026-11-08, screen 8): the game leaves the library,
+                    // Search and the filters; Settings › Library › Hidden games shows it again. Its tile goes,
+                    // so focus lands on the grid's first game rather than the rail.
+                    JoeyOption("Hide game") { onPopup(null); model.setHidden(game, true) { gridLanding?.arm() } }
                 }
                 GamePopup.Details -> details?.let { d -> DetailsBody(game, d, model) { boxArt = true } }
                 GamePopup.Collections -> {}
@@ -179,7 +188,7 @@ private fun BoxArtPopup(game: LibraryGame, d: GameDetails?, model: LibraryModel,
                         tint = rowTextColor(c, focused, c.value), modifier = Modifier.size(18.dp))
                 }, onClick = onClick)
             Choice("Choose image…", inUse == ArtKind.Custom, first = true) { pick.launch(arrayOf("image/*")) }
-            if (model.hasDownloaded(game)) Choice("Downloaded art", inUse == ArtKind.Libretro) { scope.launch { model.chooseArt(game, ArtKind.Libretro); onDone(true) } }
+            if (model.hasDownloaded(game)) Choice("Downloaded art", inUse == ArtKind.Downloaded) { scope.launch { model.chooseArt(game, ArtKind.Downloaded); onDone(true) } }
             Choice("No box art", inUse == ArtKind.Hidden || inUse == ArtKind.None) { scope.launch { model.chooseArt(game, ArtKind.Hidden); onDone(true) } }
         }
     }

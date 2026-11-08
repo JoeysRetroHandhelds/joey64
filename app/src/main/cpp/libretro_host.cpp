@@ -7,12 +7,15 @@
 #include "gpu_counters.h"
 #include "thermal.h"
 #include "display_opts.h"
+#include "rewind_test.h"
+#include "rewind.h"
 #include <jni.h>
 #include <dlfcn.h>
 #include <android/log.h>
 #include <cstdlib>
 #include <android/native_window_jni.h>
 #include <algorithm>
+#include <cmath>
 #include <atomic>
 #include <condition_variable>
 #include <cstdio>
@@ -55,6 +58,7 @@ struct Core {
     void (*set_input_state)(retro_input_state_t);
     void (*set_controller_port_device)(unsigned, unsigned);
     bool (*load_game)(const retro_game_info*);
+    bool (*load_game_special)(unsigned, const retro_game_info*, size_t); // 64DD disks; optional
     void (*unload_game)();
     void (*run)();
     void* (*get_memory_data)(unsigned);
@@ -68,6 +72,17 @@ struct Core {
 } core;
 
 std::string g_systemDir, g_saveDir;
+std::string g_ddCart; // a 64DD disk's cartridge (NativeBridge.setDdCart), "" = the disk alone
+
+// A 64DD disk image by its extension (MainActivity unpacks disks under their own name for this).
+static bool isDiskPath(const char* p) {
+    std::string s(p);
+    size_t dot = s.rfind('.');
+    if (dot == std::string::npos) return false;
+    std::string ext = s.substr(dot + 1);
+    for (auto& c : ext) c = (char)tolower((unsigned char)c);
+    return ext == "ndd" || ext == "d64";
+}
 retro_hw_render_callback g_hw{};
 bool g_hwRequested = false;
 // Renderer chosen before loadGame: Vulkan = parallel-RDP/RSP, otherwise GLES3 = GLideN64.
@@ -95,6 +110,8 @@ std::atomic<bool> g_surfaceResized{false};
 
 std::thread g_thread;
 std::atomic<bool> g_running{false}, g_paused{false};
+// Frame advance (the hotkey): frames still to run while paused, one per press.
+std::atomic<int> g_stepFrames{0};
 std::mutex g_pauseMutex;
 std::condition_variable g_pauseCv;
 // Fast-forward: vsync off, audio dropped, emulation capped at 4x normal (lower while the
@@ -103,6 +120,26 @@ std::atomic<bool> g_fastForward{false};
 // The user's fast-forward speed (Controls > Hotkeys > Fast-forward), or Adaptive's from the trigger, in
 // percent of normal; the thermal cap still applies on top.
 std::atomic<int> g_ffSpeedPct{400};
+// Settings › Audio's Fast-forward sound: 0 mute (as before), 1 quieter (half the loudness), 2 full.
+std::atomic<int> g_ffSound{0};
+// The speed fast-forward runs at now (speed setting under the thermal cap), for its sound.
+std::atomic<double> g_ffSpeedNow{1.0};
+// Slow motion (approved Slow motion and Rewind mockup, 2026-11-08): percent of full speed, 0 = off. Its sound
+// goes through writeFast at that speed (slower and lower), as Settings › Audio's Fast-forward sound says.
+std::atomic<int> g_slowPct{0};
+// The speed slow motion runs at this frame (0: not slowed), for the audio callbacks.
+std::atomic<double> g_slowNow{0.0};
+// Rewind (same mockup; rewind.h). Settings come from any thread and are applied on the emulation thread.
+Rewind g_rewind;
+std::atomic<bool> g_rewindCfgChanged{false}, g_rewindOnCfg{false};
+std::atomic<int> g_rewindEveryCfg{2}, g_rewindMaxCfg{1800};
+// The rewind hotkey is held; g_rewindActive: going back this frame (sound dropped, no achievements).
+std::atomic<bool> g_rewindHeld{false}, g_rewindActive{false}, g_rewindAtOldest{false};
+// Frames gone back since the rewind hotkey went down.
+std::atomic<int> g_rewindBackFrames{0};
+// Stats windows in which audio underruns don't grow the latency target: rewind (no sound) and slow motion
+// (resampled) empty the ring, so the window after them starts from nothing (Thor: 8 underruns, target 20 -> 30 ms).
+std::atomic<int> g_audioRefillWindows{0};
 // Benchmark (dev env N64_BENCH=1): no speed cap, vsync off, audio dropped, settings unchanged and every frame
 // presented, so the counter shows how fast the game could run: the headroom a full-speed game has.
 bool g_bench = false;
@@ -117,14 +154,38 @@ bool g_ffKeepSync = false;
 std::vector<std::string> g_cheats;
 std::mutex g_cheatsMutex;
 std::atomic<bool> g_cheatsChanged{false};
-// Debug: RDRAM dump requested from the UI thread, written by the emulation thread between frames.
-std::mutex g_dumpMutex;
-std::string g_dumpPath;
+// Core options changed while the game runs (Game settings from the pause menu): the UI thread queues
+// them here and the emulation thread moves them into g_optionOverrides between frames, since it reads
+// and writes that map itself (fast-forward) without a lock.
+std::vector<std::pair<std::string, std::string>> g_liveOptions;
+std::mutex g_liveOptionsMutex;
+std::atomic<bool> g_liveOptionsChanged{false};
 // Upscaling costs the GPU most of the fast-forward headroom (Odin 3 at 4x: Peach's Fury 1.5x, GoldenEye 1.03x),
 // so fast-forward renders at 1x. The setting in use before is restored after ("" = none was overridden).
 constexpr const char* kUpscaleKey = "mupen64plus-parallel-rdp-upscaling";
 std::string g_upscaleBeforeFf;
 bool g_upscaleFfApplied = false;
+static void applyLiveOptions() {
+    std::vector<std::pair<std::string, std::string>> next;
+    {
+        std::lock_guard<std::mutex> lk(g_liveOptionsMutex);
+        next.swap(g_liveOptions);
+    }
+    for (auto& [k, v] : next) {
+        // The upscale hotkeys during fast-forward: it keeps 1x, and the new value is the one it restores.
+        if (k == kUpscaleKey && g_upscaleFfApplied) {
+            g_upscaleBeforeFf = v;
+            LOGI("option override (live, after fast-forward): %s = %s", k.c_str(), v.c_str());
+            continue;
+        }
+        g_optionOverrides[k] = v;
+        LOGI("option override (live): %s = %s", k.c_str(), v.c_str());
+    }
+    if (!next.empty()) g_optionsDirty = true;
+}
+// Debug: RDRAM dump requested from the UI thread, written by the emulation thread between frames.
+std::mutex g_dumpMutex;
+std::string g_dumpPath;
 
 // Per N64 port (Controls, Phase 4: up to four players).
 constexpr int kPorts = 4;
@@ -192,25 +253,70 @@ double g_statAudioWaitMs = 0;                             // audio sync before e
 // Hitches: the slowest frame (beginFrame + retro_run + endFrame; no speed cap, audio wait or pause) and the
 // frames over 33 ms, which skip a frame even at normal speed: what averages hide, such as a shader compile.
 double g_statSlowestMs = 0; int g_statSlowFrames = 0;
+// Settings › On screen's frame times graph: each frame's work (noteFrameTime: acquire, emulation and
+// present, without the speed cap's or audio's waits; GLideN64's includes its vsync wait), the last
+// kFrameRing of them. Written by the emulation thread, read by the UI (a torn read bends one bar).
+// The time between frames was tried first: on the Thor's 120 Hz screen audio sync spreads it 8-37 ms
+// at full speed, so half the bars looked slow while no frame was.
+constexpr uint32_t kFrameRing = 128;
+float g_frameRing[kFrameRing];
+std::atomic<uint32_t> g_frameRingCount{0};
+
+// Send reports (reports/ in the app): the whole run's numbers, read by sessionStats when the session ends.
+// Frame times as a histogram of 1 ms buckets (the last holds 99 ms and more) for the 95th and 99th
+// percentiles; the stats window's underruns, poll->display latency and thermal readings added up.
+// Written by the emulation thread; a read from the UI thread that tears is off by a frame.
+constexpr int kSessBuckets = 100;
+std::atomic<uint32_t> g_sessFrameHist[kSessBuckets];
+std::atomic<uint32_t> g_sessSlowFrames{0};
+std::atomic<int> g_sessUnderruns{0}, g_sessLatWindows{0}, g_sessThermalMax{-1}, g_sessGovernorDrops{0};
+std::atomic<double> g_sessLatSum{0}, g_sessLatMax{0};
+std::atomic<float> g_sessHeadroomMax{-1};
+std::chrono::steady_clock::time_point g_loadStart;   // loadGame's start, for the time to the first frame
+std::atomic<double> g_firstFrameMs{-1};
+std::atomic<int> g_sessInterpreter{-1};             // the CPU core loadGame chose: 1 interpreter, 0 dynarec
+
 void noteFrameTime(double ms) {
+    uint32_t n = g_frameRingCount.load(std::memory_order_relaxed);
+    g_frameRing[n % kFrameRing] = (float)ms;
+    g_frameRingCount.store(n + 1, std::memory_order_release);
     if (ms > g_statSlowestMs) g_statSlowestMs = ms;
-    if (ms > 33.0) ++g_statSlowFrames;
+    if (ms > 33.0) { ++g_statSlowFrames; g_sessSlowFrames.fetch_add(1, std::memory_order_relaxed); }
+    g_sessFrameHist[std::min(std::max((int)ms, 0), kSessBuckets - 1)].fetch_add(1, std::memory_order_relaxed);
 }
 // For the counter ("60 FPS | 20 DL/s | 100%"): emulated frames (retro_run calls, the game's speed) and new
 // frames presented (what the game drew: OoT 20 a second once repeats are skipped).
 std::atomic<uint32_t> g_framesRun{0}, g_framesDrawn{0};
-// Rumble Pak, player 1: the core switches each motor on/off; a UI-side thread waits in waitRumble
-// for the motor to change and drives the controller's (or the device's) vibrator. Polling it from a
+// A new frame drawn; the first one notes the time since loadGame started (reports: how long a boot takes).
+void noteDrawn() {
+    if (g_framesDrawn.fetch_add(1) == 0)
+        g_firstFrameMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - g_loadStart).count();
+}
+// The core asked to shut down (RETRO_ENVIRONMENT_SHUTDOWN): it could not start the game; MainActivity polls it.
+std::atomic<bool> g_coreShutDown{false};
+// The core said it could not load the 64DD IPL (its region's file, else IPL.n64, is missing): why a disk didn't start,
+// as against a disk or disk save it could not read.
+std::atomic<bool> g_ddIplMissing{false};
+// Rumble Pak, players 1-4 (players 2-4 since 2026-11-07; before, the core's calls for ports 1-3 were
+// refused): the core switches each motor on/off; a UI-side thread waits in waitRumble for any player's
+// motor to change and drives that player's controller (or the device's) vibrator. Polling it from a
 // per-vsync callback instead cost ~60 ms of CPU per second on the Duo (120 Hz, debug build).
-std::atomic<uint16_t> g_rumbleWeak{0}, g_rumbleStrong{0};
+std::atomic<uint16_t> g_rumbleWeak[4], g_rumbleStrong[4];   // static storage: start at 0
 std::mutex g_rumbleMutex;
 std::condition_variable g_rumbleChanged;
+// Bit p set: player p+1's motor is on.
+int rumbleMask() {
+    int m = 0;
+    for (int p = 0; p < 4; ++p) if (std::max(g_rumbleWeak[p].load(), g_rumbleStrong[p].load()) > 0) m |= 1 << p;
+    return m;
+}
 bool setRumble(unsigned port, retro_rumble_effect effect, uint16_t strength) {
-    if (port != 0) return false;
-    bool wasOn = std::max(g_rumbleWeak.load(), g_rumbleStrong.load()) > 0;
-    (effect == RETRO_RUMBLE_STRONG ? g_rumbleStrong : g_rumbleWeak) = strength;
-    if ((std::max(g_rumbleWeak.load(), g_rumbleStrong.load()) > 0) != wasOn) {
-        LOGI("rumble %s", wasOn ? "off" : "on");
+    if (port > 3) return false;
+    int was = rumbleMask();
+    (effect == RETRO_RUMBLE_STRONG ? g_rumbleStrong[port] : g_rumbleWeak[port]) = strength;
+    int now = rumbleMask();
+    if (now != was) {
+        LOGI("rumble player %u %s", port + 1, (now >> port) & 1 ? "on" : "off");
         { std::lock_guard<std::mutex> lock(g_rumbleMutex); }
         g_rumbleChanged.notify_all();
     }
@@ -232,6 +338,13 @@ retro_proc_address_t hw_get_proc_address(const char* name) {
 
 void log_cb(enum retro_log_level level, const char* fmt, ...) {
     va_list ap; va_start(ap, fmt);
+    {   // any level: the core sends its errors at a lower one than RETRO_LOG_ERROR
+        char line[512];
+        va_list cp; va_copy(cp, ap);
+        vsnprintf(line, sizeof line, fmt, cp);
+        va_end(cp);
+        if (strstr(line, "Failed to load DD IPL ROM")) g_ddIplMissing = true;
+    }
     joeyLogV(level >= RETRO_LOG_ERROR ? ANDROID_LOG_ERROR : level == RETRO_LOG_WARN ? ANDROID_LOG_WARN : ANDROID_LOG_INFO, "core", fmt, ap);
     va_end(ap);
 }
@@ -244,6 +357,11 @@ bool environment(unsigned cmd, void* data) {
         *static_cast<const char**>(data) = g_systemDir.c_str(); return true;
     case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY:
         *static_cast<const char**>(data) = g_saveDir.c_str(); return true;
+    case RETRO_ENVIRONMENT_SHUTDOWN:
+        // The core could not start the game (e.g. a 64DD disk whose region has no IPL BIOS); it then runs no frames.
+        LOGE("core: shut down, the game did not start");
+        g_coreShutDown = true;
+        return true;
     case RETRO_ENVIRONMENT_GET_CAN_DUPE:
         *static_cast<bool*>(data) = true; return true;
     case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT:
@@ -330,7 +448,7 @@ bool environment(unsigned cmd, void* data) {
 void video_refresh(const void* data, unsigned w, unsigned h, size_t) {
     if (g_vulkan) {
         if (!data) ++g_statDupes;
-        else { g_lastW = w; g_lastH = h; ++g_statPresents; ++g_framesDrawn; }
+        else { g_lastW = w; g_lastH = h; ++g_statPresents; noteDrawn(); }
         g_vk.videoRefresh(data, w, h);
         return;
     }
@@ -339,18 +457,27 @@ void video_refresh(const void* data, unsigned w, unsigned h, size_t) {
     if (data == RETRO_HW_FRAME_BUFFER_VALID) {
         g_egl.present(w, h, g_hw.bottom_left_origin);
         ++g_statPresents;
-        ++g_framesDrawn;
+        noteDrawn();
     }
     // Software frames are not expected from mupen64plus-next with a HW context.
 }
 
 void audio_sample(int16_t l, int16_t r) {
-    if (g_fastForward || g_bench) return;
-    int16_t s[2] = {l, r}; g_audio.write(s, 1);
+    if (g_bench || g_paused) return; // paused: a frame advance step, whose sound would pile up in the paused stream
+    if (g_rewindActive) return; // going back: no sound
+    int16_t s[2] = {l, r};
+    if (double sl = g_slowNow.load(); sl > 0) { if (int m = g_ffSound.load()) g_audio.writeFast(s, 1, sl, m == 1 ? 0.25f : 1.0f); return; }
+    if (g_fastForward) { if (int m = g_ffSound.load()) g_audio.writeFast(s, 1, g_ffSpeedNow.load(), m == 1 ? 0.25f : 1.0f); return; }
+    g_audio.write(s, 1);
 }
 size_t g_frameAudio = 0; // audio frames the core gave during this retro_run (N64_FRAME_TRACE)
 size_t audio_batch(const int16_t* d, size_t frames) {
-    if (!g_fastForward && !g_bench) g_audio.write(d, frames); // blocking write would throttle fast-forward
+    if (g_bench || g_paused) return frames; // paused: a frame advance step (the stream is paused, nothing drains)
+    if (g_rewindActive) return frames; // going back: no sound
+    // A blocking write would throttle fast-forward: its sound (if any) goes through writeFast; slow motion's too.
+    if (double sl = g_slowNow.load(); sl > 0) { if (int m = g_ffSound.load()) g_audio.writeFast(d, frames, sl, m == 1 ? 0.25f : 1.0f); }
+    else if (g_fastForward) { if (int m = g_ffSound.load()) g_audio.writeFast(d, frames, g_ffSpeedNow.load(), m == 1 ? 0.25f : 1.0f); }
+    else g_audio.write(d, frames);
     g_frameAudio += frames;
     return frames;
 }
@@ -455,8 +582,25 @@ void logStats() {
         snprintf(lat, sizeof lat, ", poll->display %.1f ms (max %.1f), %d uneven%s", latMean, latMax, uneven,
                  g_vk.takeCadence().c_str());
     double fillMs, targetMs; int underruns;
-    g_audio.takeStats(!g_fastForward && !g_bench && g_statRuns / secs >= 58.5, fillMs, targetMs, underruns);
+    const int refill = g_audioRefillWindows.load();
+    if (refill > 0) g_audioRefillWindows = refill - 1;
+    g_audio.takeStats(!g_fastForward && !g_bench && refill == 0 && g_statRuns / secs >= 58.5, fillMs, targetMs, underruns);
     Thermal::update();
+    // Reports: underruns and lag from the third window on. The first 10 s are the boot and the audio buffer
+    // settling (Super Mario 64 on the Thor 2026-11-08: 89 + 40 underruns and a 486 ms lag max, then none).
+    static int windows = 0;
+    const bool settled = ++windows > 2;
+    if (settled) g_sessUnderruns += underruns;
+    if (settled && lat[0]) {
+        g_sessLatSum = g_sessLatSum.load() + latMean; ++g_sessLatWindows;
+        if (latMax > g_sessLatMax.load()) g_sessLatMax = latMax;
+    }
+    {
+        int st = Thermal::status(); float hr = Thermal::headroom();
+        if (st > g_sessThermalMax.load()) g_sessThermalMax = st;
+        if (!std::isnan(hr) && hr > g_sessHeadroomMax.load()) g_sessHeadroomMax = hr;
+        g_sessGovernorDrops = Thermal::governorDrops();
+    }
     LOGI("stats: %.1f emu fps, %.1f presented, %.1f dupes (%ux%u), run %.2f ms, wait %.2f ms, "
          "audio wait %.2f ms, fill %.0f/%.0f ms, %d underruns, device %.0f ms%s, slowest frame %.1f ms, %d over 33 ms%s%s",
          g_statRuns / secs, g_statPresents / secs, g_statDupes / secs, g_lastW, g_lastH,
@@ -538,6 +682,7 @@ struct StateRequest {
     bool reset = false;
     unsigned w = 0, h = 0;
     std::vector<uint8_t> data;   // filled by a save, read by a load
+    std::vector<uint8_t> achv;   // the achievements' progress with it (RetroArch's ACHV block)
     bool done = false, ok = false;
 };
 std::mutex g_stateMutex;
@@ -569,6 +714,7 @@ void serveStateRequest(bool ready, bool failEarly) {
         core.reset();
         Cheevos::reset();
         r->ok = true;
+        g_rewind.clear(); // rewind starts over from here
     } else if (r->capture) {
         r->ok = g_vulkan ? g_vk.capture(r->data, r->w, r->h)
                          : g_egl.capture((int)g_lastW, (int)g_lastH, g_hw.bottom_left_origin, r->data);
@@ -579,6 +725,7 @@ void serveStateRequest(bool ready, bool failEarly) {
         r->data.resize(n);
         r->ok = n > 0 && core.serialize(r->data.data(), n);
         if (!r->ok) r->data.clear();
+        else Cheevos::captureProgress(r->achv);
     } else if (r->data.size() < 44 || memcmp(r->data.data(), "M64+SAVE", 8) != 0) {
         // Not the core's data. mupen64plus-next must never see it: its libretro load returns on a wrong
         // magic without unlocking savestates_lock, and the emulation thread then hangs (found on the Thor
@@ -589,8 +736,9 @@ void serveStateRequest(bool ready, bool failEarly) {
         // Note: retro_unserialize returns true even when the core turns the state down (another ROM,
         // an incompatible version); the core logs why.
         r->ok = core.unserialize(r->data.data(), r->data.size());
-        // Achievements start over from the loaded state (their progress isn't in the state yet).
-        if (r->ok) Cheevos::stateLoaded();
+        // Achievements carry on from the progress saved with the state, or start over without one.
+        if (r->ok) Cheevos::stateLoaded(r->achv.data(), r->achv.size());
+        if (r->ok) g_rewind.clear(); // rewind starts over from the loaded moment
     }
     if (ready)
         joeyLog(r->ok ? ANDROID_LOG_INFO : ANDROID_LOG_ERROR, "joey64host", "state: %s %s, %zu bytes, %.1f ms", what, r->ok ? "done" : "FAILED", r->data.size(),
@@ -721,7 +869,11 @@ void setEmuThreadPriority() {
 }
 
 void runLoop() {
-    pinToBigCores();
+    // EXPERIMENT (Performance mode's Battery saver, 2026-11-08): N64_PIN=0 leaves the threads where the
+    // scheduler puts them: no big-core pinning and no split.
+    const char* pinEnv = getenv("N64_PIN");
+    const bool pin = !(pinEnv && *pinEnv == '0');
+    if (pin) pinToBigCores(); else LOGI("emu thread not pinned (N64_PIN=0)");
     setEmuThreadPriority();
     // DEV (N64_GPU_TURBO=2): Adreno GPU clock pinned by a KGSL power constraint held by a keep-alive context
     // (DroidDeck's way, gpu_clock_pin.cpp); kept for the Portal slow-mode check (GPU stuck at 220 MHz). Mode 1
@@ -744,8 +896,11 @@ void runLoop() {
     const int64_t hintFfNs = (hintFfEnv && *hintFfEnv ? atoll(hintFfEnv) : 1000) * 1000;
     bool hintThreadsAdded = false;
     PerfHint perfHint;
+    // EXPERIMENT (rewind_test.h): N64_REWIND_TEST=<frames between snapshots>.
+    const int rewindEvery = getenv("N64_REWIND_TEST") ? atoi(getenv("N64_REWIND_TEST")) : 0;
+    RewindTest rewindTest;
     const char* noSplit = getenv("N64_PIN_SPLIT");
-    const bool split = !(noSplit && *noSplit == '0');
+    const bool split = pin && !(noSplit && *noSplit == '0');
     const char* late = getenv("N64_LATE_INPUT");
     g_lateInput = !(late && *late == '0');
     LOGI("late input %s", g_lateInput ? "on" : "off");
@@ -757,7 +912,9 @@ void runLoop() {
     const char* statePath = getenv("N64_STATE");
     int stateWait = statePath && *statePath ? 30 : -1;
     g_bench = getenv("N64_BENCH") && atoi(getenv("N64_BENCH")) == 1;
-    auto ffNext = std::chrono::steady_clock::now(), ffLastShown = ffNext, capNext = ffNext;
+    auto ffNext = std::chrono::steady_clock::now(), ffLastShown = ffNext, capNext = ffNext, rewindNext = ffNext;
+    int rewindTick = 0;
+    bool rewindStepped = false;
     if (!g_vulkan) g_egl.makeCurrent();
     while (g_running) {
         if (g_paused) flushSave();
@@ -765,11 +922,13 @@ void runLoop() {
             std::unique_lock<std::mutex> lk(g_pauseMutex);
             for (;;) {
                 // Wakes once a second while paused so rc_client can keep the session alive (pings, retries).
-                if (!g_pauseCv.wait_for(lk, std::chrono::seconds(1), [] { return !g_paused || !g_running || g_statePending; })) {
+                if (!g_pauseCv.wait_for(lk, std::chrono::seconds(1), [] { return !g_paused || !g_running || g_statePending || g_stepFrames > 0; })) {
                     lk.unlock(); Cheevos::idle(); lk.lock();
                     continue;
                 }
                 if (!g_paused || !g_running) break;
+                // Frame advance: one frame while staying paused (its sound is dropped, see audio_batch).
+                if (g_stepFrames > 0) { --g_stepFrames; break; }
                 // Paused with a state request (the pause menu): served without running a frame.
                 lk.unlock();
                 serveStateRequest(g_framesRun >= (uint32_t)stateReadyFrames(), true);
@@ -780,6 +939,7 @@ void runLoop() {
         serveStateRequest(g_framesRun >= (uint32_t)stateReadyFrames(), false);
         if (g_portsChanged.exchange(false)) applyPorts(); // a controller given to a player mid-game
         if (g_cheatsChanged.exchange(false)) applyCheats(); // the Cheats page, from the pause menu
+        if (g_liveOptionsChanged.exchange(false)) applyLiveOptions(); // Game settings, from the pause menu
         applySurfaceIfChanged();
         bool hasWindow = g_vulkan ? g_vk.hasWindow() : g_egl.hasWindow();
         if (!hasWindow) { std::this_thread::sleep_for(std::chrono::milliseconds(16)); continue; }
@@ -789,9 +949,42 @@ void runLoop() {
             else g_egl.setSwapInterval(0);
             LOGI("benchmark mode: uncapped, vsync off, audio dropped");
         }
+        // Rewind (rewind.h): settings from the UI, and the hotkey held. Going back runs at about normal speed:
+        // one moment every [every] frames, each shown by running one frame from it, the picture held between.
+        if (g_rewindCfgChanged.exchange(false)) g_rewind.configure(g_rewindOnCfg, g_rewindEveryCfg, g_rewindMaxCfg);
+        const bool rewinding = g_rewindHeld && g_rewind.on() && !g_paused && !g_bench;
+        if (rewinding != g_rewindActive) {
+            g_rewindActive = rewinding;
+            if (rewinding) { rewindTick = g_rewind.every(); rewindStepped = false; g_rewindBackFrames = 0; g_rewindAtOldest = false; rewindNext = std::chrono::steady_clock::now(); }
+            else if (rewindStepped) {
+                // Achievements carry on from the progress kept with the moment rewind stopped at.
+                const auto& p = g_rewind.baseProgress();
+                Cheevos::stateLoaded(p.data(), p.size());
+                LOGI("rewind: went back %d frames", g_rewindBackFrames.load());
+            }
+        }
+        if (rewinding) {
+            rewindNext += std::chrono::microseconds((long long)(1e6 / g_av.timing.fps));
+            auto now = std::chrono::steady_clock::now();
+            if (rewindNext > now) std::this_thread::sleep_until(rewindNext);
+            else if (now - rewindNext > std::chrono::milliseconds(100)) rewindNext = now;
+            bool step = ++rewindTick >= g_rewind.every();
+            if (step) {
+                rewindTick = 0;
+                step = g_rewind.stepBack([](const uint8_t* d, size_t n, const uint8_t*, size_t) { core.unserialize(d, n); });
+                if (step) { rewindStepped = true; g_rewindBackFrames += g_rewind.every(); g_rewindAtOldest = false; }
+                else g_rewindAtOldest = true;
+            }
+            if (!step) continue; // the picture holds until the next moment
+        }
+        // Slow motion: the speed cap below runs at its speed, with no audio wait (its sound is resampled).
+        const int slowPct = g_slowPct.load();
         // pacing comes from vsync + blocking audio writes (M4 refines); fast-forward swaps
         // both for a sleep that caps the speed
-        bool ff = g_fastForward;
+        bool ff = g_fastForward && !rewinding;
+        const bool slow = slowPct > 0 && !ff && !rewinding && !g_bench;
+        g_slowNow = slow ? slowPct / 100.0 : 0.0;
+        if (slow || rewinding) g_audioRefillWindows = 2;
         if (ff != ffApplied) {
             ffApplied = ff;
             if (g_vulkan) g_vk.setUnthrottled(ff || g_bench);
@@ -818,6 +1011,7 @@ void runLoop() {
         }
         if (ff) {
             const double speed = std::min(std::max(g_ffSpeedPct.load(), 100) / 100.0, (double)Thermal::fastForwardSpeed());
+            g_ffSpeedNow = speed;
             ffNext += std::chrono::microseconds((long long)(1e6 / (g_av.timing.fps * speed)));
             auto now = std::chrono::steady_clock::now();
             if (ffNext > now) std::this_thread::sleep_until(ffNext);
@@ -830,10 +1024,10 @@ void runLoop() {
             show = now - ffLastShown >= std::chrono::microseconds(16000);
             if (show) ffLastShown = now;
         }
-        if (!ff && !g_bench) {
+        if (!ff && !g_bench && !g_paused && !rewinding) { // paused: a frame advance step, no audio to wait for
             auto t0 = std::chrono::steady_clock::now();
             g_audio.setPanelRefreshNs(g_vulkan ? g_vk.refreshNs() : 0);
-            g_audio.waitForRoom();
+            if (!slow) g_audio.waitForRoom();
             double aw = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
             g_statAudioWaitMs += aw;
             traceFrame(aw);
@@ -841,7 +1035,9 @@ void runLoop() {
             // (New Tetris) ran at the panel rate on 120 Hz: 2x. 2% slack keeps it out of the way
             // of audio pacing and rate control.
             auto now = std::chrono::steady_clock::now();
-            capNext += std::chrono::microseconds((long long)(1e6 / (g_av.timing.fps * 1.02)));
+            // Dev: N64_SLOW_PCT=<n> caps the game at n% of full speed, as a device that can't keep up (time stretch test).
+            static const double capSpeed = getenv("N64_SLOW_PCT") ? std::clamp(atoi(getenv("N64_SLOW_PCT")), 10, 100) / 100.0 : 1.02;
+            capNext += std::chrono::microseconds((long long)(1e6 / (g_av.timing.fps * (slow ? slowPct / 100.0 : capSpeed))));
             if (capNext > now) std::this_thread::sleep_until(capNext);
             else if (now - capNext > std::chrono::milliseconds(50)) capNext = now; // behind: don't sprint
         }
@@ -873,7 +1069,14 @@ void runLoop() {
             g_statRunMs += ms;
             noteFrameTime(ms);
         }
-        Cheevos::doFrame();
+        if (Cheevos::waitingForRam())
+            Cheevos::ramReady(static_cast<uint8_t*>(core.get_memory_data(RETRO_MEMORY_SYSTEM_RAM)), core.get_memory_size(RETRO_MEMORY_SYSTEM_RAM));
+        if (!rewinding) {
+            Cheevos::doFrame();
+            if (g_framesRun > 60)
+                g_rewind.record([] { return core.serialize_size(); }, [](void* d, size_t n) { return core.serialize(d, n); },
+                                [](std::vector<uint8_t>& p) { Cheevos::captureProgress(p); });
+        }
         logStats();
         if (stateWait > 0 && --stateWait == 0) {
             std::vector<char> s;
@@ -908,6 +1111,8 @@ void runLoop() {
             }
         }
         if (++framesSinceSaveCheck >= 120) { framesSinceSaveCheck = 0; flushSave(); }
+        if (rewindEvery > 0 && g_framesRun > 60)
+            rewindTest.frame(rewindEvery, [] { return core.serialize_size(); }, [](void* d, size_t n) { return core.serialize(d, n); });
         if (useHint) {
             perfHint.setTargetNs((ff || g_bench) && hintFfNs > 0 ? hintFfNs : 1000000000LL / 60 / 2);
             perfHint.reportFrame();
@@ -1003,6 +1208,7 @@ JNIEXPORT jboolean JNICALL JNI(loadCore)(JNIEnv* env, jobject, jstring path, jst
         && sym(core.serialize, "retro_serialize")
         && sym(core.reset, "retro_reset");
     if (!ok) return JNI_FALSE;
+    core.load_game_special = reinterpret_cast<decltype(core.load_game_special)>(dlsym(core.handle, "retro_load_game_special"));
 
     core.set_environment(environment);
     core.set_video_refresh(video_refresh);
@@ -1063,16 +1269,34 @@ JNIEXPORT void JNICALL JNI(setRenderer)(JNIEnv*, jobject, jboolean vulkan) {
     g_optionsDirty = true;
 }
 
+JNIEXPORT void JNICALL JNI(setDdCart)(JNIEnv* env, jobject, jstring path) {
+    const char* s = env->GetStringUTFChars(path, nullptr);
+    g_ddCart = s;
+    env->ReleaseStringUTFChars(path, s);
+}
+
 JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstring saveName) {
+    g_loadStart = std::chrono::steady_clock::now();
+    g_coreShutDown = false;
+    g_ddIplMissing = false;
     if (!g_vulkan) {
         if (!g_egl.init()) return JNI_FALSE;
         applySurfaceIfChanged();
     }
 
     const char* p = env->GetStringUTFChars(rom, nullptr);
-    FILE* f = fopen(p, "rb");
+    // A 64DD disk: the core reads the disk (and the cartridge, if any) itself; buf holds the cartridge for the
+    // per-game rules below, empty for a disk on its own.
+    const bool disk = isDiskPath(p);
+    FILE* f = fopen(disk ? g_ddCart.c_str() : p, "rb");
     std::vector<uint8_t> buf;
-    if (f) { fseek(f, 0, SEEK_END); buf.resize(ftell(f)); fseek(f, 0, SEEK_SET); fread(buf.data(), 1, buf.size(), f); fclose(f); }
+    if (f) {
+        // A failed ftell (-1) became a huge resize, and a short read left zeros counted as ROM.
+        long n = fseek(f, 0, SEEK_END) == 0 ? ftell(f) : -1;
+        if (n > 0 && fseek(f, 0, SEEK_SET) == 0) { buf.resize((size_t)n); buf.resize(fread(buf.data(), 1, buf.size(), f)); }
+        if (buf.empty()) LOGE("can't read the ROM %s", p);
+        fclose(f);
+    }
     // Sync by default on Adreno (MainActivity). Elsewhere, games that break with async parallel-RDP (their
     // CPU reads the framebuffer, which async can serve stale): Pokemon Snap
     // (photo checks), The New Tetris (async: halts on a "secret cheat, power off" screen after ~10 s),
@@ -1102,12 +1326,28 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
     const char* smoother = getenv("N64_SMOOTHER");
     if (smoother && *smoother == '1' && idIn(kSmootherGames) && !g_optionOverrides.count("mupen64plus-CountPerOp"))
         g_optionOverrides["mupen64plus-CountPerOp"] = "1";
+    g_sessInterpreter = g_optionOverrides["mupen64plus-cpucore"] == "dynamic_recompiler" ? 0 : 1;
     LOGI("game id %s, parallel-RDP %s, %s", id.c_str(), g_rdpSync ? "synchronous" : "async",
          g_optionOverrides["mupen64plus-cpucore"].c_str());
     LOGI("ROM %s: %s", p, romSummary(buf).c_str());
     for (auto& [k, v] : g_optionOverrides) LOGI("option in effect: %s = %s", k.c_str(), v.c_str());
     retro_game_info info{ p, buf.data(), buf.size(), nullptr };
-    bool ok = !buf.empty() && core.load_game(&info);
+    bool ok;
+    if (disk) {
+        // The core looks for the IPL BIOS (the 64DD's boot ROM) in <system>/Mupen64plus: the disk's region's own
+        // (IPL_JPN.n64, IPL_USA.n64, IPL_DEV.n64), else IPL.n64.
+        std::string dir = g_systemDir + "/Mupen64plus/";
+        bool ipl = false;
+        for (const char* n : {"IPL_JPN.n64", "IPL_USA.n64", "IPL_DEV.n64", "IPL.n64"}) ipl = ipl || access((dir + n).c_str(), R_OK) == 0;
+        retro_game_info dd[2] = { { p, nullptr, 0, nullptr }, { g_ddCart.c_str(), nullptr, 0, nullptr } };
+        LOGI("64DD disk %s, %s", p, g_ddCart.empty() ? "no cartridge" : ("cartridge " + g_ddCart).c_str());
+        if (!ipl) { LOGE("64DD: no IPL BIOS: the data folder's bios/ has none of IPL_JPN.n64, IPL_USA.n64, IPL_DEV.n64, IPL.n64 (copied to %s)", dir.c_str()); ok = false; }
+        else if (!core.load_game_special) { LOGE("64DD: the core has no retro_load_game_special"); ok = false; }
+        else if (!g_ddCart.empty() && buf.empty()) ok = false; // can't read the cartridge (logged above)
+        else ok = core.load_game_special(1 /* RETRO_GAME_TYPE_DD */, dd, g_ddCart.empty() ? 1 : 2);
+    } else {
+        ok = !buf.empty() && core.load_game(&info);
+    }
     env->ReleaseStringUTFChars(rom, p);
     if (!ok) { LOGE("retro_load_game failed"); return JNI_FALSE; }
 
@@ -1162,7 +1402,15 @@ JNIEXPORT void JNICALL JNI(start)(JNIEnv*, jobject) {
     g_thread = std::thread(runLoop);
 }
 
+// Frame advance: while paused, the game runs one more frame and stays paused. Does nothing if not paused.
+JNIEXPORT void JNICALL JNI(stepFrame)(JNIEnv*, jobject) {
+    if (!g_paused) return;
+    { std::lock_guard<std::mutex> pl(g_pauseMutex); if (g_stepFrames < 4) ++g_stepFrames; }
+    g_pauseCv.notify_all();
+}
+
 JNIEXPORT void JNICALL JNI(pause)(JNIEnv*, jobject, jboolean p) {
+    if (!p) g_stepFrames = 0;
     g_paused = p;
     g_audio.setPaused(p);
     g_pauseCv.notify_all();
@@ -1185,6 +1433,28 @@ JNIEXPORT void JNICALL JNI(addCheat)(JNIEnv* env, jobject, jstring code) {
         g_cheats.emplace_back(c);
     }
     env->ReleaseStringUTFChars(code, c);
+}
+
+// Core options for a running game (keys[i] = values[i]): taken between frames, a paused game's on resume.
+JNIEXPORT void JNICALL JNI(setOptionsLive)(JNIEnv* env, jobject, jobjectArray keys, jobjectArray values) {
+    std::vector<std::pair<std::string, std::string>> next;
+    jsize n = std::min(env->GetArrayLength(keys), env->GetArrayLength(values));
+    for (jsize i = 0; i < n; ++i) {
+        auto ks = (jstring)env->GetObjectArrayElement(keys, i);
+        auto vs = (jstring)env->GetObjectArrayElement(values, i);
+        const char* k = env->GetStringUTFChars(ks, nullptr);
+        const char* v = env->GetStringUTFChars(vs, nullptr);
+        next.emplace_back(k, v);
+        env->ReleaseStringUTFChars(ks, k);
+        env->ReleaseStringUTFChars(vs, v);
+        env->DeleteLocalRef(ks);
+        env->DeleteLocalRef(vs);
+    }
+    {
+        std::lock_guard<std::mutex> lk(g_liveOptionsMutex);
+        for (auto& kv : next) g_liveOptions.push_back(std::move(kv));
+    }
+    g_liveOptionsChanged = true;
 }
 
 // Replaces every cheat; a running game takes them between frames (a paused one when it resumes).
@@ -1226,16 +1496,47 @@ JNIEXPORT void JNICALL JNI(setFastForwardSpeed)(JNIEnv*, jobject, jint percent) 
     g_ffSpeedPct = std::clamp((int)percent, 100, 400);
 }
 
-JNIEXPORT jint JNICALL JNI(rumble)(JNIEnv*, jobject) {
-    return (jint)std::max(g_rumbleWeak.load(), g_rumbleStrong.load());
+JNIEXPORT void JNICALL JNI(setSlowMotion)(JNIEnv*, jobject, jint percent) {
+    g_slowPct = percent <= 0 ? 0 : std::clamp((int)percent, 10, 99);
 }
 
-JNIEXPORT jboolean JNICALL JNI(waitRumble)(JNIEnv*, jobject, jboolean wasOn, jint timeoutMs) {
-    auto isOn = [] { return std::max(g_rumbleWeak.load(), g_rumbleStrong.load()) > 0; };
-    std::unique_lock<std::mutex> lock(g_rumbleMutex);
-    g_rumbleChanged.wait_for(lock, std::chrono::milliseconds(timeoutMs), [&] { return isOn() != (bool)wasOn; });
-    return isOn();
+JNIEXPORT void JNICALL JNI(setRewind)(JNIEnv*, jobject, jboolean on, jint every, jint maxMoments) {
+    g_rewindOnCfg = on; g_rewindEveryCfg = std::max(1, (int)every); g_rewindMaxCfg = std::max(1, (int)maxMoments);
+    g_rewindCfgChanged = true;
 }
+
+JNIEXPORT void JNICALL JNI(setRewinding)(JNIEnv*, jobject, jboolean held) {
+    g_rewindHeld = held;
+}
+
+// [moments that can still be gone back to, most kept, frames gone back since the press, 1 at the oldest].
+JNIEXPORT jintArray JNICALL JNI(rewindInfo)(JNIEnv* env, jobject) {
+    jint v[4] = {g_rewind.moments(), g_rewind.maxMoments(), g_rewindBackFrames.load(), g_rewindAtOldest ? 1 : 0};
+    jintArray a = env->NewIntArray(4);
+    env->SetIntArrayRegion(a, 0, 4, v);
+    return a;
+}
+
+// Settings › Audio. Volume, mute, mono and fast-forward sound apply at once; latency when the stream
+// next opens (call before loadGame).
+JNIEXPORT void JNICALL JNI(setAudio)(JNIEnv*, jobject, jint volume, jboolean mute, jboolean mono, jint ffSound, jint latency) {
+    g_audio.setMix((int)volume, mute, mono);
+    g_audio.setLatencyMode(std::clamp((int)latency, 0, 2));
+    g_ffSound = std::clamp((int)ffSound, 0, 2);
+}
+
+JNIEXPORT jint JNICALL JNI(rumble)(JNIEnv*, jobject) {
+    return (jint)rumbleMask();
+}
+
+JNIEXPORT jint JNICALL JNI(waitRumble)(JNIEnv*, jobject, jint wasMask, jint timeoutMs) {
+    std::unique_lock<std::mutex> lock(g_rumbleMutex);
+    g_rumbleChanged.wait_for(lock, std::chrono::milliseconds(timeoutMs), [&] { return rumbleMask() != (int)wasMask; });
+    return (jint)rumbleMask();
+}
+
+// 0 running, 1 the core shut down, 2 it shut down after it could not load the 64DD IPL.
+JNIEXPORT jint JNICALL JNI(coreShutDown)(JNIEnv*, jobject) { return !g_coreShutDown ? 0 : g_ddIplMissing ? 2 : 1; }
 
 JNIEXPORT jint JNICALL JNI(framesRun)(JNIEnv*, jobject) {
     return (jint)g_framesRun.load();
@@ -1243,8 +1544,38 @@ JNIEXPORT jint JNICALL JNI(framesRun)(JNIEnv*, jobject) {
 JNIEXPORT jint JNICALL JNI(framesDrawn)(JNIEnv*, jobject) {
     return (jint)g_framesDrawn.load();
 }
+// Send reports: the run's numbers so far into out (see NativeBridge.sessionStats for the order); returns how many.
+JNIEXPORT jint JNICALL JNI(sessionStats)(JNIEnv* env, jobject, jdoubleArray out) {
+    uint32_t hist[kSessBuckets]; uint64_t total = 0;
+    for (int i = 0; i < kSessBuckets; ++i) { hist[i] = g_sessFrameHist[i].load(std::memory_order_relaxed); total += hist[i]; }
+    auto pct = [&](double q) -> double {
+        if (!total) return -1;
+        uint64_t want = (uint64_t)std::ceil(total * q), seen = 0;
+        for (int i = 0; i < kSessBuckets; ++i) { seen += hist[i]; if (seen >= want) return i + 1; }
+        return kSessBuckets;
+    };
+    int lw = g_sessLatWindows.load();
+    double v[] = {
+        (double)g_sessUnderruns.load(), lw ? g_sessLatSum.load() / lw : -1, lw ? g_sessLatMax.load() : -1,
+        (double)g_sessThermalMax.load(), (double)g_sessHeadroomMax.load(), (double)g_sessGovernorDrops.load(),
+        g_rdpSync ? 1.0 : 0.0, (double)g_sessInterpreter.load(),
+        g_firstFrameMs.load(), (double)total, pct(0.95), pct(0.99), (double)g_sessSlowFrames.load(),
+    };
+    jsize n = std::min((jsize)(sizeof v / sizeof v[0]), env->GetArrayLength(out));
+    env->SetDoubleArrayRegion(out, 0, n, v);
+    return n;
+}
 JNIEXPORT jdouble JNICALL JNI(contentFps)(JNIEnv*, jobject) {
     return g_av.timing.fps;
+}
+// The newest frame times (ms), oldest first, into out; returns how many were written.
+JNIEXPORT jint JNICALL JNI(frameTimes)(JNIEnv* env, jobject, jfloatArray out) {
+    uint32_t n = g_frameRingCount.load(std::memory_order_acquire);
+    uint32_t want = std::min<uint32_t>({n, kFrameRing, (uint32_t)env->GetArrayLength(out)});
+    float tmp[kFrameRing];
+    for (uint32_t i = 0; i < want; ++i) tmp[i] = g_frameRing[(n - want + i) % kFrameRing];
+    env->SetFloatArrayRegion(out, 0, (jsize)want, tmp);
+    return (jint)want;
 }
 
 // The session log file (LogFiles.kt), and lines from the Kotlin side so both halves land in one file in order
@@ -1272,11 +1603,16 @@ JNIEXPORT void JNICALL JNI(stop)(JNIEnv*, jobject) {
     g_stateCv.notify_all();
 }
 
+// The achievements' progress taken with this thread's last saveState (stateProgress hands it over).
+thread_local std::vector<uint8_t> t_stateProgress;
+
 // The core's state between frames (paused or not), or null if it couldn't be taken in [timeoutMs].
 JNIEXPORT jbyteArray JNICALL JNI(saveState)(JNIEnv* env, jobject, jint timeoutMs) {
     StateRequest req;
     req.save = true;
+    t_stateProgress.clear();
     if (!runStateRequest(req, timeoutMs) || !req.ok) return nullptr;
+    t_stateProgress.swap(req.achv);
     jbyteArray out = env->NewByteArray((jsize)req.data.size());
     if (out) env->SetByteArrayRegion(out, 0, (jsize)req.data.size(), reinterpret_cast<const jbyte*>(req.data.data()));
     return out;
@@ -1307,12 +1643,25 @@ JNIEXPORT jboolean JNICALL JNI(resetGame)(JNIEnv*, jobject, jint timeoutMs) {
 
 // Puts [data] (the core's state, unwrapped) back between frames. Waits for the core to be ready, so
 // it can be called right after start(); false if it failed or wasn't served in [timeoutMs].
-JNIEXPORT jboolean JNICALL JNI(loadState)(JNIEnv* env, jobject, jbyteArray data, jint timeoutMs) {
+JNIEXPORT jbyteArray JNICALL JNI(stateProgress)(JNIEnv* env, jobject) {
+    if (t_stateProgress.empty()) return nullptr;
+    jbyteArray out = env->NewByteArray((jsize)t_stateProgress.size());
+    if (out) env->SetByteArrayRegion(out, 0, (jsize)t_stateProgress.size(), reinterpret_cast<const jbyte*>(t_stateProgress.data()));
+    t_stateProgress.clear();
+    return out;
+}
+
+JNIEXPORT jboolean JNICALL JNI(loadState)(JNIEnv* env, jobject, jbyteArray data, jbyteArray achv, jint timeoutMs) {
     StateRequest req;
     req.save = false;
     jsize n = env->GetArrayLength(data);
     req.data.resize((size_t)n);
     env->GetByteArrayRegion(data, 0, n, reinterpret_cast<jbyte*>(req.data.data()));
+    if (achv) {
+        jsize a = env->GetArrayLength(achv);
+        req.achv.resize((size_t)a);
+        env->GetByteArrayRegion(achv, 0, a, reinterpret_cast<jbyte*>(req.achv.data()));
+    }
     return runStateRequest(req, timeoutMs) && req.ok ? JNI_TRUE : JNI_FALSE;
 }
 

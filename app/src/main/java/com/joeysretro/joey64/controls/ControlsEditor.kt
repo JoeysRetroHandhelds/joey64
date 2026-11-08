@@ -72,7 +72,7 @@ class ControlsEditor(
     private fun baseFor(player: Int): PlayerSetup =
         if (game != null) all.players[player] else defaultsFor(all.players[player])
 
-    /** Y: Reset to default (All games) / Use All games (a game) for one row: an N64 button's name, "Stick", "DeadZone", "Pak". */
+    /** Y: Reset to default (All games) / Use All games (a game) for one row: an N64 button's name, "Stick", "DeadZone", "Pak", "StickFeel" or one of [StickFeel.ROWS]. */
     fun resetRow(player: Int, row: String) {
         val cur = shown.players[player]
         val base = baseFor(player)
@@ -80,6 +80,9 @@ class ControlsEditor(
             "Stick" -> cur.copy(stick = base.stick)
             "DeadZone" -> cur.copy(deadZone = base.deadZone)
             "Pak" -> cur.copy(pak = base.pak)
+            // The page's Stick feel row: all of it; a row inside its popup: that one.
+            "StickFeel" -> cur.copy(feel = base.feel)
+            in StickFeel.ROWS -> cur.copy(feel = cur.feel.withRow(row, base.feel))
             else -> N64Button.entries.firstOrNull { it.name == row }?.let { cur.with(it, base.buttons[it]) } ?: return
         }
         set(player, next)
@@ -97,6 +100,19 @@ class ControlsEditor(
     fun autoMap(player: Int, mapped: PlayerSetup) {
         val cur = shown.players[player]
         set(player, cur.copy(buttons = mapped.buttons))
+    }
+
+    /**
+     * Start: Reset tab for [player] (approved mockup B, 2026-11-07): on All games every row goes back to what Auto
+     * map gives the player's controller; on a game the player uses All games' again (the game's file goes once no
+     * player differs). The controller stays. Hotkeys aren't a player's.
+     */
+    fun resetPlayer(player: Int) {
+        if (game == null) { set(player, defaultsFor(all.players[player])); return }
+        val o = own ?: return
+        val next = o.with(player, all.players[player])
+        if ((0..3).all { next.players[it].copy(device = all.players[it].device).differences(all.players[it]).isEmpty() }) removeGame(game)
+        else { own = next; store.saveGame(game, next) }
     }
 
     /** X on the game chooser: the game goes back to All games. */

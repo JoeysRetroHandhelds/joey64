@@ -119,7 +119,7 @@ class LibraryScanner(private val context: Context, private val db: LibraryDb) {
         if (ArchiveReader.is7z(f.name)) return context.contentResolver.withChannel(f.uri.toUri()) { ArchiveReader.read7z(it)?.info }
         val input = context.contentResolver.openInputStream(f.uri.toUri()) ?: throw IOException("no stream")
         return input.buffered(256 * 1024).use { s ->
-            if (ArchiveReader.isZip(f.name)) ArchiveReader.readZip(s)?.info else RomReader.read(s)
+            if (ArchiveReader.isZip(f.name)) ArchiveReader.readZip(s)?.info else RomReader.read(f.name, s)
         }
     }
 

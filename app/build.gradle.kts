@@ -22,6 +22,17 @@ val keystoreProperties = Properties().apply {
     val file = rootProject.file("keystore.properties")
     if (file.exists()) file.inputStream().use { load(it) }
 }
+// ScreenScraper's developer login (Joey's account; box art, BoxArt.kt), shipped as ES-DE ships its own: from
+// local.properties (gitignored) `screenscraper.devId` / `screenscraper.devPassword`, XOR-scrambled into BuildConfig so the
+// APK holds no plain copy. Without them the build looks up no box art.
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+fun ssScramble(s: String): String {
+    val key = "Joey64-box-art-key" // as in ScreenScraper.kt
+    return s.toByteArray().mapIndexed { i, b -> "%02x".format((b.toInt() xor key[i % key.length].code) and 0xff) }.joinToString("")
+}
 val copyCoreVersion by tasks.registering(Copy::class) {
     from(rootProject.file("core-version.txt"))
     into(buildInfoAssets)
@@ -43,6 +54,8 @@ android {
         buildConfigField("String", "GIT_COMMIT", "\"$gitCommit\"")
         buildConfigField("boolean", "GIT_DIRTY", "$gitDirty")
         buildConfigField("long", "BUILD_TIME", "${System.currentTimeMillis()}L")
+        buildConfigField("String", "SS_DEV_ID", "\"${ssScramble(localProperties.getProperty("screenscraper.devId", ""))}\"")
+        buildConfigField("String", "SS_DEV_PASSWORD", "\"${ssScramble(localProperties.getProperty("screenscraper.devPassword", ""))}\"")
     }
     buildFeatures { buildConfig = true }
 

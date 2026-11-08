@@ -5,6 +5,8 @@ import com.joeysretro.joey64.audio.AudioStore
 import com.joeysretro.joey64.controls.ControlsEditor
 import com.joeysretro.joey64.controls.ControlsStore
 import com.joeysretro.joey64.controls.StickFeel
+import com.joeysretro.joey64.emulation.EmuKey
+import com.joeysretro.joey64.emulation.EmuStore
 import com.joeysretro.joey64.video.VideoKey
 import com.joeysretro.joey64.video.VideoSettings
 import com.joeysretro.joey64.video.VideoStore
@@ -24,6 +26,7 @@ class GameSettingsModelTest {
     private fun video() = VideoStore(File(tmp.root, "video"))
     private fun audio() = AudioStore(File(tmp.root, "audio"))
     private fun controls() = ControlsStore(File(tmp.root, "controls"))
+    private fun emu() = EmuStore(File(tmp.root, "emulation"), null)
     private fun model() = GameSettingsModel(tmp.root)
 
     private fun mockupGame() {
@@ -85,5 +88,19 @@ class GameSettingsModelTest {
         ed.set(0, ed.shown.players[0].copy(deadZone = 25))
         model().copy(banjo, tooie, setOf(GamePart.Controls))
         assertNull(controls().game(tooie))
+    }
+
+    @Test fun emulationRowsAndCopy() {
+        emu().saveAll(mapOf(EmuKey.Overclock to "2x"))
+        emu().saveGame(banjo, mapOf(EmuKey.Overclock to "normal", EmuKey.ExpansionPak to "off"))
+        val c = model().summary(banjo).changes
+        assertEquals(listOf(
+            GameChange(GamePart.Emulation, "Overclock", "Normal", "2x", "Overclock"),
+            GameChange(GamePart.Emulation, "Expansion Pak", "Off", "On", "ExpansionPak")), c)
+        assertEquals(setOf(GamePart.Emulation), model().parts(banjo))
+        model().copy(banjo, tooie, setOf(GamePart.Emulation))
+        assertEquals(emu().game(banjo), emu().game(tooie))
+        model().reset(banjo)
+        assertNull(emu().game(banjo))
     }
 }

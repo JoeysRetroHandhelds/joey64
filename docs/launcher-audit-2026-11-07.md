@@ -15,7 +15,7 @@ Every phase in `docs/launcher-build-plan.md`, checked against the code on `launc
 | 5 Collections | Built | (Has achievements built 2026-11-07; 4-player hacks by game code built 2026-11-08) |
 | 6 Cheats | Built | Widescreen and 60 fps spots (Video's Aspect ratio still says Auto = 4:3 until they have one); unplaced libretro files; offline and Download cheats off unchecked |
 | 7 RetroAchievements | Built, softcore | RAOfflineProxy status line (needs mockup) and PR (Joey posts); Joey's own sign-in (unlock sound, tap "Sign-in expired" and progress in states built 2026-11-08) and a real unlock through the queue; Hardcore and Leaderboards wait for Joey |
-| 8 Settings | Appearance, Video, Audio, On screen, Saves, the stop-gap Library, RA, About built | Library tab, Emulation tab, General; rows 8-12 of the settings build order |
+| 8 Settings | Appearance, Video, Emulation (2026-11-08), Audio, On screen, Saves, the stop-gap Library, RA, About built | Library tab, General, Emulation's Performance mode (measure first); rows 9-12 of the settings build order |
 
 Tests: 245 unit tests pass. The branch is 9 commits ahead of main and 9 behind (merge is Joey's go).
 
@@ -40,7 +40,7 @@ Tests: 245 unit tests pass. The branch is 9 commits ahead of main and 9 behind (
 - Texture packs (GLideN64 only today; parallel-RDP step B queued).
 - Picture panel: shaders and bezels.
 
-**Wanted, need a mockup first:** turbo, undo save/load, rewind, slow motion (frame advance: built 2026-11-07, a hotkey), overscan crop, Android TV, HDR, the Emulation and Library settings tabs, controls extras (latch, profiles, macros), 64DD, run-ahead, app language, ROM patches, shortcuts, cheat search, input display, clip recording, Expansion Pak off per game.
+**Wanted, need a mockup first:** turbo, undo save/load, rewind, slow motion (frame advance: built 2026-11-07, a hotkey), overscan crop, Android TV, HDR, the Library settings tab, controls extras (latch, profiles, macros), 64DD, run-ahead, app language, ROM patches, shortcuts, cheat search, input display, clip recording. (Expansion Pak off per game: built 2026-11-08 in Settings › Emulation; slow motion and rewind go in Controls › Hotkeys, Joey 2026-11-08.)
 
 **Checks the plan asks for that haven't run:**
 - Every phase on the Flip, Portal, Odin 3 and Duo: only the Thor since 2026-11-06 (the device queues, then Thor-only testing).

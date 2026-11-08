@@ -409,10 +409,11 @@ Each item needs Joey's mockup first. The order puts what players miss most first
    - back up and restore all app data, with exporting saves only or settings only
    - Import from RetroArch again
    - data folder location
-8. **Emulation:**
-   - performance mode: Balanced, Max or Battery saver
+8. **Emulation:** built 2026-11-08 (approved mockup with Joey's answers: overclock Auto / Normal / 2x / 4x, thermal fallback moved from Video, Expansion Pak greyed for games that need it), except Performance mode, which is measured first
+   - performance mode: Balanced, Max or Battery saver (not built: measure first)
    - Advanced: overclock, CPU core, thermal fallback
    - Expansion Pak off per game
+   - slow motion and rewind: in Controls › Hotkeys next to Fast-forward (Joey 2026-11-08), not here
 9. **Library:**
    - sort
    - region filter

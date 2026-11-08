@@ -66,7 +66,7 @@ import kotlin.math.pow
  * Resolution, Aspect ratio, Widescreen, 60 fps (approved version A, 2026-11-08: build_enh.py), Integer scaling,
  * Screen orientation, Fill the camera cutout. Right,
  * Look: Colour (popup with a preview), Sharpening, Black frame insertion; Advanced: one row that
- * opens Renderer, driver, timing (with N64 video filters inside). For All games or one game
+ * opens Renderer, driver, pacing (with N64 video filters inside; Thermal fallback moved to Emulation 2026-11-08). For All games or one game
  * ([target], the chip in Settings' header): a game keeps only the rows changed for it, each with
  * the yellow dot, and Y puts the focused row back to All games.
  */
@@ -175,7 +175,7 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
             JoeyRow("Black frame insertion", Modifier.initialFocus(startRow == "bfi"), value = VideoChoices.label(VideoKey.Bfi, v[VideoKey.Bfi]), sideways = true, dot = dot(VideoKey.Bfi), experimental = true,
                 onFocused = { if (it) focused = "bfi" }) { popup = VPopup.Choice(VideoKey.Bfi) }
             SectionLabel("Advanced")
-            JoeyRow("Renderer, driver, timing", Modifier.initialFocus(startRow == "adv"), value = "›", sideways = true, dot = dot(*ADVANCED_KEYS.toTypedArray()),
+            JoeyRow("Renderer, driver, pacing", Modifier.initialFocus(startRow == "adv"), value = "›", sideways = true, dot = dot(*ADVANCED_KEYS.toTypedArray()),
                 onFocused = { if (it) focused = "adv" }) { popup = VPopup.Advanced("renderer") }
         }
         Spacer(Modifier.height(6.dp))
@@ -219,7 +219,7 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
 }
 
 private val COLOUR_KEYS = listOf(VideoKey.Brightness, VideoKey.Contrast, VideoKey.Saturation, VideoKey.Gamma)
-private val ADVANCED_KEYS = listOf(VideoKey.Renderer, VideoKey.Driver, VideoKey.Pacing, VideoKey.Thermal) + VideoKey.LOOK_KEYS +
+private val ADVANCED_KEYS = listOf(VideoKey.Renderer, VideoKey.Driver, VideoKey.Pacing) + VideoKey.LOOK_KEYS +
     listOf(VideoKey.Deinterlace, VideoKey.Supersample, VideoKey.NativeTexLod, VideoKey.NativeTexRect)
 
 private sealed class VPopup {
@@ -244,7 +244,7 @@ private fun describe(row: String, v: VideoSettings): Pair<String, String> = when
     "col" -> "Colour" to "Brightness, contrast, saturation and gamma."
     "shp" -> "Sharpening" to "Makes edges crisper after scaling."
     "bfi" -> "Black frame insertion" to "Experimental. On 120 Hz screens, a black frame between pictures: less motion blur, a darker picture and a little more lag. Does nothing on 60 Hz screens."
-    else -> "Renderer, driver, timing" to "For when something looks or runs wrong. Auto is right for most people."
+    else -> "Renderer, driver, pacing" to "For when something looks or runs wrong. Auto is right for most people."
 }
 
 private fun allGamesNote(row: String, all: VideoSettings): String = when (row) {
@@ -270,7 +270,6 @@ private fun title(k: VideoKey) = when (k) {
     VideoKey.Renderer -> "Renderer"
     VideoKey.Driver -> "GPU driver"
     VideoKey.Pacing -> "Frame pacing"
-    VideoKey.Thermal -> "Thermal fallback"
     VideoKey.Supersample -> "Supersampling"
     VideoKey.Widescreen -> "Widescreen"
     VideoKey.Fps -> "60 fps"
@@ -485,7 +484,7 @@ private fun SharpenPopup(v: VideoSettings, onDismiss: () -> Unit, onSet: (VideoK
 /** What Auto picked at the last game start (MainActivity writes it). */
 private fun lastPick(context: Context, what: String): String? = context.getSharedPreferences("device", Context.MODE_PRIVATE).getString(what, null)
 
-/** Renderer, driver, timing (mockup 5): two columns; each row opens its choices; N64 video filters opens its own popup. */
+/** Renderer, driver, pacing (mockup 5): two columns; each row opens its choices; N64 video filters opens its own popup. */
 @Composable
 private fun AdvancedPopup(context: Context, v: VideoSettings, startRow: String, onDismiss: () -> Unit,
                           onOpen: (VideoKey, String) -> Unit, onFilters: () -> Unit) {
@@ -496,7 +495,7 @@ private fun AdvancedPopup(context: Context, v: VideoSettings, startRow: String, 
     val look = VideoChoices.look.firstOrNull { it.value == v.look }?.label ?: "Custom"
     JoeyDialog(onDismiss = onDismiss, width = 680.dp, hints = listOf(Hint("A", "Change"), Hint("B", "Back"))) {
         Column {
-            PopupTitle("Renderer, driver, timing", "Auto is right for most people. Renderer, GPU driver, frame pacing and thermal fallback apply when the game next starts.")
+            PopupTitle("Renderer, driver, pacing", "Auto is right for most people. Renderer, GPU driver and frame pacing apply when the game next starts.")
             TwoColumns(Modifier.weight(1f, fill = false), gap = 18.dp, left = {
                 JoeyRow("Renderer", Modifier.initialFocus(startRow == "renderer"), value = auto(VideoKey.Renderer, renderer), sideways = true,
                     onFocused = { if (it) row = "renderer" }) { onOpen(VideoKey.Renderer, "renderer") }
@@ -508,16 +507,13 @@ private fun AdvancedPopup(context: Context, v: VideoSettings, startRow: String, 
             }) {
                 JoeyRow("N64 video filters", Modifier.initialFocus(startRow == "filters"), value = "$look  ›", sideways = true,
                     onFocused = { if (it) row = "filters" }) { onFilters() }
-                JoeyRow("Thermal fallback", Modifier.initialFocus(startRow == "thermal"), value = VideoChoices.label(VideoKey.Thermal, v[VideoKey.Thermal]), sideways = true,
-                    onFocused = { if (it) row = "thermal" }) { onOpen(VideoKey.Thermal, "thermal") }
             }
             Spacer(Modifier.height(6.dp))
             when (row) {
                 "renderer" -> DescriptionLine("Renderer", "parallel-RDP draws like the real N64. GLideN64 is the fallback for GPUs that can't run it. Auto picks by GPU and game.")
                 "driver" -> DescriptionLine("GPU driver", "Joey64's Turnip fixes parallel-RDP on Adreno GPUs. A driver that can't run falls back to the system's.")
                 "pacing" -> DescriptionLine("Frame pacing", "Lowest lag shows each frame as soon as it's ready. Steady shows each one for the same time on 120 Hz screens, for a little more lag. Steady, less lag is experimental.")
-                "filters" -> DescriptionLine("N64 video filters", "The N64's own picture filters, for parallel-RDP.")
-                else -> DescriptionLine("Thermal fallback", "Lowers the fast-forward speed as the device gets hot.")
+                else -> DescriptionLine("N64 video filters", "The N64's own picture filters, for parallel-RDP.")
             }
         }
     }

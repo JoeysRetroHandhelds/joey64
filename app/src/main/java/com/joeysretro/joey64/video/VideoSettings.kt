@@ -27,7 +27,6 @@ enum class VideoKey(val key: String, val default: String) {
     Renderer("renderer", "auto"),
     Driver("driver", "auto"),
     Pacing("pacing", "lowest"),
-    Thermal("thermal", "off"),
     ViAa("vi_aa", "on"),
     ViBilinear("vi_bilinear", "on"),
     DitherFilter("dither_filter", "on"),
@@ -49,7 +48,7 @@ enum class VideoKey(val key: String, val default: String) {
         /** Rows that only do something when the game is drawn above Native (1x). */
         val UPSCALE_ONLY = setOf(Supersample, NativeTexLod, NativeTexRect)
         /** Rows read when the game starts, not while it runs. */
-        val AT_START = setOf(Resolution, Renderer, Driver, Pacing, Thermal, Supersample, NativeTexLod, NativeTexRect, Widescreen, Fps)
+        val AT_START = setOf(Resolution, Renderer, Driver, Pacing, Supersample, NativeTexLod, NativeTexRect, Widescreen, Fps)
     }
 }
 
@@ -179,7 +178,6 @@ data class VideoApply(
             }
             val env = LinkedHashMap<String, String>()
             when (v[VideoKey.Pacing]) { "steady" -> env["N64_SWAP_INTERVAL"] = "1"; "timed" -> env["N64_SWAP_INTERVAL"] = "2" }
-            if (v.on(VideoKey.Thermal)) env["N64_THERMAL_GOV"] = "1"
             return VideoApply(opts, env, sharpScale = parallel && !v.on(VideoKey.ViBilinear))
         }
 

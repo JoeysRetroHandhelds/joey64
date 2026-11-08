@@ -93,6 +93,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // Dev check (2026-11-05 recheck): whether this device offers sustained performance mode (checked before only on the Flip and Portal)
         JLog.w(TAG, "sustained performance mode supported: " +
             (getSystemService(POWER_SERVICE) as android.os.PowerManager).isSustainedPerformanceModeSupported)
+        // Settings › Emulation for this game (before Video: it moves an older Video file's Thermal fallback over).
+        emuAtStart = com.joeysretro.joey64.emulation.EmuStore(this).forGame(earlySaveName())
         // Settings › Video for this game (All games, then its own rows), read before anything starts.
         video = com.joeysretro.joey64.video.VideoStore(this).forGame(earlySaveName())
         videoAtStart = video
@@ -120,8 +122,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         }
         // The per-device switches the driver reads as it loads (GpuRules.beforeDriver: the Odin 3's KGSL priority).
         applyGpuSettings(GpuRules.beforeDriver(Build.MODEL))
-        // Frame pacing and Thermal fallback (Settings › Video) are read by the host from the environment; --es env wins.
-        for ((k, v) in com.joeysretro.joey64.video.VideoApply.of(video, true).env)
+        // Frame pacing (Settings › Video) and Thermal fallback (Settings › Emulation) are read by the host from the
+        // environment; --es env wins.
+        for ((k, v) in com.joeysretro.joey64.video.VideoApply.of(video, true).env + com.joeysretro.joey64.emulation.EmuApply.of(emuAtStart, true).env)
             if (android.system.Os.getenv(k) == null) android.system.Os.setenv(k, v, true)
         // Driver and renderer by GPU (setupGpu), or Settings › Video's choice. Override with: am start ... --es renderer parallel|gliden64
         val renderer = setupGpu()
@@ -133,6 +136,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // The switches that differ by GPU (early acquire, single-threaded commands, lazy RDP worker, compile thread,
         // smoother timing, parallel-RDP synchronous): one table, GpuRules.settings, with the reasons. --es env/opts win.
         applyGpuSettings(GpuRules.settings(gpuFamily))
+        // Settings › Emulation's Overclock popup says what Auto gives here: smoother timing on this device or not.
+        getSharedPreferences("device", MODE_PRIVATE).edit().putBoolean("smoother", android.system.Os.getenv("N64_SMOOTHER") == "1").apply()
         // Settings › Video: resolution and the N64 video filters (core options), the picture's shape, integer
         // scaling, black frames, colour and sharpening. The dev switches below still win.
         val vApply = com.joeysretro.joey64.video.VideoApply.of(video, renderer == "parallel")
@@ -503,6 +508,16 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         return com.joeysretro.joey64.video.ExtrasOn.of(x, v, com.joeysretro.joey64.achievements.RaHardcore.on())
     }
 
+    /** [rom]'s header game code ("NDOE"), or null ("" a 64DD disk with no cartridge, or unreadable). */
+    private fun romGameCode(rom: String): String? = if (rom.isEmpty()) null else try {
+        val buf = File(rom).inputStream().use { i -> ByteArray(0x40).also { b -> if (i.read(b) < b.size) throw java.io.IOException("short ROM") } }
+        val order = com.joeysretro.joey64.launcher.library.RomByteOrder.of(buf) ?: throw java.io.IOException("not an N64 ROM")
+        order.toBigEndian(buf, buf.size)
+        com.joeysretro.joey64.launcher.library.RomReader.parseHeader(buf).gameCode
+    } catch (e: Exception) {
+        JLog.e(TAG, "emulation: can't read the ROM header: $e"); null
+    }
+
     /** The cheat lists' keys for [rom]'s header ("" a 64DD disk with no cartridge: none). */
     private fun headerKeys(rom: String): List<String> = if (rom.isEmpty()) emptyList() else try {
         val buf = File(rom).inputStream().use { i -> ByteArray(0x40).also { b -> if (i.read(b) < b.size) throw java.io.IOException("short ROM") } }
@@ -519,6 +534,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     /** Video as the game started: the rows read only at start (VideoKey.AT_START) keep these values until a restart. */
     private var videoAtStart = com.joeysretro.joey64.video.VideoSettings.DEFAULTS
     private var audioAtStart: com.joeysretro.joey64.audio.AudioSettings? = null
+    /** Settings › Emulation as the game started (every row is read only at start). */
+    private var emuAtStart = com.joeysretro.joey64.emulation.EmuSettings.DEFAULTS
     private var parallel = false
     /** --ez sharp / sharp2 (dev): they set the N64 filters themselves, so Game settings leaves those alone. */
     private var devSharp = false
@@ -578,6 +595,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             if (k !in com.joeysretro.joey64.video.VideoKey.AT_START || v[k] == videoAtStart[k]) continue
             out += Triple("v:" + k.name, startRowName(k.name), com.joeysretro.joey64.video.VideoChoices.label(k, v[k]))
         }
+        val e = com.joeysretro.joey64.emulation.EmuStore(this).forGame(saveName)
+        for (k in com.joeysretro.joey64.emulation.EmuKey.entries) {
+            if (e[k] == emuAtStart[k]) continue
+            out += Triple("e:" + k.name, startRowName(k.name), com.joeysretro.joey64.emulation.EmuChoices.label(k, e[k]))
+        }
         val start = audioAtStart
         if (start != null) {
             val a = com.joeysretro.joey64.audio.AudioStore(this).forGame(saveName)
@@ -592,7 +614,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private fun startRowName(key: String) = when (key) {
         "Driver" -> "GPU driver"; "Pacing" -> "Frame pacing"; "Thermal" -> "Thermal fallback"; "Supersample" -> "Supersampling"
         "NativeTexLod" -> "Native texture detail"; "NativeTexRect" -> "Native 2D (TEX_RECT)"; "Apps" -> "Play alongside other apps"
-        "Fps" -> "60 fps"
+        "Fps" -> "60 fps"; "CpuCore" -> "CPU core"; "ExpansionPak" -> "Expansion Pak"
         else -> key
     }
 
@@ -881,9 +903,15 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         applyCheats(if (RomFiles.isDiskName(rom)) ddCart ?: "" else rom, saveName)
         applyAudio(saveName)
         savesOpts = p.savesOpts
+        // Settings › Emulation: Overclock, CPU core, Expansion Pak (never Off for a game that needs it). --es opts wins.
+        val code = romGameCode(if (RomFiles.isDiskName(rom)) ddCart ?: "" else rom)
+        val eApply = com.joeysretro.joey64.emulation.EmuApply.of(emuAtStart, com.joeysretro.joey64.emulation.ExpansionPak.needed(code))
+        val devOpts = devString("opts").orEmpty()
+        for ((k, v) in eApply.coreOptions) if (!devOpts.contains("$k=")) NativeBridge.setOption(k, v)
+        if (eApply.coreOptions.isNotEmpty()) JLog.i(TAG, "emulation ($code): ${eApply.coreOptions}")
         // A 60 fps code makes the game's CPU work harder: the CPU runs at counter factor 1 (the smoother timing's
-        // CountPerOp=1), unless --es opts sets it.
-        if (p.extras.fps && devString("opts")?.contains("mupen64plus-CountPerOp") != true) NativeBridge.setOption("mupen64plus-CountPerOp", "1")
+        // CountPerOp=1), unless Overclock is set or --es opts sets it.
+        if (p.extras.fps && !eApply.overclockSet && !devOpts.contains("mupen64plus-CountPerOp=")) NativeBridge.setOption("mupen64plus-CountPerOp", "1")
         if (p.extras.shape != null) applyVideoDisplay()
         JLog.i(TAG, "widescreen / 60 fps: ${p.extras.log}")
         // RetroAchievements: signs in with the kept account first, so the game is identified as it loads.
@@ -1044,6 +1072,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val settings = org.json.JSONObject()
         for (k in com.joeysretro.joey64.video.VideoKey.entries) if (v[k] != k.default) settings.put("video." + k.key, v[k])
         for (k in com.joeysretro.joey64.audio.AudioKey.entries) if (a[k] != k.default) settings.put("audio." + k.key, a[k])
+        for (k in com.joeysretro.joey64.emulation.EmuKey.entries) if (emuAtStart[k] != k.default) settings.put("emulation." + k.key, emuAtStart[k])
         // The widescreen / 60 fps versions actually on (the rows above say what was asked for).
         extrasOn.widescreenName?.let { settings.put("on.widescreen", it) }
         extrasOn.fpsName?.let { settings.put("on.fps", it) }

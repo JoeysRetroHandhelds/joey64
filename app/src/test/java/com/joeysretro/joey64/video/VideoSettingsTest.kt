@@ -55,10 +55,9 @@ class VideoSettingsTest {
         assertFalse(a.sharpScale)
     }
 
-    @Test fun pacingAndThermalGoToTheEnvironment() {
+    @Test fun pacingGoesToTheEnvironment() {
         assertEquals("1", VideoApply.of(VideoSettings(mapOf(VideoKey.Pacing to "steady")), true).env["N64_SWAP_INTERVAL"])
         assertEquals("2", VideoApply.of(VideoSettings(mapOf(VideoKey.Pacing to "timed")), true).env["N64_SWAP_INTERVAL"])
-        assertEquals("1", VideoApply.of(VideoSettings(mapOf(VideoKey.Thermal to "on")), true).env["N64_THERMAL_GOV"])
     }
 
     @Test fun aspectChoices() {

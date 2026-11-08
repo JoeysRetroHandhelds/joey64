@@ -123,7 +123,8 @@ private fun GameSettingsContent(game: GameRef, inGame: Boolean, sink: ControlsSi
             GsView.Page -> false
             is GsView.Tabs -> when (ctl) {
                 Control.TabPrev, Control.TabNext -> {
-                    view = GsView.Tabs(if (v.part == GamePart.Video) GamePart.Audio else GamePart.Video, null); true
+                    val i = TAB_PARTS.indexOf(v.part) + if (ctl == Control.TabNext) 1 else TAB_PARTS.size - 1
+                    view = GsView.Tabs(TAB_PARTS[i % TAB_PARTS.size], null); true
                 }
                 else -> tabControl?.invoke(ctl) ?: false
             }
@@ -158,17 +159,22 @@ private fun GameSettingsContent(game: GameRef, inGame: Boolean, sink: ControlsSi
     }
 }
 
-/** Settings' Video and Audio tabs, set to the game: no other tabs, the game's name in the header. */
+/** The parts that are Settings tabs (Controls has its own page). */
+private val TAB_PARTS = listOf(GamePart.Video, GamePart.Emulation, GamePart.Audio)
+
+/** Settings' Video, Emulation and Audio tabs, set to the game: no other tabs, the game's name in the header. */
 @Composable
 private fun GameTabs(game: GameRef, v: GsView.Tabs, onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean)?) -> Unit, onTab: (GamePart) -> Unit) {
     val c = JoeyTheme.colors
     val s = JoeyTheme.spacing
-    val parts = listOf(GamePart.Video, GamePart.Audio)
+    val parts = TAB_PARTS
     Column(Modifier.fillMaxSize().padding(horizontal = s.margin).padding(top = 14.dp, bottom = 8.dp)) {
         com.joeysretro.joey64.launcher.components.PageHeader("Settings") { InfoChip(game.title, R.drawable.ic_sliders, on = true) }
         SettingsTabs(parts.map { it.label }, parts.indexOf(v.part)) { onTab(parts[it]) }
         key(v) {
             when (v.part) {
+                GamePart.Emulation -> EmulationTab(game.saveName, onHints, onControl, Modifier.weight(1f),
+                    start = v.start?.let { r -> com.joeysretro.joey64.emulation.EmuKey.entries.firstOrNull { it.name == r } })
                 GamePart.Audio -> AudioTab(game.saveName, onHints, onControl, Modifier.weight(1f),
                     start = v.start?.let { r -> AudioKey.entries.firstOrNull { it.name == r } })
                 else -> VideoTab(game.saveName, onHints, onControl, Modifier.weight(1f), start = v.start)
@@ -201,7 +207,7 @@ private fun GamePage(game: GameRef, summary: GameSummary, inGame: Boolean, focus
                 onFocused = { if (it) onFocused("copy") }) { if (!none) onCopy() }
         }) {
             SectionLabel("Changed for this game")
-            if (none) Text("Nothing yet: $name uses All games' Video, Audio and Controls.", style = JoeyTheme.type.note, color = c.textDim,
+            if (none) Text("Nothing yet: $name uses All games' Video, Emulation, Audio and Controls.", style = JoeyTheme.type.note, color = c.textDim,
                 modifier = Modifier.padding(horizontal = s.rowPadH, vertical = 6.dp))
             summary.changes.forEachIndexed { i, ch ->
                 JoeyRow(ch.name, Modifier.initialFocus(focused == "ch$i"), value = ch.value, detail = "All games: ${ch.allGames}", sideways = true,
@@ -213,8 +219,13 @@ private fun GamePage(game: GameRef, summary: GameSummary, inGame: Boolean, focus
         val (title, text) = when {
             focused == GamePart.Video.name -> "Video" to when {
                 summary.count(GamePart.Video) == 0 -> "$name follows All games' Video. Change a row there to give it its own."
-                inGame -> "$name's own Video settings. Most rows apply when you go back to the game. Resolution and the Renderer, driver, timing rows apply when it next starts."
+                inGame -> "$name's own Video settings. Most rows apply when you go back to the game. Resolution and the Renderer, driver, pacing rows apply when it next starts."
                 else -> "$name's own Video settings. The rows with a dot are its own; the rest follow All games."
+            }
+            focused == GamePart.Emulation.name -> "Emulation" to when {
+                summary.count(GamePart.Emulation) == 0 -> "$name follows All games' Emulation. Change a row there to give it its own."
+                inGame -> "$name's own Emulation settings. They apply when it next starts."
+                else -> "$name's own Emulation settings. The rows with a dot are its own; the rest follow All games."
             }
             focused == GamePart.Audio.name -> "Audio" to when {
                 summary.count(GamePart.Audio) == 0 -> "$name follows All games' Audio. A game can have its own Volume and Latency."

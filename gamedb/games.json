@@ -1,6 +1,6 @@
 {
   "about": "Joey64 per-game database: what each game needs, what is wrong with it and where, and what was fixed. Seed for the M3 profile DB. Rules: gamedb/README.md. Update this file in the same commit as any change to a game's status (new problem found, fixed, regressed, setting added or dropped).",
-  "updated": "2026-11-07",
+  "updated": "2026-11-08",
   "games": [
     {
       "id": "NPF", "title": "Pokemon Snap",
@@ -76,6 +76,9 @@
     },
     {
       "id": "NPD", "title": "Perfect Dark",
+      "settings": [
+        {"what": "Expansion Pak always on: Settings › Emulation greys the row (Needed by this game) and Off is never applied", "where": "EmulationSettings.kt ExpansionPak.NEEDED_BY (2026-11-08)", "why": "without it most of the game (solo missions, co-op, counter-op, most multiplayer) is locked"}
+      ],
       "fixed": [
         {"devices": "120 Hz screens (Duo, Portal, Odin 3)", "what": "judder at 60 fps: audio every other frame (0, then 1474 samples) made audio sync start frames 5 then 28 ms apart, ~240 of 300 frames uneven per 5 s", "fix": "smoothed audio wait, automatic above 60 Hz, app 6de8bb8. Duo: uneven 244 -> 39, lag 20.2 -> 18.6 ms; Odin 3: 246 -> 28, lag 18.3 -> 15.7 ms; 0 underruns; same-build underrun A/B clean (chain72)"},
         {"what": "Portal: menu background shifted down (async build of 2026-11-03)", "fix": "current build, portal-prdp 2026-11-05"}
@@ -108,6 +111,9 @@
     },
     {
       "id": "NZS", "title": "Majora's Mask",
+      "settings": [
+        {"what": "Expansion Pak always on: Settings › Emulation greys the row (Needed by this game) and Off is never applied", "where": "EmulationSettings.kt ExpansionPak.NEEDED_BY (2026-11-08)", "why": "won't run without it"}
+      ],
       "issues": [
         {"status": "open", "devices": "Flip", "what": "first launch stutters while shaders compile: 93-108 ms worst frames, 40 slow frames per window (warm 40-43 ms)", "evidence": "hitch bench; shader pre-build list is item 20"},
         {"status": "open", "devices": "Flip", "what": "white glow over the floor in one of two runs with the new parallel-RDP; check in the next Flip screenshots", "evidence": "screenshot review 2026-11-04"}
@@ -134,7 +140,8 @@
     {
       "id": "NDO", "title": "Donkey Kong 64",
       "settings": [
-        {"what": "save type from the header ID for hacks", "where": "core rom.c, 67a1fcd", "why": "hacks not in the database got 4K EEPROM and could not save"}
+        {"what": "save type from the header ID for hacks", "where": "core rom.c, 67a1fcd", "why": "hacks not in the database got 4K EEPROM and could not save"},
+        {"what": "Expansion Pak always on: Settings › Emulation greys the row (Needed by this game) and Off is never applied", "where": "EmulationSettings.kt ExpansionPak.NEEDED_BY (2026-11-08)", "why": "won't run without it"}
       ],
       "notes": ["breaks with plain async parallel-RDP (no smart sync); fine on the default"]
     },

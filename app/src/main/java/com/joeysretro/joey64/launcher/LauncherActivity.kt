@@ -113,6 +113,9 @@ class LauncherActivity : ComponentActivity() {
         // The session log (files/logs) starts here when the app opens to the launcher, so first run, the
         // import and library reads are in what a tester sends, not only what happens once a game is up.
         LogFiles.start(this, intent)
+        // Thermal fallback moved from Video to Emulation (2026-11-08): the store moves an older Video file's
+        // value over as it opens, before Video can write that file again without it.
+        com.joeysretro.joey64.emulation.EmuStore(this)
         // RetroAchievements: the kept account signs in now, so Settings shows it with its points.
         com.joeysretro.joey64.achievements.RaBridge.init(this)
         // Debug builds: adb shell am broadcast -a com.joeysretro.joey64.RA_FAKE --ez on true shows the

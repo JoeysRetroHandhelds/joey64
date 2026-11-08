@@ -10,6 +10,10 @@ import com.joeysretro.joey64.controls.InputNames
 import com.joeysretro.joey64.controls.N64Button
 import com.joeysretro.joey64.controls.PlayerSetup
 import com.joeysretro.joey64.controls.StickFeel
+import com.joeysretro.joey64.emulation.EmuChoices
+import com.joeysretro.joey64.emulation.EmuKey
+import com.joeysretro.joey64.emulation.EmuSettings
+import com.joeysretro.joey64.emulation.EmuStore
 import com.joeysretro.joey64.launcher.screens.feelLabel
 import com.joeysretro.joey64.launcher.screens.feelValue
 import com.joeysretro.joey64.launcher.screens.sharpenValue
@@ -19,13 +23,13 @@ import com.joeysretro.joey64.video.VideoSettings
 import com.joeysretro.joey64.video.VideoStore
 import java.io.File
 
-/** The three parts a game can have its own settings in. */
-enum class GamePart(val label: String) { Video("Video"), Audio("Audio"), Controls("Controls") }
+/** The parts a game can have its own settings in. */
+enum class GamePart(val label: String) { Video("Video"), Emulation("Emulation"), Audio("Audio"), Controls("Controls") }
 
 /**
  * One row a game changed (Game settings' right column, approved mockup 2026-11-07): [row] is where
- * A takes you: a Video tab row id ("res", "col", "adv:renderer", "filters:look"), an [AudioKey]'s
- * name, or "p<player>" for Controls.
+ * A takes you: a Video tab row id ("res", "col", "adv:renderer", "filters:look"), an [EmuKey]'s or
+ * [AudioKey]'s name, or "p<player>" for Controls.
  */
 data class GameChange(val part: GamePart, val name: String, val value: String, val allGames: String, val row: String)
 
@@ -44,28 +48,31 @@ data class GameSummary(val changes: List<GameChange>) {
  * in Video, Audio and Controls, Reset to All games, Copy to another game. Pure over the three
  * stores, so it's tested on the JVM. Cheats, saves and states are never touched.
  */
-class GameSettingsModel(private val video: VideoStore, private val audio: AudioStore, private val controls: ControlsStore) {
-    constructor(context: Context) : this(VideoStore(context), AudioStore(context), ControlsStore(context))
-    constructor(dir: File) : this(VideoStore(File(dir, "video")), AudioStore(File(dir, "audio")), ControlsStore(File(dir, "controls")))
+class GameSettingsModel(private val video: VideoStore, private val emu: EmuStore, private val audio: AudioStore, private val controls: ControlsStore) {
+    constructor(context: Context) : this(VideoStore(context), EmuStore(context), AudioStore(context), ControlsStore(context))
+    constructor(dir: File) : this(VideoStore(File(dir, "video")), EmuStore(File(dir, "emulation"), File(dir, "video")), AudioStore(File(dir, "audio")), ControlsStore(File(dir, "controls")))
 
-    fun summary(saveName: String): GameSummary = GameSummary(videoChanges(saveName) + audioChanges(saveName) + controlsChanges(saveName))
+    fun summary(saveName: String): GameSummary =
+        GameSummary(videoChanges(saveName) + emuChanges(saveName) + audioChanges(saveName) + controlsChanges(saveName))
 
     /** The parts [saveName] has of its own. */
     fun parts(saveName: String): Set<GamePart> = buildSet {
         if (!video.game(saveName).isNullOrEmpty()) add(GamePart.Video)
+        if (!emu.game(saveName).isNullOrEmpty()) add(GamePart.Emulation)
         if (!audio.game(saveName).isNullOrEmpty()) add(GamePart.Audio)
         if (controlsChanges(saveName).isNotEmpty()) add(GamePart.Controls)
     }
 
-    /** Reset to All games: the game's own Video, Audio and Controls files go. */
+    /** Reset to All games: the game's own Video, Emulation, Audio and Controls files go. */
     fun reset(saveName: String) {
-        video.removeGame(saveName); audio.removeGame(saveName); controls.removeGame(saveName)
+        video.removeGame(saveName); emu.removeGame(saveName); audio.removeGame(saveName); controls.removeGame(saveName)
     }
 
     /** Copy to another game: each part in [parts] replaces [to]'s (no mixing); a part [from] has none of clears [to]'s. */
     fun copy(from: String, to: String, parts: Set<GamePart>) {
         if (from == to) return
         if (GamePart.Video in parts) video.saveGame(to, video.game(from).orEmpty())
+        if (GamePart.Emulation in parts) emu.saveGame(to, emu.game(from).orEmpty())
         if (GamePart.Audio in parts) audio.saveGame(to, audio.game(from).orEmpty())
         if (GamePart.Controls in parts) controls.game(from)?.let { controls.saveGame(to, it) } ?: controls.removeGame(to)
     }
@@ -94,7 +101,6 @@ class GameSettingsModel(private val video: VideoStore, private val audio: AudioS
         one(VideoKey.Renderer, "Renderer", "adv:renderer")
         one(VideoKey.Driver, "GPU driver", "adv:driver")
         one(VideoKey.Pacing, "Frame pacing", "adv:pacing")
-        one(VideoKey.Thermal, "Thermal fallback", "adv:thermal")
         // Look is one row, though it sets several filters (approved mockup screen 2).
         if (VideoKey.LOOK_KEYS.any { it in own }) out += GameChange(GamePart.Video, "Look", look(g), look(all), "filters:look")
         one(VideoKey.Deinterlace, "Interlaced games", "filters:di")
@@ -102,6 +108,16 @@ class GameSettingsModel(private val video: VideoStore, private val audio: AudioS
         one(VideoKey.NativeTexLod, "Native texture detail", "filters:lod")
         one(VideoKey.NativeTexRect, "Native 2D (TEX_RECT)", "filters:tr")
         return out
+    }
+
+    private fun emuChanges(save: String): List<GameChange> {
+        val own = emu.game(save).orEmpty()
+        val all = EmuSettings.resolve(emu.all(), null)
+        return EmuKey.entries.filter { it in own }.map { k ->
+            GameChange(GamePart.Emulation, when (k) {
+                EmuKey.Overclock -> "Overclock"; EmuKey.CpuCore -> "CPU core"; EmuKey.ExpansionPak -> "Expansion Pak"; EmuKey.Thermal -> "Thermal fallback"
+            }, EmuChoices.label(k, own.getValue(k)), EmuChoices.label(k, all[k]), k.name)
+        }
     }
 
     private fun audioChanges(save: String): List<GameChange> {

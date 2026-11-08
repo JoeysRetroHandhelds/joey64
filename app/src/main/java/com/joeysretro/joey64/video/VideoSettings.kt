@@ -54,7 +54,7 @@ enum class VideoKey(val key: String, val default: String) {
 }
 
 /** One choice of a setting: the stored value, what the row shows, and the line under it in the popup. */
-data class VideoChoice(val value: String, val label: String, val detail: String? = null)
+data class VideoChoice(val value: String, val label: String, val detail: String? = null, val experimental: Boolean = false)
 
 object VideoChoices {
     val resolution = listOf(
@@ -83,7 +83,7 @@ object VideoChoices {
     val pacing = listOf(
         VideoChoice("lowest", "Lowest lag", "Each frame shows as soon as it's ready"),
         VideoChoice("steady", "Steady", "Each frame shows for the same time on 120 Hz screens. More lag"),
-        VideoChoice("timed", "Steady, less lag", "Steady, with frames timed to the screen"))
+        VideoChoice("timed", "Steady, less lag", "Steady, with frames timed to the screen", experimental = true))
     val look = listOf(
         VideoChoice("original", "Original", "The N64's own soft picture"),
         VideoChoice("sharp", "Sharp", "Edge smoothing and soft scaling off"),

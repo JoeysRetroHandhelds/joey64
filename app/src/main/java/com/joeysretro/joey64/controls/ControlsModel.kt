@@ -209,10 +209,10 @@ enum class HotkeyAction(val label: String, /** null: not set until the user pick
 }
 
 /** How the fast-forward hotkey works (approved fast-forward popup, 2026-11-07). */
-enum class FastForwardMode(val label: String, val detail: String) {
+enum class FastForwardMode(val label: String, val detail: String, val experimental: Boolean = false) {
     Toggle("Toggle", "Press once to start, again to stop"),
     Hold("Hold", "Only while you hold the button"),
-    Adaptive("Adaptive", "Press harder to go faster. Needs a trigger, like L2 or R2"),
+    Adaptive("Adaptive", "Press harder to go faster. Needs a trigger, like L2 or R2", experimental = true),
 }
 
 /** Where Quit game goes after the auto slot is written (approved Quit game popup, 2026-11-07). */

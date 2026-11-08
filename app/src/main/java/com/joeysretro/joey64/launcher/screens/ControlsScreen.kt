@@ -360,7 +360,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             onButton = { popup = Popup.Remap(Target.Hotkey(HotkeyAction.FastForward), Popup.FastForward("button")) },
             onMode = { popup = Popup.FfMode }) { h -> edit { editor.setHotkeys(h) } }
         Popup.FfMode -> ChoicePopup("Mode", null,
-            FastForwardMode.entries.map { Choice(it.label, it.detail, it == editor.hotkeys.ffMode) }, { popup = Popup.FastForward("mode") }) { i ->
+            FastForwardMode.entries.map { Choice(it.label, it.detail, it == editor.hotkeys.ffMode, experimental = it.experimental) }, { popup = Popup.FastForward("mode") }) { i ->
             edit { editor.setHotkeys(editor.hotkeys.copy(ffMode = FastForwardMode.entries[i])) }; popup = Popup.FastForward("mode")
         }
         is Popup.QuitGame -> QuitGamePopup(editor, version, p.row, close, editor.shown.players[0],
@@ -641,7 +641,8 @@ private fun FastForwardPopup(editor: ControlsEditor, version: Int, startRow: Str
             PopupTitle("Fast-forward")
             JoeyRow("Button", Modifier.initialFocus(startRow == "button"), value = buttonName, onFocused = { if (it) row = "button" }, onClick = onButton)
             NeedsHotkeyRow(h, HotkeyAction.FastForward, startRow == "alone", { row = "alone" }, onSet)
-            JoeyRow("Mode", Modifier.initialFocus(startRow == "mode"), value = h.ffMode.label + "  ›", onFocused = { if (it) row = "mode" }, onClick = onMode)
+            JoeyRow("Mode", Modifier.initialFocus(startRow == "mode"), value = h.ffMode.label + "  ›", experimental = h.ffMode.experimental,
+                onFocused = { if (it) row = "mode" }, onClick = onMode)
             JoeyRow("Speed", Modifier.initialFocus(startRow == "speed").onPreviewKeyEvent { e ->
                 val n = e.nativeKeyEvent
                 val step = when (n.keyCode) { KeyEvent.KEYCODE_DPAD_LEFT -> -1; KeyEvent.KEYCODE_DPAD_RIGHT -> 1; else -> 0 }
@@ -658,7 +659,7 @@ private fun FastForwardPopup(editor: ControlsEditor, version: Int, startRow: Str
             Spacer(Modifier.height(6.dp))
             when (row) {
                 "speed" -> DescriptionLine("Speed", "The top speed. Adaptive goes from normal speed up to this as you press harder.")
-                "mode" -> DescriptionLine("Mode", "Toggle, Hold or Adaptive.")
+                "mode" -> DescriptionLine("Mode", "Toggle, Hold or Adaptive. Adaptive is experimental.")
                 "alone" -> {}
                 else -> DescriptionLine("Button", if (h.isAlone(HotkeyAction.FastForward)) "On its own, without the hotkey button." else "Held with ${hotkeyKey(h.button)}, the hotkey button.")
             }
@@ -696,7 +697,7 @@ private fun QuitGamePopup(editor: ControlsEditor, version: Int, startRow: String
 
 // ---- popups ----
 
-internal data class Choice(val label: String, val detail: String?, val on: Boolean, val value: String? = null)
+internal data class Choice(val label: String, val detail: String?, val on: Boolean, val value: String? = null, val experimental: Boolean = false)
 
 @Composable
 private fun Tick() {
@@ -709,7 +710,7 @@ private fun ChoicePopup(title: String, subtitle: String?, choices: List<Choice>,
         Column {
             PopupTitle(title, subtitle)
             choices.forEachIndexed { i, ch ->
-                JoeyRow(ch.label, Modifier.initialFocus(ch.on), value = ch.value, detail = ch.detail,
+                JoeyRow(ch.label, Modifier.initialFocus(ch.on), value = ch.value, detail = ch.detail, experimental = ch.experimental,
                     trailing = if (ch.on) { _ -> Tick() } else null) { onPick(i) }
             }
         }

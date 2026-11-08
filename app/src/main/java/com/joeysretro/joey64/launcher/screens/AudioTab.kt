@@ -83,7 +83,8 @@ fun AudioTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
             @Composable
             fun row(k: AudioKey, label: String) =
                 JoeyRow(label, Modifier.initialFocus(start == k), value = AudioChoices.label(k, a[k]), sideways = true, enabled = !fixed(k),
-                    dot = dot(k), onFocused = { if (it) focused = k }) { popup = k }
+                    dot = dot(k), experimental = AudioChoices.of(k).any { it.value == a[k] && it.experimental },
+                    onFocused = { if (it) focused = k }) { popup = k }
             Column(Modifier.weight(1f)) {
                 SectionLabel("Sound")
                 StepRow("Volume", "${a.volume}%", AudioChoices.volumeSteps, a.volume, volumeFocused, first = start == null || start == AudioKey.Volume,
@@ -119,7 +120,7 @@ private fun describe(k: AudioKey): Pair<String, String> = when (k) {
     AudioKey.Mono -> "Mono" to "The same sound from both sides, for one earbud or a mono speaker."
     AudioKey.Apps -> "Play alongside other apps" to "Keep music from other apps playing during a game. Applies when the game next starts."
     AudioKey.FfSound -> "Fast-forward sound" to "What you hear while the game runs faster."
-    AudioKey.Latency -> "Latency" to "How far the sound runs behind the picture. Applies when the game next starts."
+    AudioKey.Latency -> "Latency" to "How far the sound runs behind the picture. Low is experimental. Applies when the game next starts."
 }
 
 private fun title(k: AudioKey) = when (k) {
@@ -136,7 +137,7 @@ private fun AudioChoicePopup(k: AudioKey, current: String, onDismiss: () -> Unit
             PopupTitle(title(k))
             for (ch in AudioChoices.of(k)) {
                 val on = ch.value == current
-                JoeyRow(ch.label, Modifier.initialFocus(on), detail = ch.detail,
+                JoeyRow(ch.label, Modifier.initialFocus(on), detail = ch.detail, experimental = ch.experimental,
                     trailing = if (on) { _ -> PickerTick() } else null) { onPick(ch.value) }
             }
         }

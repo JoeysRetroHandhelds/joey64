@@ -160,7 +160,7 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
                     val key = if (k == ExtraKind.Widescreen) VideoKey.Widescreen else VideoKey.Fps
                     val (value, enabled) = extraValue(k)
                     JoeyRow(if (k == ExtraKind.Widescreen) "Widescreen" else fpsTitle, Modifier.initialFocus(startRow == id), value = value,
-                        enabled = enabled, sideways = true, dot = dot(key), onFocused = { if (it) focused = id }) { popup = VPopup.Extra(k) }
+                        enabled = enabled, sideways = true, dot = dot(key), experimental = true, onFocused = { if (it) focused = id }) { popup = VPopup.Extra(k) }
                 }
                 row("int", "Integer scaling", VideoKey.Integer)
                 row("ori", "Screen orientation", VideoKey.Orientation)
@@ -173,7 +173,7 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
                     onFocused = { if (it) focused = "col" }) { popup = VPopup.Colour }
                 JoeyRow("Sharpening", Modifier.initialFocus(startRow == "shp"), value = sharpenValue(v), sideways = true, dot = dot(VideoKey.Sharpen, VideoKey.SharpenStrength),
                     onFocused = { if (it) focused = "shp" }) { popup = VPopup.Sharpen }
-                JoeyRow("Black frame insertion", Modifier.initialFocus(startRow == "bfi"), value = VideoChoices.label(VideoKey.Bfi, v[VideoKey.Bfi]), sideways = true, dot = dot(VideoKey.Bfi),
+                JoeyRow("Black frame insertion", Modifier.initialFocus(startRow == "bfi"), value = VideoChoices.label(VideoKey.Bfi, v[VideoKey.Bfi]), sideways = true, dot = dot(VideoKey.Bfi), experimental = true,
                     onFocused = { if (it) focused = "bfi" }) { popup = VPopup.Choice(VideoKey.Bfi) }
                 SectionLabel("Advanced")
                 JoeyRow("Renderer, driver, timing", Modifier.initialFocus(startRow == "adv"), value = "›", sideways = true, dot = dot(*ADVANCED_KEYS.toTypedArray()),
@@ -245,7 +245,7 @@ private fun describe(row: String, v: VideoSettings): Pair<String, String> = when
     "cut" -> "Fill the camera cutout" to "Draws the picture behind the camera hole, for Stretch to the screen."
     "col" -> "Colour" to "Brightness, contrast, saturation and gamma."
     "shp" -> "Sharpening" to "Makes edges crisper after scaling."
-    "bfi" -> "Black frame insertion" to "On 120 Hz screens, a black frame between pictures: less motion blur, a darker picture and a little more lag. Does nothing on 60 Hz screens."
+    "bfi" -> "Black frame insertion" to "Experimental. On 120 Hz screens, a black frame between pictures: less motion blur, a darker picture and a little more lag. Does nothing on 60 Hz screens."
     else -> "Renderer, driver, timing" to "For when something looks or runs wrong. Auto is right for most people."
 }
 
@@ -285,8 +285,8 @@ private const val FPS_NOTE = "The game runs at 60 frames a second instead of 30.
 private fun extraText(k: ExtraKind, hardcore: Boolean, none: Boolean): String = when {
     hardcore -> "Off while RetroAchievements Hardcore is on. Your pick comes back when it's off."
     none -> if (k == ExtraKind.Widescreen) "There's no widescreen code for this game yet." else "There's no 60 fps code for this game yet."
-    k == ExtraKind.Widescreen -> "Shows more of the game at the sides, for a wide screen. The picture switches to 16:9 with it. Some games draw the HUD wider. Applies when the game next starts."
-    else -> "$FPS_NOTE Applies when the game next starts."
+    k == ExtraKind.Widescreen -> "Experimental: some games glitch with it. Shows more of the game at the sides, for a wide screen. The picture switches to 16:9 with it. Some games draw the HUD wider. Applies when the game next starts."
+    else -> "Experimental: some games glitch with it. $FPS_NOTE Applies when the game next starts."
 }
 
 /** All games' "When a game has one": how many games the downloaded lists have codes for. */
@@ -335,7 +335,7 @@ private fun ChoicePopup(k: VideoKey, current: String, onDismiss: () -> Unit, onP
             PopupTitle(title(k))
             for (ch in choices) {
                 val on = ch.value == current
-                JoeyRow(ch.label, Modifier.initialFocus(on), detail = ch.detail,
+                JoeyRow(ch.label, Modifier.initialFocus(on), detail = ch.detail, experimental = ch.experimental,
                     trailing = if (on) { _ -> PickerTick() } else null) { onPick(ch.value) }
             }
         }
@@ -506,6 +506,7 @@ private fun AdvancedPopup(context: Context, v: VideoSettings, startRow: String, 
                     JoeyRow("GPU driver", Modifier.initialFocus(startRow == "driver"), value = auto(VideoKey.Driver, driver), sideways = true,
                         onFocused = { if (it) row = "driver" }) { onOpen(VideoKey.Driver, "driver") }
                     JoeyRow("Frame pacing", Modifier.initialFocus(startRow == "pacing"), value = VideoChoices.label(VideoKey.Pacing, v[VideoKey.Pacing]), sideways = true,
+                        experimental = VideoChoices.of(VideoKey.Pacing).any { it.value == v[VideoKey.Pacing] && it.experimental },
                         onFocused = { if (it) row = "pacing" }) { onOpen(VideoKey.Pacing, "pacing") }
                 }
                 Column(Modifier.weight(1f)) {
@@ -519,7 +520,7 @@ private fun AdvancedPopup(context: Context, v: VideoSettings, startRow: String, 
             when (row) {
                 "renderer" -> DescriptionLine("Renderer", "parallel-RDP draws like the real N64. GLideN64 is the fallback for GPUs that can't run it. Auto picks by GPU and game.")
                 "driver" -> DescriptionLine("GPU driver", "Joey64's Turnip fixes parallel-RDP on Adreno GPUs. A driver that can't run falls back to the system's.")
-                "pacing" -> DescriptionLine("Frame pacing", "Lowest lag shows each frame as soon as it's ready. Steady shows each one for the same time on 120 Hz screens, for a little more lag.")
+                "pacing" -> DescriptionLine("Frame pacing", "Lowest lag shows each frame as soon as it's ready. Steady shows each one for the same time on 120 Hz screens, for a little more lag. Steady, less lag is experimental.")
                 "filters" -> DescriptionLine("N64 video filters", "The N64's own picture filters, for parallel-RDP.")
                 else -> DescriptionLine("Thermal fallback", "Lowers the fast-forward speed as the device gets hot.")
             }

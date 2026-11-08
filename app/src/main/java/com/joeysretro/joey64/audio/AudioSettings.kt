@@ -28,7 +28,7 @@ enum class AudioKey(val key: String, val default: String) {
     }
 }
 
-data class AudioChoice(val value: String, val label: String, val detail: String? = null)
+data class AudioChoice(val value: String, val label: String, val detail: String? = null, val experimental: Boolean = false)
 
 object AudioChoices {
     val volumeSteps: List<Int> = (0..100 step 5).toList()
@@ -44,7 +44,7 @@ object AudioChoices {
         AudioChoice("full", "Full", "Full volume, sped up"))
     val latency = listOf(
         AudioChoice("auto", "Auto", "Small, grows only when the sound breaks up"),
-        AudioChoice("low", "Low", "Smallest, may crackle in heavy games"),
+        AudioChoice("low", "Low", "Smallest, may crackle in heavy games", experimental = true),
         AudioChoice("safe", "Safe", "Larger, sound never breaks up, a little behind"))
 
     fun of(key: AudioKey): List<AudioChoice> = when (key) {

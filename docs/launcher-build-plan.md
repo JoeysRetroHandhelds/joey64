@@ -427,7 +427,7 @@ Also agreed: for an ID shared by more than one layout, Auto map first asks for o
 
 **Still to do, tracked:**
 - Has achievements (approved in Show), built 2026-11-07: listed while signed in. Which games have a set comes from RetroAchievements' `systemgames` request for N64 (rcheevos' games list; unauthenticated, nothing about the account is sent): the hashes of games with at least one achievement, kept in `files/ra/n64-sets.json` and fetched again when a day old (`achievements/RaGameList.kt`). The library's md5 is RetroAchievements' hash. Checked on the Thor with the made-up account: 871 N64 hashes, SM64's among them; Has achievements 78 of 82 games, and picking it shows them.
-- Hacks have no player count, so a 4-player hack (Smash Remix) isn't under 4 players. A per-game override in `gamedb` would fix it.
+- Built 2026-11-08: hacks without a player count fall back to their header's game code (`@NAL` lines in n64-players.tsv from the no-intro dat), so Smash Remix is under 4 players (the only change in Joey's 82 games).
 - Not checked on the Portal, Flip, Duo and Odin 3 (the emulator chat's runs), as with Phase 1.
 
 ## Phase 6: cheats

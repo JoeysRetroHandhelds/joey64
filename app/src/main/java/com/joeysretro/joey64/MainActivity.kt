@@ -144,6 +144,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // Banjo -6.4%, Paper Mario -5.7%). --es env PARALLEL_RDP_SINGLE_THREADED_COMMAND=0 turns it off.
         if ("Mali" in gpuName && android.system.Os.getenv("PARALLEL_RDP_SINGLE_THREADED_COMMAND") == null)
             android.system.Os.setenv("PARALLEL_RDP_SINGLE_THREADED_COMMAND", "1", true)
+        // Lazy waking of parallel-RDP's command worker (core, on unless N64_RDP_RING_LAZY=0) stays on for Adreno only
+        // (Joey 2026-11-07): Portal +4.4% uncapped (portal-gpu2lazy, none below -0.5%), Duo +3.0% (duo-newlazy),
+        // compat 82/82 on both. Other GPUs were not measured with it, so it is off there. --es env wins.
+        if ("Adreno" !in gpuName && android.system.Os.getenv("N64_RDP_RING_LAZY") == null)
+            android.system.Os.setenv("N64_RDP_RING_LAZY", "0", true)
         // Smoother timing (CountPerOp=1, README item 15) for the games that lag on hardware, strong devices only
         // (Joey 2026-11-06; compat passed on the Odin 3 and Portal, odin3-/portal-smoothc): Adreno 730 and up (Portal,
         // Odin 3, Thor). The host picks the games (kSmootherGames). --es env N64_SMOOTHER=0|1 wins.

@@ -170,8 +170,8 @@ class ControlsTest {
         // A version 4 file gets Rewind on Select + L2, unless the user already gave L2 to a hotkey.
         assertEquals(KeyEvent.KEYCODE_BUTTON_L2, Hotkeys.fromJson(JSONObject("""{"version":4,"button":109,"keys":{"Save":103}}""")).keys[HotkeyAction.Rewind])
         assertNull(Hotkeys.fromJson(JSONObject("""{"version":4,"button":109,"keys":{"Mute":${KeyEvent.KEYCODE_BUTTON_L2}}}""")).keys[HotkeyAction.Rewind])
-        // The popup's memory line: 1 min at every 2 frames is about 264 MB (150 KB a moment).
-        assertEquals(264, Hotkeys.rewindMb(60, 2))
+        // The popup's memory line: 1 min at every 2 frames is about 141 MB (80 KB a moment).
+        assertEquals(141, Hotkeys.rewindMb(60, 2))
         assertEquals("1 min", Hotkeys.rewindSecondsLabel(60)); assertEquals("30 s", Hotkeys.rewindSecondsLabel(30))
         assertEquals("Every frame", Hotkeys.rewindEveryLabel(1)); assertEquals("Every 2 frames", Hotkeys.rewindEveryLabel(2))
     }

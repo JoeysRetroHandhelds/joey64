@@ -137,6 +137,9 @@ std::atomic<int> g_rewindEveryCfg{2}, g_rewindMaxCfg{1800};
 std::atomic<bool> g_rewindHeld{false}, g_rewindActive{false}, g_rewindAtOldest{false};
 // Frames gone back since the rewind hotkey went down.
 std::atomic<int> g_rewindBackFrames{0};
+// Stats windows in which audio underruns don't grow the latency target: rewind (no sound) and slow motion
+// (resampled) empty the ring, so the window after them starts from nothing (Thor: 8 underruns, target 20 -> 30 ms).
+std::atomic<int> g_audioRefillWindows{0};
 // Benchmark (dev env N64_BENCH=1): no speed cap, vsync off, audio dropped, settings unchanged and every frame
 // presented, so the counter shows how fast the game could run: the headroom a full-speed game has.
 bool g_bench = false;
@@ -579,7 +582,9 @@ void logStats() {
         snprintf(lat, sizeof lat, ", poll->display %.1f ms (max %.1f), %d uneven%s", latMean, latMax, uneven,
                  g_vk.takeCadence().c_str());
     double fillMs, targetMs; int underruns;
-    g_audio.takeStats(!g_fastForward && !g_bench && g_statRuns / secs >= 58.5, fillMs, targetMs, underruns);
+    const int refill = g_audioRefillWindows.load();
+    if (refill > 0) g_audioRefillWindows = refill - 1;
+    g_audio.takeStats(!g_fastForward && !g_bench && refill == 0 && g_statRuns / secs >= 58.5, fillMs, targetMs, underruns);
     Thermal::update();
     // Reports: underruns and lag from the third window on. The first 10 s are the boot and the audio buffer
     // settling (Super Mario 64 on the Thor 2026-11-08: 89 + 40 underruns and a 486 ms lag max, then none).
@@ -979,6 +984,7 @@ void runLoop() {
         bool ff = g_fastForward && !rewinding;
         const bool slow = slowPct > 0 && !ff && !rewinding && !g_bench;
         g_slowNow = slow ? slowPct / 100.0 : 0.0;
+        if (slow || rewinding) g_audioRefillWindows = 2;
         if (ff != ffApplied) {
             ffApplied = ff;
             if (g_vulkan) g_vk.setUnthrottled(ff || g_bench);

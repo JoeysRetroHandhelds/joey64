@@ -292,8 +292,8 @@ data class Hotkeys(
         const val REWIND_SECONDS_DEFAULT = 60
         val REWIND_STEPS = listOf(1, 2, 4)
         const val REWIND_EVERY_DEFAULT = 2
-        /** About what one kept moment takes, packed (Thor 2026-11-08: 115-198 KB). */
-        const val REWIND_KB_PER_MOMENT = 150
+        /** About what one kept moment takes, packed (Thor 2026-11-08: 15-82 KB; Conker 80, GoldenEye 62, SM64 16). */
+        const val REWIND_KB_PER_MOMENT = 80
 
         /** "10 s", "1 min", "2 min". */
         fun rewindSecondsLabel(s: Int) = if (s < 60) "$s s" else "${s / 60} min"

@@ -22,6 +22,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.focus.focusRestorer
 import com.joeysretro.joey64.launcher.theme.JoeyTheme
 
 /**
@@ -172,9 +175,37 @@ fun DescriptionLine(title: String, text: String, modifier: Modifier = Modifier) 
             withStyle(androidx.compose.ui.text.SpanStyle(color = c.text, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)) { append(title) }
             if (text.isNotEmpty()) append(" · $text")
         },
-        style = JoeyTheme.type.small, color = c.textDim, maxLines = 2, overflow = TextOverflow.Ellipsis,
+        style = JoeyTheme.type.small, color = c.textDim, overflow = TextOverflow.Ellipsis,
+        maxLines = com.joeysretro.joey64.launcher.layout.LocalScreenLayout.current.descriptionLines,
         modifier = modifier.padding(horizontal = JoeyTheme.spacing.rowPadH),
     )
+}
+
+/**
+ * A page's two columns (the approved Settings layout), or one when the screen is narrow
+ * ([com.joeysretro.joey64.launcher.layout.ScreenLayout.singleColumnSettings]): [left]'s rows,
+ * then [right]'s. Each column scrolls (one column scrolls as a whole) and follows the focus.
+ * Popups with two columns pass [gap] 18 and [scroll] false.
+ */
+@Composable
+fun TwoColumns(
+    modifier: Modifier = Modifier,
+    gap: androidx.compose.ui.unit.Dp = 28.dp,
+    scroll: Boolean = true,
+    left: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+    right: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
+    @Composable
+    fun scrolls(): Modifier = if (scroll) Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()) else Modifier
+    if (com.joeysretro.joey64.launcher.layout.LocalScreenLayout.current.singleColumnSettings) {
+        androidx.compose.foundation.layout.Column(modifier.fillMaxWidth().focusRestorer().focusGroup().then(scrolls())) {
+            left()
+            right()
+        }
+    } else Row(modifier.fillMaxWidth().focusRestorer().focusGroup(), horizontalArrangement = Arrangement.spacedBy(gap)) {
+        androidx.compose.foundation.layout.Column(Modifier.weight(1f).then(scrolls())) { left() }
+        androidx.compose.foundation.layout.Column(Modifier.weight(1f).then(scrolls())) { right() }
+    }
 }
 
 /**

@@ -133,12 +133,14 @@ class LauncherActivity : ComponentActivity() {
             // the setup pages, shown over the library (nothing on them is kept); none goes back.
             // boxart-reset: every downloaded or not-found cover is looked up again now (custom and
             // hidden ones stay), for checking the box-art source; the old files are overwritten as found.
+            // size: the launcher laid out at another screen's size, `--es size 512x384` (dp; off goes back).
             // reports-ask: the reports question over the library; reports-send: a report now, even if one
             // went today (to files/dev_reports_base when it exists, e.g. a local wrangler dev through adb reverse).
             val show = object : android.content.BroadcastReceiver() {
                 override fun onReceive(c: android.content.Context, i: android.content.Intent) {
                     val what = i.getStringExtra("what") ?: return
-                    if (what == "boxart-reset") model.debugResetArt()
+                    if (what == "size") com.joeysretro.joey64.launcher.layout.DevScreen.size = com.joeysretro.joey64.launcher.layout.DevScreen.parse(i.getStringExtra("size"))
+                    else if (what == "boxart-reset") model.debugResetArt()
                     else if (what == "reports-ask") model.debugAskReports()
                     else if (what == "reports-send") model.debugSendReports()
                     else if (what.startsWith("update")) updates.debugShow(what) else model.debugSetupPage(what.takeIf { it == "first-run" || it == "data" || it == "import" })
@@ -171,6 +173,8 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
         val inputMode = LocalInputModeManager.current
         LaunchedEffect(Unit) { inputMode.requestInputMode(InputMode.Keyboard) }
 
+        // The whole window's shape decides the layout (one column, the bottom bar); debug builds can set another size.
+        com.joeysretro.joey64.launcher.layout.DevFrame { ProvideScreenLayout(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().background(JoeyTheme.colors.page)) {
             if (s == null) return@Column
             val folders = s.romFolders.map { it.toUri() }
@@ -199,14 +203,15 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             // Cheats opens over the library or Search results (a game's options), and B goes back there; going anywhere on the rail closes it.
             LaunchedEffect(place) { model.closeCheats(); model.closeAchievements(); model.closeGameSettings() }
             if (home) UpdateChecks(updates)
-            Row(Modifier.weight(1f).fillMaxWidth()) {
+            // The rail on the left, or a bar along the bottom in portrait.
+            com.joeysretro.joey64.launcher.components.RailLayout(Modifier.weight(1f).fillMaxWidth(), rail = { horizontal ->
                 val continueGame by model.continueGame.collectAsStateWithLifecycle()
                 LauncherRail(if (home) place else RailPlace.Library, enabled = home, showContinue = home && continueGame != null,
-                    showAchievements = home && raAccount != null, onFocused = { onRail = it }) {
+                    showAchievements = home && raAccount != null, horizontal = horizontal, onFocused = { onRail = it }) {
                     if (it == RailPlace.Continue) model.continuePlaying { intent -> context.startActivity(intent) } else place = it
                 }
-                Box(Modifier.weight(1f).fillMaxSize()) {
-                    ProvideScreenLayout {
+            }) {
+                    Box(Modifier.fillMaxSize()) {
                         CompositionLocalProvider(LocalFocusLanding provides landing) {
                             val debugPage by model.debugSetup.collectAsStateWithLifecycle()
                             when {
@@ -250,7 +255,6 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                         }
                     }
                     if (home) UpdatedToast(updates, Modifier.align(Alignment.TopEnd))
-                }
             }
             HintRow(when {
                 !home -> listOf(Hint("A", "Select"))
@@ -262,6 +266,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             })
             if (home) updates.prompt.collectAsStateWithLifecycle().value?.let { UpdatePopup(it, updates) }
         }
+        } }
     }
 }
 

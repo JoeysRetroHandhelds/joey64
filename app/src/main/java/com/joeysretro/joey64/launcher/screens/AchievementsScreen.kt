@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher.screens
 
+import com.joeysretro.joey64.launcher.components.TwoColumns
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -336,19 +337,16 @@ private fun AchShowPopup(
     JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 600.dp) {
         Column {
             PopupTitle("Show")
-            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                Column(Modifier.weight(1f)) {
-                    GroupLabel("Filter")
-                    filters.forEachIndexed { i, label ->
-                        JoeyRow(label, Modifier.initialFocus(i == filter), sideways = true,
-                            trailing = { f -> TickCount(i == filter, counts.getOrNull(i), f) }) { onFilter(i) }
-                    }
+            TwoColumns(Modifier.weight(1f, fill = false), gap = 14.dp, left = {
+                GroupLabel("Filter")
+                filters.forEachIndexed { i, label ->
+                    JoeyRow(label, Modifier.initialFocus(i == filter), sideways = true,
+                        trailing = { f -> TickCount(i == filter, counts.getOrNull(i), f) }) { onFilter(i) }
                 }
-                Column(Modifier.weight(1f)) {
-                    GroupLabel("Sort")
-                    sorts.forEachIndexed { i, label ->
-                        JoeyRow(label, sideways = true, trailing = { f -> TickCount(i == sort, null, f) }) { onSort(i) }
-                    }
+            }) {
+                GroupLabel("Sort")
+                sorts.forEachIndexed { i, label ->
+                    JoeyRow(label, sideways = true, trailing = { f -> TickCount(i == sort, null, f) }) { onSort(i) }
                 }
             }
         }

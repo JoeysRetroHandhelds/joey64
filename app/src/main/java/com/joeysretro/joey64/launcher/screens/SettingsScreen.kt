@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher.screens
 
+import com.joeysretro.joey64.launcher.components.TwoColumns
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -261,53 +262,50 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
     }
 
     Column(modifier.fillMaxWidth()) {
-        Row(Modifier.weight(1f).fillMaxWidth().focusRestorer().focusGroup(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            Column(Modifier.weight(1f)) {
-                Row(Modifier.padding(start = 8.dp, top = 2.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Image(painterResource(R.drawable.rail_logo), contentDescription = null, modifier = Modifier.size(52.dp))
-                    Column(Modifier.padding(start = 14.dp)) {
-                        Text("Joey64", style = JoeyTheme.type.popupTitle, color = c.text)
-                        Text("N64 for Android", style = JoeyTheme.type.note, color = c.textDim)
-                    }
-                }
-                // A tap leaves nothing focused, and Compose won't focus a row in touch mode: back to
-                // controller mode, then focus goes to Check for updates, as the mockup shows.
-                VersionRow(updates, testing) { inputMode.requestInputMode(InputMode.Keyboard); landing?.arm() }
-                JoeyRow("Check for updates", modifier = Modifier.initialFocus(), sideways = true, onFocused = { if (it) focused = "chk" },
-                    trailing = { f -> CheckValue(row, updates.lastCheck, now, f) }) { updates.checkNow() }
-                JoeyRow("Core", value = info.core, sideways = true, onFocused = { if (it) focused = "core" })
-                JoeyRow("Renderer", value = AboutInfo.renderer(context), sideways = true, onFocused = { if (it) focused = "rdr" })
-                JoeyRow("Device", value = info.device, sideways = true, onFocused = { if (it) focused = "dev" })
-                JoeyRow("Copy device info", value = if (copied) "Copied" else null, sideways = true, onFocused = { if (it) focused = "copy" }) {
-                    val clip = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clip.setPrimaryClip(ClipData.newPlainText("Joey64 device info", AboutInfo.report(context, info)))
-                    copied = true
+        TwoColumns(Modifier.weight(1f), left = {
+            Row(Modifier.padding(start = 8.dp, top = 2.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Image(painterResource(R.drawable.rail_logo), contentDescription = null, modifier = Modifier.size(52.dp))
+                Column(Modifier.padding(start = 14.dp)) {
+                    Text("Joey64", style = JoeyTheme.type.popupTitle, color = c.text)
+                    Text("N64 for Android", style = JoeyTheme.type.note, color = c.textDim)
                 }
             }
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                // Reports (approved reports mockup 2026-11-08, screen 1): at the top of the right column.
-                SectionLabel("Reports")
-                JoeyRow("Send reports", value = if (reportsOn) "On ›" else "Off ›", sideways = true, onFocused = { if (it) focused = "rep" }) { open = "reports" }
-                SectionLabel("Licence")
-                JoeyRow("Joey64 is free software", value = "GPL 3.0 or later ›", sideways = true, onFocused = { if (it) focused = "gpl" }) { open = "gpl" }
-                JoeyRow("Source code", value = "joey64 on GitHub ›", sideways = true, onFocused = { if (it) focused = "src" }) {
-                    try { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, "https://${JOEY64_LICENCE.url}".toUri())) }
-                    catch (e: Exception) { /* no browser */ }
-                }
-                SectionLabel("Credits")
-                JoeyRow("Open-source licences", value = "${OSS_ENTRIES.size} ›", sideways = true, onFocused = { if (it) focused = "oss" }) { open = "oss" }
-                JoeyRow("Box art", value = "ScreenScraper", sideways = true, onFocused = { if (it) focused = "art" })
-                JoeyRow("Game list", value = "No-Intro · libretro", sideways = true, onFocused = { if (it) focused = "db" })
-                JoeyRow("Cheats", value = "Project64 · RMG · FZ · libretro", sideways = true, onFocused = { if (it) focused = "cht" })
-                JoeyRow("Controllers", value = "SDL · RetroArch", sideways = true, onFocused = { if (it) focused = "ctl" })
-                // The notes of the release this build came from, kept when the updater downloaded it.
-                val notes = remember { AppUpdates.notes(context, updates.installed) }
-                if (!notes.isNullOrBlank()) {
-                    SectionLabel("What's new in ${updates.installed}")
-                    Text(notes, style = JoeyTheme.type.note, color = c.textSecondary,
-                        modifier = Modifier.padding(horizontal = s.rowPadH), maxLines = 8,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                }
+            // A tap leaves nothing focused, and Compose won't focus a row in touch mode: back to
+            // controller mode, then focus goes to Check for updates, as the mockup shows.
+            VersionRow(updates, testing) { inputMode.requestInputMode(InputMode.Keyboard); landing?.arm() }
+            JoeyRow("Check for updates", modifier = Modifier.initialFocus(), sideways = true, onFocused = { if (it) focused = "chk" },
+                trailing = { f -> CheckValue(row, updates.lastCheck, now, f) }) { updates.checkNow() }
+            JoeyRow("Core", value = info.core, sideways = true, onFocused = { if (it) focused = "core" })
+            JoeyRow("Renderer", value = AboutInfo.renderer(context), sideways = true, onFocused = { if (it) focused = "rdr" })
+            JoeyRow("Device", value = info.device, sideways = true, onFocused = { if (it) focused = "dev" })
+            JoeyRow("Copy device info", value = if (copied) "Copied" else null, sideways = true, onFocused = { if (it) focused = "copy" }) {
+                val clip = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clip.setPrimaryClip(ClipData.newPlainText("Joey64 device info", AboutInfo.report(context, info)))
+                copied = true
+            }
+        }) {
+            // Reports (approved reports mockup 2026-11-08, screen 1): at the top of the right column.
+            SectionLabel("Reports")
+            JoeyRow("Send reports", value = if (reportsOn) "On ›" else "Off ›", sideways = true, onFocused = { if (it) focused = "rep" }) { open = "reports" }
+            SectionLabel("Licence")
+            JoeyRow("Joey64 is free software", value = "GPL 3.0 or later ›", sideways = true, onFocused = { if (it) focused = "gpl" }) { open = "gpl" }
+            JoeyRow("Source code", value = "joey64 on GitHub ›", sideways = true, onFocused = { if (it) focused = "src" }) {
+                try { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, "https://${JOEY64_LICENCE.url}".toUri())) }
+                catch (e: Exception) { /* no browser */ }
+            }
+            SectionLabel("Credits")
+            JoeyRow("Open-source licences", value = "${OSS_ENTRIES.size} ›", sideways = true, onFocused = { if (it) focused = "oss" }) { open = "oss" }
+            JoeyRow("Box art", value = "ScreenScraper", sideways = true, onFocused = { if (it) focused = "art" })
+            JoeyRow("Game list", value = "No-Intro · libretro", sideways = true, onFocused = { if (it) focused = "db" })
+            JoeyRow("Cheats", value = "Project64 · RMG · FZ · libretro", sideways = true, onFocused = { if (it) focused = "cht" })
+            JoeyRow("Controllers", value = "SDL · RetroArch", sideways = true, onFocused = { if (it) focused = "ctl" })
+            // The notes of the release this build came from, kept when the updater downloaded it.
+            val notes = remember { AppUpdates.notes(context, updates.installed) }
+            if (!notes.isNullOrBlank()) {
+                SectionLabel("What's new in ${updates.installed}")
+                Text(notes, style = JoeyTheme.type.note, color = c.textSecondary,
+                    modifier = Modifier.padding(horizontal = s.rowPadH), maxLines = 8,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             }
         }
         Spacer(Modifier.height(6.dp))

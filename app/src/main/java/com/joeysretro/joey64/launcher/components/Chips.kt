@@ -47,7 +47,7 @@ fun PageChip(text: String, @DrawableRes icon: Int?, modifier: Modifier = Modifie
 @Composable
 fun TabChip(text: String, on: Boolean) {
     val c = JoeyTheme.colors
-    Text(text, style = JoeyTheme.type.tab, color = if (on) c.text else c.textDim,
+    Text(text, style = JoeyTheme.type.tab, color = if (on) c.text else c.textDim, maxLines = 1, softWrap = false,
         modifier = Modifier.then(if (on) Modifier.background(c.chip, RoundedCornerShape(7.dp)) else Modifier)
             .padding(horizontal = 13.dp, vertical = 6.dp))
 }

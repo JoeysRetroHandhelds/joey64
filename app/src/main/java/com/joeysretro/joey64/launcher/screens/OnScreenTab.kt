@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher.screens
 
+import com.joeysretro.joey64.launcher.components.TwoColumns
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -87,31 +88,28 @@ fun OnScreenTab(onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean
     }
 
     Column(modifier.fillMaxSize()) {
-        Row(Modifier.weight(1f).fillMaxWidth().focusRestorer().focusGroup(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            @Composable
-            fun toggle(key: String, label: String, on: Boolean, change: () -> Unit) =
-                JoeyRow(label, value = if (on) "On" else "Off", sideways = true, onFocused = { if (it) focused = key }) { change() }
-            Column(Modifier.weight(1f)) {
-                SectionLabel("Stats overlay")
-                JoeyRow("Stats", Modifier.initialFocus(), value = o.stats.label + "  ›", sideways = true,
-                    onFocused = { if (it) focused = "stats" }) { popup = "stats" }
-                JoeyRow("Position", value = o.corner.label + "  ›", sideways = true, onFocused = { if (it) focused = "pos" }) { popup = "pos" }
-                val sizes = StatsSize.entries
-                StepRow("Size", o.size.label, sizes.indices.toList(), o.size.ordinal, focused == "size", first = false,
-                    onFocused = { if (it) focused = "size" }) { set(o.copy(size = sizes[it])) }
-                JoeyRow("What it shows", value = if (custom) "${o.custom.size} of ${StatsLine.entries.size}  ›" else "Custom only",
-                    enabled = custom, sideways = true, onFocused = { if (it) focused = "what" }) { popup = "what" }
-            }
-            Column(Modifier.weight(1f)) {
-                SectionLabel("Pop-ups")
-                toggle("st", "Save states", o.popStates) { set(o.copy(popStates = !o.popStates)) }
-                toggle("sh", "Screenshots", o.popScreenshots) { set(o.copy(popScreenshots = !o.popScreenshots)) }
-                toggle("rs", "Reset", o.popReset) { set(o.copy(popReset = !o.popReset)) }
-                toggle("hk", "Hotkey changes", o.popHotkeys) { set(o.copy(popHotkeys = !o.popHotkeys)) }
-                toggle("ach", "Achievement unlocks", r.popUnlocks) { setRa { it.copy(popUnlocks = !it.popUnlocks) } }
-                toggle("pr", "Achievement progress", r.popProgress) { setRa { it.copy(popProgress = !it.popProgress) } }
-                toggle("gm", "Game start banner", r.popSummary) { setRa { it.copy(popSummary = !it.popSummary) } }
-            }
+        @Composable
+        fun toggle(key: String, label: String, on: Boolean, change: () -> Unit) =
+            JoeyRow(label, value = if (on) "On" else "Off", sideways = true, onFocused = { if (it) focused = key }) { change() }
+        TwoColumns(Modifier.weight(1f), left = {
+            SectionLabel("Stats overlay")
+            JoeyRow("Stats", Modifier.initialFocus(), value = o.stats.label + "  ›", sideways = true,
+                onFocused = { if (it) focused = "stats" }) { popup = "stats" }
+            JoeyRow("Position", value = o.corner.label + "  ›", sideways = true, onFocused = { if (it) focused = "pos" }) { popup = "pos" }
+            val sizes = StatsSize.entries
+            StepRow("Size", o.size.label, sizes.indices.toList(), o.size.ordinal, focused == "size", first = false,
+                onFocused = { if (it) focused = "size" }) { set(o.copy(size = sizes[it])) }
+            JoeyRow("What it shows", value = if (custom) "${o.custom.size} of ${StatsLine.entries.size}  ›" else "Custom only",
+                enabled = custom, sideways = true, onFocused = { if (it) focused = "what" }) { popup = "what" }
+        }) {
+            SectionLabel("Pop-ups")
+            toggle("st", "Save states", o.popStates) { set(o.copy(popStates = !o.popStates)) }
+            toggle("sh", "Screenshots", o.popScreenshots) { set(o.copy(popScreenshots = !o.popScreenshots)) }
+            toggle("rs", "Reset", o.popReset) { set(o.copy(popReset = !o.popReset)) }
+            toggle("hk", "Hotkey changes", o.popHotkeys) { set(o.copy(popHotkeys = !o.popHotkeys)) }
+            toggle("ach", "Achievement unlocks", r.popUnlocks) { setRa { it.copy(popUnlocks = !it.popUnlocks) } }
+            toggle("pr", "Achievement progress", r.popProgress) { setRa { it.copy(popProgress = !it.popProgress) } }
+            toggle("gm", "Game start banner", r.popSummary) { setRa { it.copy(popSummary = !it.popSummary) } }
         }
         Spacer(Modifier.height(6.dp))
         val (title, text) = describe(focused)
@@ -170,12 +168,10 @@ private fun LinesPopup(on: Set<StatsLine>, onDismiss: () -> Unit, onToggle: (Sta
                 modifier = Modifier.padding(start = 8.dp, bottom = 6.dp))
             val lines = StatsLine.entries
             val half = (lines.size + 1) / 2
-            Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                for (col in listOf(lines.take(half), lines.drop(half))) Column(Modifier.weight(1f)) {
-                    for (l in col) JoeyRow(l.label, Modifier.initialFocus(l == lines.first()), value = if (l in on) "On" else "Off",
-                        sideways = true) { onToggle(l) }
-                }
-            }
+            @Composable
+            fun line(l: StatsLine) = JoeyRow(l.label, Modifier.initialFocus(l == lines.first()), value = if (l in on) "On" else "Off",
+                sideways = true) { onToggle(l) }
+            TwoColumns(Modifier.weight(1f, fill = false), gap = 18.dp, left = { for (l in lines.take(half)) line(l) }) { for (l in lines.drop(half)) line(l) }
         }
     }
 }

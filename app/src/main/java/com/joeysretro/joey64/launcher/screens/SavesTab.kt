@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher.screens
 
+import com.joeysretro.joey64.launcher.components.TwoColumns
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -118,29 +119,26 @@ fun SavesTab(onHints: (List<Hint>) -> Unit, onImport: () -> Unit, modifier: Modi
     }
 
     Column(modifier.fillMaxSize()) {
-        Row(Modifier.weight(1f).fillMaxWidth().focusRestorer().focusGroup(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            @Composable
-            // Focus lands back on the row that was in use (after Android's file and folder pickers too).
-            fun row(key: String, label: String, value: String, open: () -> Unit) =
-                JoeyRow(label, Modifier.initialFocus(key == focused), value = status?.takeIf { it.first == key }?.second ?: value,
-                    sideways = true, onFocused = { if (it) focused = key }) { if (!busy) open() }
-            Column(Modifier.weight(1f)) {
-                SectionLabel("When you quit and play")
-                row("quit", "Save on quit", if (o.saveOnQuit) "On" else "Off") { set(o.copy(saveOnQuit = !o.saveOnQuit)) }
-                row("cont", "Continue on Play", o.continueOnPlay.label + "  ›") { popup = "cont" }
-                row("keep", "Quit saves to keep", "${o.quitSaves}  ›") { popup = "keep" }
-                SectionLabel("Save backups")
-                row("bk", "Back up saves", o.backups.label + "  ›") { popup = "bk" }
-            }
-            Column(Modifier.weight(1f)) {
-                SectionLabel("Your data")
-                row("backup", "Back up Joey64", "›") { popup = "backup" }
-                row("restore", "Restore a backup", "›") { openZip.launch(arrayOf("application/zip", "application/octet-stream")) }
-                row("import", "Import from RetroArch", "›") { onImport() }
-                row("folder", "Data folder", folderLabel(context, folderTree) + "  ›") { popup = "folder" }
-                SectionLabel("Advanced")
-                row("rec", "Recovery state", recoveryLabel(o.recoveryMinutes) + "  ›") { popup = "rec" }
-            }
+        @Composable
+        // Focus lands back on the row that was in use (after Android's file and folder pickers too).
+        fun row(key: String, label: String, value: String, open: () -> Unit) =
+            JoeyRow(label, Modifier.initialFocus(key == focused), value = status?.takeIf { it.first == key }?.second ?: value,
+                sideways = true, onFocused = { if (it) focused = key }) { if (!busy) open() }
+        TwoColumns(Modifier.weight(1f), left = {
+            SectionLabel("When you quit and play")
+            row("quit", "Save on quit", if (o.saveOnQuit) "On" else "Off") { set(o.copy(saveOnQuit = !o.saveOnQuit)) }
+            row("cont", "Continue on Play", o.continueOnPlay.label + "  ›") { popup = "cont" }
+            row("keep", "Quit saves to keep", "${o.quitSaves}  ›") { popup = "keep" }
+            SectionLabel("Save backups")
+            row("bk", "Back up saves", o.backups.label + "  ›") { popup = "bk" }
+        }) {
+            SectionLabel("Your data")
+            row("backup", "Back up Joey64", "›") { popup = "backup" }
+            row("restore", "Restore a backup", "›") { openZip.launch(arrayOf("application/zip", "application/octet-stream")) }
+            row("import", "Import from RetroArch", "›") { onImport() }
+            row("folder", "Data folder", folderLabel(context, folderTree) + "  ›") { popup = "folder" }
+            SectionLabel("Advanced")
+            row("rec", "Recovery state", recoveryLabel(o.recoveryMinutes) + "  ›") { popup = "rec" }
         }
         Spacer(Modifier.height(6.dp))
         val (title, text) = describe(focused, o)

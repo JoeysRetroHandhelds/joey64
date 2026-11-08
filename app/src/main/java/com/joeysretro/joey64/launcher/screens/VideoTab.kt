@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher.screens
 
+import com.joeysretro.joey64.launcher.components.TwoColumns
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -146,39 +147,36 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
     }
 
     Column(modifier.fillMaxSize()) {
-        Row(Modifier.weight(1f).fillMaxWidth().focusRestorer().focusGroup(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            // Seven rows: the last ones scroll into view (approved version A shows Fill the camera cutout below the fold).
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                SectionLabel("Picture")
-                @Composable
-                fun row(id: String, label: String, k: VideoKey) =
-                    JoeyRow(label, Modifier.initialFocus(startRow == id), value = VideoChoices.label(k, v[k]), sideways = true,
-                        dot = dot(k), onFocused = { if (it) focused = id }) { popup = VPopup.Choice(k) }
-                row("res", "Resolution", VideoKey.Resolution)
-                row("asp", "Aspect ratio", VideoKey.Aspect)
-                for ((id, k) in listOf("ws" to ExtraKind.Widescreen, "fps" to ExtraKind.Fps)) {
-                    val key = if (k == ExtraKind.Widescreen) VideoKey.Widescreen else VideoKey.Fps
-                    val (value, enabled) = extraValue(k)
-                    JoeyRow(if (k == ExtraKind.Widescreen) "Widescreen" else fpsTitle, Modifier.initialFocus(startRow == id), value = value,
-                        enabled = enabled, sideways = true, dot = dot(key), experimental = true, onFocused = { if (it) focused = id }) { popup = VPopup.Extra(k) }
-                }
-                row("int", "Integer scaling", VideoKey.Integer)
-                row("ori", "Screen orientation", VideoKey.Orientation)
-                row("cut", "Fill the camera cutout", VideoKey.Cutout)
+        // Seven rows: the last ones scroll into view (approved version A shows Fill the camera cutout below the fold).
+        TwoColumns(Modifier.weight(1f), left = {
+            SectionLabel("Picture")
+            @Composable
+            fun row(id: String, label: String, k: VideoKey) =
+                JoeyRow(label, Modifier.initialFocus(startRow == id), value = VideoChoices.label(k, v[k]), sideways = true,
+                    dot = dot(k), onFocused = { if (it) focused = id }) { popup = VPopup.Choice(k) }
+            row("res", "Resolution", VideoKey.Resolution)
+            row("asp", "Aspect ratio", VideoKey.Aspect)
+            for ((id, k) in listOf("ws" to ExtraKind.Widescreen, "fps" to ExtraKind.Fps)) {
+                val key = if (k == ExtraKind.Widescreen) VideoKey.Widescreen else VideoKey.Fps
+                val (value, enabled) = extraValue(k)
+                JoeyRow(if (k == ExtraKind.Widescreen) "Widescreen" else fpsTitle, Modifier.initialFocus(startRow == id), value = value,
+                    enabled = enabled, sideways = true, dot = dot(key), experimental = true, onFocused = { if (it) focused = id }) { popup = VPopup.Extra(k) }
             }
-            Column(Modifier.weight(1f)) {
-                SectionLabel("Look")
-                val colourDefault = COLOUR_KEYS.all { v[it] == it.default }
-                JoeyRow("Colour", Modifier.initialFocus(startRow == "col"), value = (if (colourDefault) "Default" else "Changed") + "  ›", sideways = true, dot = dot(*COLOUR_KEYS.toTypedArray()),
-                    onFocused = { if (it) focused = "col" }) { popup = VPopup.Colour }
-                JoeyRow("Sharpening", Modifier.initialFocus(startRow == "shp"), value = sharpenValue(v), sideways = true, dot = dot(VideoKey.Sharpen, VideoKey.SharpenStrength),
-                    onFocused = { if (it) focused = "shp" }) { popup = VPopup.Sharpen }
-                JoeyRow("Black frame insertion", Modifier.initialFocus(startRow == "bfi"), value = VideoChoices.label(VideoKey.Bfi, v[VideoKey.Bfi]), sideways = true, dot = dot(VideoKey.Bfi), experimental = true,
-                    onFocused = { if (it) focused = "bfi" }) { popup = VPopup.Choice(VideoKey.Bfi) }
-                SectionLabel("Advanced")
-                JoeyRow("Renderer, driver, timing", Modifier.initialFocus(startRow == "adv"), value = "›", sideways = true, dot = dot(*ADVANCED_KEYS.toTypedArray()),
-                    onFocused = { if (it) focused = "adv" }) { popup = VPopup.Advanced("renderer") }
-            }
+            row("int", "Integer scaling", VideoKey.Integer)
+            row("ori", "Screen orientation", VideoKey.Orientation)
+            row("cut", "Fill the camera cutout", VideoKey.Cutout)
+        }) {
+            SectionLabel("Look")
+            val colourDefault = COLOUR_KEYS.all { v[it] == it.default }
+            JoeyRow("Colour", Modifier.initialFocus(startRow == "col"), value = (if (colourDefault) "Default" else "Changed") + "  ›", sideways = true, dot = dot(*COLOUR_KEYS.toTypedArray()),
+                onFocused = { if (it) focused = "col" }) { popup = VPopup.Colour }
+            JoeyRow("Sharpening", Modifier.initialFocus(startRow == "shp"), value = sharpenValue(v), sideways = true, dot = dot(VideoKey.Sharpen, VideoKey.SharpenStrength),
+                onFocused = { if (it) focused = "shp" }) { popup = VPopup.Sharpen }
+            JoeyRow("Black frame insertion", Modifier.initialFocus(startRow == "bfi"), value = VideoChoices.label(VideoKey.Bfi, v[VideoKey.Bfi]), sideways = true, dot = dot(VideoKey.Bfi), experimental = true,
+                onFocused = { if (it) focused = "bfi" }) { popup = VPopup.Choice(VideoKey.Bfi) }
+            SectionLabel("Advanced")
+            JoeyRow("Renderer, driver, timing", Modifier.initialFocus(startRow == "adv"), value = "›", sideways = true, dot = dot(*ADVANCED_KEYS.toTypedArray()),
+                onFocused = { if (it) focused = "adv" }) { popup = VPopup.Advanced("renderer") }
         }
         Spacer(Modifier.height(6.dp))
         val changed = target != null && rowKeys[focused].orEmpty().any { it in own }
@@ -499,22 +497,19 @@ private fun AdvancedPopup(context: Context, v: VideoSettings, startRow: String, 
     JoeyDialog(onDismiss = onDismiss, width = 680.dp, hints = listOf(Hint("A", "Change"), Hint("B", "Back"))) {
         Column {
             PopupTitle("Renderer, driver, timing", "Auto is right for most people. Renderer, GPU driver, frame pacing and thermal fallback apply when the game next starts.")
-            Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                Column(Modifier.weight(1f)) {
-                    JoeyRow("Renderer", Modifier.initialFocus(startRow == "renderer"), value = auto(VideoKey.Renderer, renderer), sideways = true,
-                        onFocused = { if (it) row = "renderer" }) { onOpen(VideoKey.Renderer, "renderer") }
-                    JoeyRow("GPU driver", Modifier.initialFocus(startRow == "driver"), value = auto(VideoKey.Driver, driver), sideways = true,
-                        onFocused = { if (it) row = "driver" }) { onOpen(VideoKey.Driver, "driver") }
-                    JoeyRow("Frame pacing", Modifier.initialFocus(startRow == "pacing"), value = VideoChoices.label(VideoKey.Pacing, v[VideoKey.Pacing]), sideways = true,
-                        experimental = VideoChoices.of(VideoKey.Pacing).any { it.value == v[VideoKey.Pacing] && it.experimental },
-                        onFocused = { if (it) row = "pacing" }) { onOpen(VideoKey.Pacing, "pacing") }
-                }
-                Column(Modifier.weight(1f)) {
-                    JoeyRow("N64 video filters", Modifier.initialFocus(startRow == "filters"), value = "$look  ›", sideways = true,
-                        onFocused = { if (it) row = "filters" }) { onFilters() }
-                    JoeyRow("Thermal fallback", Modifier.initialFocus(startRow == "thermal"), value = VideoChoices.label(VideoKey.Thermal, v[VideoKey.Thermal]), sideways = true,
-                        onFocused = { if (it) row = "thermal" }) { onOpen(VideoKey.Thermal, "thermal") }
-                }
+            TwoColumns(Modifier.weight(1f, fill = false), gap = 18.dp, left = {
+                JoeyRow("Renderer", Modifier.initialFocus(startRow == "renderer"), value = auto(VideoKey.Renderer, renderer), sideways = true,
+                    onFocused = { if (it) row = "renderer" }) { onOpen(VideoKey.Renderer, "renderer") }
+                JoeyRow("GPU driver", Modifier.initialFocus(startRow == "driver"), value = auto(VideoKey.Driver, driver), sideways = true,
+                    onFocused = { if (it) row = "driver" }) { onOpen(VideoKey.Driver, "driver") }
+                JoeyRow("Frame pacing", Modifier.initialFocus(startRow == "pacing"), value = VideoChoices.label(VideoKey.Pacing, v[VideoKey.Pacing]), sideways = true,
+                    experimental = VideoChoices.of(VideoKey.Pacing).any { it.value == v[VideoKey.Pacing] && it.experimental },
+                    onFocused = { if (it) row = "pacing" }) { onOpen(VideoKey.Pacing, "pacing") }
+            }) {
+                JoeyRow("N64 video filters", Modifier.initialFocus(startRow == "filters"), value = "$look  ›", sideways = true,
+                    onFocused = { if (it) row = "filters" }) { onFilters() }
+                JoeyRow("Thermal fallback", Modifier.initialFocus(startRow == "thermal"), value = VideoChoices.label(VideoKey.Thermal, v[VideoKey.Thermal]), sideways = true,
+                    onFocused = { if (it) row = "thermal" }) { onOpen(VideoKey.Thermal, "thermal") }
             }
             Spacer(Modifier.height(6.dp))
             when (row) {
@@ -544,21 +539,18 @@ private fun FiltersPopup(v: VideoSettings, startRow: String, onDismiss: () -> Un
     JoeyDialog(onDismiss = onDismiss, width = 680.dp, hints = listOf(Hint("A", "Change"), Hint("B", "Back"))) {
         Column {
             PopupTitle("N64 video filters")
-            Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                Column(Modifier.weight(1f)) {
-                    JoeyRow("Look", Modifier.initialFocus(startRow == "look"), value = look, sideways = true, onFocused = { if (it) row = "look" }) { onLook() }
-                    toggle("aa", "Edge smoothing (VI AA)", VideoKey.ViAa)
-                    toggle("bil", "Soft scaling (VI bilinear)", VideoKey.ViBilinear)
-                    toggle("dith", "Dither smoothing", VideoKey.DitherFilter)
-                    toggle("div", "Divot filter", VideoKey.Divot)
-                }
-                Column(Modifier.weight(1f)) {
-                    toggle("gd", "Gamma dither", VideoKey.GammaDither)
-                    toggle("di", "Interlaced games", VideoKey.Deinterlace)
-                    toggle("ss", "Supersampling", VideoKey.Supersample)
-                    toggle("lod", "Native texture detail", VideoKey.NativeTexLod)
-                    toggle("tr", "Native 2D (TEX_RECT)", VideoKey.NativeTexRect)
-                }
+            TwoColumns(Modifier.weight(1f, fill = false), gap = 18.dp, left = {
+                JoeyRow("Look", Modifier.initialFocus(startRow == "look"), value = look, sideways = true, onFocused = { if (it) row = "look" }) { onLook() }
+                toggle("aa", "Edge smoothing (VI AA)", VideoKey.ViAa)
+                toggle("bil", "Soft scaling (VI bilinear)", VideoKey.ViBilinear)
+                toggle("dith", "Dither smoothing", VideoKey.DitherFilter)
+                toggle("div", "Divot filter", VideoKey.Divot)
+            }) {
+                toggle("gd", "Gamma dither", VideoKey.GammaDither)
+                toggle("di", "Interlaced games", VideoKey.Deinterlace)
+                toggle("ss", "Supersampling", VideoKey.Supersample)
+                toggle("lod", "Native texture detail", VideoKey.NativeTexLod)
+                toggle("tr", "Native 2D (TEX_RECT)", VideoKey.NativeTexRect)
             }
             Spacer(Modifier.height(6.dp))
             val upscaleNote = if (native) " Only with Resolution 2x or more." else ""

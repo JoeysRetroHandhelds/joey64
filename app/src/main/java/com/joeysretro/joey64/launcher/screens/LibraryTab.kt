@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher.screens
 
+import com.joeysretro.joey64.launcher.components.TwoColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.focusGroup
@@ -118,32 +119,29 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
     }
 
     Column(modifier.fillMaxSize()) {
-        Row(Modifier.weight(1f).fillMaxWidth().focusRestorer().focusGroup(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                SectionLabel("ROM folders")
-                for (tree in folders) {
-                    val name = remember(tree) { folderName(context, tree) }
-                    val n = counts[tree]
-                    JoeyRow(name.first, Modifier.initialFocus(tree == focused), value = n?.let { if (it == 1) "1 game" else "$it games" },
-                        detail = name.second, sideways = true, onFocused = { if (it) focused = tree }) { removing = tree }
-                }
-                JoeyRow("Add a folder", Modifier.initialFocus(focused == "add"), value = addStatus ?: "›",
-                    sideways = true, onFocused = { if (it) focused = "add" }) { if (addStatus != "Looking…") picker.launch(RomFolders.initialPickerUri(context)) }
-                SectionLabel("BIOS")
-                val biosLabel = biosHave?.let { BiosImport.label(it) }
-                JoeyRow("64DD BIOS", Modifier.initialFocus(focused == "bios"),
-                    value = when { biosLooking -> "Looking…"; biosLabel != null -> "$biosLabel ✓"; biosHave == null -> null; else -> "Not set ›" },
-                    sideways = true, onFocused = { if (it) focused = "bios" }) { if (!biosLooking) biosPicker.launch(null) }
+        TwoColumns(Modifier.weight(1f), left = {
+            SectionLabel("ROM folders")
+            for (tree in folders) {
+                val name = remember(tree) { folderName(context, tree) }
+                val n = counts[tree]
+                JoeyRow(name.first, Modifier.initialFocus(tree == focused), value = n?.let { if (it == 1) "1 game" else "$it games" },
+                    detail = name.second, sideways = true, onFocused = { if (it) focused = tree }) { removing = tree }
             }
-            Column(Modifier.weight(1f)) {
-                SectionLabel("Downloads")
-                JoeyRow("Download box art", Modifier.initialFocus(focused == "art"), value = if (s.downloadBoxArt) "On" else "Off",
-                    sideways = true, onFocused = { if (it) focused = "art" }) { scope.launch { store.setDownloadBoxArt(!s.downloadBoxArt) } }
-                JoeyRow("Box art quality", Modifier.initialFocus(focused == "artq"), value = if (s.boxArtLow) "Low" else "High",
-                    sideways = true, onFocused = { if (it) focused = "artq" }) { scope.launch { store.setBoxArtLow(!s.boxArtLow) } }
-                JoeyRow("Download cheats", Modifier.initialFocus(focused == "cheats"), value = if (s.downloadCheats) "On" else "Off",
-                    sideways = true, onFocused = { if (it) focused = "cheats" }) { scope.launch { store.setDownloadCheats(!s.downloadCheats) } }
-            }
+            JoeyRow("Add a folder", Modifier.initialFocus(focused == "add"), value = addStatus ?: "›",
+                sideways = true, onFocused = { if (it) focused = "add" }) { if (addStatus != "Looking…") picker.launch(RomFolders.initialPickerUri(context)) }
+            SectionLabel("BIOS")
+            val biosLabel = biosHave?.let { BiosImport.label(it) }
+            JoeyRow("64DD BIOS", Modifier.initialFocus(focused == "bios"),
+                value = when { biosLooking -> "Looking…"; biosLabel != null -> "$biosLabel ✓"; biosHave == null -> null; else -> "Not set ›" },
+                sideways = true, onFocused = { if (it) focused = "bios" }) { if (!biosLooking) biosPicker.launch(null) }
+        }) {
+            SectionLabel("Downloads")
+            JoeyRow("Download box art", Modifier.initialFocus(focused == "art"), value = if (s.downloadBoxArt) "On" else "Off",
+                sideways = true, onFocused = { if (it) focused = "art" }) { scope.launch { store.setDownloadBoxArt(!s.downloadBoxArt) } }
+            JoeyRow("Box art quality", Modifier.initialFocus(focused == "artq"), value = if (s.boxArtLow) "Low" else "High",
+                sideways = true, onFocused = { if (it) focused = "artq" }) { scope.launch { store.setBoxArtLow(!s.boxArtLow) } }
+            JoeyRow("Download cheats", Modifier.initialFocus(focused == "cheats"), value = if (s.downloadCheats) "On" else "Off",
+                sideways = true, onFocused = { if (it) focused = "cheats" }) { scope.launch { store.setDownloadCheats(!s.downloadCheats) } }
         }
         Spacer(Modifier.height(6.dp))
         val (title, text) = when (focused) {

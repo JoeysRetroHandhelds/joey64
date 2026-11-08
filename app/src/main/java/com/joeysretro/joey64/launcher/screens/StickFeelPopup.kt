@@ -109,8 +109,7 @@ fun StickFeelPopup(player: Int, setup: PlayerSetup, changed: Set<String>, allGam
         Column {
             StickWatch { axes = it } // the dialog's own window
             PopupTitle("Player ${player + 1} stick feel")
-            Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                Column(Modifier.weight(1f)) {
+            com.joeysretro.joey64.launcher.components.TwoColumns(Modifier.weight(1f, fill = false), gap = 18.dp, left = {
                     @Composable
                     fun step(k: String, steps: List<Int>, cur: Int, set: (Int) -> StickFeel) =
                         StepRow(feelLabel(k), feelValue(f, k), steps, cur, row == k, first = startRow == k, dot = k in changed,
@@ -126,8 +125,9 @@ fun StickFeelPopup(player: Int, setup: PlayerSetup, changed: Set<String>, allGam
                     SectionLabel("Advanced")
                     step(StickFeel.ANTI, StickFeel.ANTI_STEPS, f.antiDeadZone) { f.copy(antiDeadZone = it) }
                     step(StickFeel.TRIGGER, StickFeel.TRIGGER_STEPS, f.triggerThreshold) { f.copy(triggerThreshold = it) }
-                }
-                StickPreview(setup, axes, Modifier.width(228.dp))
+            }) {
+                // Beside the rows; under them in one column.
+                StickPreview(setup, axes, Modifier.width(228.dp).align(Alignment.CenterHorizontally))
             }
             PopupDivider()
             DescriptionLine(feelLabel(row), if (row in changed && allGames != null)

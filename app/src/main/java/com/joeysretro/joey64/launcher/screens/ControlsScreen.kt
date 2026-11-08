@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher.screens
 
+import com.joeysretro.joey64.launcher.components.TwoColumns
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -261,65 +263,71 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
         if (hotkeysOpen) {
             HotkeysPage(editor, version, focused, onFocused = { focused = it }, onOpen = { popup = it }) { popup = Popup.Remap(it) }
         } else {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Controls", style = JoeyTheme.type.pageTitle, color = c.text, modifier = Modifier.weight(1f))
+            @Composable
+            fun headerChips() {
                 PageChip((targetTitle ?: "All games") + "  ›", R.drawable.ic_sliders, on = target != null,
                     onFocused = { if (it) focused = "chipGame" }) { popup = Popup.Games }
                 Spacer(Modifier.width(8.dp))
                 PageChip("Hotkeys", R.drawable.ic_keyboard, modifier = Modifier.initialFocus(focused == "chipHotkeys"),
                     onFocused = { if (it) focused = "chipHotkeys" }) { hotkeysOpen = true; focused = "hkButton" }
             }
-            Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            // The narrowest screens (under 520 dp) put the chips on their own line, under the title.
+            val chipsBelow = com.joeysretro.joey64.launcher.layout.LocalScreenLayout.current.widthDp < 520f
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Controls", style = JoeyTheme.type.pageTitle, color = c.text, maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(end = 8.dp))
+                if (!chipsBelow) headerChips()
+            }
+            if (chipsBelow) Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) { headerChips() }
+            // Scrolls sideways on a narrow screen rather than wrapping "Player 4".
+            Row(Modifier.padding(top = 6.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 for (i in 0..3) TabChip("Player ${i + 1}", i == player)
             }
             Row(Modifier.padding(top = 6.dp, bottom = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 PageChip("Auto map", R.drawable.ic_wand, onFocused = { if (it) focused = "chipAuto" }) { if (!off) popup = Popup.AutoConfirm }
                 PageChip("View controller", R.drawable.ic_eye, onFocused = { if (it) focused = "chipView" }) { popup = Popup.Diagram }
             }
-            Row(Modifier.weight(1f).fillMaxWidth().focusRestorer().focusGroup(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-                Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState())) {
-                    SectionLabel("Controller")
-                    JoeyRow("Controller", Modifier.initialFocus(focused == "Controller"), value = deviceName(setup.device) + "  ›", sideways = true,
-                        onFocused = { if (it) focused = "Controller" }) { popup = Popup.Controller }
-                    SectionLabel("Buttons")
-                    for (b in N64Button.BUTTONS) BindingRow(b, b.label, setup, face, off, b.name in changed, { focused = it }) { popup = Popup.Remap(Target.Button(b)) }
-                }
-                Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState())) {
-                    SectionLabel("D-pad and C buttons")
-                    for ((key, label, dirs) in listOf(Triple(DPAD, "D-pad", N64Button.DPAD), Triple(CGROUP, "C buttons", N64Button.C))) {
-                        val expanded = key in open
-                        val value = InputNames.group(setup, dirs) ?: "Split"
-                        JoeyRow(label, value = value + if (expanded) "  ∨" else "  ›", enabled = !off, sideways = true,
-                            dot = dirs.any { it.name in changed },
-                            onFocused = { if (it) focused = key }) { open = if (expanded) open - key else open + key }
-                        if (expanded) for (b in dirs) BindingRow(b, arrow(b) + " " + b.label, setup, face, off, b.name in changed, { focused = it }, indent = true) {
-                            popup = Popup.Remap(Target.Button(b))
-                        }
+            TwoColumns(Modifier.weight(1f), left = {
+                SectionLabel("Controller")
+                JoeyRow("Controller", Modifier.initialFocus(focused == "Controller"), value = deviceName(setup.device) + "  ›", sideways = true,
+                    onFocused = { if (it) focused = "Controller" }) { popup = Popup.Controller }
+                SectionLabel("Buttons")
+                for (b in N64Button.BUTTONS) BindingRow(b, b.label, setup, face, off, b.name in changed, { focused = it }) { popup = Popup.Remap(Target.Button(b)) }
+            }) {
+                SectionLabel("D-pad and C buttons")
+                for ((key, label, dirs) in listOf(Triple(DPAD, "D-pad", N64Button.DPAD), Triple(CGROUP, "C buttons", N64Button.C))) {
+                    val expanded = key in open
+                    val value = InputNames.group(setup, dirs) ?: "Split"
+                    JoeyRow(label, value = value + if (expanded) "  ∨" else "  ›", enabled = !off, sideways = true,
+                        dot = dirs.any { it.name in changed },
+                        onFocused = { if (it) focused = key }) { open = if (expanded) open - key else open + key }
+                    if (expanded) for (b in dirs) BindingRow(b, arrow(b) + " " + b.label, setup, face, off, b.name in changed, { focused = it }, indent = true) {
+                        popup = Popup.Remap(Target.Button(b))
                     }
-                    SectionLabel("Analog stick")
-                    JoeyRow("Stick", value = setup.stick.label + "  ›", enabled = !off, sideways = true,
-                        dot = "Stick" in changed,
-                        onFocused = { if (it) focused = "Stick" }) { popup = Popup.Stick }
-                    JoeyRow("Dead zone", Modifier.onPreviewKeyEvent { e ->
-                        val n = e.nativeKeyEvent
-                        val step = when (n.keyCode) { KeyEvent.KEYCODE_DPAD_LEFT -> -1; KeyEvent.KEYCODE_DPAD_RIGHT -> 1; else -> 0 }
-                        if (step == 0 || off) return@onPreviewKeyEvent false
-                        if (n.action == KeyEvent.ACTION_DOWN) {
-                            val i = (DEAD_ZONES.indexOfFirst { it >= setup.deadZone }.takeIf { it >= 0 } ?: DEAD_ZONES.lastIndex) + step
-                            edit { editor.set(player, setup.copy(deadZone = DEAD_ZONES[i.coerceIn(0, DEAD_ZONES.lastIndex)])) }
-                        }
-                        true
-                    }, value = "◀ ${setup.deadZone}% ▶", enabled = !off, sideways = true,
-                        dot = "DeadZone" in changed,
-                        onFocused = { if (it) focused = "DeadZone" })
-                    JoeyRow("Stick feel", value = stickFeelValue(setup.feel) + "  ›", enabled = !off, sideways = true,
-                        dot = changed.any { it.startsWith("Feel.") },
-                        onFocused = { if (it) focused = "StickFeel" }) { popup = Popup.StickFeel() }
-                    SectionLabel("Pak")
-                    JoeyRow("Pak", value = pakValue(setup.pak, autoPak) + "  ›", enabled = !off, sideways = true,
-                        dot = "Pak" in changed,
-                        onFocused = { if (it) focused = "Pak" }) { popup = Popup.PakChoice }
                 }
+                SectionLabel("Analog stick")
+                JoeyRow("Stick", value = setup.stick.label + "  ›", enabled = !off, sideways = true,
+                    dot = "Stick" in changed,
+                    onFocused = { if (it) focused = "Stick" }) { popup = Popup.Stick }
+                JoeyRow("Dead zone", Modifier.onPreviewKeyEvent { e ->
+                    val n = e.nativeKeyEvent
+                    val step = when (n.keyCode) { KeyEvent.KEYCODE_DPAD_LEFT -> -1; KeyEvent.KEYCODE_DPAD_RIGHT -> 1; else -> 0 }
+                    if (step == 0 || off) return@onPreviewKeyEvent false
+                    if (n.action == KeyEvent.ACTION_DOWN) {
+                        val i = (DEAD_ZONES.indexOfFirst { it >= setup.deadZone }.takeIf { it >= 0 } ?: DEAD_ZONES.lastIndex) + step
+                        edit { editor.set(player, setup.copy(deadZone = DEAD_ZONES[i.coerceIn(0, DEAD_ZONES.lastIndex)])) }
+                    }
+                    true
+                }, value = "◀ ${setup.deadZone}% ▶", enabled = !off, sideways = true,
+                    dot = "DeadZone" in changed,
+                    onFocused = { if (it) focused = "DeadZone" })
+                JoeyRow("Stick feel", value = stickFeelValue(setup.feel) + "  ›", enabled = !off, sideways = true,
+                    dot = changed.any { it.startsWith("Feel.") },
+                    onFocused = { if (it) focused = "StickFeel" }) { popup = Popup.StickFeel() }
+                SectionLabel("Pak")
+                JoeyRow("Pak", value = pakValue(setup.pak, autoPak) + "  ›", enabled = !off, sideways = true,
+                    dot = "Pak" in changed,
+                    onFocused = { if (it) focused = "Pak" }) { popup = Popup.PakChoice }
             }
         }
     }

@@ -172,6 +172,8 @@ fun JoeyDialog(
         @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
         val atTop = atTop || (riseWithKeyboard && androidx.compose.foundation.layout.WindowInsets.Companion.isImeVisible)
         val tapOutside by rememberUpdatedState { if (dismissible) requestClose() }
+        // Its own window: laid out at the launcher's debug size too.
+        com.joeysretro.joey64.launcher.layout.DevFrame {
         Column(Modifier.fillMaxSize()) {
             // The dim: everything above the hint row. A tap on it is "outside". A tap handler,
             // not a clickable: a clickable is a focus target, and since it holds the card, a tap
@@ -183,7 +185,9 @@ fun JoeyDialog(
                     .fillMaxWidth()
                     .background(c.scrim)
                     .pointerInput(Unit) { detectTapGestures { tapOutside() } }
-                    .then(if (atTop) Modifier.padding(top = 44.dp) else Modifier),
+                    .then(if (atTop) Modifier.padding(top = 44.dp) else Modifier)
+                    // A card never touches the screen's edges: on a narrow screen it's the screen's width less these.
+                    .then(if (fullScreen) Modifier else Modifier.padding(horizontal = 16.dp, vertical = 8.dp)),
                 contentAlignment = if (atTop) Alignment.TopCenter else Alignment.Center,
             ) {
                 val shape = RoundedCornerShape(s.popupCorner)
@@ -242,6 +246,7 @@ fun JoeyDialog(
                 }
             }
             HintRow(hints)
+        }
         }
         // Nothing marked: enter the popup at its first item. After the content, so a marked item
         // that's already attached asks first. (view.requestFocus() only focuses the window, not an

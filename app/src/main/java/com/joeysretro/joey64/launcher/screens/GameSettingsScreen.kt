@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher.screens
 
+import com.joeysretro.joey64.launcher.components.TwoColumns
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
@@ -193,28 +194,25 @@ private fun GamePage(game: GameRef, summary: GameSummary, inGame: Boolean, focus
             InfoChip(game.title, R.drawable.ic_rail_controls)
         }
         Spacer(Modifier.height(12.dp))
-        Row(Modifier.weight(1f).fillMaxWidth().focusRestorer().focusGroup(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            Column(Modifier.weight(1f)) {
-                SectionLabel("This game")
-                for (p in GamePart.entries) {
-                    JoeyRow(p.label, Modifier.initialFocus(focused == p.name), value = summary.partLabel(p) + "  ›", sideways = true,
-                        onFocused = { if (it) onFocused(p.name) }) { onOpen(p, null) }
-                }
-                SectionLabel("All of it")
-                JoeyRow("Reset to All games", Modifier.initialFocus(focused == "reset"), enabled = !none, sideways = true,
-                    onFocused = { if (it) onFocused("reset") }) { if (!none) onReset() }
-                JoeyRow("Copy to another game", Modifier.initialFocus(focused == "copy"), value = "›", enabled = !none, sideways = true,
-                    onFocused = { if (it) onFocused("copy") }) { if (!none) onCopy() }
+        TwoColumns(Modifier.weight(1f), left = {
+            SectionLabel("This game")
+            for (p in GamePart.entries) {
+                JoeyRow(p.label, Modifier.initialFocus(focused == p.name), value = summary.partLabel(p) + "  ›", sideways = true,
+                    onFocused = { if (it) onFocused(p.name) }) { onOpen(p, null) }
             }
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                SectionLabel("Changed for this game")
-                if (none) Text("Nothing yet: $name uses All games' Video, Audio and Controls.", style = JoeyTheme.type.note, color = c.textDim,
-                    modifier = Modifier.padding(horizontal = s.rowPadH, vertical = 6.dp))
-                summary.changes.forEachIndexed { i, ch ->
-                    JoeyRow(ch.name, Modifier.initialFocus(focused == "ch$i"), value = ch.value, detail = "All games: ${ch.allGames}", sideways = true,
-                        onFocused = { if (it) onFocused("ch$i") },
-                        leading = { _ -> RowTag(ch.part.label, c.textSecondary, c.chip) }) { onOpen(ch.part, ch.row) }
-                }
+            SectionLabel("All of it")
+            JoeyRow("Reset to All games", Modifier.initialFocus(focused == "reset"), enabled = !none, sideways = true,
+                onFocused = { if (it) onFocused("reset") }) { if (!none) onReset() }
+            JoeyRow("Copy to another game", Modifier.initialFocus(focused == "copy"), value = "›", enabled = !none, sideways = true,
+                onFocused = { if (it) onFocused("copy") }) { if (!none) onCopy() }
+        }) {
+            SectionLabel("Changed for this game")
+            if (none) Text("Nothing yet: $name uses All games' Video, Audio and Controls.", style = JoeyTheme.type.note, color = c.textDim,
+                modifier = Modifier.padding(horizontal = s.rowPadH, vertical = 6.dp))
+            summary.changes.forEachIndexed { i, ch ->
+                JoeyRow(ch.name, Modifier.initialFocus(focused == "ch$i"), value = ch.value, detail = "All games: ${ch.allGames}", sideways = true,
+                    onFocused = { if (it) onFocused("ch$i") },
+                    leading = { _ -> RowTag(ch.part.label, c.textSecondary, c.chip) }) { onOpen(ch.part, ch.row) }
             }
         }
         Spacer(Modifier.height(6.dp))

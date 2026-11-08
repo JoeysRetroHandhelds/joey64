@@ -134,20 +134,17 @@ fun OssListPopup(onDismiss: () -> Unit) {
     JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Read licence"), Hint("D-pad", "Move"), Hint("B", "Back")), width = 600.dp) {
         Column {
             PopupTitle("Open-source licences", "Select one to read its licence text and copyright notice.")
-            Row(Modifier.fillMaxWidth().heightIn(max = 330.dp).verticalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                val groups = OSS_ENTRIES.groupBy { it.group }
-                val columns = listOf(listOf("Emulator"), listOf("App", "Data"))
-                for (col in columns) Column(Modifier.weight(1f)) {
-                    for (g in col) {
-                        SectionLabel(g)
-                        for (e in groups[g].orEmpty()) {
-                            JoeyRow(e.name, Modifier.initialFocus(e === OSS_ENTRIES.first()), value = e.licence, detail = e.note,
-                                sideways = true) { reading = e }
-                        }
-                    }
+            val groups = OSS_ENTRIES.groupBy { it.group }
+            @Composable
+            fun group(g: String) {
+                SectionLabel(g)
+                for (e in groups[g].orEmpty()) {
+                    JoeyRow(e.name, Modifier.initialFocus(e === OSS_ENTRIES.first()), value = e.licence, detail = e.note,
+                        sideways = true) { reading = e }
                 }
             }
+            com.joeysretro.joey64.launcher.components.TwoColumns(Modifier.heightIn(max = 330.dp).weight(1f, fill = false), gap = 16.dp,
+                left = { group("Emulator") }) { group("App"); group("Data") }
         }
     }
     reading?.let { LicenceTextPopup(it) { reading = null } }

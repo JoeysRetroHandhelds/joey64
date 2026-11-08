@@ -102,11 +102,12 @@ So Joey64 uses the **Storage Access Framework**, the way PPSSPP does on Play. Th
   - selection rules: dark uses a yellow outline; light uses a yellow fill with navy text, and covers get a yellow outline plus a navy ring
 - The JoeyOS control layer, `JoeyDialog` and `JoeyPage`, adapted to the Joey64 look.
 - The hint row runs the full screen width and stays lit under popups. The dim and blur cover everything else.
-- Layout by screen shape:
-  - box art columns from the width (4 at 16:9, 3 at 4:3, 2 square, 2 portrait)
+- Layout by screen shape (built 2026-11-08, Joey: "we should have adaptive screens"; CLAUDE.md "Adaptive layout"):
+  - box art columns from the width: as many as fit at 128 dp or more, 2 to 4 (4 at 16:9, 3 at 4:3 and on the Thor's bottom screen, 2 portrait; Joey: two across on the bottom screen was too big)
   - the bottom bar in portrait
-  - Settings in one column when narrow
-  - text never shrinks
+  - Settings, other two-column pages and two-column popups in one column under 700 dp
+  - text never shrinks; the hint row never wraps
+  - Still open: the exact density each target ships with (RG405M, RG476H, RG477M, RP Nova) needs `adb shell wm density` on the device; checked at the likely sizes (427x320, 640x480, 731x549 dp)
 - Drop forced landscape. 4:3, square and portrait layouts are checked in Compose previews at those sizes. No second screen is used (Joey, 2026-11-05).
 - **Storage layer:** picked folders, file descriptors to native code, and moving data when the folder changes.
 - **SQLite** (built into Android) for games, hashes, play time, collections and the achievement progress cache. The sign-in key is encrypted with the Android Keystore.

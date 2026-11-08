@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher.screens
 
+import com.joeysretro.joey64.launcher.components.TwoColumns
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -79,26 +80,23 @@ fun AudioTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
     }
 
     Column(modifier.fillMaxSize()) {
-        Row(Modifier.weight(1f).fillMaxWidth().focusRestorer().focusGroup(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            @Composable
-            fun row(k: AudioKey, label: String) =
-                JoeyRow(label, Modifier.initialFocus(start == k), value = AudioChoices.label(k, a[k]), sideways = true, enabled = !fixed(k),
-                    dot = dot(k), experimental = AudioChoices.of(k).any { it.value == a[k] && it.experimental },
-                    onFocused = { if (it) focused = k }) { popup = k }
-            Column(Modifier.weight(1f)) {
-                SectionLabel("Sound")
-                StepRow("Volume", "${a.volume}%", AudioChoices.volumeSteps, a.volume, volumeFocused, first = start == null || start == AudioKey.Volume,
-                    dot = dot(AudioKey.Volume), onFocused = { volumeFocused = it; if (it) focused = AudioKey.Volume }) { set(AudioKey.Volume, it.toString()) }
-                row(AudioKey.Mute, "Mute")
-                row(AudioKey.Mono, "Mono")
-                row(AudioKey.Apps, "Play alongside other apps")
-            }
-            Column(Modifier.weight(1f)) {
-                SectionLabel("Fast-forward")
-                row(AudioKey.FfSound, "Fast-forward sound")
-                SectionLabel("Advanced")
-                row(AudioKey.Latency, "Latency")
-            }
+        @Composable
+        fun row(k: AudioKey, label: String) =
+            JoeyRow(label, Modifier.initialFocus(start == k), value = AudioChoices.label(k, a[k]), sideways = true, enabled = !fixed(k),
+                dot = dot(k), experimental = AudioChoices.of(k).any { it.value == a[k] && it.experimental },
+                onFocused = { if (it) focused = k }) { popup = k }
+        TwoColumns(Modifier.weight(1f), left = {
+            SectionLabel("Sound")
+            StepRow("Volume", "${a.volume}%", AudioChoices.volumeSteps, a.volume, volumeFocused, first = start == null || start == AudioKey.Volume,
+                dot = dot(AudioKey.Volume), onFocused = { volumeFocused = it; if (it) focused = AudioKey.Volume }) { set(AudioKey.Volume, it.toString()) }
+            row(AudioKey.Mute, "Mute")
+            row(AudioKey.Mono, "Mono")
+            row(AudioKey.Apps, "Play alongside other apps")
+        }) {
+            SectionLabel("Fast-forward")
+            row(AudioKey.FfSound, "Fast-forward sound")
+            SectionLabel("Advanced")
+            row(AudioKey.Latency, "Latency")
         }
         Spacer(Modifier.height(6.dp))
         val (title, text) = describe(focused)

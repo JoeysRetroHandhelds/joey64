@@ -56,6 +56,27 @@ bool decode(const uint8_t* rle, size_t size, uint8_t* dst, size_t n) {
 }
 } // namespace
 
+bool Rewind::pack(const uint8_t* older, const uint8_t* newer, size_t n, std::vector<uint8_t>& dst) {
+    encode(older, newer, n, rle_);
+    uLongf len = compressBound(rle_.size());
+    out_.resize(4 + len);
+    uint32_t rs = (uint32_t)rle_.size();
+    memcpy(out_.data(), &rs, 4);
+    if (compress2(out_.data() + 4, &len, rle_.data(), rle_.size(), 1) != Z_OK) return false;
+    dst.assign(out_.begin(), out_.begin() + 4 + len);
+    return true;
+}
+
+bool Rewind::unpack(const std::vector<uint8_t>& packed, uint8_t* dst, size_t n) {
+    if (packed.size() < 4) return false;
+    uint32_t rs;
+    memcpy(&rs, packed.data(), 4);
+    rle_.resize(rs);
+    uLongf len = rs;
+    if (uncompress(rle_.data(), &len, packed.data() + 4, packed.size() - 4) != Z_OK || len != rs) return false;
+    return decode(rle_.data(), rs, dst, n);
+}
+
 Rewind::~Rewind() {
     { std::lock_guard<std::mutex> lk(m_); stop_ = true; }
     cv_.notify_all();
@@ -98,18 +119,14 @@ void Rewind::work() {
         auto t0 = std::chrono::steady_clock::now();
         Moment m;
         bool packed = false;
-        if (hasBase_ && base_.size() == cur.size()) {
-            // The older moment (base) as the difference from the newer one (cur).
-            encode(base_.data(), cur.data(), cur.size(), rle_);
-            uLongf len = compressBound(rle_.size());
-            out_.resize(4 + len);
-            uint32_t rs = (uint32_t)rle_.size();
-            memcpy(out_.data(), &rs, 4);
-            if (compress2(out_.data() + 4, &len, rle_.data(), rle_.size(), 1) == Z_OK) {
-                m.packed.assign(out_.begin(), out_.begin() + 4 + len);
-                m.progress = baseProg_;
-                packed = true;
-            }
+        if (hasBase_ && base_.size() == cur.size() && pack(base_.data(), cur.data(), cur.size(), m.packed)) {
+            // The older moment (base) as the difference from the newer one (cur). Its achievements'
+            // progress the same way: a loaded set's is hundreds of KB (SM64's three sets 445 KB) and
+            // barely changes, so kept whole 1 min of rewind held 860 MB (Thor 2026-11-08).
+            m.progXor = !baseProg_.empty() && baseProg_.size() == curProg.size() &&
+                        pack(baseProg_.data(), curProg.data(), curProg.size(), m.progress);
+            if (!m.progXor) m.progress = baseProg_;
+            packed = true;
         }
         double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
         {
@@ -134,14 +151,10 @@ void Rewind::work() {
     }
 }
 
-bool Rewind::unpackInto(const Moment& m) {
-    if (m.packed.size() < 4) return false;
-    uint32_t rs;
-    memcpy(&rs, m.packed.data(), 4);
-    rle_.resize(rs);
-    uLongf len = rs;
-    if (uncompress(rle_.data(), &len, m.packed.data() + 4, m.packed.size() - 4) != Z_OK || len != rs) return false;
-    return decode(rle_.data(), rs, base_.data(), base_.size());
+bool Rewind::unpackInto(Moment& m) {
+    if (!unpack(m.packed, base_.data(), base_.size())) return false;
+    if (!m.progXor) { baseProg_.swap(m.progress); return true; }
+    return unpack(m.progress, baseProg_.data(), baseProg_.size());
 }
 
 void Rewind::logStats() {

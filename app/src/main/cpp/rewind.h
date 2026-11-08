@@ -35,10 +35,16 @@ public:
     /** Emulation thread: the achievements' progress of the moment last gone back to. */
     const std::vector<uint8_t>& baseProgress() const { return baseProg_; }
 private:
-    struct Moment { std::vector<uint8_t> packed; std::vector<uint8_t> progress; };
+    // progress: the moment's achievements' progress, whole or (progXor) packed as the XOR to the next newer one's.
+    struct Moment { std::vector<uint8_t> packed; std::vector<uint8_t> progress; bool progXor = false; };
     void work();
     void drain();
-    bool unpackInto(const Moment& m);
+    /** base_ and baseProg_ (the newer moment) become [m]. */
+    bool unpackInto(Moment& m);
+    /** [dst] = [older] as the deflated runs of older ^ newer ([n] bytes each). */
+    bool pack(const uint8_t* older, const uint8_t* newer, size_t n, std::vector<uint8_t>& dst);
+    /** XORs a [pack]ed difference into [dst]. */
+    bool unpack(const std::vector<uint8_t>& packed, uint8_t* dst, size_t n);
     bool on_ = false;
     int every_ = 2, max_ = 1800, tick_ = 0;
     std::atomic<int> count_{0};
@@ -92,9 +98,9 @@ bool Rewind::stepBack(Unser unser) {
     drain();
     std::lock_guard<std::mutex> lk(m_);
     if (moments_.empty() || !hasBase_) return false;
+    const size_t held = moments_.back().packed.size() + moments_.back().progress.size();
     if (!unpackInto(moments_.back())) { moments_.clear(); count_ = 0; heldBytes_ = 0; return false; }
-    heldBytes_ -= moments_.back().packed.size() + moments_.back().progress.size();
-    baseProg_.swap(moments_.back().progress);
+    heldBytes_ -= held;
     moments_.pop_back();
     count_ = (int)moments_.size();
     tick_ = 0;

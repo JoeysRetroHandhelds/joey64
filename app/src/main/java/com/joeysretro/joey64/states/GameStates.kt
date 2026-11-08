@@ -37,11 +37,12 @@ class GameStates(
     fun save(slot: Int): Boolean {
         val t0 = SystemClock.elapsedRealtime()
         val data = NativeBridge.saveState(TIMEOUT_MS) ?: return false.also { JLog.e(TAG, "slot $slot: the core gave no state") }
+        val achv = NativeBridge.stateProgress()
         // The same moment's picture (the game is paused or between frames, so it's the frame the state holds).
         val png = FramePicture.capturePng()
         val t1 = SystemClock.elapsedRealtime()
         return try {
-            val file = StateFormat.wrap(data)
+            val file = StateFormat.wrap(data, achv)
             writeWhole(StateSlots.fileName(saveName, slot), file)
             // The picture beside it, as RetroArch names it. The old one (RetroArch's, or ours) shows the
             // moment before, so it goes even when there's no new one.
@@ -122,9 +123,11 @@ class GameStates(
     }
 
     private fun loadBytes(name: String, bytes: ByteArray): Boolean {
-        val data = StateFormat.unwrap(bytes) ?: return false.also { JLog.e(TAG, "$name isn't a state Joey64 can read (${bytes.size} bytes)") }
-        val ok = NativeBridge.loadState(data, TIMEOUT_MS)
-        if (ok) JLog.i(TAG, "load $name: done (${data.size} bytes)") else JLog.e(TAG, "load $name: FAILED (${data.size} bytes)")
+        val parts = StateFormat.read(bytes) ?: return false.also { JLog.e(TAG, "$name isn't a state Joey64 can read (${bytes.size} bytes)") }
+        val data = parts.mem
+        val ok = NativeBridge.loadState(data, parts.achv, TIMEOUT_MS)
+        val achv = parts.achv?.let { ", achievements ${it.size} bytes" } ?: ""
+        if (ok) JLog.i(TAG, "load $name: done (${data.size} bytes$achv)") else JLog.e(TAG, "load $name: FAILED (${data.size} bytes)")
         return ok
     }
 
@@ -154,11 +157,12 @@ class GameStates(
 
     fun saveRecovery(): Boolean {
         val data = NativeBridge.saveState(TIMEOUT_MS) ?: return false
+        val achv = NativeBridge.stateProgress()
         return try {
             recoveryDir.mkdirs()
             val file = File(recoveryDir, RECOVERY_STATE)
             val part = File(recoveryDir, "$RECOVERY_STATE.part")
-            part.writeBytes(StateFormat.wrap(data))
+            part.writeBytes(StateFormat.wrap(data, achv))
             if (!part.renameTo(file)) throw IOException("can't rename ${part.name}")
             val info = Properties().apply {
                 setProperty("save_name", saveName)

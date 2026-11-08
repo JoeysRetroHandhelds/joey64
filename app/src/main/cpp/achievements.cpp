@@ -55,6 +55,10 @@ std::atomic<bool> g_enabled{true};     // Settings › RetroAchievements › Ach
 // The running game's set didn't load (signed out, or the kept sign-in was refused): a sign-in that
 // works during the game loads it then (the in-game Sign-in expired pop-up's sign-in).
 std::atomic<bool> g_loadAgain{false};
+// A state's achievement progress loaded before the game's set came from the server (Continue loads
+// the auto state at boot): given to rc_client once the set loads.
+std::mutex g_progressMutex;
+std::vector<uint8_t> g_pendingProgress;
 
 struct Env {
     JNIEnv* env = nullptr;
@@ -242,7 +246,15 @@ void gameDone(int result, const char* error, rc_client_t*, void*) {
     Json j;
     j.str("event", "gameLoaded").num("result", result).str("hash", g_hash)
         .str("error", result == RC_OK ? "" : (error ? error : rc_error_str(result)));
-    if (result == RC_OK) j.raw("game", gameJson());
+    if (result == RC_OK) {
+        std::vector<uint8_t> p;
+        { std::lock_guard<std::mutex> lk(g_progressMutex); p.swap(g_pendingProgress); }
+        if (!p.empty()) {
+            int r = rc_client_deserialize_progress_sized(g_client, p.data(), p.size());
+            RLOGI("state: achievement progress %s once the set loaded (%zu bytes)", r == RC_OK ? "restored" : "not taken", p.size());
+        }
+        j.raw("game", gameJson());
+    }
     if (result != RC_OK) g_loadAgain = true;
     RLOGI("game %s: %s", g_hash, result == RC_OK ? "identified" : (error ? error : rc_error_str(result)));
     emit(j.done());
@@ -302,6 +314,7 @@ void gameLoaded(const uint8_t* rom, size_t romSize, uint8_t* ram, size_t ramSize
 
 void gameUnloaded() {
     g_loadAgain = false;
+    { std::lock_guard<std::mutex> lk(g_progressMutex); g_pendingProgress.clear(); }
     if (g_client) rc_client_unload_game(g_client);
     std::lock_guard<std::mutex> lk(g_ramMutex);
     g_ram = nullptr; g_ramSize = 0;
@@ -310,7 +323,29 @@ void gameUnloaded() {
 void doFrame() { if (g_client) rc_client_do_frame(g_client); }
 void idle() { if (g_client) rc_client_idle(g_client); }
 void reset() { if (g_client) rc_client_reset(g_client); }
-void stateLoaded() { if (g_client) rc_client_deserialize_progress_sized(g_client, nullptr, 0); }
+void captureProgress(std::vector<uint8_t>& out) {
+    out.clear();
+    if (!g_client || !rc_client_is_game_loaded(g_client)) return;
+    size_t n = rc_client_progress_size(g_client);
+    if (n == 0) return;
+    out.resize(n);
+    if (rc_client_serialize_progress_sized(g_client, out.data(), n) != RC_OK) out.clear();
+}
+
+void stateLoaded(const uint8_t* progress, size_t size) {
+    {
+        std::lock_guard<std::mutex> lk(g_progressMutex);
+        g_pendingProgress.clear();
+        if (size && (!g_client || !rc_client_is_game_loaded(g_client))) {
+            g_pendingProgress.assign(progress, progress + size);
+            RLOGI("state: achievement progress kept until the set loads (%zu bytes)", size);
+            return;
+        }
+    }
+    if (!g_client) return;
+    int r = rc_client_deserialize_progress_sized(g_client, size ? progress : nullptr, size);
+    if (size) RLOGI("state: achievement progress %s (%zu bytes)", r == RC_OK ? "restored" : "not taken, starting over", size);
+}
 const char* lastHash() { return g_hash; }
 
 } // namespace Cheevos

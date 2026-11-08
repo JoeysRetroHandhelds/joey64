@@ -658,6 +658,7 @@ struct StateRequest {
     bool reset = false;
     unsigned w = 0, h = 0;
     std::vector<uint8_t> data;   // filled by a save, read by a load
+    std::vector<uint8_t> achv;   // the achievements' progress with it (RetroArch's ACHV block)
     bool done = false, ok = false;
 };
 std::mutex g_stateMutex;
@@ -699,6 +700,7 @@ void serveStateRequest(bool ready, bool failEarly) {
         r->data.resize(n);
         r->ok = n > 0 && core.serialize(r->data.data(), n);
         if (!r->ok) r->data.clear();
+        else Cheevos::captureProgress(r->achv);
     } else if (r->data.size() < 44 || memcmp(r->data.data(), "M64+SAVE", 8) != 0) {
         // Not the core's data. mupen64plus-next must never see it: its libretro load returns on a wrong
         // magic without unlocking savestates_lock, and the emulation thread then hangs (found on the Thor
@@ -709,8 +711,8 @@ void serveStateRequest(bool ready, bool failEarly) {
         // Note: retro_unserialize returns true even when the core turns the state down (another ROM,
         // an incompatible version); the core logs why.
         r->ok = core.unserialize(r->data.data(), r->data.size());
-        // Achievements start over from the loaded state (their progress isn't in the state yet).
-        if (r->ok) Cheevos::stateLoaded();
+        // Achievements carry on from the progress saved with the state, or start over without one.
+        if (r->ok) Cheevos::stateLoaded(r->achv.data(), r->achv.size());
     }
     if (ready)
         joeyLog(r->ok ? ANDROID_LOG_INFO : ANDROID_LOG_ERROR, "joey64host", "state: %s %s, %zu bytes, %.1f ms", what, r->ok ? "done" : "FAILED", r->data.size(),
@@ -1503,11 +1505,16 @@ JNIEXPORT void JNICALL JNI(stop)(JNIEnv*, jobject) {
     g_stateCv.notify_all();
 }
 
+// The achievements' progress taken with this thread's last saveState (stateProgress hands it over).
+thread_local std::vector<uint8_t> t_stateProgress;
+
 // The core's state between frames (paused or not), or null if it couldn't be taken in [timeoutMs].
 JNIEXPORT jbyteArray JNICALL JNI(saveState)(JNIEnv* env, jobject, jint timeoutMs) {
     StateRequest req;
     req.save = true;
+    t_stateProgress.clear();
     if (!runStateRequest(req, timeoutMs) || !req.ok) return nullptr;
+    t_stateProgress.swap(req.achv);
     jbyteArray out = env->NewByteArray((jsize)req.data.size());
     if (out) env->SetByteArrayRegion(out, 0, (jsize)req.data.size(), reinterpret_cast<const jbyte*>(req.data.data()));
     return out;
@@ -1538,12 +1545,25 @@ JNIEXPORT jboolean JNICALL JNI(resetGame)(JNIEnv*, jobject, jint timeoutMs) {
 
 // Puts [data] (the core's state, unwrapped) back between frames. Waits for the core to be ready, so
 // it can be called right after start(); false if it failed or wasn't served in [timeoutMs].
-JNIEXPORT jboolean JNICALL JNI(loadState)(JNIEnv* env, jobject, jbyteArray data, jint timeoutMs) {
+JNIEXPORT jbyteArray JNICALL JNI(stateProgress)(JNIEnv* env, jobject) {
+    if (t_stateProgress.empty()) return nullptr;
+    jbyteArray out = env->NewByteArray((jsize)t_stateProgress.size());
+    if (out) env->SetByteArrayRegion(out, 0, (jsize)t_stateProgress.size(), reinterpret_cast<const jbyte*>(t_stateProgress.data()));
+    t_stateProgress.clear();
+    return out;
+}
+
+JNIEXPORT jboolean JNICALL JNI(loadState)(JNIEnv* env, jobject, jbyteArray data, jbyteArray achv, jint timeoutMs) {
     StateRequest req;
     req.save = false;
     jsize n = env->GetArrayLength(data);
     req.data.resize((size_t)n);
     env->GetByteArrayRegion(data, 0, n, reinterpret_cast<jbyte*>(req.data.data()));
+    if (achv) {
+        jsize a = env->GetArrayLength(achv);
+        req.achv.resize((size_t)a);
+        env->GetByteArrayRegion(achv, 0, a, reinterpret_cast<jbyte*>(req.achv.data()));
+    }
     return runStateRequest(req, timeoutMs) && req.ok ? JNI_TRUE : JNI_FALSE;
 }
 

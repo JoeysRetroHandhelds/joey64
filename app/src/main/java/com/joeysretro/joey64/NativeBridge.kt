@@ -113,6 +113,12 @@ object NativeBridge {
     external fun saveState(timeoutMs: Int): ByteArray?
 
     /**
+     * The achievements' progress taken with this thread's last [saveState] (RetroArch's ACHV block),
+     * once; null with no achievement set loaded.
+     */
+    external fun stateProgress(): ByteArray?
+
+    /**
      * The last frame the core drew, between frames (also while paused): 8 bytes of width and height
      * (little-endian u32), then top-down RGBA8 rows (Screenshots). Null if there's none yet.
      */
@@ -122,10 +128,11 @@ object NativeBridge {
     external fun resetGame(timeoutMs: Int): Boolean
 
     /**
-     * Puts a state taken by [saveState] (or unwrapped from a RetroArch state) back, between frames.
+     * Puts a state taken by [saveState] (or unwrapped from a RetroArch state) back, between frames,
+     * with the achievements' progress saved with it ([achv]; null: they start over).
      * Right after [start] it waits until the core can take it (about half a second of boot).
      */
-    external fun loadState(data: ByteArray, timeoutMs: Int): Boolean
+    external fun loadState(data: ByteArray, achv: ByteArray?, timeoutMs: Int): Boolean
 
     /** Fast-forward: no vsync, capped at 4x; its sound follows setAudio (muted by default). */
     external fun setFastForward(on: Boolean)

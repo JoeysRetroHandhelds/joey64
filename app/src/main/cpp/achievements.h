@@ -4,6 +4,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 namespace Cheevos {
 // After retro_load_game: the ROM as loaded (any byte order) for the RetroAchievements hash, and the
@@ -17,8 +18,12 @@ void doFrame();
 void idle();
 // After the core's retro_reset (the pause menu's Reset).
 void reset();
-// After a save state loads: achievements start over from it.
-void stateLoaded();
+// With a save state (on the emulation thread, after the core's serialize): the achievements'
+// progress, RetroArch's ACHV block. Empty when no set is loaded.
+void captureProgress(std::vector<uint8_t>& out);
+// After a save state loads: achievements carry on from the progress saved with it ([size] 0: a
+// state without one, so they start over).
+void stateLoaded(const uint8_t* progress, size_t size);
 // The RetroAchievements hash of the last game loaded (32 hex digits), for logs and tests.
 const char* lastHash();
 }

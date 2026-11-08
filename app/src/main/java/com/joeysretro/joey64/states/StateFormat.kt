@@ -12,7 +12,8 @@ import java.util.zip.Inflater
  * libretro-common/streams/rzip_stream.c):
  *  - RASTATE: "RASTATE" + version 1, then blocks of a 4-byte tag, a u32 size and the data padded
  *    to 8 bytes. "MEM " holds the core's own data (mupen64plus-next: "M64+SAVE..."), "END " ends it.
- *    RetroArch also writes "ACHV" (achievements) and "RPLY" (replays); they're skipped on reading.
+ *    "ACHV" holds the achievements' progress (rcheevos' rc_client_serialize_progress, after MEM, as
+ *    RetroArch writes it); RetroArch's "RPLY" (replays) is skipped on reading.
  *  - RZIP, around the whole file when compression is on (RetroArch's default): "#RZIPv" 1 "#", a
  *    u32 chunk size, the u64 total size, then chunks of a u32 compressed size and zlib data.
  * Older RetroArch wrote the core's data alone, which reads too.
@@ -26,15 +27,28 @@ object StateFormat {
     private const val RASTATE_VERSION = 1
     private const val MAX_STATE = 64L * 1024 * 1024
 
-    /** The core's [data] as a RetroArch state file: RASTATE with one MEM block, RZIP-compressed when [compress]. */
-    fun wrap(data: ByteArray, compress: Boolean = true): ByteArray {
+    /** A state file's parts: the core's data and the achievements' progress (null when it has none). */
+    class Parts(val mem: ByteArray, val achv: ByteArray?)
+
+    /**
+     * The core's [data] as a RetroArch state file: RASTATE with a MEM block, then an ACHV block when
+     * [achv] has any, RZIP-compressed when [compress].
+     */
+    fun wrap(data: ByteArray, achv: ByteArray? = null, compress: Boolean = true): ByteArray {
         val aligned = (data.size + 7) and 7.inv()
-        val out = ByteArray(8 + 8 + aligned + 8)
+        val achvAligned = achv?.takeIf { it.isNotEmpty() }?.let { 8 + ((it.size + 7) and 7.inv()) } ?: 0
+        val out = ByteArray(8 + 8 + aligned + achvAligned + 8)
         RASTATE.toByteArray(Charsets.ISO_8859_1).copyInto(out, 0)
         out[7] = RASTATE_VERSION.toByte()
         block(out, 8, "MEM ", data.size)   // the exact size: some cores need it, RetroArch notes
         data.copyInto(out, 16)
-        block(out, 16 + aligned, "END ", 0)
+        var at = 16 + aligned
+        if (achvAligned > 0) {
+            block(out, at, "ACHV", achv!!.size)
+            achv.copyInto(out, at + 8)
+            at += achvAligned
+        }
+        block(out, at, "END ", 0)
         return if (compress) rzip(out) else out
     }
 
@@ -42,24 +56,30 @@ object StateFormat {
      * The core's data in a state file's [bytes] (RZIP or not, RASTATE or bare), or null when it
      * isn't a state this can read.
      */
-    fun unwrap(bytes: ByteArray): ByteArray? {
+    fun unwrap(bytes: ByteArray): ByteArray? = read(bytes)?.mem
+
+    fun unwrap(input: InputStream): ByteArray? = unwrap(input.readBytes())
+
+    /** [unwrap] with the ACHV block too. A bare state (older RetroArch) has none. */
+    fun read(bytes: ByteArray): Parts? {
         val plain = if (startsWith(bytes, RZIP_MAGIC)) unrzip(bytes) ?: return null else bytes
-        if (!startsWith(plain, RASTATE)) return plain.takeIf { it.isNotEmpty() }
+        if (!startsWith(plain, RASTATE)) return plain.takeIf { it.isNotEmpty() }?.let { Parts(it, null) }
+        var mem: ByteArray? = null
+        var achv: ByteArray? = null
         var at = 8
         while (at + 8 <= plain.size) {
             val tag = String(plain, at, 4, Charsets.ISO_8859_1)
             val size = le32(plain, at + 4)
-            if (size < 0 || at + 8 + size > plain.size) return null
+            if (size < 0 || at + 8 + size > plain.size) break
             when (tag) {
-                "MEM " -> return plain.copyOfRange(at + 8, at + 8 + size.toInt())
-                "END " -> return null
+                "MEM " -> mem = plain.copyOfRange(at + 8, at + 8 + size.toInt())
+                "ACHV" -> achv = plain.copyOfRange(at + 8, at + 8 + size.toInt()).takeIf { it.isNotEmpty() }
+                "END " -> break
             }
             at += 8 + ((size.toInt() + 7) and 7.inv())
         }
-        return null
+        return mem?.let { Parts(it, achv) }
     }
-
-    fun unwrap(input: InputStream): ByteArray? = unwrap(input.readBytes())
 
     private fun block(out: ByteArray, at: Int, tag: String, size: Int) {
         tag.toByteArray(Charsets.ISO_8859_1).copyInto(out, at)

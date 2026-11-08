@@ -403,7 +403,7 @@ Also agreed: for an ID shared by more than one layout, Auto map first asks for o
 
 **Still to do, tracked:**
 - Real pads: Joey has no N64-style pads yet, so no table row is checked on hardware; the Thor's own pad and adb keys were tested. A second pad as Player 2 in a game needs a pad.
-- Rumble only for Player 1 (the core's rumble for other ports is dropped); per-player rumble to each player's own pad is next.
+- Rumble for players 1-4 (built 2026-11-07, commit 4997772): each player's own pad when it has a motor; the player with the built-in controls (or Player 1 when none has them) vibrates the device. Players 2-4 still need a second pad to feel on a device.
 - Transfer Pak (needs the Game Boy game picked), the Switch Online N64 over USB (Nintendo's handshake).
 - The About page's licences: credit the controller data sources in `docs/n64-controllers.md` (SDL's GameControllerDB is Zlib, RetroArch's joypad autoconfig MIT; dish-android PR 244 gave facts only, no code, so it's thanked, not licensed) when the licences list is built. Built 2026-11-07: both are in the list (Data) and the Controllers credit row.
 

@@ -891,6 +891,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             if (why == 0) { fpsHandler.postDelayed(this, SHUTDOWN_POLL_MS); return }
             val noIpl = why == 2
             JLog.e(TAG, "the core shut down: the game did not start${if (noIpl) " (no 64DD IPL BIOS for the disk's region)" else ""}, closing the game screen")
+            // Not the GPU's doing: the start doesn't count against Auto's trial (a no-op once a frame was drawn).
+            trial?.cancel()
             // Only a missing IPL is asked for; a damaged disk or disk save just goes back.
             if (noIpl) intent?.let { com.joeysretro.joey64.launcher.GameStartFailed.diskNeedsBios(it) }
             finish()

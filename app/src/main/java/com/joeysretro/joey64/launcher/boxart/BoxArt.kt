@@ -11,6 +11,7 @@ import com.joeysretro.joey64.launcher.data.ArtLookup
 import com.joeysretro.joey64.launcher.data.LibraryDb
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
@@ -108,7 +109,16 @@ class BoxArt(private val context: Context, private val db: LibraryDb) {
         for ((i, g) in todo.withIndex()) {
             coroutineContext.ensureActive()
             onProgress(i, todo.size)
-            when (lookUp(g, table, fixes, now, maxWidth)) {
+            // A slow answer or a dropped connection is retried after a wait (2026-11-07: one 30 s timeout
+            // ended a 1,216-game run after 44 covers); only when it keeps failing is the network taken as gone.
+            var r = lookUp(g, table, fixes, now, maxWidth)
+            for (wait in OFFLINE_RETRY_MS) {
+                if (r != Result.Offline) break
+                JLog.w(TAG, "box art: ${g.fileName}: no answer, trying again in ${wait / 1000} s")
+                delay(wait)
+                r = lookUp(g, table, fixes, now, maxWidth)
+            }
+            when (r) {
                 Result.Found -> { found++; onCover() }
                 Result.None -> none++
                 Result.Failed -> failed++
@@ -125,6 +135,9 @@ class BoxArt(private val context: Context, private val db: LibraryDb) {
     }
 
     private enum class Result { Found, None, Failed, Busy, Offline }
+
+    /** Waits before trying a game again after no answer (timeout, connection refused, no DNS). */
+    private val OFFLINE_RETRY_MS = longArrayOf(10_000, 60_000)
 
     /** ScreenScraper answered with something other than a picture ("NOMEDIA" for a cover it doesn't have). */
     private class NotAnImage(size: Int) : IOException("cover: not an image ($size bytes)")

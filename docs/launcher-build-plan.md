@@ -622,7 +622,7 @@ Checked on the Thor against a local server (2026-11-08): the question, What's se
 - Netplay online server: "Leave this for now" (2026-11-06); ask again when netplay comes up.
 - Email history, Joey's own steps: GitHub settings "Keep my email addresses private" and "Block command line pushes that expose my email"; GitHub Support to purge old commits kept by PR refs (chameleon-app 2, chameleon-data 3, joeys-es-de-folders 1, mupen64plus-ae-retroachievements 1). No backups wait for deletion (deleted after clean copies went to `C:\Users\Joey\Backups\git-2026-11-05`).
 
-Merge plan for this branch (emulator chat, 2026-11-08): Duo compat passed 82/82 on dd-lazy. If the Flip's chain151 passes, merge app branch `drc-default` (bb49379: audit2/fixes plus the compile thread on by default on Mali) and bundle core `dd-drc` (fd9f40e, core-dd6.so); if it fails, merge audit2/fixes (d9ded20) and bundle dd-lazy (bb7ea98, core-dd5.so). Either way `startSession` goes in launchGame after `startStates`, then the Thor 64DD checks.
+Merge plan for this branch (emulator chat, 2026-11-08): Duo compat passed 82/82 on dd-lazy. If the Flip's chain151 passes, merge app branch `drc-default` at 04c51c3 (audit2/fixes plus the compile thread on by default on Mali, and its CLAUDE.md note) and bundle core `dd-drc` (fd9f40e, core-dd6.so, md5 e1fa2a…); if it fails, merge audit2/fixes (d9ded20) and bundle dd-lazy (bb7ea98, core-dd5.so, md5 a87042…). Either way `startSession` goes in launchGame after `startStates`, then the Thor 64DD checks.
 
 ## Not in this plan
 

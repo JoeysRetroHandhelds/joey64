@@ -80,6 +80,11 @@ object NativeBridge {
 
     /** Emulated frames since start (wraps); the FPS counter samples it. */
     external fun framesRun(): Int
+    /**
+     * The core shut down, so no frames come: 0 it didn't, 1 it couldn't start the game (a damaged disk or disk save),
+     * 2 it couldn't load the 64DD IPL BIOS (none for the disk's region).
+     */
+    external fun coreShutDown(): Int
     /** New frames presented since start (wraps): what the game drew, without repeats. */
     external fun framesDrawn(): Int
     /** The game's native frame rate (NTSC ~60, PAL 50), for the speed percentage. */

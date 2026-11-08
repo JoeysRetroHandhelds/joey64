@@ -73,6 +73,28 @@ class SrmSyncTest {
         assertArrayEquals(newer, File(space.root, "saves/$name").readBytes())
     }
 
+    @Test fun unchangedFolderCopyIsNotPulledAgain() {
+        val space = DirSpace(tmp.newFolder("picked"))
+        val work = tmp.newFolder("work")
+        val st = MapStamps()
+        val f = File(work, name)
+        f.writeBytes(disk)
+        f.setLastModified(f.lastModified() - 60_000) // a copy would give it a new time
+        SrmSync.pushFile(space, work, name, st)
+        val at = f.lastModified()
+        SrmSync.pullFile(space, work, name, st)
+        assertEquals(at, f.lastModified())
+        // Changed in the folder (another device): it comes in.
+        val other = disk.copyOf().also { it[5] = (it[5] + 1).toByte() }
+        File(space.root, "saves/$name").apply { writeBytes(other); setLastModified(lastModified() + 5000) }
+        SrmSync.pullFile(space, work, name, st)
+        assertArrayEquals(other, f.readBytes())
+        // And then it's in step again.
+        val at2 = f.lastModified()
+        f.setLastModified(at2); SrmSync.pullFile(space, work, name, st)
+        assertEquals(at2, f.lastModified())
+    }
+
     @Test fun saveRamKeepsItsOldKey() {
         val space = DirSpace(tmp.newFolder("picked"))
         val work = tmp.newFolder("work")

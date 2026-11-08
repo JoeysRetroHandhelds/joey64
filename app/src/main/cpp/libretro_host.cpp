@@ -843,7 +843,11 @@ void setEmuThreadPriority() {
 }
 
 void runLoop() {
-    pinToBigCores();
+    // EXPERIMENT (Performance mode's Battery saver, 2026-11-08): N64_PIN=0 leaves the threads where the
+    // scheduler puts them: no big-core pinning and no split.
+    const char* pinEnv = getenv("N64_PIN");
+    const bool pin = !(pinEnv && *pinEnv == '0');
+    if (pin) pinToBigCores(); else LOGI("emu thread not pinned (N64_PIN=0)");
     setEmuThreadPriority();
     // DEV (N64_GPU_TURBO=2): Adreno GPU clock pinned by a KGSL power constraint held by a keep-alive context
     // (DroidDeck's way, gpu_clock_pin.cpp); kept for the Portal slow-mode check (GPU stuck at 220 MHz). Mode 1
@@ -867,7 +871,7 @@ void runLoop() {
     bool hintThreadsAdded = false;
     PerfHint perfHint;
     const char* noSplit = getenv("N64_PIN_SPLIT");
-    const bool split = !(noSplit && *noSplit == '0');
+    const bool split = pin && !(noSplit && *noSplit == '0');
     const char* late = getenv("N64_LATE_INPUT");
     g_lateInput = !(late && *late == '0');
     LOGI("late input %s", g_lateInput ? "on" : "off");

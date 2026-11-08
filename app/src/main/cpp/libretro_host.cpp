@@ -1069,6 +1069,8 @@ void runLoop() {
             g_statRunMs += ms;
             noteFrameTime(ms);
         }
+        if (Cheevos::waitingForRam())
+            Cheevos::ramReady(static_cast<uint8_t*>(core.get_memory_data(RETRO_MEMORY_SYSTEM_RAM)), core.get_memory_size(RETRO_MEMORY_SYSTEM_RAM));
         if (!rewinding) {
             Cheevos::doFrame();
             if (g_framesRun > 60)

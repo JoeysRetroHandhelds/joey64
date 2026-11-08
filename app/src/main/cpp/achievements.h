@@ -11,6 +11,10 @@ namespace Cheevos {
 // core's RDRAM for the memory reads. Starts identifying the game if the user is signed in (or a
 // sign-in is under way; rc_client waits for it).
 void gameLoaded(const uint8_t* rom, size_t romSize, uint8_t* ram, size_t ramSize);
+// mupen64plus-next has no RDRAM until its first retro_run: while waitingForRam(), the host gives it
+// with ramReady after each frame, and the set loads then.
+bool waitingForRam();
+void ramReady(uint8_t* ram, size_t ramSize);
 // When the game stops.
 void gameUnloaded();
 // On the emulation thread: after each retro_run, and about once a second while paused.

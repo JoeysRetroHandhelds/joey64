@@ -55,6 +55,10 @@ std::atomic<bool> g_enabled{true};     // Settings › RetroAchievements › Ach
 // The running game's set didn't load (signed out, or the kept sign-in was refused): a sign-in that
 // works during the game loads it then (the in-game Sign-in expired pop-up's sign-in).
 std::atomic<bool> g_loadAgain{false};
+// The core had no RDRAM yet at retro_load_game (mupen64plus-next allocates it on the first retro_run):
+// the set is loaded once ramReady gives it, else rc_client finds every address unreadable and disables
+// every achievement ("Disabled achievement N. Invalid address ...", found on the Thor 2026-11-08).
+std::atomic<bool> g_waitRam{false};
 // A state's achievement progress loaded before the game's set came from the server (Continue loads
 // the auto state at boot): given to rc_client once the set loads.
 std::mutex g_progressMutex;
@@ -296,13 +300,8 @@ void hashRom(const uint8_t* rom, size_t size, char out[33]) {
 
 namespace Cheevos {
 
-void gameLoaded(const uint8_t* rom, size_t romSize, uint8_t* ram, size_t ramSize) {
-    hashRom(rom, romSize, g_hash);
-    {
-        std::lock_guard<std::mutex> lk(g_ramMutex);
-        g_ram = ram; g_ramSize = ramSize;
-    }
-    RLOGI("game hash %s, RDRAM %zu bytes", g_hash, ramSize);
+// Identifies the game and loads its set, once the RDRAM is there.
+static void startLoad() {
     if (!g_client || !g_hash[0]) return;
     if (!g_enabled) { RLOGI("achievements are off in Settings"); return; }
     const rc_client_user_t* u = rc_client_get_user_info(g_client);
@@ -312,7 +311,32 @@ void gameLoaded(const uint8_t* rom, size_t romSize, uint8_t* ram, size_t ramSize
     rc_client_begin_load_game(g_client, g_hash, gameDone, nullptr);
 }
 
+void gameLoaded(const uint8_t* rom, size_t romSize, uint8_t* ram, size_t ramSize) {
+    hashRom(rom, romSize, g_hash);
+    {
+        std::lock_guard<std::mutex> lk(g_ramMutex);
+        g_ram = ram; g_ramSize = ram ? ramSize : 0;
+    }
+    RLOGI("game hash %s, RDRAM %zu bytes%s", g_hash, ramSize, ram ? "" : " (not there yet: the set loads after the first frame)");
+    g_waitRam = ram == nullptr;
+    if (ram) startLoad();
+}
+
+bool waitingForRam() { return g_waitRam; }
+
+void ramReady(uint8_t* ram, size_t ramSize) {
+    if (!g_waitRam || !ram) return;
+    {
+        std::lock_guard<std::mutex> lk(g_ramMutex);
+        g_ram = ram; g_ramSize = ramSize;
+    }
+    g_waitRam = false;
+    RLOGI("RDRAM there after the first frame: loading the set");
+    startLoad();
+}
+
 void gameUnloaded() {
+    g_waitRam = false;
     g_loadAgain = false;
     { std::lock_guard<std::mutex> lk(g_progressMutex); g_pendingProgress.clear(); }
     if (g_client) rc_client_unload_game(g_client);

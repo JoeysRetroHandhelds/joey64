@@ -612,7 +612,7 @@ Checked on the Thor against a local server (2026-11-08): the question, What's se
 - Native crash text is thin ("native crash, signal 11: crash"): the tombstone (protobuf) has the backtrace; reading its frames would make core crashes useful.
 - Audio underruns in sessions (needs a NativeBridge call for the host's count), then "audio crackles" back in What's sent.
 - The server's `where` values are core / launcher / host; "game" might read better (a server change and redeploy).
-- Seen while testing: Android's scheduled full backup killed Joey64 in the foreground mid-game (signal 9, 2026-11-07 23:17). The manifest has no `allowBackup`, so Android backs the app up by default. Joey's call: turn backup off, or limit it with backup rules.
+- Done 2026-11-08 (Joey: "Yes, turn it off"): Android's scheduled full backup had killed Joey64 in the foreground mid-game (signal 9, 2026-11-07 23:17), because the manifest didn't set `allowBackup`. Now `android:allowBackup="false"`; on the Thor `bmgr backupnow` answers "Backup is not allowed". Saves are kept by Back up Joey64 and a picked data folder.
 
 ## Not in this plan
 

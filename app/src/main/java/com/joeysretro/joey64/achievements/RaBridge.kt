@@ -119,6 +119,9 @@ object RaBridge {
         _signIn.value = SignInState.Idle
     }
 
+    /** Debug builds (RA_EVENT --ez expired): as if the kept sign-in were refused, without touching the account. */
+    fun debugExpired(on: Boolean) { _expired.value = on }
+
     fun clearSignInError() { if (_signIn.value != SignInState.Busy) _signIn.value = SignInState.Idle }
 
     fun signOut() {

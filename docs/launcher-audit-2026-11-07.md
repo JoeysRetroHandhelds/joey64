@@ -14,7 +14,7 @@ Every phase in `docs/launcher-build-plan.md`, checked against the code on `launc
 | 4 Controls | Built | Rumble reaches Player 1 only (host drops ports 1-3); Transfer Pak; real N64 pads; Switch Online N64 over USB |
 | 5 Collections | Built | "Has achievements" filter (approved; RetroAchievements is now built); 4-player hacks |
 | 6 Cheats | Built | Widescreen and 60 fps spots (Video's Aspect ratio still says Auto = 4:3 until they have one); unplaced libretro files; offline and Download cheats off unchecked |
-| 7 RetroAchievements | Built, softcore | Unlock sound and volume; RAOfflineProxy status line (needs mockup) and PR (Joey posts); tap "Sign-in expired"; progress in save states; Joey's own sign-in and a real unlock through the queue; Hardcore and Leaderboards wait for Joey |
+| 7 RetroAchievements | Built, softcore | RAOfflineProxy status line (needs mockup) and PR (Joey posts); Joey's own sign-in (unlock sound, tap "Sign-in expired" and progress in states built 2026-11-08) and a real unlock through the queue; Hardcore and Leaderboards wait for Joey |
 | 8 Settings | Appearance, Video, Audio, On screen, Saves, the stop-gap Library, RA, About built | Library tab, Emulation tab, General; rows 8-12 of the settings build order |
 
 Tests: 245 unit tests pass. The branch is 9 commits ahead of main and 9 behind (merge is Joey's go).

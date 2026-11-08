@@ -2073,9 +2073,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         }
         // adb push ev.json /sdcard/Android/data/com.joeysretro.joey64/files/ra_event.json
         // adb shell am broadcast -a com.joeysretro.joey64.RA_EVENT  -> hands that rcheevos event JSON to the
-        // listeners as if the core had sent it (pop-up checks without a real unlock); --es file x.json for another file
+        // listeners as if the core had sent it (pop-up checks without a real unlock); --es file x.json for another file;
+        // --ez expired true puts up the Sign-in expired pop-up as a refused kept sign-in would (false takes it back)
         debugRaEvent = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, i: Intent) {
+                if (i.hasExtra("expired")) { com.joeysretro.joey64.achievements.RaBridge.debugExpired(i.getBooleanExtra("expired", true)); return }
                 val f = File(getExternalFilesDir(null), i.getStringExtra("file") ?: "ra_event.json")
                 val text = try { f.readText() } catch (e: Exception) { JLog.e(TAG, "RA_EVENT: can't read $f: $e"); return }
                 // One event per line, sent a second apart (an unlock, then what follows it).

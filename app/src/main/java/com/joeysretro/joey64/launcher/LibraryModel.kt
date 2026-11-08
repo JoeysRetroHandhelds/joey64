@@ -476,11 +476,71 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                 try { com.joeysretro.joey64.launcher.storage.BiosImport.importFolder(app, folder) } catch (e: Exception) { JLog.e(TAG, "64DD BIOS: $e") }
                 com.joeysretro.joey64.launcher.storage.BiosImport.ready(app)
             }
-            if (ready) { _needsBios.value = null; started(ask.game); start(ask.intent) } else _needsBios.value = ask.copy(missed = true)
+            if (ready) { _needsBios.value = null; go(ask.game, ask.intent, start) } else _needsBios.value = ask.copy(missed = true)
         }
     }
 
     fun biosCancelled() { _needsBios.value = null }
+
+    /**
+     * Play on an add-on 64DD disk (F-Zero X Expansion Kit, Dezaemon DD) whose cartridge, header game [code], isn't in
+     * the library (Joey 2026-11-07, popup A); [missed]: the last folder picked didn't have it.
+     */
+    data class NeedsCart(val game: LibraryGame, val code: String, val loadState: String?, val missed: Boolean = false)
+    private val _needsCart = MutableStateFlow<NeedsCart?>(null)
+    /** "This disk needs F-Zero X (Japan)", or null. */
+    val needsCart: StateFlow<NeedsCart?> = _needsCart
+
+    /** Starts [intent], unless it is a disk whose cartridge isn't in the library: then [needsCart] asks for it. */
+    private fun go(game: LibraryGame, intent: Intent, start: (Intent) -> Unit) {
+        val code = intent.getStringExtra(GameLauncher.EXTRA_NEEDS_CART)
+        if (code != null) {
+            JLog.i(TAG, "${game.title} needs the $code cartridge, which isn't in the library: asking for it")
+            _needsCart.value = NeedsCart(game, code, intent.getStringExtra(com.joeysretro.joey64.MainActivity.EXTRA_LOAD_STATE))
+        } else { started(game); start(intent) }
+    }
+
+    /**
+     * The folder picked in [needsCart]'s popup: read into the library; when it has the cartridge it stays a ROM folder
+     * and the disk starts with it, else it is left out again (its grant released) and the popup says so.
+     */
+    fun cartPicked(folder: Uri, start: (Intent) -> Unit) {
+        val ask = _needsCart.value ?: return
+        val tree = folder.toString()
+        // After a library read already under way (it may be reading this folder's games too).
+        val before = scan
+        scan = viewModelScope.launch {
+            before?.join()
+            val app = getApplication<Application>()
+            val listed = tree in settings.settings.first().romFolders
+            val intent = withContext(Dispatchers.IO) {
+                try {
+                    if (!listed) RomFolders.keep(app, folder, write = false)
+                    scanner.scan(listOf(folder))
+                } catch (e: Exception) { JLog.e(TAG, "can't read the picked folder: $e") }
+                // The start itself decides: it opens the cartridge's file, where a library row alone can be stale
+                // (2026-11-07: a cartridge moved out of a granted folder still counted as found).
+                val found = try { launcher.intentFor(ask.game, ask.loadState) } catch (e: Exception) { JLog.e(TAG, "can't start ${ask.game.title}: $e"); null }
+                    ?.takeIf { it.getStringExtra(GameLauncher.EXTRA_NEEDS_CART) == null }
+                if (found != null) {
+                    if (!listed) { settings.addRomFolder(tree); JLog.i(TAG, "ROM folder added for the ${ask.code} cartridge") }
+                    found
+                } else {
+                    if (!listed) {
+                        db.forgetFolder(tree)
+                        if (tree != com.joeysretro.joey64.launcher.storage.DataFolders.treeUri(app)) try { RomFolders.release(app, folder) } catch (e: Exception) {}
+                    }
+                    null
+                }
+            }
+            _games.value = withContext(Dispatchers.IO) { db.libraryGames() }
+            if (intent != null) {
+                _needsCart.value = null; started(ask.game); start(intent)
+            } else _needsCart.value = ask.copy(missed = true)
+        }
+    }
+
+    fun cartCancelled() { _needsCart.value = null }
 
     /** Gets [game] ready and hands [start] its intent. One at a time: a second press while a zip unpacks does nothing. */
     fun play(game: LibraryGame, loadState: String? = null, start: (Intent) -> Unit) {
@@ -494,7 +554,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                     !withContext(Dispatchers.IO) { com.joeysretro.joey64.launcher.storage.BiosImport.ready(app) }) {
                     JLog.i(TAG, "${game.title} is a 64DD disk and there's no 64DD BIOS: asking for it")
                     _needsBios.value = NeedsBios(game, intent)
-                } else if (intent != null) { started(game); start(intent) } else JLog.w(TAG, "no readable file for ${game.title}")
+                } else if (intent != null) go(game, intent, start) else JLog.w(TAG, "no readable file for ${game.title}")
             } finally {
                 starting = false
             }

@@ -49,7 +49,10 @@ class GameLauncher(private val context: Context, private val db: LibraryDb) {
             loadState?.let { intent.putExtra(MainActivity.EXTRA_LOAD_STATE, it) }
             if (isDisk(f, uri)) {
                 intent.putExtra(EXTRA_IS_DISK, true)
-                cartFor(game)?.let { intent.putExtra(MainActivity.EXTRA_DD_CART, it.toString()) }
+                cartCode(game)?.let { code ->
+                    val cart = cartFor(game, code)
+                    if (cart != null) intent.putExtra(MainActivity.EXTRA_DD_CART, cart.toString()) else intent.putExtra(EXTRA_NEEDS_CART, code)
+                }
             }
             // For recently played (JoeyOS reads it): the file in the ROMs folder, not the unpacked copy, and the title.
             intent.putExtra(MainActivity.EXTRA_SOURCE_URI, f.uri).putExtra(MainActivity.EXTRA_SOURCE_NAME, f.name)
@@ -65,12 +68,11 @@ class GameLauncher(private val context: Context, private val db: LibraryDb) {
         RomReader.isDiskName(f.name) || RomReader.isDiskName(uri.lastPathSegment ?: "")
 
     /**
-     * The cartridge a 64DD disk plays with ([DD_CARTS]): the newest-played game in the library with that header game
-     * code, as a content URI (unpacked when it's in an archive). Null: the disk needs none, or it isn't in the library
-     * (the disk then starts alone).
+     * The cartridge [disk] plays with, [code] from [cartCode]: the newest-played game in the library with that header
+     * game code, as a content URI (unpacked when it's in an archive). Null: it isn't in the library (the intent then
+     * carries [EXTRA_NEEDS_CART] and the library asks for it, Joey 2026-11-07).
      */
-    private fun cartFor(disk: LibraryGame): Uri? {
-        val code = DD_CARTS[disk.md5] ?: DD_CART_TITLES.entries.firstOrNull { disk.title.startsWith(it.key) }?.value ?: return null
+    private fun cartFor(disk: LibraryGame, code: String): Uri? {
         for (cart in db.gamesWithCode(code)) {
             for (f in readableFiles(cart)) {
                 val uri = try {
@@ -80,7 +82,7 @@ class GameLauncher(private val context: Context, private val db: LibraryDb) {
                 return uri
             }
         }
-        JLog.w(TAG, "64DD: ${disk.title} needs the $code cartridge, which isn't in the library; starting the disk alone")
+        JLog.w(TAG, "64DD: ${disk.title} needs the $code cartridge, which isn't in the library")
         return null
     }
 
@@ -156,6 +158,8 @@ class GameLauncher(private val context: Context, private val db: LibraryDb) {
         const val KEEP = 3
         /** On the intent: the game is a 64DD disk (the library checks for the BIOS before starting it). */
         const val EXTRA_IS_DISK = "com.joeysretro.joey64.launcher.IS_DISK"
+        /** On the intent: the disk plays with the cartridge of this header game code, which isn't in the library (not started then). */
+        const val EXTRA_NEEDS_CART = "com.joeysretro.joey64.launcher.NEEDS_CART"
         /**
          * 64DD disks that play with a cartridge in (the cartridge boots and reads the disk), by the disk's MD5: the
          * cartridge's header game code. F-Zero X - Expansion Kit (Japan): F-Zero X (Japan); Dezaemon DD (Japan)
@@ -167,6 +171,13 @@ class GameLauncher(private val context: Context, private val db: LibraryDb) {
         )
         /** The same by title, for other dumps of those disks. */
         val DD_CART_TITLES = mapOf("F-Zero X - Expansion Kit" to "CFZJ", "Dezaemon DD" to "CDZJ")
+        /** The cartridge a disk needs, by header game code, and the disk, as the missing-cartridge popup names them. */
+        val CART_NAMES = mapOf("CFZJ" to "F-Zero X (Japan)", "CDZJ" to "Dezaemon 3D (Japan)")
+        val DISK_NAMES = mapOf("CFZJ" to "F-Zero X Expansion Kit", "CDZJ" to "Dezaemon DD")
+
+        /** The header game code of the cartridge [disk] plays with ([DD_CARTS], else by title), or null when it needs none. */
+        fun cartCode(disk: LibraryGame): String? =
+            DD_CARTS[disk.md5] ?: DD_CART_TITLES.entries.firstOrNull { disk.title.startsWith(it.key) }?.value
         private const val PART = ".part"
         private const val TAG = "Joey64Launch"
     }

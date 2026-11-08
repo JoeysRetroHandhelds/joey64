@@ -1,7 +1,7 @@
 # The core bundled in app/src/main/jniLibs (written by devtools/bundle-core.sh; the .so itself is not committed)
 repo: JoeysRetroHandhelds/joey64-core
 branch: dd
-commit: ddf3103bfba561917eb0c9085b5ba2452be391cc 2026-11-07 19:01:23 -0600 64DD: disk-only start, disk saves in the save folder, IPL by region, no crash when a start fa
+commit: 0ac9d17e3e6e822351d1b64c52115e9303915541 2026-11-07 20:22:42 -0600 64DD: CountPerOp 1 for the Kyojin no Doshin 1 disks (Project64's counter factor; at 2 the gam
 uncommitted: none
-built: 2026-11-07 18:57
-md5: e33750074b8d088cd279945f9aa17f9b
+built: 2026-11-07 20:22
+md5: ff81366cf98a10043fc2270be8c68f43

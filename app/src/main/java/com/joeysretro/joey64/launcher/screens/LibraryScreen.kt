@@ -91,6 +91,7 @@ fun LibraryScreen(model: LibraryModel, onSearch: () -> Unit) {
         AskContinuePopup(ask) { carryOn -> model.continueAnswered(carryOn) { context.startActivity(it) } }
     }
     NeedsBiosPopup(model) { context.startActivity(it) }
+    NeedsCartPopup(model) { context.startActivity(it) }
     var showing by remember { mutableStateOf(false) }
     if (showing) ShowPopup(model) { showing = false }
 

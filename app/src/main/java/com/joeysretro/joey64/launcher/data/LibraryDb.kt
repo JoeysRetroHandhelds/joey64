@@ -574,6 +574,29 @@ class LibraryDb private constructor(context: Context) :
     }
 
     /** Records what [gameId] shows; see [LibrarySchema.V2]. */
+    /**
+     * Marks the "none" covers of games with an MD5 in [md5s], checked before [before], for a lookup at the next run
+     * (checked_at 0). Returns how many.
+     */
+    fun retryNone(md5s: Set<String>, before: Long): Int {
+        if (md5s.isEmpty() || before <= 0) return 0
+        var n = 0
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            for (chunk in md5s.chunked(500)) {
+                db.compileStatement("UPDATE box_art SET checked_at = 0 WHERE kind = 'none' AND checked_at > 0 AND checked_at < ? " +
+                    "AND game_id IN (SELECT id FROM games WHERE md5 IN (" + chunk.joinToString(",") { "?" } + "))").use { st ->
+                    st.bindLong(1, before)
+                    chunk.forEachIndexed { i, m -> st.bindString(i + 2, m) }
+                    n += st.executeUpdateDelete()
+                }
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+        return n
+    }
+
     fun setArt(gameId: Long, kind: String, cover: String?, checkedAt: Long) {
         writableDatabase.insertWithOnConflict("box_art", null, ContentValues().apply {
             put("game_id", gameId)

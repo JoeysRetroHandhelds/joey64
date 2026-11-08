@@ -95,6 +95,11 @@ class BoxArt(private val context: Context, private val db: LibraryDb) {
     suspend fun fetch(maxWidth: Int = HIGH_WIDTH, onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }, onCover: () -> Unit = {}): Outcome = withContext(Dispatchers.IO) {
         val t0 = SystemClock.elapsedRealtime()
         val now = System.currentTimeMillis()
+        // A game found with no cover before this build was installed, that this build's fixes.tsv lists with a game,
+        // is looked up again now, not a week later (2026-11-07: Star Road Deluxe, checked before its line was added).
+        val listed = BoxArtFixes.get(context).filterValues { it is BoxArtFixes.Fix.Game }.keys
+        val installed = try { context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime } catch (e: Exception) { 0L }
+        db.retryNone(listed, installed).takeIf { it > 0 }?.let { JLog.i(TAG, "box art: $it games without a cover are listed in fixes.tsv now, looking them up again") }
         val todo = db.artToLookUp(now - RETRY_NONE_MS)
         if (todo.isEmpty()) return@withContext Outcome.Done(0, 0, 0)
         if (!ScreenScraper.usable) {

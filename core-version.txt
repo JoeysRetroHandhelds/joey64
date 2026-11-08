@@ -1,7 +1,7 @@
 # The core bundled in app/src/main/jniLibs (written by devtools/bundle-core.sh; the .so itself is not committed)
 repo: JoeysRetroHandhelds/joey64-core
-branch: no-angrylion
-commit: a8ab8292f70d92348d35b0c50af282217ea9a257 2026-11-07 16:50:53 -0600 Remove angrylion: its old MAME licence is non-commercial, which Joey64's GPLv3 can't carry
+branch: dd
+commit: ddf3103bfba561917eb0c9085b5ba2452be391cc 2026-11-07 19:01:23 -0600 64DD: disk-only start, disk saves in the save folder, IPL by region, no crash when a start fa
 uncommitted: none
-built: 2026-11-07 16:50
-md5: 3cb07dcee4cf75a649e9248b72bab7cf
+built: 2026-11-07 18:57
+md5: e33750074b8d088cd279945f9aa17f9b

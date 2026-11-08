@@ -153,9 +153,28 @@ object ReportSender {
             ApplicationExitInfo.REASON_ANR -> try { x.traceInputStream?.bufferedReader()?.useLines { it.take(40).joinToString("\n") } } catch (e: Exception) { null }
             // A Java crash has no trace in the exit record: LogFiles kept the stack when it happened.
             ApplicationExitInfo.REASON_CRASH -> File(ReportFiles.dir(ctx), "java-crash-${x.pid}.txt").takeIf { it.exists() }?.let { f -> f.readText().also { f.delete() } }
+            // A native crash's tombstone (Android 12+): the signal and the crashing thread's backtrace.
+            ApplicationExitInfo.REASON_CRASH_NATIVE -> try {
+                x.traceInputStream?.use { s -> s.readNBytesCompat(8 shl 20) }?.let { Tombstone.summary(it) }
+            } catch (e: Exception) { null }
             else -> null
         }
-        return scrub(head + (detail?.let { "\n" + it } ?: ""))
+        // A native crash's tombstone starts with the signal itself: "native crash" is enough above it.
+        val top = if (x.reason == ApplicationExitInfo.REASON_CRASH_NATIVE && detail != null)
+            "native crash" + (x.description?.takeIf { it.isNotBlank() && it != "crash" }?.let { ": $it" } ?: "") else head
+        return scrub(top + (detail?.let { "\n" + it } ?: ""))
+    }
+
+    /** At most [max] bytes of the stream (InputStream.readNBytes is Android 13+). */
+    private fun java.io.InputStream.readNBytesCompat(max: Int): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        val buf = ByteArray(64 * 1024)
+        while (out.size() < max) {
+            val n = read(buf, 0, minOf(buf.size, max - out.size()))
+            if (n < 0) break
+            out.write(buf, 0, n)
+        }
+        return out.toByteArray()
     }
 
     /** Paths and content addresses out of crash text (a file name in an exception's message can name the user's folders). */
@@ -182,7 +201,7 @@ object ReportSender {
                 // A Java crash or ANR while playing: the game screen's side, not the library's.
                 if (exit.where == "launcher") exit.where = "host"
             } else o.put("ended", "quit")
-            if (o.optLong("seconds") >= SessionTracker.MIN_SECONDS) ReportFiles.write(File(ReportFiles.pending(ctx), "${f.lastModified()}-$pid.json"), o.toString())
+            if (SessionTracker.keep(o.optLong("seconds"), o.optLong("frames", Long.MAX_VALUE))) ReportFiles.write(File(ReportFiles.pending(ctx), "${f.lastModified()}-$pid.json"), o.toString())
             f.delete()
         }
     }

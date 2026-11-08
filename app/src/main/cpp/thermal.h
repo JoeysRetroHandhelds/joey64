@@ -17,4 +17,8 @@ void update();
 std::string text();
 // Fast-forward speed to use now: 4 unless the governor has lowered it.
 int fastForwardSpeed();
+// The last readings (-1 / NaN when unknown) and how many times the governor lowered the speed (Send reports).
+int status();
+float headroom();
+int governorDrops();
 }

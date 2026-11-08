@@ -16,6 +16,19 @@ test("a good report keeps every event, trimmed to the tables", () => {
   assert.equal(r.events[2].kind, "replaced");
   assert.equal(r.events[2].cover, "screenscraper:108717:us");
   assert.equal(r.events[3].where_, "core");
+  assert.equal(r.events[0].p99_ms, 14);
+  assert.equal(r.events[0].rdp_sync, 0);
+  assert.equal(r.events[0].from_state, 1);
+  assert.equal(r.events[0].cpu_core, "dynarec");
+});
+
+test("an older app's session, without the details, is taken", () => {
+  const b = good();
+  for (const k of ["frames", "firstFrameMs", "framesTimed", "p95Ms", "p99Ms", "slowFrames", "lagMs", "lagMaxMs", "thermalMax",
+    "headroomMax", "thermalDrops", "rdpSync", "cpuCore", "refreshHz", "cheats", "fromState"]) delete b.events[0][k];
+  const r = validate(b);
+  assert.equal(r.events[0].frames, null);
+  assert.equal(r.events[0].cpu_core, null);
 });
 
 test("fields a report has no business carrying are dropped", () => {
@@ -45,6 +58,11 @@ for (const [name, change] of [
   ["setting not a plain value", (b) => { b.events[0].settings = { x: { y: 1 } }; }],
   ["summary too long", (b) => { b.events[3].summary = "x".repeat(2001); }],
   ["where", (b) => { b.events[3].where = "kernel"; }],
+  ["p99Ms out of range", (b) => { b.events[0].p99Ms = 101; }],
+  ["thermalMax out of range", (b) => { b.events[0].thermalMax = 7; }],
+  ["rdpSync not true or false", (b) => { b.events[0].rdpSync = 1; }],
+  ["cpuCore", (b) => { b.events[0].cpuCore = "jit"; }],
+  ["frames not a whole number", (b) => { b.events[0].frames = 1.5; }],
   ["device not an object", (b) => { b.device = "Thor"; }],
 ]) {
   test(`rejected: ${name}`, () => {

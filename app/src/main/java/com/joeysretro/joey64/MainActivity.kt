@@ -746,6 +746,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (saveName.isEmpty()) return
         val lines = com.joeysretro.joey64.cheats.GameCheats(this, saveName).read().codeLines()
         for (l in lines) NativeBridge.addCheat(l)
+        cheatsMost = lines.size
         JLog.i(TAG, "cheats: ${lines.size} on, keys ${cheatKeys.joinToString()}")
     }
 
@@ -898,6 +899,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     // and the library sends it with the next report. Off: nothing is recorded. Dev starts (--es env/opts,
     // renderer or driver overrides) are tests, not play: not recorded either.
     private var session: com.joeysretro.joey64.reports.SessionTracker? = null
+    /** The most cheat codes on at once this session (reports: a game that misbehaves with cheats on). */
+    private var cheatsMost = 0
+    private val sessionStats = DoubleArray(16)
 
     private fun startSession(rom: String, saveName: String) {
         if (!com.joeysretro.joey64.reports.ReportPrefs.on(this)) return
@@ -918,6 +922,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             put("settings", settings)
             put("gpu", gpuName.replace("(TM) ", ""))
             put("driver", statsDriver)
+            @Suppress("DEPRECATION") val shown = if (Build.VERSION.SDK_INT >= 30) display else windowManager.defaultDisplay
+            shown?.refreshRate?.takeIf { it > 0 }?.let { put("refreshHz", Math.round(it)) }
+            put("fromState", intent?.getStringExtra(EXTRA_LOAD_STATE) != null)
+            put("cheats", cheatsMost)
         }
         // The library's report with no session yet names the GPU and driver from here.
         getSharedPreferences("device", MODE_PRIVATE).edit().putString("report_gpu", gpuName.replace("(TM) ", "")).putString("report_driver", statsDriver).apply()
@@ -932,7 +940,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     /** Closes the stretch since the last mark, counted if play was counting through it. */
     private fun sessionMark() {
-        session?.tick(sessionCounting, NativeBridge.framesRun(), NativeBridge.framesDrawn(), android.os.SystemClock.elapsedRealtime())
+        val s = session ?: return
+        s.tick(sessionCounting, NativeBridge.framesRun(), NativeBridge.framesDrawn(), android.os.SystemClock.elapsedRealtime())
+        s.native(sessionStats, NativeBridge.sessionStats(sessionStats))
     }
 
     private val sessionTick = object : Runnable {
@@ -1029,6 +1039,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             val lines = com.joeysretro.joey64.cheats.GameCheats(this@MainActivity, st.saveName).read().codeLines()
             NativeBridge.setCheats(lines.toTypedArray())
             JLog.i(TAG, "cheats: ${lines.size} on")
+            if (lines.size > cheatsMost) { cheatsMost = lines.size; session?.put("cheats", cheatsMost) }
         }
     }
 

@@ -76,8 +76,9 @@ object ReportFiles {
 
 /**
  * One play session, kept by the game screen while Send reports is on: the time played at normal
- * speed and the frames run and drawn in it (paused, the pause menu and fast-forward don't count).
- * [base] has the session's fixed fields (md5, renderer, scale, settings) and gpu / driver.
+ * speed and the frames run and drawn in it (paused, the pause menu and fast-forward don't count), and
+ * the host's numbers for the whole run ([native], NativeBridge.sessionStats). [base] has the session's
+ * fixed fields (md5, renderer, scale, settings, refreshHz, fromState, cheats) and gpu / driver.
  */
 class SessionTracker(private val openFile: File, private val pendingDir: File, private val base: JSONObject) {
     private var ms = 0L
@@ -86,6 +87,8 @@ class SessionTracker(private val openFile: File, private val pendingDir: File, p
     private var lastAt = -1L
     private var lastRun = 0
     private var lastDrawn = 0
+    private var allDrawn = 0L
+    private var stats: DoubleArray? = null
 
     /**
      * Every few seconds, and when play stops or starts: the time since the last call counts when
@@ -97,10 +100,17 @@ class SessionTracker(private val openFile: File, private val pendingDir: File, p
             run += (framesRun - lastRun).coerceAtLeast(0)
             drawn += (framesDrawn - lastDrawn).coerceAtLeast(0)
         }
+        if (lastAt >= 0) allDrawn += (framesDrawn - lastDrawn).coerceAtLeast(0) else allDrawn = framesDrawn.toLong().coerceAtLeast(0)
         lastAt = now; lastRun = framesRun; lastDrawn = framesDrawn
     }
 
     val seconds get() = ms / 1000
+
+    /** The host's numbers so far (NativeBridge.sessionStats), taken with each tick. */
+    @Synchronized fun native(v: DoubleArray, n: Int) { stats = v.copyOf(n) }
+
+    /** A fixed field that can change while playing (cheats turned on in the pause menu). */
+    @Synchronized fun put(key: String, value: Any) { base.put(key, value) }
 
     /** The session as sent, ended by "quit" or "crash"; the gpu and driver stay in it for the sender. */
     @Synchronized fun event(ended: String): JSONObject = JSONObject(base.toString()).apply {
@@ -111,6 +121,8 @@ class SessionTracker(private val openFile: File, private val pendingDir: File, p
             put("drawnFps", round1(drawn * 1000.0 / ms))
             put("dupes", round1((run - drawn).coerceAtLeast(0) * 1000.0 / ms))
         }
+        put("frames", allDrawn)
+        stats?.let { putNative(this, it) }
         put("ended", ended)
     }
 
@@ -119,17 +131,43 @@ class SessionTracker(private val openFile: File, private val pendingDir: File, p
     /** The session so far, for when the process ends without [finish]. Any thread; nothing once finished. */
     @Synchronized fun writeOpen() { if (!done && ms > 0) ReportFiles.write(openFile, event("crash").toString()) }
 
-    /** Quit: the session waits in pending/ for the next send. Shorter than [MIN_SECONDS]: dropped. */
+    /** Quit: the session waits in pending/ for the next send, if [keep] says it's worth sending. */
     @Synchronized fun finish() {
         if (done) return
         done = true
-        if (seconds >= MIN_SECONDS) ReportFiles.write(File(pendingDir, "${System.currentTimeMillis()}-${openFile.nameWithoutExtension}.json"), event("quit").toString())
+        if (keep(seconds, allDrawn)) ReportFiles.write(File(pendingDir, "${System.currentTimeMillis()}-${openFile.nameWithoutExtension}.json"), event("quit").toString())
         openFile.delete()
     }
 
     companion object {
         /** Less than this is a game started to check something: not worth a session. */
         const val MIN_SECONDS = 20L
+        /** A game that ran this long and drew fewer than [BOOT_FRAMES] frames didn't boot: kept, it's what we most need to see. */
+        const val BOOT_SECONDS = 5L
+        const val BOOT_FRAMES = 60L
+
+        fun keep(seconds: Long, frames: Long) = seconds >= MIN_SECONDS || (seconds >= BOOT_SECONDS && frames < BOOT_FRAMES)
+
+        /** NativeBridge.sessionStats' order; -1 (or a missing value) means not known, left out. */
+        fun putNative(o: JSONObject, v: DoubleArray) {
+            fun at(i: Int) = v.getOrNull(i)?.takeIf { it >= 0 && !it.isNaN() }
+            at(0)?.let { o.put("underruns", it.toLong()) }
+            at(1)?.let { o.put("lagMs", round1(it)) }
+            at(2)?.let { o.put("lagMaxMs", round1(it)) }
+            at(3)?.let { o.put("thermalMax", it.toInt()) }
+            at(4)?.let { o.put("headroomMax", Math.round(it * 100) / 100.0) }
+            at(5)?.let { o.put("thermalDrops", it.toInt()) }
+            at(6)?.let { o.put("rdpSync", it >= 1) }
+            at(7)?.let { o.put("cpuCore", if (it >= 1) "interpreter" else "dynarec") }
+            at(8)?.let { o.put("firstFrameMs", it.toLong()) }
+            val timed = at(9) ?: 0.0
+            if (timed > 0) {
+                at(10)?.let { o.put("p95Ms", it.toInt()) }
+                at(11)?.let { o.put("p99Ms", it.toInt()) }
+                at(12)?.let { o.put("slowFrames", it.toLong()) }
+                o.put("framesTimed", timed.toLong())
+            }
+        }
         private fun round1(v: Double) = Math.round(v * 10) / 10.0
     }
 }
@@ -178,9 +216,21 @@ object ReportJson {
             stored.optJSONObject("settings")?.let { put("settings", settings(it)) }
             put("seconds", stored.optLong("seconds").coerceIn(0, 7 * 24 * 3600))
             for (k in listOf("emuFps", "drawnFps", "dupes")) if (stored.has(k)) put(k, stored.getDouble(k).coerceIn(0.0, 1000.0))
+            // Numbers: name to the largest value the server takes (server/reports/src/validate.js).
+            for ((k, max) in NUMBERS) if (stored.has(k)) {
+                val v = stored.optDouble(k)
+                if (!v.isNaN() && v >= 0) put(k, if (k in WHOLE) v.coerceAtMost(max).toLong() else v.coerceAtMost(max))
+            }
+            for (k in listOf("rdpSync", "fromState")) if (stored.has(k)) put(k, stored.optBoolean(k))
+            stored.optString("cpuCore").takeIf { it == "interpreter" || it == "dynarec" }?.let { put("cpuCore", it) }
             put("ended", if (stored.optString("ended") == "crash") "crash" else "quit")
         }
     }
+
+    private val NUMBERS = listOf("frames" to 1e9, "framesTimed" to 1e9, "firstFrameMs" to 600_000.0, "p95Ms" to 100.0, "p99Ms" to 100.0,
+        "slowFrames" to 1e9, "underruns" to 100_000.0, "lagMs" to 1000.0, "lagMaxMs" to 1000.0, "thermalMax" to 6.0, "headroomMax" to 10.0,
+        "thermalDrops" to 1e6, "refreshHz" to 500.0, "cheats" to 1000.0)
+    private val WHOLE = setOf("frames", "framesTimed", "firstFrameMs", "p95Ms", "p99Ms", "slowFrames", "underruns", "thermalMax", "thermalDrops", "refreshHz", "cheats")
 
     /** At most 60 settings, names up to 48 characters, string values up to 64. */
     fun settings(o: JSONObject): JSONObject = JSONObject().apply {

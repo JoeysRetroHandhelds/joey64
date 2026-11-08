@@ -29,6 +29,7 @@ struct State {
     std::chrono::steady_clock::time_point lastRead{};
     bool governor = false;
     std::atomic<int> speed{kMaxSpeed};
+    int drops = 0;
 };
 State s;
 
@@ -70,6 +71,7 @@ void update() {
         next = cur + 1;          // cooled well below the thresholds: one step back up
     if (next != cur) {
         s.speed = next;
+        if (next < cur) ++s.drops;
         LOGI("thermal governor: fast-forward %dx -> %dx (status %d, headroom %.2f)", cur, next, s.lastStatus,
              s.lastHeadroom);
     }
@@ -85,4 +87,7 @@ std::string text() {
 }
 
 int fastForwardSpeed() { return s.speed.load(); }
+int status() { return s.status ? s.lastStatus : -1; }
+float headroom() { return s.headroom ? s.lastHeadroom : NAN; }
+int governorDrops() { return s.drops; }
 } // namespace Thermal

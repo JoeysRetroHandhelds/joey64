@@ -34,6 +34,12 @@ function num(v, name, min, max, { int = false } = {}) {
   return v;
 }
 
+function bool(v, name) {
+  if (v === undefined || v === null) return null;
+  if (typeof v !== "boolean") throw new Invalid(`${name} not true or false`);
+  return v ? 1 : 0;
+}
+
 function md5(v, name) {
   const s = str(v, name, 32, { optional: false });
   if (!MD5.test(s)) throw new Invalid(`${name} not an MD5`);
@@ -85,8 +91,25 @@ function event(e) {
         emu_fps: num(e.emuFps, "emuFps", 0, 1000),
         drawn_fps: num(e.drawnFps, "drawnFps", 0, 1000),
         dupes: num(e.dupes, "dupes", 0, 1000),
-        underruns: num(e.underruns, "underruns", 0, 100000),
+        underruns: num(e.underruns, "underruns", 0, 100000, { int: true }),
         ended: oneOf(e.ended, "ended", ["quit", "crash"]),
+        // Added 2026-11-08 (migrations/0002-session-details.sql); each may be missing (an older app).
+        frames: num(e.frames, "frames", 0, 1e9, { int: true }),
+        first_frame_ms: num(e.firstFrameMs, "firstFrameMs", 0, 600000, { int: true }),
+        frames_timed: num(e.framesTimed, "framesTimed", 0, 1e9, { int: true }),
+        p95_ms: num(e.p95Ms, "p95Ms", 0, 100, { int: true }),
+        p99_ms: num(e.p99Ms, "p99Ms", 0, 100, { int: true }),
+        slow_frames: num(e.slowFrames, "slowFrames", 0, 1e9, { int: true }),
+        lag_ms: num(e.lagMs, "lagMs", 0, 1000),
+        lag_max_ms: num(e.lagMaxMs, "lagMaxMs", 0, 1000),
+        thermal_max: num(e.thermalMax, "thermalMax", 0, 6, { int: true }),
+        headroom_max: num(e.headroomMax, "headroomMax", 0, 10),
+        thermal_drops: num(e.thermalDrops, "thermalDrops", 0, 1e6, { int: true }),
+        rdp_sync: bool(e.rdpSync, "rdpSync"),
+        cpu_core: e.cpuCore === undefined || e.cpuCore === null ? null : oneOf(e.cpuCore, "cpuCore", ["dynarec", "interpreter"]),
+        refresh_hz: num(e.refreshHz, "refreshHz", 0, 500, { int: true }),
+        cheats: num(e.cheats, "cheats", 0, 1000, { int: true }),
+        from_state: bool(e.fromState, "fromState"),
       };
     case "nocover":
     case "replaced":

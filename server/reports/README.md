@@ -9,7 +9,7 @@ Live since 2026-11-08 at https://joey64-reports.joeysretrohandhelds.workers.dev,
 Cloudflare account (JoeysRetroHandhelds, its own account, not Joey's personal one; `account_id` in
 `wrangler.toml` keeps deploys there). The app side (built 2026-11-08, approved mockup version A):
 Settings › About › Send reports, Off by default, asked once over the library; see the app's
-`reports/` package and `docs/launcher-build-plan.md` › Reports. The app doesn't send `underruns` yet.
+`reports/` package and `docs/launcher-build-plan.md` › Reports.
 Crash `where`: core (native crash), host (Java crash or ANR while a game ran), launcher (otherwise).
 
 ## What a report holds
@@ -26,13 +26,20 @@ Crash `where`: core (native crash), host (Java crash or ANR while a game ran), l
   "events": [
     { "type": "session", "md5": "<rom md5>", "header": "NSME", "renderer": "parallel", "scale": 1,
       "settings": { "only": "the ones that differ from the defaults" },
-      "seconds": 1800, "emuFps": 60, "drawnFps": 30, "dupes": 30, "underruns": 0, "ended": "quit" },
+      "seconds": 1800, "emuFps": 60, "drawnFps": 30, "dupes": 30, "underruns": 0, "ended": "quit",
+      "frames": 54000, "firstFrameMs": 2310, "framesTimed": 108000, "p95Ms": 9, "p99Ms": 14, "slowFrames": 3,
+      "lagMs": 41.2, "lagMaxMs": 66, "thermalMax": 1, "headroomMax": 0.62, "thermalDrops": 0,
+      "rdpSync": false, "cpuCore": "dynarec", "refreshHz": 120, "cheats": 0, "fromState": true },
     { "type": "nocover", "md5": "...", "header": "NSME", "title": "file name without extension" },
     { "type": "replaced", "md5": "...", "cover": "screenscraper:<game>:<region>", "title": "..." },
     { "type": "crash", "md5": "...", "where": "core", "summary": "first lines, at most 2,000 characters" }
   ]
 }
 ```
+
+The session fields from `frames` on came with the 2026-11-08 app (`schema.sql` explains each); every one
+may be missing. `underruns` is a count for the session. A crash `summary` for where `core` is the tombstone
+read: signal, fault address, abort message, the crashing thread's frames (library names, offsets, functions).
 
 `src/validate.js` checks every field and rejects the whole report on anything unexpected. Answers:
 204 stored, 400 bad report, 413 too big, 429 too many (10 posts a minute per IP address, 6 reports a day
@@ -48,12 +55,14 @@ per install), 404/405 anything else. `GET /health` says `ok`.
 
 ## Files
 
-- `schema.sql`: the tables (reports, sessions, covers, crashes).
+- `schema.sql`: the tables (reports, sessions, covers, crashes), as a new database gets them.
+- `migrations/`: changes for a database made before them, each run once (`0002-session-details.sql`: the
+  session details, 2026-11-08). Run a migration before deploying the Worker that writes its columns.
 - `src/index.js`: the Worker (handlers only: a Worker's main module may export nothing else).
 - `src/validate.js`, `src/store.js`: checking and storing.
 - `queries/`: `missing-covers.sql` (covers to make for joey64-data), `replaced-covers.sql` (wrong
   downloads, for the app's `fixes.tsv`), `drivers.sql` (fps, underruns and crashes per GPU, driver,
-  game and renderer, 3 sessions or more), `crashes.sql`.
+  game and renderer, 3 sessions or more), `failed-boots.sql`, `crashes.sql`.
 - `test/`: `npm test` (node --test, a fake D1), and `sh test/local-run.sh` (wrangler dev with a local
   D1: posts samples, prints what was stored).
 
@@ -79,8 +88,9 @@ wrangler d1 execute joey64-reports --remote --file queries/missing-covers.sql
 
 ## Deploy
 
-`wrangler deploy`, after `npm test` and `sh test/local-run.sh`. Schema changes: add them to
-`schema.sql` as steps that can run twice (`IF NOT EXISTS`) and run the file with `--remote`.
+`wrangler deploy`, after `npm test` and `sh test/local-run.sh`. Schema changes: new tables and indexes go in
+`schema.sql` as steps that can run twice (`IF NOT EXISTS`); new columns go in `schema.sql` and a new
+`migrations/` file, which is run once with `--remote` before the deploy.
 
 A report is one request and writes 1 + its events rows: check those against the account's plan limits
 for Workers and D1 before turning reports on for everyone.

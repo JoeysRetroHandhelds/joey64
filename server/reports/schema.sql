@@ -29,8 +29,24 @@ CREATE TABLE IF NOT EXISTS sessions (
   emu_fps    REAL,            -- averages over the session
   drawn_fps  REAL,
   dupes      REAL,            -- duplicate frames a second
-  underruns  REAL,            -- audio underruns a minute
-  ended      TEXT NOT NULL    -- "quit" or "crash"
+  underruns  INTEGER,         -- audio underruns (the buffer ran dry: a crackle) in the session
+  ended      TEXT NOT NULL,   -- "quit" or "crash"
+  frames          INTEGER,   -- frames drawn; few after 5 s or more is a game that didn't boot
+  first_frame_ms  INTEGER,   -- from loading the game to its first frame
+  frames_timed    INTEGER,   -- frames in p95_ms / p99_ms
+  p95_ms          INTEGER,   -- frame work time (emulation and present, no waits), 95th and 99th percentile, whole ms
+  p99_ms          INTEGER,
+  slow_frames     INTEGER,   -- frames whose work took over 33 ms (a skipped frame even at normal speed)
+  lag_ms          REAL,      -- input poll to display, mean and max (parallel-RDP only)
+  lag_max_ms      REAL,
+  thermal_max     INTEGER,   -- highest Android thermal status: 0 none .. 6 shutdown
+  headroom_max    REAL,      -- highest thermal headroom (1.0 = severe throttling starts)
+  thermal_drops   INTEGER,   -- times Thermal fallback lowered the fast-forward speed
+  rdp_sync        INTEGER,   -- parallel-RDP synchronous 1 / async 0
+  cpu_core        TEXT,      -- "dynarec" or "interpreter"
+  refresh_hz      INTEGER,   -- the screen's refresh rate
+  cheats          INTEGER,   -- most cheat codes on at once
+  from_state      INTEGER    -- 1: started from a save state (Continue)
 );
 CREATE INDEX IF NOT EXISTS sessions_md5 ON sessions (md5);
 

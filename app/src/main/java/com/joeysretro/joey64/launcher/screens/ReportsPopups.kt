@@ -32,12 +32,16 @@ Each game you play
   • The game's ID (its ROM's MD5) and header code
   • Renderer, resolution and the settings you changed
   • Minutes played, average speed, and whether it closed by itself
+  • Whether it started, and how long its first picture took
+  • Stutter (slow frames), audio crackles, and input delay
+  • How hot the device got
+  • CPU core and graphics timing used, screen refresh rate, how many cheats were on, and whether it started from a save state
 
 Box art
   • Games with no cover, or whose cover you changed: the game's ID and file name
 
 Crashes
-  • Where it happened and the first lines of the error
+  • Where it happened and the first lines of the error, or for a crash in the emulator, the code it was running (library names only)
 
 Never sent: your name, accounts or RetroAchievements sign-in, folders, ROMs, saves, location. The server sees your IP address to stop floods, and never keeps it."""
 

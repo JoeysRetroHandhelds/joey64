@@ -86,6 +86,14 @@ object NativeBridge {
     external fun contentFps(): Double
     /** The newest frame times in ms (each frame's work, without waits), oldest first, into [out]; returns how many. */
     external fun frameTimes(out: FloatArray): Int
+    /**
+     * Send reports: the run's numbers since the game loaded into [out] (13 or more); returns how many.
+     * 0 audio underruns, 1 poll->display ms mean (-1 none, OpenGL), 2 its max (0-2 from the 11th second on, past the boot), 3 highest thermal status
+     * (-1 unknown), 4 highest headroom (-1 unknown), 5 Thermal fallback slowdowns, 6 parallel-RDP sync 1/0,
+     * 7 CPU core interpreter 1 / dynarec 0, 8 ms from loading to the first frame (-1 none yet), 9 frames timed,
+     * 10 95th and 11 99th percentile frame time in whole ms (-1 none), 12 frames over 33 ms.
+     */
+    external fun sessionStats(out: DoubleArray): Int
 
     /** Which players' Rumble Pak motors are on: bit p for player p+1. */
     external fun rumble(): Int

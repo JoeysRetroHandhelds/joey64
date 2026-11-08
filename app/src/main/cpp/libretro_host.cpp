@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <android/native_window_jni.h>
 #include <algorithm>
+#include <cmath>
 #include <atomic>
 #include <condition_variable>
 #include <cstdio>
@@ -243,16 +244,36 @@ constexpr uint32_t kFrameRing = 128;
 float g_frameRing[kFrameRing];
 std::atomic<uint32_t> g_frameRingCount{0};
 
+// Send reports (reports/ in the app): the whole run's numbers, read by sessionStats when the session ends.
+// Frame times as a histogram of 1 ms buckets (the last holds 99 ms and more) for the 95th and 99th
+// percentiles; the stats window's underruns, poll->display latency and thermal readings added up.
+// Written by the emulation thread; a read from the UI thread that tears is off by a frame.
+constexpr int kSessBuckets = 100;
+std::atomic<uint32_t> g_sessFrameHist[kSessBuckets];
+std::atomic<uint32_t> g_sessSlowFrames{0};
+std::atomic<int> g_sessUnderruns{0}, g_sessLatWindows{0}, g_sessThermalMax{-1}, g_sessGovernorDrops{0};
+std::atomic<double> g_sessLatSum{0}, g_sessLatMax{0};
+std::atomic<float> g_sessHeadroomMax{-1};
+std::chrono::steady_clock::time_point g_loadStart;   // loadGame's start, for the time to the first frame
+std::atomic<double> g_firstFrameMs{-1};
+std::atomic<int> g_sessInterpreter{-1};             // the CPU core loadGame chose: 1 interpreter, 0 dynarec
+
 void noteFrameTime(double ms) {
     uint32_t n = g_frameRingCount.load(std::memory_order_relaxed);
     g_frameRing[n % kFrameRing] = (float)ms;
     g_frameRingCount.store(n + 1, std::memory_order_release);
     if (ms > g_statSlowestMs) g_statSlowestMs = ms;
-    if (ms > 33.0) ++g_statSlowFrames;
+    if (ms > 33.0) { ++g_statSlowFrames; g_sessSlowFrames.fetch_add(1, std::memory_order_relaxed); }
+    g_sessFrameHist[std::min(std::max((int)ms, 0), kSessBuckets - 1)].fetch_add(1, std::memory_order_relaxed);
 }
 // For the counter ("60 FPS | 20 DL/s | 100%"): emulated frames (retro_run calls, the game's speed) and new
 // frames presented (what the game drew: OoT 20 a second once repeats are skipped).
 std::atomic<uint32_t> g_framesRun{0}, g_framesDrawn{0};
+// A new frame drawn; the first one notes the time since loadGame started (reports: how long a boot takes).
+void noteDrawn() {
+    if (g_framesDrawn.fetch_add(1) == 0)
+        g_firstFrameMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - g_loadStart).count();
+}
 // Rumble Pak, players 1-4 (players 2-4 since 2026-11-07; before, the core's calls for ports 1-3 were
 // refused): the core switches each motor on/off; a UI-side thread waits in waitRumble for any player's
 // motor to change and drives that player's controller (or the device's) vibrator. Polling it from a
@@ -396,7 +417,7 @@ bool environment(unsigned cmd, void* data) {
 void video_refresh(const void* data, unsigned w, unsigned h, size_t) {
     if (g_vulkan) {
         if (!data) ++g_statDupes;
-        else { g_lastW = w; g_lastH = h; ++g_statPresents; ++g_framesDrawn; }
+        else { g_lastW = w; g_lastH = h; ++g_statPresents; noteDrawn(); }
         g_vk.videoRefresh(data, w, h);
         return;
     }
@@ -405,7 +426,7 @@ void video_refresh(const void* data, unsigned w, unsigned h, size_t) {
     if (data == RETRO_HW_FRAME_BUFFER_VALID) {
         g_egl.present(w, h, g_hw.bottom_left_origin);
         ++g_statPresents;
-        ++g_framesDrawn;
+        noteDrawn();
     }
     // Software frames are not expected from mupen64plus-next with a HW context.
 }
@@ -528,6 +549,21 @@ void logStats() {
     double fillMs, targetMs; int underruns;
     g_audio.takeStats(!g_fastForward && !g_bench && g_statRuns / secs >= 58.5, fillMs, targetMs, underruns);
     Thermal::update();
+    // Reports: underruns and lag from the third window on. The first 10 s are the boot and the audio buffer
+    // settling (Super Mario 64 on the Thor 2026-11-08: 89 + 40 underruns and a 486 ms lag max, then none).
+    static int windows = 0;
+    const bool settled = ++windows > 2;
+    if (settled) g_sessUnderruns += underruns;
+    if (settled && lat[0]) {
+        g_sessLatSum = g_sessLatSum.load() + latMean; ++g_sessLatWindows;
+        if (latMax > g_sessLatMax.load()) g_sessLatMax = latMax;
+    }
+    {
+        int st = Thermal::status(); float hr = Thermal::headroom();
+        if (st > g_sessThermalMax.load()) g_sessThermalMax = st;
+        if (!std::isnan(hr) && hr > g_sessHeadroomMax.load()) g_sessHeadroomMax = hr;
+        g_sessGovernorDrops = Thermal::governorDrops();
+    }
     LOGI("stats: %.1f emu fps, %.1f presented, %.1f dupes (%ux%u), run %.2f ms, wait %.2f ms, "
          "audio wait %.2f ms, fill %.0f/%.0f ms, %d underruns, device %.0f ms%s, slowest frame %.1f ms, %d over 33 ms%s%s",
          g_statRuns / secs, g_statPresents / secs, g_statDupes / secs, g_lastW, g_lastH,
@@ -1148,6 +1184,7 @@ JNIEXPORT void JNICALL JNI(setDdCart)(JNIEnv* env, jobject, jstring path) {
 }
 
 JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstring saveName) {
+    g_loadStart = std::chrono::steady_clock::now();
     if (!g_vulkan) {
         if (!g_egl.init()) return JNI_FALSE;
         applySurfaceIfChanged();
@@ -1195,6 +1232,7 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
     const char* smoother = getenv("N64_SMOOTHER");
     if (smoother && *smoother == '1' && idIn(kSmootherGames) && !g_optionOverrides.count("mupen64plus-CountPerOp"))
         g_optionOverrides["mupen64plus-CountPerOp"] = "1";
+    g_sessInterpreter = g_optionOverrides["mupen64plus-cpucore"] == "dynamic_recompiler" ? 0 : 1;
     LOGI("game id %s, parallel-RDP %s, %s", id.c_str(), g_rdpSync ? "synchronous" : "async",
          g_optionOverrides["mupen64plus-cpucore"].c_str());
     LOGI("ROM %s: %s", p, romSummary(buf).c_str());
@@ -1387,6 +1425,27 @@ JNIEXPORT jint JNICALL JNI(framesRun)(JNIEnv*, jobject) {
 }
 JNIEXPORT jint JNICALL JNI(framesDrawn)(JNIEnv*, jobject) {
     return (jint)g_framesDrawn.load();
+}
+// Send reports: the run's numbers so far into out (see NativeBridge.sessionStats for the order); returns how many.
+JNIEXPORT jint JNICALL JNI(sessionStats)(JNIEnv* env, jobject, jdoubleArray out) {
+    uint32_t hist[kSessBuckets]; uint64_t total = 0;
+    for (int i = 0; i < kSessBuckets; ++i) { hist[i] = g_sessFrameHist[i].load(std::memory_order_relaxed); total += hist[i]; }
+    auto pct = [&](double q) -> double {
+        if (!total) return -1;
+        uint64_t want = (uint64_t)std::ceil(total * q), seen = 0;
+        for (int i = 0; i < kSessBuckets; ++i) { seen += hist[i]; if (seen >= want) return i + 1; }
+        return kSessBuckets;
+    };
+    int lw = g_sessLatWindows.load();
+    double v[] = {
+        (double)g_sessUnderruns.load(), lw ? g_sessLatSum.load() / lw : -1, lw ? g_sessLatMax.load() : -1,
+        (double)g_sessThermalMax.load(), (double)g_sessHeadroomMax.load(), (double)g_sessGovernorDrops.load(),
+        g_rdpSync ? 1.0 : 0.0, (double)g_sessInterpreter.load(),
+        g_firstFrameMs.load(), (double)total, pct(0.95), pct(0.99), (double)g_sessSlowFrames.load(),
+    };
+    jsize n = std::min((jsize)(sizeof v / sizeof v[0]), env->GetArrayLength(out));
+    env->SetDoubleArrayRegion(out, 0, n, v);
+    return n;
 }
 JNIEXPORT jdouble JNICALL JNI(contentFps)(JNIEnv*, jobject) {
     return g_av.timing.fps;

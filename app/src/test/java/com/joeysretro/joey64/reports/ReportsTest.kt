@@ -129,4 +129,44 @@ class ReportsTest {
         t.finish()
         assertEquals(0, pending.listFiles()!!.size)
     }
+
+    @Test fun aGameThatDidntBootIsKept() {
+        val (t, _, pending) = tracker()
+        t.tick(false, 300, 0, 0)
+        t.tick(true, 600, 2, 8_000)
+        t.finish()
+        val files = pending.listFiles()!!
+        assertEquals(1, files.size)
+        assertEquals(2L, JSONObject(files[0].readText()).getLong("frames"))
+        assertTrue(SessionTracker.keep(5, 59)); assertFalse(SessionTracker.keep(4, 0)); assertFalse(SessionTracker.keep(19, 60))
+    }
+
+    @Test fun hostNumbersGoInTheSessionAndUnknownOnesStayOut() {
+        val (t, _, _) = tracker()
+        t.tick(false, 0, 0, 0)
+        t.tick(true, 1800, 1800, 30_000)
+        t.native(doubleArrayOf(3.0, 41.26, 66.0, -1.0, -1.0, 0.0, 1.0, 0.0, 2310.4, 1800.0, 9.0, 14.0, 2.0), 13)
+        val e = t.event("quit")
+        assertEquals(3L, e.getLong("underruns"))
+        assertEquals(41.3, e.getDouble("lagMs"), 0.001)
+        assertFalse(e.has("thermalMax")); assertFalse(e.has("headroomMax"))
+        assertTrue(e.getBoolean("rdpSync"))
+        assertEquals("dynarec", e.getString("cpuCore"))
+        assertEquals(2310L, e.getLong("firstFrameMs"))
+        assertEquals(14, e.getInt("p99Ms"))
+        val sent = ReportJson.session(e.put("md5", md5).put("refreshHz", 120).put("fromState", true).put("cheats", 2), "NSME")!!
+        for (k in listOf("underruns", "lagMs", "lagMaxMs", "rdpSync", "cpuCore", "firstFrameMs", "p95Ms", "p99Ms", "slowFrames",
+            "framesTimed", "frames", "refreshHz", "fromState", "cheats")) assertTrue(k, sent.has(k))
+        assertEquals(120L, sent.getLong("refreshHz"))
+    }
+
+    @Test fun sessionNumbersAreKeptInTheServersRange() {
+        val stored = JSONObject().put("md5", md5).put("seconds", 60).put("ended", "quit").put("p99Ms", 250).put("underruns", 5e6)
+            .put("lagMs", -1).put("cpuCore", "jit").put("thermalMax", 9)
+        val s = ReportJson.session(stored, null)!!
+        assertEquals(100L, s.getLong("p99Ms"))
+        assertEquals(100_000L, s.getLong("underruns"))
+        assertEquals(6L, s.getLong("thermalMax"))
+        assertFalse(s.has("lagMs")); assertFalse(s.has("cpuCore"))
+    }
 }

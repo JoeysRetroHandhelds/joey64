@@ -1,3 +1,4 @@
+#include <vector>
 #include "joeylog.h"
 #include "vk_context.h"
 #include "display_opts.h"
@@ -97,15 +98,35 @@ std::string VkContext::probe(bool custom) {
         if ((r == VK_SUCCESS || r == VK_INCOMPLETE) && n && gpu) {
             VkPhysicalDeviceProperties props;
             getProps(gpu, &props);
-            // parallel-RDP needs 16-bit storage buffers (storageBuffer16BitAccess); without them its init fails.
-            // The Adreno 610 (Snapdragon 665) has them on neither its Qualcomm driver nor Turnip.
+            // parallel-RDP needs 16-bit and 8-bit storage buffers (storageBuffer16BitAccess, storageBuffer8BitAccess);
+            // without either its init fails and the game doesn't start. The Adreno 610 (Snapdragon 665) has no 16-bit
+            // storage on its Qualcomm driver or Turnip; the Adreno 650 (Snapdragon 865, RP Mini V2 tester report
+            // 2026-11-08) has no 8-bit storage on its Qualcomm driver, the bundled Turnip or any of four dev Turnips.
+            // The field stays one number: 1 only when both are there.
             int s16 = -1;
             if (getFeatures2 && props.apiVersion >= VK_API_VERSION_1_1) {
+                // 8-bit storage is core in Vulkan 1.2, an extension (VK_KHR_8bit_storage) before; its struct is only
+                // chained when the driver knows it
+                bool has8 = props.apiVersion >= VK_API_VERSION_1_2;
+                auto enumExt = reinterpret_cast<PFN_vkEnumerateDeviceExtensionProperties>(gipa(inst, "vkEnumerateDeviceExtensionProperties"));
+                if (!has8 && enumExt) {
+                    uint32_t ne = 0;
+                    if (enumExt(gpu, nullptr, &ne, nullptr) == VK_SUCCESS && ne) {
+                        std::vector<VkExtensionProperties> ext(ne);
+                        if (enumExt(gpu, nullptr, &ne, ext.data()) == VK_SUCCESS)
+                            for (uint32_t i = 0; i < ne; i++)
+                                if (!strcmp(ext[i].extensionName, VK_KHR_8BIT_STORAGE_EXTENSION_NAME)) has8 = true;
+                    }
+                }
                 VkPhysicalDevice16BitStorageFeatures f16{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES};
+                VkPhysicalDevice8BitStorageFeatures f8{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES};
                 VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
                 f2.pNext = &f16;
+                if (has8) f16.pNext = &f8;
                 getFeatures2(gpu, &f2);
-                s16 = f16.storageBuffer16BitAccess ? 1 : 0;
+                s16 = f16.storageBuffer16BitAccess && f8.storageBuffer8BitAccess ? 1 : 0;
+                if (!s16) LOGI("vulkan probe: storage buffers 16-bit %d, 8-bit %d (parallel-RDP needs both)",
+                               f16.storageBuffer16BitAccess ? 1 : 0, f8.storageBuffer8BitAccess ? 1 : 0);
             }
             // The driver's own name and version (Vulkan 1.2), for Settings › On screen's stats.
             std::string driver;

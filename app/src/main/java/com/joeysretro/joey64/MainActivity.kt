@@ -347,7 +347,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     // A driver dropped into <external files>/drivers/ (or files/drivers/) overrides the choice.
     // Dev: --es driver system|turnip
 
-    // storage16: 16-bit storage buffers, which parallel-RDP requires (1 yes, 0 no, -1 not asked: before Vulkan 1.1)
+    // storage16: 16-bit and 8-bit storage buffers, which parallel-RDP requires (1 both, 0 not both, -1 not asked: before Vulkan 1.1)
     private class VkGpu(val vendor: Int, val major: Int, val minor: Int, val storage16: Int, val name: String, val driver: String = "",
                         /** maxStorageBufferRange in MB (0: not known). */ val storageRangeMb: Int = 0) {
         val vulkan11 get() = major > 1 || (major == 1 && minor >= 1)
@@ -357,7 +357,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     private fun parseGpu(s: String): VkGpu? {
-        // vendor|major.minor|16-bit storage|maxStorageBufferRange MB|name|driver
+        // vendor|major.minor|16+8-bit storage|maxStorageBufferRange MB|name|driver
         val p = s.split('|', limit = 6).takeIf { it.size >= 5 } ?: return null
         val v = p[1].split('.').mapNotNull { it.toIntOrNull() }.takeIf { it.size == 2 } ?: return null
         return VkGpu(p[0].toIntOrNull() ?: return null, v[0], v[1], p[2].toIntOrNull() ?: -1, p[4], p.getOrNull(5).orEmpty(), p[3].toIntOrNull() ?: 0)
@@ -408,7 +408,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // already the system driver, is GLideN64 as well.
         val trialGl = trialPick != null && (level >= 2 || (level == 1 && auto.value == GpuRules.Driver.SYSTEM))
         val parallel = rendererPick.value == "parallel" && !trialGl
-        if (gpu != null && gpu.vulkan11 && gpu.storage16 != 1) JLog.w(TAG, "GPU ${gpu.name}: no 16-bit storage buffers, parallel-RDP can't run")
+        if (gpu != null && gpu.vulkan11 && gpu.storage16 != 1) JLog.w(TAG, "GPU ${gpu.name}: no 16-bit or 8-bit storage buffers, parallel-RDP can't run")
         JLog.i(TAG, "GPU: ${gpu ?: "no Vulkan"}, driver ${if (custom != null) lib!!.relativeTo(gpuDriverDir).path else "system"}, " +
             "default renderer ${if (parallel) "parallel" else "gliden64"}")
         // Which rule picked what (README item 38 e: a tester's log says it).
@@ -427,7 +427,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         })
         prefs.apply()
         devString("renderer")?.let { return it }
-        // Settings › Video › Renderer: parallel-RDP only where it can start (Vulkan 1.1 with 16-bit storage), else
+        // Settings › Video › Renderer: parallel-RDP only where it can start (Vulkan 1.1 with 16- and 8-bit storage), else
         // the core crashes; it may still draw wrong on a stock Adreno driver, which is the user's choice there.
         return when (video[com.joeysretro.joey64.video.VideoKey.Renderer]) {
             "gliden64" -> "gliden64"

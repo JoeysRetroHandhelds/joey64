@@ -58,12 +58,12 @@ object GpuRules {
     }
 
     /**
-     * Auto's renderer: parallel-RDP needs Vulkan 1.1 with 16-bit storage buffers (without them it fails to start and the
-     * core crashes: Adreno 610), and a driver known to run it: a custom one, or stock Mali. Else GLideN64.
+     * Auto's renderer: parallel-RDP needs Vulkan 1.1 with 16-bit and 8-bit storage buffers (without them it fails to
+     * start: Adreno 610 has no 16-bit, Adreno 650 no 8-bit on any driver), and a driver known to run it: a custom one, or stock Mali. Else GLideN64.
      */
     fun autoRenderer(vulkan11: Boolean, storage16: Boolean, customDriver: Boolean, f: Family): Pick<String> = when {
         !vulkan11 -> Pick("gliden64", "no Vulkan 1.1: GLideN64")
-        !storage16 -> Pick("gliden64", "no 16-bit storage buffers: GLideN64")
+        !storage16 -> Pick("gliden64", "no 16-bit or 8-bit storage buffers: GLideN64")
         customDriver -> Pick("parallel", "custom driver: parallel-RDP")
         f.vendor == Vendor.MALI -> Pick("parallel", "stock Mali: parallel-RDP")
         else -> Pick("gliden64", "stock driver not known to run parallel-RDP: GLideN64")

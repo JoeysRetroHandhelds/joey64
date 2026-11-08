@@ -611,13 +611,12 @@ Checked on the Thor against a local server (2026-11-08): the question, What's se
 
 **Still to do, tracked:**
 - Done 2026-11-08: native crash text from the tombstone's backtrace; audio underruns in sessions and "audio crackles" back in What's sent.
-- The live server needs the migration and a redeploy (Joey's OK) before the new columns are stored; until then it takes the new reports and keeps only the old fields.
+- Done 2026-11-08 (Joey: "Yes, deploy"): migration 0002 run on the live database (sessions 12 -> 28 columns), Worker deployed (version 99e77947); a test report posted live was stored with the new fields (204), then deleted.
 - The server's `where` values are core / launcher / host; "game" might read better (a server change and redeploy).
 - Done 2026-11-08 (Joey: "Yes, turn it off"): Android's scheduled full backup had killed Joey64 in the foreground mid-game (signal 9, 2026-11-07 23:17), because the manifest didn't set `allowBackup`. Now `android:allowBackup="false"`; on the Thor `bmgr backupnow` answers "Backup is not allowed". Saves are kept by Back up Joey64 and a picked data folder.
 
 ## Waiting on Joey (asked from this chat; kept until answered)
 
-- Report server: run `migrations/0002-session-details.sql` on the live database, then deploy the Worker (asked 2026-11-08).
 - Precompiled block lists, stages (b) shipped lists per ROM MD5 from the data repo and (c) lists collected from players (opt-in), README work order item 17: need a consent toggle (a menu Joey designs), an upload server (the app only downloads today) and the Play Store Data safety declaration (a list of ROM MD5s shows which games someone has). Stage (a), local lists only, needs none of that and is on the emulator chat's queue. (Sent here by the emulator chat for Joey, 2026-11-08.)
 - Netplay online server: "Leave this for now" (2026-11-06); ask again when netplay comes up.
 - Email history, Joey's own steps: GitHub settings "Keep my email addresses private" and "Block command line pushes that expose my email"; GitHub Support to purge old commits kept by PR refs (chameleon-app 2, chameleon-data 3, joeys-es-de-folders 1, mupen64plus-ae-retroachievements 1). No backups wait for deletion (deleted after clean copies went to `C:\Users\Joey\Backups\git-2026-11-05`).

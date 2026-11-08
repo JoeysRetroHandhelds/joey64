@@ -29,7 +29,10 @@ def main(dbs):
     found = {}
     for path in dbs:
         c = sqlite3.connect(path)
-        rows = c.execute("SELECT g.md5, g.title, a.cover FROM games g JOIN box_art a ON a.game_id = g.id WHERE a.kind = 'libretro'")
+        # 64DD disks (no header key: no header CRCs) are left out: their ScreenScraper games are system 122, which the
+        # direct cover fetch (mediaJeu with systemeid 14) answers NOMEDIA for; their MD5 lookup through 14 finds them.
+        rows = c.execute("SELECT g.md5, g.title, a.cover FROM games g JOIN box_art a ON a.game_id = g.id "
+                         "WHERE a.kind = 'libretro' AND g.header_key IS NOT NULL")
         for md5, title, cover in rows:
             m = COVER.match(cover or '')
             if m and md5 not in listed:

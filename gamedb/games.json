@@ -202,7 +202,8 @@
     {
       "disk": "SimCity 64 (Japan)", "title": "SimCity 64 (64DD)",
       "notes": [
-        "Flip: boots from the disk alone (IPL_JPN.n64), Maxis logo, 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)"
+        "Flip: boots from the disk alone (IPL_JPN.n64), Maxis logo, 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)",
+        "Thor (2026-11-07, app 9263f30 + core dd ddf3103, IPL_JPN = Japan v1.2, 30-60 s from the start): started from the library (the launcher asked for the BIOS first), 64DD logo then HAL's, 61 emu fps"
       ]
     },
     {
@@ -210,27 +211,31 @@
       "notes": [
         "Flip: boots to its menu, 61 emu fps, and writes its disk save (files/saves/<save name>.ndd.disk_save, 64.9 MB); flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)",
         "Plays with the N64 Mouse, which the core does not take yet (README accessories item)",
-        "Flip, second start (its disk save loaded): the menu runs 44-57 fps with 52-270 audio underruns per 5 s (app dd3, 2026-11-07); not looked into yet"
+        "Flip, second start (its disk save loaded): the menu runs 44-57 fps with 52-270 audio underruns per 5 s (app dd3, 2026-11-07); not looked into yet",
+        "Thor (2026-11-07, app 9263f30 + core dd ddf3103, IPL_JPN = Japan v1.2, 30-60 s from the start): title screen, 60 emu fps"
       ]
     },
     {
       "disk": "Kyojin no Doshin (Japan)", "title": "Kyojin no Doshin (64DD)",
       "notes": [
         "Flip: boots, intro then \"Now loading\", 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)",
-        "Flip: the game draws ~15 fps and gives a quarter of its audio (~780 underruns per 5 s) while the emulator runs 61 VI/s at 1-4 ms each: it waits inside the emulated machine (likely the 64DD read timing), see the README 64DD item"
+        "Flip: the game draws ~15 fps and gives a quarter of its audio (~780 underruns per 5 s) while the emulator runs 61 VI/s at 1-4 ms each: it waits inside the emulated machine (likely the 64DD read timing), see the README 64DD item",
+        "Thor (2026-11-07, app 9263f30 + core dd ddf3103, IPL_JPN = Japan v1.2, 30-60 s from the start): intro at 30 s, 61 emu fps, 15 drawn (as on the Flip); the Demo (Kiosk) [b] and Kaihou Sensen [b] disks the same"
       ]
     },
     {
       "disk": "Super Mario 64 - Disk Version (Japan) (Proto)", "title": "Super Mario 64 Disk Version (64DD prototype)",
       "notes": [
         "Flip: boots to the title and into the game, 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)",
-        "Flip: the game draws 1-8 fps and gives a quarter of its audio (SM64 cartridge: same 32006 Hz rate, full audio) while the emulator runs 61 VI/s at 1-4 ms each, see the README 64DD item"
+        "Flip: the game draws 1-8 fps and gives a quarter of its audio (SM64 cartridge: same 32006 Hz rate, full audio) while the emulator runs 61 VI/s at 1-4 ms each, see the README 64DD item",
+        "Thor (2026-11-07, app 9263f30 + core dd ddf3103, IPL_JPN = Japan v1.2, 30-60 s from the start): Nintendo logo at 30 s, 61 emu fps, 6 drawn"
       ]
     },
     {
       "disk": "Nihon Pro Golf Tour 64 (Japan) [b]", "title": "Nihon Pro Golf Tour 64 (64DD)",
       "notes": [
-        "Flip: boots to its menu, 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)"
+        "Flip: boots to its menu, 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)",
+        "Thor (2026-11-07, app 9263f30 + core dd ddf3103, IPL_JPN = Japan v1.2, 30-60 s from the start): black at 30 s, Japan Golf Tour logo at 60 s, 61 emu fps"
       ]
     },
     {
@@ -238,21 +243,41 @@
       "settings": [
         {"what": "the development IPL (IPL_DEV.n64, the Tool IPL) and the Dezaemon 3D (Japan) cartridge", "where": "files/system/Mupen64plus/IPL_DEV.n64; the cartridge through MainActivity EXTRA_DD_CART", "why": "a development-region data disk for Dezaemon 3D: alone it boots only to \"insert the Deza64 cartridge\""}
       ],
-      "issues": [
-        {"status": "open", "devices": "all", "what": "not run with its cartridge (no Dezaemon 3D (J) dump in the test set)", "evidence": "flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)"}
-      ],
       "notes": [
-        "Flip: with only IPL_JPN.n64 the core logs that the game could not start and the app stays up (crashed in retro_run before core e33750); with IPL_DEV.n64 it boots to the disk's \"insert the cartridge\" screen; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)"
+        "Flip: with only IPL_JPN.n64 the core logs that the game could not start and the app stays up (crashed in retro_run before core e33750); with IPL_DEV.n64 it boots to the disk's \"insert the cartridge\" screen; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)",
+        "Thor (2026-11-07, app 9263f30 + core dd ddf3103, IPL_JPN = Japan v1.2, 30-60 s from the start): from the library, which passes the Dezaemon 3D (Japan) cartridge, with IPL_DEV.n64 in bios/: the cartridge boots to its title (Athena 1998, push start), 60 emu fps; whether it reads the disk past the title is not checked"
       ]
     },
     {
       "disk": "F-Zero X - Expansion Kit (Japan)", "title": "F-Zero X Expansion Kit (64DD)",
       "settings": [
-        {"what": "the F-Zero X (Japan) cartridge (CZLJ) with the disk", "where": "MainActivity EXTRA_DD_CART", "why": "an expansion disk: the cartridge boots and reads it"}
+        {"what": "the F-Zero X (Japan) cartridge (header CFZJ) with the disk", "where": "MainActivity EXTRA_DD_CART; the launcher finds it in the library (GameLauncher.DD_CARTS)", "why": "an expansion disk: the cartridge boots and reads it"}
       ],
-      "issues": [
-        {"status": "open", "devices": "all", "what": "not run: no F-Zero X (Japan) dump in the test set (the USA cartridge is not the one it takes)", "evidence": "flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)"}
+      "notes": [
+        "Thor (2026-11-07, app 9263f30 + core dd ddf3103, IPL_JPN = Japan v1.2, 30-60 s from the start): from the library with F-Zero X (Japan) passed, 60 fps in its attract race; alone the disk shows its own \"insert the F-Zero X cartridge\" screen"
       ]
+    },
+    {
+      "disk": "Mario Artist - Paint Studio (Japan) (Beta) (1999-02-11)", "title": "Mario Artist: Paint Studio (64DD, 1999 beta)",
+      "issues": [
+        {"status": "open", "devices": "all", "what": "with only IPL_JPN.n64 the core shuts down (the game did not start); with the USA and development IPLs in bios/ too it runs 61 emu fps but draws nothing (black at 60 s)", "evidence": "Thor (2026-11-07, app 9263f30 + core dd ddf3103, IPL_JPN = Japan v1.2, 30-60 s from the start)"}
+      ]
+    },
+    {
+      "disk": "Mario Artist - Communication Kit (Japan)", "title": "Mario Artist: Communication Kit (64DD)",
+      "notes": ["Thor (2026-11-07, app 9263f30 + core dd ddf3103, IPL_JPN = Japan v1.2, 30-60 s from the start): title screen (push start), 61 emu fps"]
+    },
+    {
+      "disk": "Mario Artist - Polygon Studio (Japan)", "title": "Mario Artist: Polygon Studio (64DD)",
+      "notes": ["Thor (2026-11-07, app 9263f30 + core dd ddf3103, IPL_JPN = Japan v1.2, 30-60 s from the start): intro running, 60 emu fps"]
+    },
+    {
+      "disk": "Mario Artist - Talent Studio (Japan)", "title": "Mario Artist: Talent Studio (64DD)",
+      "notes": ["Thor (2026-11-07, app 9263f30 + core dd ddf3103, IPL_JPN = Japan v1.2, 30-60 s from the start): title screen, 61 emu fps"]
+    },
+    {
+      "disk": "Randnet Disk (Japan) [b]", "title": "Randnet Disk (64DD)",
+      "notes": ["Thor (2026-11-07, app 9263f30 + core dd ddf3103, IPL_JPN = Japan v1.2, 30-60 s from the start): \"press start\" title (asks to plug in the modem), 61 emu fps; Rev 1 [b] the same"]
     }
   ]
 }

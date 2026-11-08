@@ -24,7 +24,11 @@ object JLog {
     fun w(tag: String, msg: String) = line(Log.WARN, tag, msg)
     fun e(tag: String, msg: String) = line(Log.ERROR, tag, msg)
     private fun line(prio: Int, tag: String, msg: String): Int {
-        try { NativeBridge.log(prio, tag, msg) } catch (e: UnsatisfiedLinkError) { Log.println(prio, tag, msg) }
+        // LinkageError: no native library (UnsatisfiedLinkError), or NativeBridge couldn't load it (NoClassDefFoundError
+        // in JVM unit tests, where android.util.Log is a stub that throws too).
+        try { NativeBridge.log(prio, tag, msg) } catch (e: LinkageError) {
+            try { Log.println(prio, tag, msg) } catch (e: RuntimeException) { println("$tag: $msg") }
+        }
         return 0
     }
 }

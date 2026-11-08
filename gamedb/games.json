@@ -1,6 +1,6 @@
 {
   "about": "Joey64 per-game database: what each game needs, what is wrong with it and where, and what was fixed. Seed for the M3 profile DB. Rules: gamedb/README.md. Update this file in the same commit as any change to a game's status (new problem found, fixed, regressed, setting added or dropped).",
-  "updated": "2026-11-06",
+  "updated": "2026-11-07",
   "games": [
     {
       "id": "NPF", "title": "Pokemon Snap",
@@ -198,6 +198,61 @@
         {"what": "smoother timing, CountPerOp=1 (counter factor 1), on Adreno 730 and up (Portal, Odin 3, Thor) only", "where": "libretro_host.cpp kSmootherGames, MainActivity N64_SMOOTHER", "why": "runs below its frame rate on hardware; Odin 3 49.7 -> 59.9 fps; compat with it passed on the Odin 3 and Portal (odin3-/portal-smoothc), Joey 2026-11-06. Hacks with this ID get it too"}
       ],
       "notes": ["VI filters off: +9% on the Flip", "Duo 2x upscaled: 59.9 fps on faux123 Turnip vs 50.7 on the bundled Gen8"]
+    },
+    {
+      "disk": "SimCity 64 (Japan)", "title": "SimCity 64 (64DD)",
+      "notes": [
+        "Flip: boots from the disk alone (IPL_JPN.n64), Maxis logo, 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)"
+      ]
+    },
+    {
+      "disk": "Mario Artist - Paint Studio (Japan)", "title": "Mario Artist: Paint Studio (64DD)",
+      "notes": [
+        "Flip: boots to its menu, 61 emu fps, and writes its disk save (files/saves/<save name>.ndd.disk_save, 64.9 MB); flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)",
+        "Plays with the N64 Mouse, which the core does not take yet (README accessories item)",
+        "Flip, second start (its disk save loaded): the menu runs 44-57 fps with 52-270 audio underruns per 5 s (app dd3, 2026-11-07); not looked into yet"
+      ]
+    },
+    {
+      "disk": "Kyojin no Doshin (Japan)", "title": "Kyojin no Doshin (64DD)",
+      "notes": [
+        "Flip: boots, intro then \"Now loading\", 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)",
+        "Flip: the game draws ~15 fps and gives a quarter of its audio (~780 underruns per 5 s) while the emulator runs 61 VI/s at 1-4 ms each: it waits inside the emulated machine (likely the 64DD read timing), see the README 64DD item"
+      ]
+    },
+    {
+      "disk": "Super Mario 64 - Disk Version (Japan) (Proto)", "title": "Super Mario 64 Disk Version (64DD prototype)",
+      "notes": [
+        "Flip: boots to the title and into the game, 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)",
+        "Flip: the game draws 1-8 fps and gives a quarter of its audio (SM64 cartridge: same 32006 Hz rate, full audio) while the emulator runs 61 VI/s at 1-4 ms each, see the README 64DD item"
+      ]
+    },
+    {
+      "disk": "Nihon Pro Golf Tour 64 (Japan) [b]", "title": "Nihon Pro Golf Tour 64 (64DD)",
+      "notes": [
+        "Flip: boots to its menu, 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)"
+      ]
+    },
+    {
+      "disk": "Dezaemon DD (Japan) (Proto)", "title": "Dezaemon DD (64DD data disk, prototype)",
+      "settings": [
+        {"what": "the development IPL (IPL_DEV.n64, the Tool IPL) and the Dezaemon 3D (Japan) cartridge", "where": "files/system/Mupen64plus/IPL_DEV.n64; the cartridge through MainActivity EXTRA_DD_CART", "why": "a development-region data disk for Dezaemon 3D: alone it boots only to \"insert the Deza64 cartridge\""}
+      ],
+      "issues": [
+        {"status": "open", "devices": "all", "what": "not run with its cartridge (no Dezaemon 3D (J) dump in the test set)", "evidence": "flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)"}
+      ],
+      "notes": [
+        "Flip: with only IPL_JPN.n64 the core logs that the game could not start and the app stays up (crashed in retro_run before core e33750); with IPL_DEV.n64 it boots to the disk's \"insert the cartridge\" screen; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)"
+      ]
+    },
+    {
+      "disk": "F-Zero X - Expansion Kit (Japan)", "title": "F-Zero X Expansion Kit (64DD)",
+      "settings": [
+        {"what": "the F-Zero X (Japan) cartridge (CZLJ) with the disk", "where": "MainActivity EXTRA_DD_CART", "why": "an expansion disk: the cartridge boots and reads it"}
+      ],
+      "issues": [
+        {"status": "open", "devices": "all", "what": "not run: no F-Zero X (Japan) dump in the test set (the USA cartridge is not the one it takes)", "evidence": "flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)"}
+      ]
     }
   ]
 }

@@ -55,6 +55,7 @@ struct Core {
     void (*set_input_state)(retro_input_state_t);
     void (*set_controller_port_device)(unsigned, unsigned);
     bool (*load_game)(const retro_game_info*);
+    bool (*load_game_special)(unsigned, const retro_game_info*, size_t); // 64DD disks; optional
     void (*unload_game)();
     void (*run)();
     void* (*get_memory_data)(unsigned);
@@ -68,6 +69,17 @@ struct Core {
 } core;
 
 std::string g_systemDir, g_saveDir;
+std::string g_ddCart; // a 64DD disk's cartridge (NativeBridge.setDdCart), "" = the disk alone
+
+// A 64DD disk image by its extension (MainActivity unpacks disks under their own name for this).
+static bool isDiskPath(const char* p) {
+    std::string s(p);
+    size_t dot = s.rfind('.');
+    if (dot == std::string::npos) return false;
+    std::string ext = s.substr(dot + 1);
+    for (auto& c : ext) c = (char)tolower((unsigned char)c);
+    return ext == "ndd" || ext == "d64";
+}
 retro_hw_render_callback g_hw{};
 bool g_hwRequested = false;
 // Renderer chosen before loadGame: Vulkan = parallel-RDP/RSP, otherwise GLES3 = GLideN64.
@@ -294,6 +306,10 @@ bool environment(unsigned cmd, void* data) {
         *static_cast<const char**>(data) = g_systemDir.c_str(); return true;
     case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY:
         *static_cast<const char**>(data) = g_saveDir.c_str(); return true;
+    case RETRO_ENVIRONMENT_SHUTDOWN:
+        // The core could not start the game (e.g. a 64DD disk whose region has no IPL BIOS); it then runs no frames.
+        LOGE("core: shut down, the game did not start");
+        return true;
     case RETRO_ENVIRONMENT_GET_CAN_DUPE:
         *static_cast<bool*>(data) = true; return true;
     case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT:
@@ -1064,6 +1080,7 @@ JNIEXPORT jboolean JNICALL JNI(loadCore)(JNIEnv* env, jobject, jstring path, jst
         && sym(core.serialize, "retro_serialize")
         && sym(core.reset, "retro_reset");
     if (!ok) return JNI_FALSE;
+    core.load_game_special = reinterpret_cast<decltype(core.load_game_special)>(dlsym(core.handle, "retro_load_game_special"));
 
     core.set_environment(environment);
     core.set_video_refresh(video_refresh);
@@ -1124,6 +1141,12 @@ JNIEXPORT void JNICALL JNI(setRenderer)(JNIEnv*, jobject, jboolean vulkan) {
     g_optionsDirty = true;
 }
 
+JNIEXPORT void JNICALL JNI(setDdCart)(JNIEnv* env, jobject, jstring path) {
+    const char* s = env->GetStringUTFChars(path, nullptr);
+    g_ddCart = s;
+    env->ReleaseStringUTFChars(path, s);
+}
+
 JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstring saveName) {
     if (!g_vulkan) {
         if (!g_egl.init()) return JNI_FALSE;
@@ -1131,7 +1154,10 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
     }
 
     const char* p = env->GetStringUTFChars(rom, nullptr);
-    FILE* f = fopen(p, "rb");
+    // A 64DD disk: the core reads the disk (and the cartridge, if any) itself; buf holds the cartridge for the
+    // per-game rules below, empty for a disk on its own.
+    const bool disk = isDiskPath(p);
+    FILE* f = fopen(disk ? g_ddCart.c_str() : p, "rb");
     std::vector<uint8_t> buf;
     if (f) {
         // A failed ftell (-1) became a huge resize, and a short read left zeros counted as ROM.
@@ -1174,7 +1200,22 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
     LOGI("ROM %s: %s", p, romSummary(buf).c_str());
     for (auto& [k, v] : g_optionOverrides) LOGI("option in effect: %s = %s", k.c_str(), v.c_str());
     retro_game_info info{ p, buf.data(), buf.size(), nullptr };
-    bool ok = !buf.empty() && core.load_game(&info);
+    bool ok;
+    if (disk) {
+        // The core looks for the IPL BIOS (the 64DD's boot ROM) in <system>/Mupen64plus: the disk's region's own
+        // (IPL_JPN.n64, IPL_USA.n64, IPL_DEV.n64), else IPL.n64.
+        std::string dir = g_systemDir + "/Mupen64plus/";
+        bool ipl = false;
+        for (const char* n : {"IPL_JPN.n64", "IPL_USA.n64", "IPL_DEV.n64", "IPL.n64"}) ipl = ipl || access((dir + n).c_str(), R_OK) == 0;
+        retro_game_info dd[2] = { { p, nullptr, 0, nullptr }, { g_ddCart.c_str(), nullptr, 0, nullptr } };
+        LOGI("64DD disk %s, %s", p, g_ddCart.empty() ? "no cartridge" : ("cartridge " + g_ddCart).c_str());
+        if (!ipl) { LOGE("64DD: no IPL BIOS: the data folder's bios/ has none of IPL_JPN.n64, IPL_USA.n64, IPL_DEV.n64, IPL.n64 (copied to %s)", dir.c_str()); ok = false; }
+        else if (!core.load_game_special) { LOGE("64DD: the core has no retro_load_game_special"); ok = false; }
+        else if (!g_ddCart.empty() && buf.empty()) ok = false; // can't read the cartridge (logged above)
+        else ok = core.load_game_special(1 /* RETRO_GAME_TYPE_DD */, dd, g_ddCart.empty() ? 1 : 2);
+    } else {
+        ok = !buf.empty() && core.load_game(&info);
+    }
     env->ReleaseStringUTFChars(rom, p);
     if (!ok) { LOGE("retro_load_game failed"); return JNI_FALSE; }
 

@@ -673,9 +673,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // Handed over by switchGame from the process before this one: the ROM is already unpacked.
         if (intent?.hasExtra(EXTRA_ROM_PATH) == true) return handedRom()
         intent?.data?.let { uri ->
-            val inner = copyToCache(uri) ?: run { JLog.e(TAG, "No N64 ROM in $uri"); return null }
+            val shown = displayName(uri)
+            val inner = copyToCache(uri, shown) ?: run { JLog.e(TAG, "No N64 ROM in $uri"); return null }
             if (inner.isNotEmpty()) JLog.i(TAG, "ROM $inner from archive $uri")
-            return romCache.absolutePath to saveName(displayName(uri) ?: inner)
+            val save = saveName(shown ?: inner)
+            return placeDisk(inner.ifEmpty { shown }, save) to save
         }
         // Some Android 11 devices (Retroid Pocket Flip) block adb from Android/data: there, copy the
         // ROM into internal storage with run-as instead.
@@ -688,7 +690,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             val inner = rom.inputStream().use { RomFiles.extract(it, romCache) }
                 ?: run { JLog.e(TAG, "No N64 ROM in $name"); return null }
             JLog.i(TAG, "ROM $inner from archive $name")
-            return romCache.absolutePath to saveName(rom.name)
+            return placeDisk(inner, saveName(rom.name)) to saveName(rom.name)
         }
         if (!devBuild) return null
         return dirs.map { File(it, "test.z64") }.firstOrNull { it.exists() }?.let { it.absolutePath to "" }
@@ -696,12 +698,43 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     private fun saveName(fileName: String) = GameStates.saveNameOf(fileName)
 
+    /**
+     * A 64DD disk just unpacked to [romCache] ([name] is its file name) moves to cache/dd/<save name>.<ext>, since the
+     * core names the disk's save after the disk's file: saves/<that>.disk_save, as RetroArch does (the whole disk,
+     * written as the game writes it). A ROM stays where it is.
+     */
+    private fun placeDisk(name: String?, saveName: String): String {
+        if (!RomFiles.isDiskName(name) || saveName.isEmpty()) return romCache.absolutePath
+        val dir = File(cacheDir, "dd").apply { mkdirs() }
+        dir.listFiles()?.forEach { it.delete() }
+        val disk = File(dir, "$saveName.${name!!.substringAfterLast('.')}")
+        if (!romCache.renameTo(disk)) { romCache.copyTo(disk, true); romCache.delete() }
+        return disk.absolutePath
+    }
+
+    /**
+     * The cartridge for a 64DD disk, unpacked to cache/dd-cart.rom: EXTRA_DD_CART (a content URI), or, dev, `--es ddcart
+     * <file in roms/>`. Null: the disk alone.
+     */
+    private fun resolveDdCart(): String? {
+        val out = File(cacheDir, "dd-cart.rom")
+        val given = intent?.getStringExtra(EXTRA_DD_CART)
+        val inner = when {
+            given != null -> try { contentResolver.openInputStream(Uri.parse(given))?.use { RomFiles.extract(it, out) } } catch (e: Exception) { JLog.e(TAG, "64DD cartridge $given: $e"); null }
+            else -> devString("ddcart")?.let { name ->
+                listOfNotNull(getExternalFilesDir(null), filesDir).map { File(it, "roms/$name") }.firstOrNull { it.exists() }
+                    ?.inputStream()?.use { RomFiles.extract(it, out) }
+            }
+        } ?: return null
+        JLog.i(TAG, "64DD cartridge ${inner.ifEmpty { given ?: "" }}")
+        return out.absolutePath
+    }
     /** The running game's cheat-list keys (CheatLogic.keys), read from its header at start. */
     private var cheatKeys: List<String> = emptyList()
 
     /** The cheats the user left on for this game ([GameCheats]), given to the core before it loads the game. */
     private fun applyCheats(rom: String, saveName: String) {
-        cheatKeys = try {
+        cheatKeys = if (rom.isEmpty()) emptyList() else try { // "": a 64DD disk with no cartridge, no header
             val buf = File(rom).inputStream().use { i -> ByteArray(0x40).also { b -> if (i.read(b) < b.size) throw java.io.IOException("short ROM") } }
             val order = com.joeysretro.joey64.launcher.library.RomByteOrder.of(buf) ?: throw java.io.IOException("not an N64 ROM")
             order.toBigEndian(buf, buf.size)
@@ -730,8 +763,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
      * name would also let a hack that keeps the original file name overwrite the real game's save), "" for a plain
      * ROM, or null when it holds no N64 ROM.
      */
-    private fun copyToCache(uri: Uri): String? =
-        contentResolver.openInputStream(uri)?.use { RomFiles.extract(it, romCache) }
+    private fun copyToCache(uri: Uri, name: String?): String? =
+        contentResolver.openInputStream(uri)?.use { RomFiles.extract(it, romCache, name) }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
         if (!mine) return
@@ -739,9 +772,13 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (!started) {
             val (rom, saveName) = resolveRom() ?: run { JLog.e(TAG, "No ROM. Push one to ${getExternalFilesDir(null)}/test.z64"); return }
             startRom = rom; startSave = saveName
+            // A 64DD disk: the IPL BIOS comes from the data folder's bios/ (the core reads its copy in files/system).
+            if (RomFiles.isDiskName(rom)) com.joeysretro.joey64.launcher.storage.BiosSync.refresh(this)
+            val ddCart = if (RomFiles.isDiskName(rom)) resolveDdCart() else null
+            NativeBridge.setDdCart(ddCart ?: "")
             reportGameState(loading = true)
             applyControls(rom, saveName)
-            applyCheats(rom, saveName)
+            applyCheats(if (RomFiles.isDiskName(rom)) ddCart ?: "" else rom, saveName)
             applyAudio(saveName)
             // Settings › Saves: a copy of the save RAM before the core can write it (Back up saves).
             savesOpts = com.joeysretro.joey64.saves.SavesStore(this).read()
@@ -1831,6 +1868,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         const val EXTRA_TITLE = "com.joeysretro.joey64.TITLE"
         /** The ROM's MD5 (.z64 order), from the launcher: Auto pak looks it up without hashing the ROM again. */
         const val EXTRA_MD5 = "com.joeysretro.joey64.MD5"
+        /** A 64DD disk's cartridge, as a content URI (F-Zero X Expansion Kit: F-Zero X (Japan)); without it a disk boots alone. */
+        const val EXTRA_DD_CART = "com.joeysretro.joey64.DD_CART"
         const val STATE_AUTO = "auto"
         const val STATE_RECOVERY = "recovery"
         private const val SRM_PUSH_MS = 30_000L

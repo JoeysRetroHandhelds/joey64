@@ -33,11 +33,8 @@ enum class NamesMode(val label: String, val detail: String) {
     NoArt("Only without box art", "A game with no cover shows its name");
 
     companion object {
-        /**
-         * Only without box art: the library as it was (a game with no cover always showed its name on a plain
-         * tile). The mockup drew Off as the default on the belief that such tiles were blank; asked again.
-         */
-        val DEFAULT = NoArt
+        /** Under the cover (Joey 2026-11-08, after a mockup with names on every cover; the mockup had drawn Off). */
+        val DEFAULT = Under
     }
 }
 

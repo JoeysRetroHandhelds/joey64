@@ -90,6 +90,20 @@ object BiosImport {
         return BiosSync.IPL_NAMES.any { try { space.exists(listOf(BiosSync.DIR, it)) } catch (e: Exception) { false } }
     }
 
+    /** Files bigger than this in a picked folder aren't read (an IPL's zip is 3.4 MB; a disk's is tens of MB). */
+    private const val MAX_FILE = 16L * 1024 * 1024
+
+    /**
+     * The folder the user picked (Joey 2026-11-07: pick a folder, Joey64 searches it): every file in it and in its
+     * folders two levels down, up to [MAX_FILE], goes through [import]. The folder's grant isn't kept: it's read now.
+     */
+    fun importFolder(context: Context, tree: Uri): List<Ipl> {
+        val space = TreeSpace(context.contentResolver, tree)
+        val files = space.walk(maxDepth = 3).filter { (_, doc) -> doc.second.size in 1..MAX_FILE }.map { (_, doc) -> space.documentUri(doc.first) }
+        JLog.i(TAG, "looking at ${files.size} files in the picked folder")
+        return import(context, files)
+    }
+
     /**
      * Reads every picked file (each entry of an archive), saves the IPLs it knows in bios/ and returns the ones found,
      * best first (empty: none). Blocking: off the main thread.

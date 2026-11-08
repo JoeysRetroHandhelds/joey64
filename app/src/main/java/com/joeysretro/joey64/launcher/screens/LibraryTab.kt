@@ -77,16 +77,14 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
     var biosHave by remember { mutableStateOf<Map<String, BiosImport.Ipl?>?>(null) }
     var biosLooking by remember { mutableStateOf(false) }
     var biosFound by remember { mutableStateOf<List<BiosImport.Ipl>?>(null) }
-    var biosPicked by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) { biosHave = withContext(Dispatchers.IO) { BiosImport.installed(context) } }
-    val biosPicker = rememberBiosPicker { uris ->
+    val biosPicker = rememberBiosPicker { uri ->
         landing?.arm()
-        if (uris.isEmpty()) return@rememberBiosPicker
-        biosPicked = uris.size
+        uri ?: return@rememberBiosPicker
         biosLooking = true
         scope.launch {
             val found = withContext(Dispatchers.IO) {
-                try { BiosImport.import(context, uris) } catch (e: Exception) { JLog.e(TAG, "64DD BIOS: $e"); emptyList() }
+                try { BiosImport.importFolder(context, uri) } catch (e: Exception) { JLog.e(TAG, "64DD BIOS: $e"); emptyList() }
             }
             biosHave = withContext(Dispatchers.IO) { BiosImport.installed(context) }
             biosLooking = false
@@ -135,7 +133,7 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
                 val biosLabel = biosHave?.let { BiosImport.label(it) }
                 JoeyRow("64DD BIOS", Modifier.initialFocus(focused == "bios"),
                     value = when { biosLooking -> "Looking…"; biosLabel != null -> "$biosLabel ✓"; biosHave == null -> null; else -> "Not set ›" },
-                    sideways = true, onFocused = { if (it) focused = "bios" }) { if (!biosLooking) biosPicker.launch(BIOS_TYPES) }
+                    sideways = true, onFocused = { if (it) focused = "bios" }) { if (!biosLooking) biosPicker.launch(null) }
             }
             Column(Modifier.weight(1f)) {
                 SectionLabel("Downloads")
@@ -152,7 +150,7 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
             "add" -> "Add a folder" to "Another folder with N64 games: .z64, .v64, .n64, 64DD disks (.ndd, .d64), .zip and .7z. Other systems' ROMs are left out."
             "art" -> "Download box art" to "Covers from ScreenScraper, once per game. Off: no downloads; covers already here stay."
             "artq" -> "Box art quality" to "High: covers 640 pixels wide. Low: 320, a quarter of the space and quicker to download. Covers already here stay as they are."
-            "bios" -> "64DD BIOS" to "Needed for 64DD disks. Pick your BIOS file, or several; Joey64 keeps a copy of each one it knows."
+            "bios" -> "64DD BIOS" to "Needed for 64DD disks. Pick the folder with your BIOS files; Joey64 keeps a copy of each one it knows."
             "cheats" -> "Download cheats" to "Each game's cheat lists from joey64-cheats. Off: no downloads; lists already here stay."
             else -> "ROM folder" to "Where Joey64 finds your games. Removing it keeps their saves, states and play time."
         }
@@ -166,8 +164,8 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
                     PopupTitle(foundBiosTitle(found))
                     JoeyRow("OK", Modifier.initialFocus(true)) { biosFound = null }
                 } else {
-                    PopupTitle(noBiosTitle(biosPicked))
-                    JoeyRow("Choose again", Modifier.initialFocus(true)) { biosFound = null; biosPicker.launch(BIOS_TYPES) }
+                    PopupTitle(NO_BIOS)
+                    JoeyRow("Choose again", Modifier.initialFocus(true)) { biosFound = null; biosPicker.launch(null) }
                     JoeyRow("Cancel") { biosFound = null }
                 }
             }

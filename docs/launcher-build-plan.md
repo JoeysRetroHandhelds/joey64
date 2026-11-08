@@ -581,7 +581,7 @@ Also agreed: for an ID shared by more than one layout, Auto map first asks for o
 
 ## 64DD (launcher side; built 2026-11-07 after the `dd` merge)
 
-Built: the scan, cartridge pairing, the 64DD BIOS row and the Play popup, as below, with two changes to the approved text: Android's file picker can't pick a folder, so the row's description says "Pick your BIOS file, or several" (several files can be picked at once), and a pick without a BIOS says "No 64DD BIOS in that file" ("in those files" for several). Box art for disks needed nothing new (see below).
+Built: the scan, cartridge pairing, the 64DD BIOS row and the Play popup, as below, with one change (Joey 2026-11-07: "let user pick a folder and we search that folder"): both pickers pick a folder, so the row's description says "Pick the folder with your BIOS files; Joey64 keeps a copy of each one it knows.", the Play popup says "Pick the folder with your Japan v1.2 file and Joey64 will keep a copy." with Choose folder, and a pick without one says "No 64DD BIOS in that folder". Box art for disks needed nothing new (see below).
 
 Joey chose the core fix (disk-only games load without a cartridge); the Joey64 session builds the core and host on `dd` (core worktree `joey64-core-dd`, app worktree `joey64-auditfix`). The launcher's part, tracked here until built:
 - Scan .ndd and .d64 disks, plain or inside .zip/.7z, and list them as games. Hand them to the game screen like a ROM (EXTRA_ROM_PATH ending in .ndd/.d64 means a disk). F-Zero X Expansion Kit also needs the F-Zero X (Japan) cartridge, passed in `com.joeysretro.joey64.DD_CART` (a content URI).

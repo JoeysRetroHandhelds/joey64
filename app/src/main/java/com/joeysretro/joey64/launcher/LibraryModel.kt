@@ -467,14 +467,13 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     /** "This game needs the 64DD BIOS", or null. */
     val needsBios: StateFlow<NeedsBios?> = _needsBios
 
-    /** The files picked in [needsBios]'s popup: saved when they hold a 64DD BIOS, and then the game starts. */
-    fun biosPicked(uris: List<Uri>, start: (Intent) -> Unit) {
+    /** The folder picked in [needsBios]'s popup: saved when they hold a 64DD BIOS, and then the game starts. */
+    fun biosPicked(folder: Uri, start: (Intent) -> Unit) {
         val ask = _needsBios.value ?: return
-        if (uris.isEmpty()) return
         viewModelScope.launch {
             val app = getApplication<Application>()
             val ready = withContext(Dispatchers.IO) {
-                try { com.joeysretro.joey64.launcher.storage.BiosImport.import(app, uris) } catch (e: Exception) { JLog.e(TAG, "64DD BIOS: $e") }
+                try { com.joeysretro.joey64.launcher.storage.BiosImport.importFolder(app, folder) } catch (e: Exception) { JLog.e(TAG, "64DD BIOS: $e") }
                 com.joeysretro.joey64.launcher.storage.BiosImport.ready(app)
             }
             if (ready) { _needsBios.value = null; started(ask.game); start(ask.intent) } else _needsBios.value = ask.copy(missed = true)

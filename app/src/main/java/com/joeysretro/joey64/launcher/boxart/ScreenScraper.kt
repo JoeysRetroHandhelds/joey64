@@ -112,15 +112,19 @@ object ScreenScraperPick {
 
     /** The cover for [fileName]'s region ("(USA)" -> us, "(Europe)" -> eu, "(Japan)" -> jp), else the usual order. */
     fun cover(game: Game, fileName: String): Pair<String, String>? {
-        val want = when {
-            "(USA" in fileName -> "us"
-            "(Europe" in fileName -> "eu"
-            "(Japan" in fileName -> "jp"
-            else -> null
-        }
-        val order = listOfNotNull(want) + listOf("us", "wor", "eu", "ss", "jp")
+        // The No-Intro name's first region: its own cover, then (a European country) Europe's.
+        val want = REGIONS.firstOrNull { (tag, _) -> "($tag" in fileName }?.second.orEmpty()
+        val order = want + listOf("us", "wor", "eu", "ss", "jp")
         return order.firstNotNullOfOrNull { r -> game.covers.firstOrNull { it.first == r } } ?: game.covers.firstOrNull()
     }
+
+    /** No-Intro region tags and ScreenScraper's region names for them, best first. */
+    private val REGIONS = listOf(
+        "USA" to listOf("us"), "Europe" to listOf("eu"), "Japan" to listOf("jp"),
+        "Germany" to listOf("de", "eu"), "France" to listOf("fr", "eu"), "Spain" to listOf("sp", "eu"),
+        "Italy" to listOf("it", "eu"), "Netherlands" to listOf("nl", "eu"), "Australia" to listOf("au", "eu"),
+        "Brazil" to listOf("br", "us"), "Korea" to listOf("kr", "jp"), "China" to listOf("cn", "jp"),
+    )
 
     /** The name to search: without tags in brackets, "(USA)", "[Dan_GPTV]", "v1.1". */
     fun searchTerm(name: String): String =

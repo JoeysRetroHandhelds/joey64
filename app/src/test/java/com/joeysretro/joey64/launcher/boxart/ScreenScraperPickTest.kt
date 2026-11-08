@@ -47,6 +47,11 @@ class ScreenScraperPickTest {
         val onlyJp = ScreenScraperPick.game(jeu("Sin and Punishment", "jp" to "j"))!!
         assertEquals("j", ScreenScraperPick.cover(onlyJp, "Sin and Punishment (USA)")?.second)
         assertNull(ScreenScraperPick.cover(ScreenScraperPick.game(jeu("Nothing"))!!, "x"))
+        // A European country: its own cover, else Europe's (Fighters Destiny (Germany) got the US one).
+        val fd = ScreenScraperPick.game(jeu("Fighters Destiny", "us" to "u", "eu" to "e", "fr" to "f"))!!
+        assertEquals("e", ScreenScraperPick.cover(fd, "Fighters Destiny (Germany)")?.second)
+        assertEquals("f", ScreenScraperPick.cover(fd, "Fighters Destiny (France)")?.second)
+        assertEquals("u", ScreenScraperPick.cover(fd, "Fighters Destiny (USA, Europe)")?.second)
     }
 
     @Test fun searchTermsDropTags() {

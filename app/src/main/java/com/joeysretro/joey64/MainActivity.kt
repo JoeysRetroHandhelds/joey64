@@ -118,11 +118,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             val (k, v) = kv.split('=', limit = 2).takeIf { it.size == 2 } ?: return@forEach
             android.system.Os.setenv(k.trim(), v.trim(), true)
         }
-        // KGSL GPU priority 1 for the bundled Turnip's contexts on the Odin 3 only (Joey 2026-11-07): +3.6% uncapped
-        // there (odin3-gpu2, 13 of 14 games up); flat on the Portal (portal-gpu2), so other devices keep the driver's
-        // own priority. Before setupGpu: the hook reads it as the driver loads. --es env N64_KGSL_PRIO= (empty) turns it off.
-        if (Build.MODEL == "Odin3" && android.system.Os.getenv("N64_KGSL_PRIO") == null)
-            android.system.Os.setenv("N64_KGSL_PRIO", "1", true)
+        // The per-device switches the driver reads as it loads (GpuRules.beforeDriver: the Odin 3's KGSL priority).
+        applyGpuSettings(GpuRules.beforeDriver(Build.MODEL))
         // Frame pacing and Thermal fallback (Settings › Video) are read by the host from the environment; --es env wins.
         for ((k, v) in com.joeysretro.joey64.video.VideoApply.of(video, true).env)
             if (android.system.Os.getenv(k) == null) android.system.Os.setenv(k, v, true)
@@ -133,38 +130,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         onScreen = onScreenStore.read()
         // Settings > About shows the renderer the last game started with (the launcher can't probe Vulkan itself).
         getSharedPreferences("device", MODE_PRIVATE).edit().putString("renderer", renderer).apply()
-        // Early acquire on Mali (Flip) by default (Joey 2026-11-05): after 30 new frames in a row the next frame
-        // acquires its swapchain image early. Flip compat 82/82 (flip-early30); no gain on the 120 Hz Adrenos
-        // (Duo, Odin 3, Portal), where GoldenEye judders with it, so it stays off there. --es env wins.
-        if ("Mali" in gpuName && android.system.Os.getenv("N64_EARLY_ACQUIRE") == null)
-            android.system.Os.setenv("N64_EARLY_ACQUIRE", "30", true)
-        // Single-threaded RDP command processing on Mali (README item 36, 2026-11-06): parallel-RDP handles commands
-        // on the emulation thread instead of handing them to a worker through a ring. Flip +3.7% uncapped (14 games x
-        // 2, none slower), compat 82/82 with nothing drawn wrong (flip-st). Adreno keeps the ring (Duo mixed:
-        // Banjo -6.4%, Paper Mario -5.7%). --es env PARALLEL_RDP_SINGLE_THREADED_COMMAND=0 turns it off.
-        if ("Mali" in gpuName && android.system.Os.getenv("PARALLEL_RDP_SINGLE_THREADED_COMMAND") == null)
-            android.system.Os.setenv("PARALLEL_RDP_SINGLE_THREADED_COMMAND", "1", true)
-        // Lazy waking of parallel-RDP's command worker (core, on unless N64_RDP_RING_LAZY=0) stays on for Adreno only
-        // (Joey 2026-11-07): Portal +4.4% uncapped (portal-gpu2lazy, none below -0.5%), Duo +3.0% (duo-newlazy),
-        // compat 82/82 on both. Other GPUs were not measured with it, so it is off there. --es env wins.
-        if ("Adreno" !in gpuName && android.system.Os.getenv("N64_RDP_RING_LAZY") == null)
-            android.system.Os.setenv("N64_RDP_RING_LAZY", "0", true)
-        // The recompiler's compile thread (core N64_DRC_THREAD, off unless =1) on Mali only (2026-11-08, Joey: "your call"):
-        // new code runs in the interpreter while a worker compiles it. Flip MK64 race start (flip-mkthread4, 3 rounds):
-        // worst frame 88-90 -> 45 ms; speed -0.4% geomean (flip-drcthread4). Adreno has no such hitches (Odin 3 worst
-        // block 1-2 ms) and lost on worst frames (odin3-drcthread4: game 40 8.6 -> 23-31 ms), so it stays off there.
-        if ("Mali" in gpuName && android.system.Os.getenv("N64_DRC_THREAD") == null)
-            android.system.Os.setenv("N64_DRC_THREAD", "1", true)
-        // Smoother timing (CountPerOp=1, README item 15) for the games that lag on hardware, strong devices only
-        // (Joey 2026-11-06; compat passed on the Odin 3 and Portal, odin3-/portal-smoothc): Adreno 730 and up (Portal,
-        // Odin 3, Thor). The host picks the games (kSmootherGames). --es env N64_SMOOTHER=0|1 wins.
-        val adreno = Regex("""Adreno \(TM\) (\d{3})""").find(gpuName)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-        if (adreno >= 730 && android.system.Os.getenv("N64_SMOOTHER") == null)
-            android.system.Os.setenv("N64_SMOOTHER", "1", true)
-        // parallel-RDP synchronous by default on Adreno: async there gives black screens (Yoshi's Story,
-        // Resident Evil 2, Cruis'n USA) or halts (New Tetris), and sync costs ~1-2 ms a frame (Odin 3, Duo).
-        // On Mali (Flip) sync can cost a third of the frame rate, so async plus kSyncRdpGames. --es opts wins.
-        if ("Adreno" in gpuName) NativeBridge.setOption("mupen64plus-parallel-rdp-synchronous", "True")
+        // The switches that differ by GPU (early acquire, single-threaded commands, lazy RDP worker, compile thread,
+        // smoother timing, parallel-RDP synchronous): one table, GpuRules.settings, with the reasons. --es env/opts win.
+        applyGpuSettings(GpuRules.settings(gpuFamily))
         // Settings › Video: resolution and the N64 video filters (core options), the picture's shape, integer
         // scaling, black frames, colour and sharpening. The dev switches below still win.
         val vApply = com.joeysretro.joey64.video.VideoApply.of(video, renderer == "parallel")
@@ -398,23 +366,29 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     /** Picks and installs the Vulkan driver; returns the renderer, "parallel" or "gliden64". */
     private fun setupGpu(): String {
         val system = parseGpu(NativeBridge.probeVulkan(false))
+        val kgsl = kgslModel()
+        val systemFamily = GpuRules.family(system?.vendor ?: 0, system?.name.orEmpty(), kgsl)
+        val auto = GpuRules.autoDriver(systemFamily)
         val videoDriver = when (video[com.joeysretro.joey64.video.VideoKey.Driver]) {
             "system" -> "system"
-            "bundled" -> if (system != null && "Adreno (TM) 722" in system.name) "faux123" else "turnip"
+            "bundled" -> if (auto.value == GpuRules.Driver.FAUX123) "faux123" else "turnip"
             else -> null
         }
         val dev = devDriver()
+        // The start-up trial (GpuTrial) runs only on Auto's own choice: nothing in Settings, no dev driver or switch.
+        val autoOnly = dev == null && devString("driver") == null && videoDriver == null && devString("renderer") == null &&
+            video[com.joeysretro.joey64.video.VideoKey.Renderer] != "gliden64" && video[com.joeysretro.joey64.video.VideoKey.Renderer] != "parallel"
+        val trialPick = if (autoOnly) GpuTrial(trialStore(), packageManager.getPackageInfo(packageName, 0).lastUpdateTime.toString(),
+            system?.name ?: "none").also { trial = it }.decide() else null
+        val level = trialPick?.level ?: 0
         val lib = dev ?: when (devString("driver") ?: videoDriver) {
             "system" -> null
             "turnip" -> bundledDriver(TURNIP)
             "faux123" -> bundledDriver(TURNIP_FAUX123)
-            else -> when {
-                // The Duo's Adreno 722: faux123's Turnip (Duo fixes) draws Mario Party 2's text boxes without the
-                // stray lines the general build leaves, and passed the 82-game compat run (2026-11-04)
-                system != null && system.adreno && "Adreno (TM) 722" in system.name ->
-                    bundledDriver(TURNIP_FAUX123) ?: bundledDriver(TURNIP)
-                system != null && system.adreno && TURNIP_GPUS.containsMatchIn(system.name) -> bundledDriver(TURNIP)
-                else -> null
+            else -> if (level >= 1) null else when (auto.value) {
+                GpuRules.Driver.FAUX123 -> bundledDriver(TURNIP_FAUX123) ?: bundledDriver(TURNIP)
+                GpuRules.Driver.TURNIP -> bundledDriver(TURNIP)
+                GpuRules.Driver.SYSTEM -> null
             }
         }
         var custom: VkGpu? = null
@@ -426,14 +400,20 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         }
         val gpu = custom ?: system
         gpuName = gpu?.name ?: ""
+        gpuFamily = GpuRules.family(gpu?.vendor ?: 0, gpuName, kgsl)
         storageRangeMb = gpu?.storageRangeMb ?: 0
         statsDriver = statsDriverName(lib?.takeIf { custom != null }, dev != null, gpu?.driver.orEmpty())
-        // parallel-RDP also needs 16-bit storage buffers: without them it fails to start and the core crashes
-        // (Adreno 610, Snapdragon 665: missing on both drivers, so GLideN64 there)
-        val parallel = gpu != null && gpu.vulkan11 && gpu.storage16 == 1 && (custom != null || gpu.mali)
+        val rendererPick = GpuRules.autoRenderer(gpu != null && gpu.vulkan11, gpu != null && gpu.storage16 == 1, custom != null, gpuFamily)
+        // The trial's level 1 is the system driver (its renderer by the rule above); level 2, or level 1 when Auto was
+        // already the system driver, is GLideN64 as well.
+        val trialGl = trialPick != null && (level >= 2 || (level == 1 && auto.value == GpuRules.Driver.SYSTEM))
+        val parallel = rendererPick.value == "parallel" && !trialGl
         if (gpu != null && gpu.vulkan11 && gpu.storage16 != 1) JLog.w(TAG, "GPU ${gpu.name}: no 16-bit storage buffers, parallel-RDP can't run")
         JLog.i(TAG, "GPU: ${gpu ?: "no Vulkan"}, driver ${if (custom != null) lib!!.relativeTo(gpuDriverDir).path else "system"}, " +
             "default renderer ${if (parallel) "parallel" else "gliden64"}")
+        // Which rule picked what (README item 38 e: a tester's log says it).
+        JLog.i(TAG, "GPU rules: family $systemFamily; Auto driver: ${auto.rule}; Auto renderer: ${rendererPick.rule}; " +
+            "trial: ${trialPick?.what ?: "off (driver or renderer not left on Auto)"}${if (trialGl) ", so GLideN64" else ""}")
         // What Auto picks here, for Settings › Video's "Auto · ..." (the launcher can't probe Vulkan itself):
         // the renderer by GPU, and the driver that ran when nothing but Auto chose it (a dev driver in
         // files/drivers counts: it is what Auto uses then).
@@ -458,7 +438,40 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     private var gpuName = ""
+    private var gpuFamily = GpuRules.Family(GpuRules.Vendor.OTHER, 0, "")
     private var storageRangeMb = 0
+    /** Auto's start-up trial on this GPU; null when the driver or renderer was picked. */
+    private var trial: GpuTrial? = null
+
+    /** /sys/class/kgsl/kgsl-3d0/gpu_model ("Adreno740v2"), when this device lets the app read it. */
+    private fun kgslModel(): String? = try { File("/sys/class/kgsl/kgsl-3d0/gpu_model").readText().trim().takeIf { it.isNotEmpty() } } catch (_: Exception) { null }
+
+    private fun trialStore() = object : GpuTrial.Store {
+        val prefs = getSharedPreferences("gpu_trial", MODE_PRIVATE)
+        override fun get(key: String) = prefs.getString(key, null)
+        // commit: on disk before the start that may crash
+        override fun put(key: String, value: String?) { prefs.edit().putString(key, value).commit() }
+        override fun keys(): Set<String> = prefs.all.keys
+    }
+
+    /** GpuRules' switches, unless --es env (a variable) or --es opts (a core option, applied after these) sets them. */
+    private fun applyGpuSettings(list: List<GpuRules.Setting>) {
+        for (st in list) {
+            if (st.coreOption) NativeBridge.setOption(st.key, st.value)
+            else if (android.system.Os.getenv(st.key) == null) android.system.Os.setenv(st.key, st.value, true)
+            else continue
+            JLog.i(TAG, "GPU setting ${st.key}=${st.value} (${st.rule})")
+        }
+    }
+
+    /** Polls for the first drawn frame of a trial start, then marks the trial good. */
+    private val trialWatch = object : Runnable {
+        override fun run() {
+            val t = trial ?: return
+            if (NativeBridge.framesDrawn() > 0) { t.drew(); JLog.i(TAG, "GPU trial: a frame was drawn, good"); return }
+            if (!isFinishing) fpsHandler.postDelayed(this, 250)
+        }
+    }
 
     /**
      * The stats overlay's driver: the bundled ones by their release (devtools/drivers/bundled.json, keep these
@@ -636,7 +649,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val f = value.removeSuffix("x").toIntOrNull() ?: return value
         // Dev: --ez nocap true lifts the caps, to try other drivers
         if (devFlag("nocap")) return value
-        var top = if ("Adreno (TM) 722" in gpuName) 2 else 8
+        var top = GpuRules.upscaleTop(gpuFamily).value
         if (storageRangeMb > 0) while (top > 1 && 8 * top * top > storageRangeMb) top /= 2
         if (f <= top) return value
         JLog.w(TAG, "parallel-RDP upscaling $value capped at ${top}x on $gpuName (storage buffer range $storageRangeMb MB)")
@@ -845,13 +858,16 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         savesOpts = p.savesOpts
         // RetroAchievements: signs in with the kept account first, so the game is identified as it loads.
         com.joeysretro.joey64.achievements.RaBridge.init(this)
+        trial?.begin()
         if (NativeBridge.loadGame(rom, saveName)) {
             NativeBridge.start(); started = true; owner = this; gameLoaded = true
+            if (trial != null) fpsHandler.postDelayed(trialWatch, 250)
             startStates(saveName)
             startSession(rom, saveName)
             fpsHandler.postDelayed(shutdownWatch, SHUTDOWN_POLL_MS)
             reportGameState(loading = false)
         } else {
+            trial?.cancel()
             reportGameState(loading = false)
             notStarted(cart = false)
         }
@@ -2078,6 +2094,5 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         const val TURNIP = "libvulkan_freedreno.so"
         // Same file name in its own folder: the driver is loaded by that name
         const val TURNIP_FAUX123 = "faux123/libvulkan_freedreno.so"
-        val TURNIP_GPUS = Regex("""Adreno \(TM\) [678]\d\d""")
     }
 }

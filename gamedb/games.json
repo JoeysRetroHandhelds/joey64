@@ -202,7 +202,8 @@
     {
       "disk": "SimCity 64 (Japan)", "title": "SimCity 64 (64DD)",
       "notes": [
-        "Flip: boots from the disk alone (IPL_JPN.n64), Maxis logo, 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)"
+        "Flip: boots from the disk alone (IPL_JPN.n64), Maxis logo, 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)",
+        "With the VI fix: 60 fps with no underruns, then 48-51 emu fps in one scene where the Flip itself is busy (11-12 ms a frame, the device's limit); Flip flip-dd11/flip-dd16 (2026-11-07, core dd 0ac9d17 = VI event removed by type + Doshin CountPerOp 1)"
       ]
     },
     {
@@ -210,27 +211,57 @@
       "notes": [
         "Flip: boots to its menu, 61 emu fps, and writes its disk save (files/saves/<save name>.ndd.disk_save, 64.9 MB); flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)",
         "Plays with the N64 Mouse, which the core does not take yet (README accessories item)",
-        "Flip, second start (its disk save loaded): the menu runs 44-57 fps with 52-270 audio underruns per 5 s (app dd3, 2026-11-07); not looked into yet"
+        "Flip, second start (its disk save loaded): the menu ran 44-57 fps with 52-270 audio underruns per 5 s (app dd3, 2026-11-07), before the VI fix",
+        "With the VI fix: menu 60 fps, 0 underruns but one 5 s window of 52; Flip flip-dd11/flip-dd16 (2026-11-07, core dd 0ac9d17 = VI event removed by type + Doshin CountPerOp 1)"
       ]
     },
     {
       "disk": "Kyojin no Doshin (Japan)", "title": "Kyojin no Doshin (64DD)",
+      "settings": [
+        {"what": "CountPerOp=1 (counter factor 1), retail and store demo disks", "where": "core mupen64plus.ini (both copies), by disk md5", "why": "at 2 the game crashes loading after Start; Project64's database gives the Doshin cartridge conversions Counter Factor 1"}
+      ],
       "notes": [
         "Flip: boots, intro then \"Now loading\", 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)",
-        "Flip: the game draws ~15 fps and gives a quarter of its audio (~780 underruns per 5 s) while the emulator runs 61 VI/s at 1-4 ms each: it waits inside the emulated machine (likely the 64DD read timing), see the README 64DD item"
+        "Was ~15 fps with a quarter of its audio: the core's VI event got duplicated, so the game took one VI interrupt in four (fixed in core dd 7a8c4ba, not a 64DD problem; README 64DD item)",
+        "With the VI fix alone it crashed while loading after Start (reads through a bad pointer, also on the cached interpreter); CountPerOp 1 loads it: intro and play at 60 fps, 0 underruns, retail and kiosk demo; Flip flip-dd11/flip-dd16 (2026-11-07, core dd 0ac9d17 = VI event removed by type + Doshin CountPerOp 1)"
       ]
     },
     {
       "disk": "Super Mario 64 - Disk Version (Japan) (Proto)", "title": "Super Mario 64 Disk Version (64DD prototype)",
       "notes": [
         "Flip: boots to the title and into the game, 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)",
-        "Flip: the game draws 1-8 fps and gives a quarter of its audio (SM64 cartridge: same 32006 Hz rate, full audio) while the emulator runs 61 VI/s at 1-4 ms each, see the README 64DD item"
+        "Was 1-8 fps with a quarter of its audio (the duplicated VI event, fixed in core dd 7a8c4ba); now 30 fps, 0 underruns, like the SM64 cartridge; Flip flip-dd11/flip-dd16 (2026-11-07, core dd 0ac9d17 = VI event removed by type + Doshin CountPerOp 1)"
       ]
     },
     {
       "disk": "Nihon Pro Golf Tour 64 (Japan) [b]", "title": "Nihon Pro Golf Tour 64 (64DD)",
       "notes": [
-        "Flip: boots to its menu, 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)"
+        "Flip: boots to its menu, 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)",
+        "With the VI fix: 58-60 fps, underruns 0-55 per 5 s (was 15 fps in play with ~770); Flip flip-dd11/flip-dd16 (2026-11-07, core dd 0ac9d17 = VI event removed by type + Doshin CountPerOp 1)"
+      ]
+    },
+    {
+      "disk": "Mario Artist - Talent Studio (Japan)", "title": "Mario Artist: Talent Studio (64DD)",
+      "notes": [
+        "Flip: boots from the disk alone (Start/A pressed at 20 s), 30 fps, 0-38 underruns per 5 s; plays with the N64 Mouse, which the core does not take yet; flip-dd11 (2026-11-07, core dd 7a8c4ba, IPL_JPN = Japan v1.2)"
+      ]
+    },
+    {
+      "disk": "Mario Artist - Polygon Studio (Japan)", "title": "Mario Artist: Polygon Studio (64DD)",
+      "notes": [
+        "Flip: boots from the disk alone (Start/A pressed at 20 s), 30 fps, 0-33 underruns per 5 s; plays with the N64 Mouse, which the core does not take yet; flip-dd11 (2026-11-07, core dd 7a8c4ba, IPL_JPN = Japan v1.2)"
+      ]
+    },
+    {
+      "disk": "Mario Artist - Communication Kit (Japan)", "title": "Mario Artist: Communication Kit (64DD)",
+      "notes": [
+        "Flip: boots from the disk alone (Start/A pressed at 20 s), 60 fps, 0-35 underruns per 5 s; its online side needs Randnet, which is gone; flip-dd11 (2026-11-07, core dd 7a8c4ba, IPL_JPN = Japan v1.2)"
+      ]
+    },
+    {
+      "disk": "Kyojin no Doshin - Kaihou Sensen Chibikko Chikko Daishuugou (Japan) [b]", "title": "Kyojin no Doshin: Kaihou Sensen Chibikko Chikko Daishuugou (64DD)",
+      "notes": [
+        "Flip: boots from the disk alone (Start/A pressed at 20 s), 60 fps, 0-10 underruns per 5 s at CountPerOp 2; flip-dd11 (2026-11-07, core dd 7a8c4ba, IPL_JPN = Japan v1.2)"
       ]
     },
     {

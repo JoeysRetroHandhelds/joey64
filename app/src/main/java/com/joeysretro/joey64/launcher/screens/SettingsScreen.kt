@@ -121,8 +121,7 @@ fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher
         onDispose { ControlBus.pop(handler) }
     }
     Column(Modifier.fillMaxSize().padding(horizontal = s.margin).padding(top = 14.dp, bottom = 8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Settings", style = JoeyTheme.type.pageTitle, color = c.text, modifier = Modifier.weight(1f))
+        com.joeysretro.joey64.launcher.components.PageHeader("Settings") {
             if (perGame) PageChip((targetTitle ?: "All games") + "  ›", R.drawable.ic_sliders, on = target != null) { gamesPopup = 1 }
         }
         SettingsTabs(SettingsTab.entries.map { it.label }, tab.ordinal) { tab = SettingsTab.entries[it] }

@@ -271,14 +271,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
                 PageChip("Hotkeys", R.drawable.ic_keyboard, modifier = Modifier.initialFocus(focused == "chipHotkeys"),
                     onFocused = { if (it) focused = "chipHotkeys" }) { hotkeysOpen = true; focused = "hkButton" }
             }
-            // The narrowest screens (under 520 dp) put the chips on their own line, under the title.
-            val chipsBelow = com.joeysretro.joey64.launcher.layout.LocalScreenLayout.current.widthDp < 520f
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Controls", style = JoeyTheme.type.pageTitle, color = c.text, maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(end = 8.dp))
-                if (!chipsBelow) headerChips()
-            }
-            if (chipsBelow) Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) { headerChips() }
+            com.joeysretro.joey64.launcher.components.PageHeader("Controls") { headerChips() }
             // Scrolls sideways on a narrow screen rather than wrapping "Player 4".
             Row(Modifier.padding(top = 6.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 for (i in 0..3) TabChip("Player ${i + 1}", i == player)

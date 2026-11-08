@@ -39,7 +39,7 @@ fun PageChip(text: String, @DrawableRes icon: Int?, modifier: Modifier = Modifie
     ) {
         val color = if (blue) c.onButtonPrimary else c.textSecondary
         if (icon != null) Icon(painterResource(icon), contentDescription = null, tint = color, modifier = Modifier.size(15.dp))
-        Text(text, style = JoeyTheme.type.tab, color = color, maxLines = 1)
+        Text(text, style = JoeyTheme.type.tab, color = color, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
     }
 }
 
@@ -66,6 +66,25 @@ fun InfoChip(text: String, @DrawableRes icon: Int?, on: Boolean = false) {
     ) {
         val color = if (on) c.onButtonPrimary else c.text
         if (icon != null) Icon(painterResource(icon), contentDescription = null, tint = color, modifier = Modifier.size(15.dp))
-        Text(text, style = JoeyTheme.type.tab, color = color, maxLines = 1)
+        Text(text, style = JoeyTheme.type.tab, color = color, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
     }
+}
+
+/**
+ * A page's title with its chips (Settings, Game settings, Controls, Cheats): the title on one line,
+ * the chips at the right of it; on the narrowest screens (under 520 dp) the chips go on their own
+ * line under it. Chips beside the title get the room the title leaves, a long game name ending in "...".
+ */
+@Composable
+fun PageHeader(title: String, chips: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {}) {
+    val c = JoeyTheme.colors
+    val below = com.joeysretro.joey64.launcher.layout.LocalScreenLayout.current.widthDp < 520f
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(title, style = JoeyTheme.type.pageTitle, color = c.text, maxLines = 1, softWrap = false,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(end = 12.dp))
+        if (!below) androidx.compose.foundation.layout.Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+            Row(verticalAlignment = Alignment.CenterVertically, content = chips)
+        }
+    }
+    if (below) Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically, content = chips)
 }

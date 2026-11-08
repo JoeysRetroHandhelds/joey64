@@ -129,7 +129,7 @@ private fun RailItem(place: RailPlace, on: Boolean, enabled: Boolean, modifier: 
 
 /** The JOEY64 wordmark, in the theme's version (the shadow is navy in light mode). */
 @Composable
-fun Wordmark(modifier: Modifier = Modifier) {
+fun Wordmark(modifier: Modifier = Modifier, width: androidx.compose.ui.unit.Dp = 250.dp) {
     val res = if (JoeyTheme.colors.isDark) R.drawable.wordmark_dark else R.drawable.wordmark_light
-    Image(painterResource(res), contentDescription = "Joey64", modifier = modifier.width(250.dp))
+    Image(painterResource(res), contentDescription = "Joey64", modifier = modifier.width(width))
 }

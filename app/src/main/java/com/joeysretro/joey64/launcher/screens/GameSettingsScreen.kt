@@ -165,10 +165,7 @@ private fun GameTabs(game: GameRef, v: GsView.Tabs, onHints: (List<Hint>) -> Uni
     val s = JoeyTheme.spacing
     val parts = listOf(GamePart.Video, GamePart.Audio)
     Column(Modifier.fillMaxSize().padding(horizontal = s.margin).padding(top = 14.dp, bottom = 8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Settings", style = JoeyTheme.type.pageTitle, color = c.text, modifier = Modifier.weight(1f))
-            InfoChip(game.title, R.drawable.ic_sliders, on = true)
-        }
+        com.joeysretro.joey64.launcher.components.PageHeader("Settings") { InfoChip(game.title, R.drawable.ic_sliders, on = true) }
         SettingsTabs(parts.map { it.label }, parts.indexOf(v.part)) { onTab(parts[it]) }
         key(v) {
             when (v.part) {
@@ -189,10 +186,7 @@ private fun GamePage(game: GameRef, summary: GameSummary, inGame: Boolean, focus
     val none = summary.total == 0
     LaunchedEffect(Unit) { onHints(listOf(Hint("A", "Open"), Hint("B", "Back"))) }
     Column(Modifier.fillMaxSize().padding(horizontal = s.margin).padding(top = 14.dp, bottom = 8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Game settings", style = JoeyTheme.type.pageTitle, color = c.text, modifier = Modifier.weight(1f))
-            InfoChip(game.title, R.drawable.ic_rail_controls)
-        }
+        com.joeysretro.joey64.launcher.components.PageHeader("Game settings") { InfoChip(game.title, R.drawable.ic_rail_controls) }
         Spacer(Modifier.height(12.dp))
         TwoColumns(Modifier.weight(1f), left = {
             SectionLabel("This game")

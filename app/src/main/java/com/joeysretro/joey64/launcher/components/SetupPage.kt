@@ -1,6 +1,11 @@
 package com.joeysretro.joey64.launcher.components
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,16 +23,24 @@ import com.joeysretro.joey64.launcher.theme.JoeyTheme
  * A first-run page (approved first run, 2026-11-05): the wordmark, then a heading, a line of text,
  * a row of buttons and sometimes a small grey line, all centred. Every first-run and Import from
  * RetroArch screen is one of these, with different contents.
+ *
+ * Small screens (under 600 dp wide or 420 tall): narrower margins and a smaller wordmark; the page
+ * scrolls when its contents are taller than the screen, and stays centred when they fit.
  */
 @Composable
 fun SetupPage(content: @Composable ColumnScope.() -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 40.dp).padding(bottom = 20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Wordmark(Modifier.padding(bottom = 26.dp))
-        content()
+    val l = com.joeysretro.joey64.launcher.layout.LocalScreenLayout.current
+    val small = l.widthDp < 600f || l.heightDp < 420f
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight)
+                .padding(horizontal = if (small) 16.dp else 40.dp).padding(top = if (small) 12.dp else 0.dp, bottom = if (small) 12.dp else 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Wordmark(Modifier.padding(bottom = if (small) 14.dp else 26.dp), width = if (small) 170.dp else 250.dp)
+            content()
+        }
     }
 }
 

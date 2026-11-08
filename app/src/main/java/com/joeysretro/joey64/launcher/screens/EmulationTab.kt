@@ -40,7 +40,7 @@ import kotlinx.coroutines.withContext
  * Settings › Emulation (approved mockup, 2026-11-08: scratchpad build_emu.py). Left, Console: the
  * Expansion Pak, set for one game only (greyed on All games, and for a game that needs it). Right,
  * Advanced: Overclock, CPU core, Thermal fallback. For one game ([target]) a row set for it has the
- * dot and Y puts it back. Performance mode joins the left column once it's measured (Joey 2026-11-08).
+ * dot and Y puts it back. Performance mode was dropped (Joey 2026-11-08: measured, no difference on the Thor).
  */
 @Composable
 fun EmulationTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean)?) -> Unit, modifier: Modifier = Modifier,

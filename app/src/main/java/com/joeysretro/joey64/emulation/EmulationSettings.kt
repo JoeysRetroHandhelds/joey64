@@ -9,7 +9,7 @@ import java.io.File
 /**
  * Settings › Emulation (approved mockup, 2026-11-08: scratchpad build_emu.py, with Joey's answers:
  * Thermal fallback moves here from Video, Overclock is Auto / Normal / 2x / 4x, the Expansion Pak
- * greys out for games that need it, Performance mode waits for measurements). Like Video: every
+ * greys out for games that need it; Performance mode measured and dropped, Joey 2026-11-08). Like Video: every
  * setting is a key with a string value; a game stores only the keys changed for it (the yellow
  * dot), and Y removes one. The Expansion Pak is set for one game only.
  */

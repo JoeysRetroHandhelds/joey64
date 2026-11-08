@@ -209,7 +209,8 @@
       "disk": "Mario Artist - Paint Studio (Japan)", "title": "Mario Artist: Paint Studio (64DD)",
       "notes": [
         "Flip: boots to its menu, 61 emu fps, and writes its disk save (files/saves/<save name>.ndd.disk_save, 64.9 MB); flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)",
-        "Plays with the N64 Mouse, which the core does not take yet (README accessories item)"
+        "Plays with the N64 Mouse, which the core does not take yet (README accessories item)",
+        "Flip, second start (its disk save loaded): the menu runs 44-57 fps with 52-270 audio underruns per 5 s (app dd3, 2026-11-07); not looked into yet"
       ]
     },
     {

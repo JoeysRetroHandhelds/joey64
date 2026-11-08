@@ -42,59 +42,90 @@ object SrmSync {
     private const val TAG = "Joey64SrmSync"
     private const val PREFS = "srm_sync"
 
-    private fun working(context: Context, saveName: String) = File(File(context.filesDir, DataKind.Saves.dir), "$saveName.srm")
-    private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    /** When each file was last in step with the picked folder (its working copy's time), by key. */
+    interface Stamps {
+        fun get(key: String): Long
+        fun put(key: String, at: Long)
+    }
+
+    private fun stamps(context: Context) = object : Stamps {
+        val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        override fun get(key: String) = p.getLong(key, -1L)
+        override fun put(key: String, at: Long) { p.edit().putLong(key, at).commit() }
+    }
+    private fun workDir(context: Context) = File(context.filesDir, DataKind.Saves.dir)
+
+    /**
+     * A game's save files in `saves/`: its save RAM, and for a 64DD disk the core's disk save (the whole disk,
+     * "<save name>.ndd.disk_save", 2026-11-07).
+     */
+    fun names(saveName: String) = listOf("$saveName.srm", "$saveName.ndd.disk_save", "$saveName.d64.disk_save")
+    /** The save RAM keeps its old key (the save name). */
+    private fun key(name: String) = if (name.endsWith(".srm")) name.removeSuffix(".srm") else name
 
     /** Before the game loads. */
     fun pull(context: Context, saveName: String) {
         val folder = DataFolders.current(context)
         if (folder.isInternal || saveName.isEmpty()) return
-        val f = working(context, saveName)
-        val rec = prefs(context).getLong(saveName, -1L)
-        try {
-            if (f.isFile && rec >= 0 && f.lastModified() != rec) { JLog.i(TAG, "$saveName.srm: the working copy is newer, pushing it first"); push(context, saveName); return }
-            val bytes = folder.space.openRead(listOf(DataKind.Saves.dir, f.name))?.use { it.readBytes() }
-            if (bytes == null) { if (f.isFile) push(context, saveName); return }
-            f.parentFile?.mkdirs()
-            val part = File(f.parentFile, f.name + ".part")
-            part.writeBytes(bytes)
-            if (!part.renameTo(f)) { f.delete(); if (!part.renameTo(f)) throw IOException("can't put ${f.name} in place") }
-            prefs(context).edit().putLong(saveName, f.lastModified()).apply()
-            JLog.i(TAG, "$saveName.srm: pulled ${bytes.size} bytes from the data folder")
-        } catch (e: Exception) {
-            JLog.e(TAG, "$saveName.srm: can't pull: $e")
-        }
+        val st = stamps(context)
+        for (n in names(saveName)) pullFile(folder.space, workDir(context), n, st)
     }
 
-    /** Puts the working copy in the picked folder when it changed since the last time. */
+    /** Puts the game's working copies in the picked folder when they changed since the last time. */
     fun push(context: Context, saveName: String) {
         val folder = DataFolders.current(context)
         if (folder.isInternal || saveName.isEmpty()) return
-        val f = working(context, saveName)
-        if (!f.isFile) return
-        val at = f.lastModified()
-        if (prefs(context).getLong(saveName, -1L) == at) return
-        try {
-            val bytes = f.readBytes()
-            // Checked and renamed into place: a push cut off leaves the folder's last whole copy, which another
-            // device would otherwise pull over its own save.
-            if (!FileCopy.writeChecked(bytes.inputStream(), folder.space, listOf(DataKind.Saves.dir, f.name)))
-                throw IOException("can't write ${f.name}")
-            prefs(context).edit().putLong(saveName, at).commit()
-            JLog.i(TAG, "$saveName.srm: pushed ${bytes.size} bytes to the data folder")
-        } catch (e: Exception) {
-            JLog.e(TAG, "$saveName.srm: can't push: $e")
-        }
+        val st = stamps(context)
+        for (n in names(saveName)) pushFile(folder.space, workDir(context), n, st)
     }
 
     /** Every working copy that changed (before a backup or a move reads the picked folder). */
     fun pushAll(context: Context) {
-        if (DataFolders.current(context).isInternal) return
-        File(context.filesDir, DataKind.Saves.dir).listFiles { x -> x.isFile && x.name.endsWith(".srm") }?.forEach {
-            push(context, it.name.removeSuffix(".srm"))
-        }
+        val folder = DataFolders.current(context)
+        if (folder.isInternal) return
+        val st = stamps(context)
+        workDir(context).listFiles { x -> x.isFile && (x.name.endsWith(".srm") || x.name.endsWith(".disk_save")) }
+            ?.forEach { pushFile(folder.space, workDir(context), it.name, st) }
     }
 
     /** The folder changed: nothing is in step with the new one yet. */
-    fun forget(context: Context) { prefs(context).edit().clear().commit() }
+    fun forget(context: Context) { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().commit() }
+
+    /** [name] from [space]'s saves/ into [work]; a working copy changed since it was last in step goes out instead. */
+    fun pullFile(space: FileSpace, work: File, name: String, st: Stamps) {
+        val f = File(work, name)
+        val rec = st.get(key(name))
+        try {
+            if (f.isFile && rec >= 0 && f.lastModified() != rec) { JLog.i(TAG, "$name: the working copy is newer, pushing it first"); pushFile(space, work, name, st); return }
+            val input = space.openRead(listOf(DataKind.Saves.dir, name))
+            if (input == null) { if (f.isFile) pushFile(space, work, name, st); return }
+            work.mkdirs()
+            val part = File(work, "$name.part")
+            // Streamed: a disk save is a whole 64DD disk (up to 64 MB).
+            val size = input.use { i -> part.outputStream().use { i.copyTo(it, 1 shl 16) } }
+            if (!part.renameTo(f)) { f.delete(); if (!part.renameTo(f)) throw IOException("can't put $name in place") }
+            st.put(key(name), f.lastModified())
+            JLog.i(TAG, "$name: pulled $size bytes from the data folder")
+        } catch (e: Exception) {
+            JLog.e(TAG, "$name: can't pull: $e")
+        }
+    }
+
+    /** [name] from [work] to [space]'s saves/, when it changed since it was last in step. */
+    fun pushFile(space: FileSpace, work: File, name: String, st: Stamps) {
+        val f = File(work, name)
+        if (!f.isFile) return
+        val at = f.lastModified()
+        if (st.get(key(name)) == at) return
+        try {
+            // Checked and renamed into place: a push cut off leaves the folder's last whole copy, which another
+            // device would otherwise pull over its own save.
+            if (!f.inputStream().use { FileCopy.writeChecked(it, space, listOf(DataKind.Saves.dir, name)) })
+                throw IOException("can't write $name")
+            st.put(key(name), at)
+            JLog.i(TAG, "$name: pushed ${f.length()} bytes to the data folder")
+        } catch (e: Exception) {
+            JLog.e(TAG, "$name: can't push: $e")
+        }
+    }
 }

@@ -47,6 +47,7 @@ import com.joeysretro.joey64.controls.PakDb
 import com.joeysretro.joey64.controls.PadDevices
 import com.joeysretro.joey64.controls.PlayerInput
 import com.joeysretro.joey64.controls.QuitTo
+import com.joeysretro.joey64.controls.SlowMode
 
 class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
@@ -323,6 +324,95 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private fun setFastForward(on: Boolean, percent: Int = hotkeys.ffSpeed) {
         NativeBridge.setFastForwardSpeed(percent)
         if (on != fastForward) { sessionMark(); fastForward = on; NativeBridge.setFastForward(on) }
+        if (on && slowMotion) setSlowMotion(false) // straight to fast-forward
+    }
+
+    // ---- Slow motion and Rewind (approved mockup 2026-11-08; Controls > Hotkeys) -----------------------------
+    // Slow motion: Toggle or Hold, at Hotkeys.slowSpeed; a pop-up stays while it's on. Rewind: held, the game goes
+    // back while Hotkeys.rewindOn records; the pop-up says how far, and the game goes on from there when let go.
+    private var slowMotion = false
+    private var slowHeld = false
+    private var rewindHeld = false
+    /** The rewind settings last given to the host (a change starts the recording over). */
+    private var rewindApplied: Triple<Boolean, Int, Int>? = null
+
+    private fun setSlowMotion(on: Boolean) {
+        if (on == slowMotion) return
+        if (on && com.joeysretro.joey64.achievements.RaHardcore.on()) { popHardcore("Slow motion"); return }
+        sessionMark(); slowMotion = on
+        if (on && fastForward) { ffHeld = false; setFastForward(false) }
+        NativeBridge.setSlowMotion(if (on) hotkeys.slowSpeed else 0)
+        if (on) overlay?.show(InGamePopup("slow", InGamePopup.Kind.SlowMotion, "Slow motion", "${hotkeys.slowSpeed}%",
+            if (hotkeys.slowMode == SlowMode.Hold) "Let go to go back to full speed" else "Press again to go back to full speed",
+            stayMs = com.joeysretro.joey64.launcher.ingame.PopupQueue.UNTIL_HIDDEN))
+        else overlay?.hide("slow", waiting = true)
+        JLog.i(TAG, "slow motion ${if (on) "on, ${hotkeys.slowSpeed}%" else "off"}")
+    }
+
+    /** The slow motion hotkey went down or up (only the press counts for Toggle). */
+    private fun slowMotionKey(down: Boolean) {
+        if (hotkeys.slowMode == SlowMode.Toggle) { if (down) setSlowMotion(!slowMotion); return }
+        slowHeld = down
+        setSlowMotion(down)
+    }
+
+    private fun slowMotionRelease() { if (slowHeld) { slowHeld = false; setSlowMotion(false) } }
+
+    private fun popHardcore(what: String) =
+        pop("hardcore", InGamePopup.Kind.Problem, what, "Not in Hardcore", "RetroAchievements Hardcore is on")
+
+    /** Gives the host the rewind settings (at start, and when Controls change over the paused game). */
+    private fun applyRewind() {
+        val on = hotkeys.rewindOn && !com.joeysretro.joey64.achievements.RaHardcore.on()
+        val t = Triple(on, hotkeys.rewindEvery, hotkeys.rewindSeconds * 60 / hotkeys.rewindEvery)
+        if (t == rewindApplied) return
+        rewindApplied = t
+        NativeBridge.setRewind(t.first, t.second, t.third)
+    }
+
+    private val rewindPoll = object : Runnable {
+        override fun run() {
+            if (!rewindHeld || destroyed) return
+            showRewind()
+            fpsHandler.postDelayed(this, 100)
+        }
+    }
+
+    private fun showRewind() {
+        val i = NativeBridge.rewindInfo()
+        val kept = Hotkeys.rewindSecondsLabel(hotkeys.rewindSeconds)
+        val bar = if (i[1] > 0) i[0].toFloat() / i[1] else 0f
+        if (i[3] == 1) overlay?.show(InGamePopup("rewind", InGamePopup.Kind.Rewind, "Rewinding", "Can't go further back",
+            "$kept kept: Controls › Hotkeys › Rewind", stayMs = com.joeysretro.joey64.launcher.ingame.PopupQueue.UNTIL_HIDDEN, bar = 0f))
+        else overlay?.show(InGamePopup("rewind", InGamePopup.Kind.Rewind, "Rewinding", "${(i[2] + 30) / 60} s back", "",
+            stayMs = com.joeysretro.joey64.launcher.ingame.PopupQueue.UNTIL_HIDDEN, bar = bar))
+    }
+
+    /** The rewind hotkey went down or up: back while held. */
+    private fun rewindKey(down: Boolean) {
+        if (down) {
+            if (rewindHeld) return
+            if (com.joeysretro.joey64.achievements.RaHardcore.on()) { popHardcore("Rewind"); return }
+            if (!hotkeys.rewindOn) {
+                pop("rewind", InGamePopup.Kind.Problem, "Rewind", "Rewind is off", "Turn it on in Controls › Hotkeys › Rewind")
+                return
+            }
+            sessionMark(); rewindHeld = true
+            if (fastForward) { ffHeld = false; setFastForward(false) }
+            NativeBridge.setRewinding(true)
+            fpsHandler.removeCallbacks(rewindPoll)
+            fpsHandler.post(rewindPoll)
+        } else rewindRelease()
+    }
+
+    private fun rewindRelease() {
+        if (!rewindHeld) return
+        rewindHeld = false
+        NativeBridge.setRewinding(false)
+        fpsHandler.removeCallbacks(rewindPoll)
+        val back = NativeBridge.rewindInfo()[2]
+        JLog.i(TAG, "rewind: let go after $back frames")
+        overlay?.hide("rewind", waiting = true)
     }
 
     private fun toggleFastForward() = setFastForward(!fastForward)
@@ -1375,6 +1465,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             HotkeyAction.Quit -> quitToLibrary()
             HotkeyAction.PauseMenu -> if (!menuOpen) openMenu()
             HotkeyAction.FastForward -> toggleFastForward()
+            HotkeyAction.SlowMotion -> setSlowMotion(!slowMotion)
+            HotkeyAction.Rewind -> {}  // both edges, in hotkeyEdge
             HotkeyAction.GameShark -> {}  // both edges, in dispatchKeyEvent
             HotkeyAction.VolumeUp -> stepVolume(5)
             HotkeyAction.VolumeDown -> stepVolume(-5)
@@ -1398,6 +1490,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         when (action) {
             HotkeyAction.GameShark -> if (down) { fpsHandler.removeCallbacks(gameSharkUp); gameSharkButton(true) } else if (up) gameSharkRelease()
             HotkeyAction.FastForward -> if (down || up) fastForwardKey(down)
+            HotkeyAction.SlowMotion -> if (down || up) slowMotionKey(down)
+            HotkeyAction.Rewind -> if (down || up) rewindKey(down)
             HotkeyAction.VolumeUp, HotkeyAction.VolumeDown -> if (down || up) volumeKey(if (action == HotkeyAction.VolumeUp) 5 else -5, down)
             HotkeyAction.PauseMenu -> if (up && !event.isCanceled && !menuOpen) openMenu()
             else -> if (down) hotkey(action)
@@ -1741,7 +1835,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         super.onWindowFocusChanged(hasFocus)
         // The hotkey button's release goes to whichever window has focus (the menu, the notification
         // shade): let go of it here, or B alone would quit to the library afterwards.
-        if (!hasFocus) { hotkeyHeld = false; fastForwardRelease(); if (!menuOpen) gameSharkButton(false); return }
+        if (!hasFocus) { hotkeyHeld = false; fastForwardRelease(); slowMotionRelease(); rewindRelease(); if (!menuOpen) gameSharkButton(false); return }
         requestUnbufferedJoystick()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.setDecorFitsSystemWindows(false)
@@ -1780,6 +1874,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (!controlsStore.hasAll()) controlsStore.saveAll(PadDevices.firstSet())
         controls = controlsStore.forGame(saveName.ifEmpty { null })
         hotkeys = controlsStore.hotkeys()
+        applyRewind()
         for (i in 0..3) players[i].setup = controls.players[i]
         playerOfDevice.clear()
         portsPresent = 1
@@ -1859,6 +1954,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val save = currentSaveName
         controls = controlsStore.forGame(save.ifEmpty { null })
         hotkeys = controlsStore.hotkeys()
+        applyRewind()
+        if (slowMotion) NativeBridge.setSlowMotion(hotkeys.slowSpeed)
         for (i in 0..3) { players[i].setup = controls.players[i]; players[i].release(); push(i) }
         playerOfDevice.clear()
         var ports = 1
@@ -1912,7 +2009,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (inGame && code == hotkeys.button) {
             when (event.action) {
                 KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) { hotkeyHeld = true; hotkeyHatX = 0; hotkeyHatY = 0 }
-                KeyEvent.ACTION_UP -> { hotkeyHeld = false; gameSharkRelease(); fastForwardRelease(); volumeKey(0, false) }
+                KeyEvent.ACTION_UP -> { hotkeyHeld = false; gameSharkRelease(); fastForwardRelease(); slowMotionRelease(); rewindRelease(); volumeKey(0, false) }
             }
             return true
         }
@@ -2012,6 +2109,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         resumed = false
         hotkeyHeld = false
         fastForwardRelease()
+        slowMotionRelease()
+        rewindRelease()
         volumeKey(0, false)
         fpsHandler.removeCallbacks(gameSharkUp)
         gameSharkButton(false)

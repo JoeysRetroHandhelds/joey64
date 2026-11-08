@@ -195,6 +195,10 @@ enum class HotkeyAction(val label: String, /** null: not set until the user pick
     FrameAdvance("Frame advance", null),
     /** Hotkey button + R2 (Joey 2026-11-07; was R3 on its own). */
     FastForward("Fast-forward", KeyEvent.KEYCODE_BUTTON_R2),
+    /** Slows the game to [Hotkeys.slowSpeed] (approved Slow motion and Rewind mockup, 2026-11-08). Not set by default. */
+    SlowMotion("Slow motion", null),
+    /** Held: the game goes back in time while [Hotkeys.rewindOn] records (same mockup). Hotkey button + L2, the mirror of Fast-forward. */
+    Rewind("Rewind", KeyEvent.KEYCODE_BUTTON_L2),
     Screenshot("Screenshot", KeyEvent.KEYCODE_BUTTON_Y),
     /** Steps Settings › On screen › Stats: Off, Simple, Full, Custom (approved Stats overlay mockup, 2026-11-07). */
     Stats("Stats overlay", KeyEvent.KEYCODE_BUTTON_X),
@@ -215,6 +219,12 @@ enum class FastForwardMode(val label: String, val detail: String, val experiment
     Adaptive("Adaptive", "Press harder to go faster. Needs a trigger, like L2 or R2", experimental = true),
 }
 
+/** How the slow motion hotkey works (approved Slow motion and Rewind mockup, 2026-11-08): no Adaptive. */
+enum class SlowMode(val label: String, val detail: String) {
+    Toggle("Toggle", "Press once to start, again to stop"),
+    Hold("Hold", "Only while you hold the button"),
+}
+
 /** Where Quit game goes after the auto slot is written (approved Quit game popup, 2026-11-07). */
 enum class QuitTo(val label: String, val detail: String, val menuRow: String) {
     Library("Library", "Back to the Joey64 library", "Quit to library"),
@@ -229,6 +239,15 @@ data class Hotkeys(
     /** Fast-forward's top speed in percent, one of [FF_SPEEDS]. */
     val ffSpeed: Int = FF_SPEED_DEFAULT,
     val quitTo: QuitTo = QuitTo.Library,
+    val slowMode: SlowMode = SlowMode.Toggle,
+    /** Slow motion's speed in percent, one of [SLOW_SPEEDS]. */
+    val slowSpeed: Int = SLOW_SPEED_DEFAULT,
+    /** Rewind records while playing (Off by default: it takes memory and a little work every frame). */
+    val rewindOn: Boolean = false,
+    /** How far back rewind can go, one of [REWIND_SECONDS]. */
+    val rewindSeconds: Int = REWIND_SECONDS_DEFAULT,
+    /** Frames between the moments rewind keeps, one of [REWIND_STEPS]. */
+    val rewindEvery: Int = REWIND_EVERY_DEFAULT,
     /** The hotkeys pressed on their own, without [button] ("Needs the hotkey button" Off). */
     val alone: Set<HotkeyAction> = ALONE_DEFAULT,
 ) {
@@ -252,6 +271,8 @@ data class Hotkeys(
 
     fun toJson(): JSONObject = JSONObject().put("version", VERSION).put("button", button)
         .put("ffMode", ffMode.name).put("ffSpeed", ffSpeed).put("quitTo", quitTo.name)
+        .put("slowMode", slowMode.name).put("slowSpeed", slowSpeed)
+        .put("rewindOn", rewindOn).put("rewindSeconds", rewindSeconds).put("rewindEvery", rewindEvery)
         .put("keys", JSONObject().apply { for (a in HotkeyAction.entries) put(a.name, keys[a] ?: -1) })
         .put("alone", org.json.JSONArray().apply { for (a in HotkeyAction.entries) if (a in alone) put(a.name) })
 
@@ -265,6 +286,23 @@ data class Hotkeys(
         val ALONE_DEFAULT: Set<HotkeyAction> = HotkeyAction.entries.filter { it.aloneByDefault }.toSet()
         val FF_SPEEDS = (125..400 step 25).toList()
         const val FF_SPEED_DEFAULT = 400
+        val SLOW_SPEEDS = (20..90 step 10).toList()
+        const val SLOW_SPEED_DEFAULT = 50
+        val REWIND_SECONDS = listOf(10, 30, 60, 120, 300)
+        const val REWIND_SECONDS_DEFAULT = 60
+        val REWIND_STEPS = listOf(1, 2, 4)
+        const val REWIND_EVERY_DEFAULT = 2
+        /** About what one kept moment takes, packed (Thor 2026-11-08: 115-198 KB). */
+        const val REWIND_KB_PER_MOMENT = 150
+
+        /** "10 s", "1 min", "2 min". */
+        fun rewindSecondsLabel(s: Int) = if (s < 60) "$s s" else "${s / 60} min"
+
+        /** "Every frame", "Every 2 frames". */
+        fun rewindEveryLabel(n: Int) = if (n == 1) "Every frame" else "Every $n frames"
+
+        /** About how much memory rewind takes for [seconds] at one moment every [every] frames (60 a second), in MB. */
+        fun rewindMb(seconds: Int, every: Int): Int = (seconds * 60 / every * REWIND_KB_PER_MOMENT + 512) / 1024
 
         /** L2 and R2: the buttons that are analog triggers on a pad with them (BRAKE/LTRIGGER, GAS/RTRIGGER). */
         fun hasPressure(code: Int?) = code == KeyEvent.KEYCODE_BUTTON_L2 || code == KeyEvent.KEYCODE_BUTTON_R2
@@ -303,6 +341,11 @@ data class Hotkeys(
                 ffMode = FastForwardMode.entries.firstOrNull { it.name == o.optString("ffMode") } ?: d.ffMode,
                 ffSpeed = o.optInt("ffSpeed", d.ffSpeed).takeIf { it in FF_SPEEDS } ?: d.ffSpeed,
                 quitTo = QuitTo.entries.firstOrNull { it.name == o.optString("quitTo") } ?: d.quitTo,
+                slowMode = SlowMode.entries.firstOrNull { it.name == o.optString("slowMode") } ?: d.slowMode,
+                slowSpeed = o.optInt("slowSpeed", d.slowSpeed).takeIf { it in SLOW_SPEEDS } ?: d.slowSpeed,
+                rewindOn = o.optBoolean("rewindOn", d.rewindOn),
+                rewindSeconds = o.optInt("rewindSeconds", d.rewindSeconds).takeIf { it in REWIND_SECONDS } ?: d.rewindSeconds,
+                rewindEvery = o.optInt("rewindEvery", d.rewindEvery).takeIf { it in REWIND_STEPS } ?: d.rewindEvery,
                 alone = alone,
             )
         }

@@ -8,6 +8,7 @@
 #include "thermal.h"
 #include "display_opts.h"
 #include "rewind_test.h"
+#include "rewind.h"
 #include <jni.h>
 #include <dlfcn.h>
 #include <android/log.h>
@@ -123,6 +124,19 @@ std::atomic<int> g_ffSpeedPct{400};
 std::atomic<int> g_ffSound{0};
 // The speed fast-forward runs at now (speed setting under the thermal cap), for its sound.
 std::atomic<double> g_ffSpeedNow{1.0};
+// Slow motion (approved Slow motion and Rewind mockup, 2026-11-08): percent of full speed, 0 = off. Its sound
+// goes through writeFast at that speed (slower and lower), as Settings › Audio's Fast-forward sound says.
+std::atomic<int> g_slowPct{0};
+// The speed slow motion runs at this frame (0: not slowed), for the audio callbacks.
+std::atomic<double> g_slowNow{0.0};
+// Rewind (same mockup; rewind.h). Settings come from any thread and are applied on the emulation thread.
+Rewind g_rewind;
+std::atomic<bool> g_rewindCfgChanged{false}, g_rewindOnCfg{false};
+std::atomic<int> g_rewindEveryCfg{2}, g_rewindMaxCfg{1800};
+// The rewind hotkey is held; g_rewindActive: going back this frame (sound dropped, no achievements).
+std::atomic<bool> g_rewindHeld{false}, g_rewindActive{false}, g_rewindAtOldest{false};
+// Frames gone back since the rewind hotkey went down.
+std::atomic<int> g_rewindBackFrames{0};
 // Benchmark (dev env N64_BENCH=1): no speed cap, vsync off, audio dropped, settings unchanged and every frame
 // presented, so the counter shows how fast the game could run: the headroom a full-speed game has.
 bool g_bench = false;
@@ -447,15 +461,19 @@ void video_refresh(const void* data, unsigned w, unsigned h, size_t) {
 
 void audio_sample(int16_t l, int16_t r) {
     if (g_bench || g_paused) return; // paused: a frame advance step, whose sound would pile up in the paused stream
+    if (g_rewindActive) return; // going back: no sound
     int16_t s[2] = {l, r};
+    if (double sl = g_slowNow.load(); sl > 0) { if (int m = g_ffSound.load()) g_audio.writeFast(s, 1, sl, m == 1 ? 0.25f : 1.0f); return; }
     if (g_fastForward) { if (int m = g_ffSound.load()) g_audio.writeFast(s, 1, g_ffSpeedNow.load(), m == 1 ? 0.25f : 1.0f); return; }
     g_audio.write(s, 1);
 }
 size_t g_frameAudio = 0; // audio frames the core gave during this retro_run (N64_FRAME_TRACE)
 size_t audio_batch(const int16_t* d, size_t frames) {
     if (g_bench || g_paused) return frames; // paused: a frame advance step (the stream is paused, nothing drains)
-    // A blocking write would throttle fast-forward: its sound (if any) goes through writeFast.
-    if (g_fastForward) { if (int m = g_ffSound.load()) g_audio.writeFast(d, frames, g_ffSpeedNow.load(), m == 1 ? 0.25f : 1.0f); }
+    if (g_rewindActive) return frames; // going back: no sound
+    // A blocking write would throttle fast-forward: its sound (if any) goes through writeFast; slow motion's too.
+    if (double sl = g_slowNow.load(); sl > 0) { if (int m = g_ffSound.load()) g_audio.writeFast(d, frames, sl, m == 1 ? 0.25f : 1.0f); }
+    else if (g_fastForward) { if (int m = g_ffSound.load()) g_audio.writeFast(d, frames, g_ffSpeedNow.load(), m == 1 ? 0.25f : 1.0f); }
     else g_audio.write(d, frames);
     g_frameAudio += frames;
     return frames;
@@ -691,6 +709,7 @@ void serveStateRequest(bool ready, bool failEarly) {
         core.reset();
         Cheevos::reset();
         r->ok = true;
+        g_rewind.clear(); // rewind starts over from here
     } else if (r->capture) {
         r->ok = g_vulkan ? g_vk.capture(r->data, r->w, r->h)
                          : g_egl.capture((int)g_lastW, (int)g_lastH, g_hw.bottom_left_origin, r->data);
@@ -714,6 +733,7 @@ void serveStateRequest(bool ready, bool failEarly) {
         r->ok = core.unserialize(r->data.data(), r->data.size());
         // Achievements carry on from the progress saved with the state, or start over without one.
         if (r->ok) Cheevos::stateLoaded(r->achv.data(), r->achv.size());
+        if (r->ok) g_rewind.clear(); // rewind starts over from the loaded moment
     }
     if (ready)
         joeyLog(r->ok ? ANDROID_LOG_INFO : ANDROID_LOG_ERROR, "joey64host", "state: %s %s, %zu bytes, %.1f ms", what, r->ok ? "done" : "FAILED", r->data.size(),
@@ -887,7 +907,9 @@ void runLoop() {
     const char* statePath = getenv("N64_STATE");
     int stateWait = statePath && *statePath ? 30 : -1;
     g_bench = getenv("N64_BENCH") && atoi(getenv("N64_BENCH")) == 1;
-    auto ffNext = std::chrono::steady_clock::now(), ffLastShown = ffNext, capNext = ffNext;
+    auto ffNext = std::chrono::steady_clock::now(), ffLastShown = ffNext, capNext = ffNext, rewindNext = ffNext;
+    int rewindTick = 0;
+    bool rewindStepped = false;
     if (!g_vulkan) g_egl.makeCurrent();
     while (g_running) {
         if (g_paused) flushSave();
@@ -922,9 +944,41 @@ void runLoop() {
             else g_egl.setSwapInterval(0);
             LOGI("benchmark mode: uncapped, vsync off, audio dropped");
         }
+        // Rewind (rewind.h): settings from the UI, and the hotkey held. Going back runs at about normal speed:
+        // one moment every [every] frames, each shown by running one frame from it, the picture held between.
+        if (g_rewindCfgChanged.exchange(false)) g_rewind.configure(g_rewindOnCfg, g_rewindEveryCfg, g_rewindMaxCfg);
+        const bool rewinding = g_rewindHeld && g_rewind.on() && !g_paused && !g_bench;
+        if (rewinding != g_rewindActive) {
+            g_rewindActive = rewinding;
+            if (rewinding) { rewindTick = g_rewind.every(); rewindStepped = false; g_rewindBackFrames = 0; g_rewindAtOldest = false; rewindNext = std::chrono::steady_clock::now(); }
+            else if (rewindStepped) {
+                // Achievements carry on from the progress kept with the moment rewind stopped at.
+                const auto& p = g_rewind.baseProgress();
+                Cheevos::stateLoaded(p.data(), p.size());
+                LOGI("rewind: went back %d frames", g_rewindBackFrames.load());
+            }
+        }
+        if (rewinding) {
+            rewindNext += std::chrono::microseconds((long long)(1e6 / g_av.timing.fps));
+            auto now = std::chrono::steady_clock::now();
+            if (rewindNext > now) std::this_thread::sleep_until(rewindNext);
+            else if (now - rewindNext > std::chrono::milliseconds(100)) rewindNext = now;
+            bool step = ++rewindTick >= g_rewind.every();
+            if (step) {
+                rewindTick = 0;
+                step = g_rewind.stepBack([](const uint8_t* d, size_t n, const uint8_t*, size_t) { core.unserialize(d, n); });
+                if (step) { rewindStepped = true; g_rewindBackFrames += g_rewind.every(); g_rewindAtOldest = false; }
+                else g_rewindAtOldest = true;
+            }
+            if (!step) continue; // the picture holds until the next moment
+        }
+        // Slow motion: the speed cap below runs at its speed, with no audio wait (its sound is resampled).
+        const int slowPct = g_slowPct.load();
         // pacing comes from vsync + blocking audio writes (M4 refines); fast-forward swaps
         // both for a sleep that caps the speed
-        bool ff = g_fastForward;
+        bool ff = g_fastForward && !rewinding;
+        const bool slow = slowPct > 0 && !ff && !rewinding && !g_bench;
+        g_slowNow = slow ? slowPct / 100.0 : 0.0;
         if (ff != ffApplied) {
             ffApplied = ff;
             if (g_vulkan) g_vk.setUnthrottled(ff || g_bench);
@@ -964,10 +1018,10 @@ void runLoop() {
             show = now - ffLastShown >= std::chrono::microseconds(16000);
             if (show) ffLastShown = now;
         }
-        if (!ff && !g_bench && !g_paused) { // paused: a frame advance step, no audio to wait for
+        if (!ff && !g_bench && !g_paused && !rewinding) { // paused: a frame advance step, no audio to wait for
             auto t0 = std::chrono::steady_clock::now();
             g_audio.setPanelRefreshNs(g_vulkan ? g_vk.refreshNs() : 0);
-            g_audio.waitForRoom();
+            if (!slow) g_audio.waitForRoom();
             double aw = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
             g_statAudioWaitMs += aw;
             traceFrame(aw);
@@ -977,7 +1031,7 @@ void runLoop() {
             auto now = std::chrono::steady_clock::now();
             // Dev: N64_SLOW_PCT=<n> caps the game at n% of full speed, as a device that can't keep up (time stretch test).
             static const double capSpeed = getenv("N64_SLOW_PCT") ? std::clamp(atoi(getenv("N64_SLOW_PCT")), 10, 100) / 100.0 : 1.02;
-            capNext += std::chrono::microseconds((long long)(1e6 / (g_av.timing.fps * capSpeed)));
+            capNext += std::chrono::microseconds((long long)(1e6 / (g_av.timing.fps * (slow ? slowPct / 100.0 : capSpeed))));
             if (capNext > now) std::this_thread::sleep_until(capNext);
             else if (now - capNext > std::chrono::milliseconds(50)) capNext = now; // behind: don't sprint
         }
@@ -1009,7 +1063,12 @@ void runLoop() {
             g_statRunMs += ms;
             noteFrameTime(ms);
         }
-        Cheevos::doFrame();
+        if (!rewinding) {
+            Cheevos::doFrame();
+            if (g_framesRun > 60)
+                g_rewind.record([] { return core.serialize_size(); }, [](void* d, size_t n) { return core.serialize(d, n); },
+                                [](std::vector<uint8_t>& p) { Cheevos::captureProgress(p); });
+        }
         logStats();
         if (stateWait > 0 && --stateWait == 0) {
             std::vector<char> s;
@@ -1427,6 +1486,27 @@ JNIEXPORT void JNICALL JNI(setFastForward)(JNIEnv*, jobject, jboolean on) {
 
 JNIEXPORT void JNICALL JNI(setFastForwardSpeed)(JNIEnv*, jobject, jint percent) {
     g_ffSpeedPct = std::clamp((int)percent, 100, 400);
+}
+
+JNIEXPORT void JNICALL JNI(setSlowMotion)(JNIEnv*, jobject, jint percent) {
+    g_slowPct = percent <= 0 ? 0 : std::clamp((int)percent, 10, 99);
+}
+
+JNIEXPORT void JNICALL JNI(setRewind)(JNIEnv*, jobject, jboolean on, jint every, jint maxMoments) {
+    g_rewindOnCfg = on; g_rewindEveryCfg = std::max(1, (int)every); g_rewindMaxCfg = std::max(1, (int)maxMoments);
+    g_rewindCfgChanged = true;
+}
+
+JNIEXPORT void JNICALL JNI(setRewinding)(JNIEnv*, jobject, jboolean held) {
+    g_rewindHeld = held;
+}
+
+// [moments that can still be gone back to, most kept, frames gone back since the press, 1 at the oldest].
+JNIEXPORT jintArray JNICALL JNI(rewindInfo)(JNIEnv* env, jobject) {
+    jint v[4] = {g_rewind.moments(), g_rewind.maxMoments(), g_rewindBackFrames.load(), g_rewindAtOldest ? 1 : 0};
+    jintArray a = env->NewIntArray(4);
+    env->SetIntArrayRegion(a, 0, 4, v);
+    return a;
 }
 
 // Settings › Audio. Volume, mute, mono and fast-forward sound apply at once; latency when the stream

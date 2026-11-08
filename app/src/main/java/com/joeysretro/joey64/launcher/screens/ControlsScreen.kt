@@ -63,6 +63,7 @@ import com.joeysretro.joey64.controls.Pak
 import com.joeysretro.joey64.controls.PakDb
 import com.joeysretro.joey64.controls.PlayerSetup
 import com.joeysretro.joey64.controls.QuitTo
+import com.joeysretro.joey64.controls.SlowMode
 import com.joeysretro.joey64.controls.StickSource
 import com.joeysretro.joey64.launcher.components.ButtonRow
 import com.joeysretro.joey64.launcher.components.Hint
@@ -153,6 +154,12 @@ private sealed interface Popup {
     /** The Hotkeys page's Fast-forward and Quit game rows (approved popups, 2026-11-07); [row] has focus on return. */
     data class FastForward(val row: String = "button") : Popup
     data object FfMode : Popup
+    /** Slow motion and Rewind (approved Slow motion and Rewind mockup, 2026-11-08), Fast-forward's shape. */
+    data class SlowMotion(val row: String = "button") : Popup
+    data object SlowModeChoice : Popup
+    data class Rewind(val row: String = "button") : Popup
+    data object RewindBack : Popup
+    data object RewindSteps : Popup
     data class QuitGame(val row: String = "button") : Popup
     /** Any other hotkey row (approved hotkeys mockup 2026-11-07): Button and Needs the hotkey button. */
     data class Hotkey(val action: HotkeyAction, val row: String = "button") : Popup
@@ -364,6 +371,26 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             FastForwardMode.entries.map { Choice(it.label, it.detail, it == editor.hotkeys.ffMode, experimental = it.experimental) }, { popup = Popup.FastForward("mode") }) { i ->
             edit { editor.setHotkeys(editor.hotkeys.copy(ffMode = FastForwardMode.entries[i])) }; popup = Popup.FastForward("mode")
         }
+        is Popup.SlowMotion -> SlowMotionPopup(editor, version, p.row, close, editor.shown.players[0],
+            onButton = { popup = Popup.Remap(Target.Hotkey(HotkeyAction.SlowMotion), Popup.SlowMotion("button")) },
+            onMode = { popup = Popup.SlowModeChoice }) { h -> edit { editor.setHotkeys(h) } }
+        Popup.SlowModeChoice -> ChoicePopup("Mode", null,
+            SlowMode.entries.map { Choice(it.label, it.detail, it == editor.hotkeys.slowMode) }, { popup = Popup.SlowMotion("mode") }) { i ->
+            edit { editor.setHotkeys(editor.hotkeys.copy(slowMode = SlowMode.entries[i])) }; popup = Popup.SlowMotion("mode")
+        }
+        is Popup.Rewind -> RewindPopup(editor, version, p.row, close, editor.shown.players[0],
+            onButton = { popup = Popup.Remap(Target.Hotkey(HotkeyAction.Rewind), Popup.Rewind("button")) },
+            onBack = { popup = Popup.RewindBack }, onSteps = { popup = Popup.RewindSteps }) { h -> edit { editor.setHotkeys(h) } }
+        Popup.RewindBack -> ChoicePopup("How far back", "Longer takes more memory.",
+            Hotkeys.REWIND_SECONDS.map { s -> Choice(Hotkeys.rewindSecondsLabel(s), "About ${Hotkeys.rewindMb(s, editor.hotkeys.rewindEvery)} MB of memory",
+                s == editor.hotkeys.rewindSeconds) }, { popup = Popup.Rewind("back") }) { i ->
+            edit { editor.setHotkeys(editor.hotkeys.copy(rewindSeconds = Hotkeys.REWIND_SECONDS[i])) }; popup = Popup.Rewind("back")
+        }
+        Popup.RewindSteps -> ChoicePopup("Steps", "How often a moment is kept. More often goes back more smoothly and takes more memory.",
+            Hotkeys.REWIND_STEPS.map { n -> Choice(Hotkeys.rewindEveryLabel(n), "About ${Hotkeys.rewindMb(editor.hotkeys.rewindSeconds, n)} MB for ${Hotkeys.rewindSecondsLabel(editor.hotkeys.rewindSeconds)}",
+                n == editor.hotkeys.rewindEvery) }, { popup = Popup.Rewind("steps") }) { i ->
+            edit { editor.setHotkeys(editor.hotkeys.copy(rewindEvery = Hotkeys.REWIND_STEPS[i])) }; popup = Popup.Rewind("steps")
+        }
         is Popup.QuitGame -> QuitGamePopup(editor, version, p.row, close, editor.shown.players[0],
             onButton = { popup = Popup.Remap(Target.Hotkey(HotkeyAction.Quit), Popup.QuitGame("button")) },
             onQuitTo = { popup = Popup.QuitTo }) { h -> edit { editor.setHotkeys(h) } }
@@ -502,7 +529,8 @@ private fun HotkeysPage(editor: ControlsEditor, version: Int, focused: String, o
     @Suppress("UNUSED_EXPRESSION") version
     val h = editor.hotkeys
     // Fast-forward and Quit game open their own popups (their button and how they work); every other row opens HotkeyPopup.
-    val popupRows = mapOf(HotkeyAction.FastForward to Popup.FastForward(), HotkeyAction.Quit to Popup.QuitGame())
+    val popupRows = mapOf(HotkeyAction.FastForward to Popup.FastForward(), HotkeyAction.SlowMotion to Popup.SlowMotion(),
+        HotkeyAction.Rewind to Popup.Rewind(), HotkeyAction.Quit to Popup.QuitGame())
     @Composable
     fun row(a: HotkeyAction) = JoeyRow(a.label, value = hotkeyValue(h, a) + if (a in popupRows) "  ›" else "", sideways = true,
         onFocused = { if (it) onFocused("hk" + a.name) }) {
@@ -524,7 +552,7 @@ private fun HotkeysPage(editor: ControlsEditor, version: Int, focused: String, o
             for (a in listOf(HotkeyAction.UpscaleUp, HotkeyAction.UpscaleDown)) row(a)
     }) {
             SectionLabel("Game")
-            for (a in listOf(HotkeyAction.PauseMenu, HotkeyAction.Pause, HotkeyAction.FrameAdvance, HotkeyAction.FastForward, HotkeyAction.Screenshot, HotkeyAction.Stats,
+            for (a in listOf(HotkeyAction.PauseMenu, HotkeyAction.Pause, HotkeyAction.FrameAdvance, HotkeyAction.FastForward, HotkeyAction.SlowMotion, HotkeyAction.Rewind, HotkeyAction.Screenshot, HotkeyAction.Stats,
                 HotkeyAction.Achievements, HotkeyAction.GameShark, HotkeyAction.Reset, HotkeyAction.Quit)) row(a)
     }
     Spacer(Modifier.height(6.dp))
@@ -542,6 +570,8 @@ private fun hotkeyValue(h: Hotkeys, a: HotkeyAction): String {
 private fun hotkeyDescription(a: HotkeyAction): String? = when (a) {
     HotkeyAction.FastForward -> "Speeds the game up. Pick its button, Toggle, Hold or Adaptive, and how fast."
     HotkeyAction.Quit -> "Saves to the auto slot, then goes to the library or exits Joey64."
+    HotkeyAction.SlowMotion -> "Slows the game down. Pick its button, Toggle or Hold, and how slow."
+    HotkeyAction.Rewind -> "Hold to go back in time. Turn recording on, and pick how far back and how often a moment is kept."
     HotkeyAction.Stats -> "Steps through Off, Simple, Full and Custom. Settings › On screen sets the rest."
     HotkeyAction.VolumeUp -> "The game's sound 5% louder. Saved as Settings › Audio's Volume: the game's own if it has one, else All games'."
     HotkeyAction.VolumeDown -> "The game's sound 5% quieter. Saved as Settings › Audio's Volume: the game's own if it has one, else All games'."
@@ -573,7 +603,7 @@ private fun hotkeyPopupLine(a: HotkeyAction): String = when (a) {
     HotkeyAction.Achievements -> "Opens the Achievements page."
     HotkeyAction.GameShark -> "The GameShark's button, held for as long as you hold it."
     HotkeyAction.Reset -> "Starts the game over, as the console's Reset."
-    HotkeyAction.FastForward, HotkeyAction.Quit -> ""
+    HotkeyAction.FastForward, HotkeyAction.SlowMotion, HotkeyAction.Rewind, HotkeyAction.Quit -> ""
 }
 
 /** "Needs the hotkey button" (approved hotkeys mockup 2026-11-07): A turns it On or Off. */
@@ -659,6 +689,86 @@ private fun FastForwardPopup(editor: ControlsEditor, version: Int, startRow: Str
                 "mode" -> DescriptionLine("Mode", "Toggle, Hold or Adaptive. Adaptive is experimental.")
                 "alone" -> {}
                 else -> DescriptionLine("Button", if (h.isAlone(HotkeyAction.FastForward)) "On its own, without the hotkey button." else "Held with ${hotkeyKey(h.button)}, the hotkey button.")
+            }
+        }
+    }
+}
+
+/** The Button row of the Slow motion and Rewind popups: X clears it, as Fast-forward's. */
+private fun buttonHints(row: String, extra: List<Hint> = emptyList()) = when (row) {
+    "button" -> listOf(Hint("A", "Change"), Hint("X", "Clear"), Hint("B", "Close"))
+    else -> extra.ifEmpty { listOf(Hint("A", "Select"), Hint("B", "Close")) }
+}
+
+/** Approved Slow motion popup (2026-11-08): Button, Needs the hotkey button, Mode (Toggle or Hold), Speed 20-90%. */
+@Composable
+private fun SlowMotionPopup(editor: ControlsEditor, version: Int, startRow: String, onDismiss: () -> Unit, player1: PlayerSetup,
+                            onButton: () -> Unit, onMode: () -> Unit, onSet: (Hotkeys) -> Unit) {
+    @Suppress("UNUSED_EXPRESSION") version
+    val h = editor.hotkeys
+    var row by remember { mutableStateOf(startRow) }
+    val a = HotkeyAction.SlowMotion
+    JoeyDialog(onDismiss = onDismiss, width = 400.dp,
+        hints = buttonHints(row, if (row == "speed") listOf(Hint("◀▶", "Speed"), Hint("B", "Close")) else emptyList()),
+        onPadButton = { code -> if (code == KeyEvent.KEYCODE_BUTTON_X && row == "button") onSet(h.withKey(a, null)) }) {
+        Column {
+            PopupTitle("Slow motion", "Slows the game down while you need it.")
+            JoeyRow("Button", Modifier.initialFocus(startRow == "button"), value = hotkeyValue(h, a) + "  ›", onFocused = { if (it) row = "button" }, onClick = onButton)
+            NeedsHotkeyRow(h, a, startRow == "alone", { row = "alone" }, onSet)
+            JoeyRow("Mode", Modifier.initialFocus(startRow == "mode"), value = h.slowMode.label + "  ›", onFocused = { if (it) row = "mode" }, onClick = onMode)
+            JoeyRow("Speed", Modifier.initialFocus(startRow == "speed").onPreviewKeyEvent { e ->
+                val n = e.nativeKeyEvent
+                val step = when (n.keyCode) { KeyEvent.KEYCODE_DPAD_LEFT -> -1; KeyEvent.KEYCODE_DPAD_RIGHT -> 1; else -> 0 }
+                if (step == 0) return@onPreviewKeyEvent false
+                if (n.action == KeyEvent.ACTION_DOWN) {
+                    val i = (Hotkeys.SLOW_SPEEDS.indexOf(h.slowSpeed).takeIf { it >= 0 } ?: Hotkeys.SLOW_SPEEDS.indexOf(Hotkeys.SLOW_SPEED_DEFAULT)) + step
+                    onSet(h.copy(slowSpeed = Hotkeys.SLOW_SPEEDS[i.coerceIn(0, Hotkeys.SLOW_SPEEDS.lastIndex)]))
+                }
+                true
+            }, value = if (row == "speed") "◀ ${h.slowSpeed}% ▶" else "${h.slowSpeed}%", sideways = true, onFocused = { if (it) row = "speed" })
+            if (row == "alone") TakenFromPlayer1(h, a, player1)
+            Spacer(Modifier.height(6.dp))
+            when (row) {
+                "speed" -> DescriptionLine("Speed", "How slow: ${h.slowSpeed}% is ${if (h.slowSpeed == 50) "half" else "${h.slowSpeed}% of full"} speed.")
+                "mode" -> DescriptionLine("Mode", "Toggle or Hold.")
+                "alone" -> {}
+                else -> DescriptionLine("Button", if (h.isAlone(a)) "On its own, without the hotkey button." else "Held with ${hotkeyKey(h.button)}, the hotkey button.")
+            }
+        }
+    }
+}
+
+/** Approved Rewind popup (2026-11-08): Button, Needs the hotkey button, Rewind (records while playing), How far back, Steps, and what it costs. */
+@Composable
+private fun RewindPopup(editor: ControlsEditor, version: Int, startRow: String, onDismiss: () -> Unit, player1: PlayerSetup,
+                        onButton: () -> Unit, onBack: () -> Unit, onSteps: () -> Unit, onSet: (Hotkeys) -> Unit) {
+    @Suppress("UNUSED_EXPRESSION") version
+    val h = editor.hotkeys
+    var row by remember { mutableStateOf(startRow) }
+    val a = HotkeyAction.Rewind
+    JoeyDialog(onDismiss = onDismiss, width = 420.dp, hints = buttonHints(row),
+        onPadButton = { code -> if (code == KeyEvent.KEYCODE_BUTTON_X && row == "button") onSet(h.withKey(a, null)) }) {
+        Column {
+            PopupTitle("Rewind", "Hold the button to go back in time.")
+            JoeyRow("Button", Modifier.initialFocus(startRow == "button"), value = hotkeyValue(h, a) + "  ›", onFocused = { if (it) row = "button" }, onClick = onButton)
+            NeedsHotkeyRow(h, a, startRow == "alone", { row = "alone" }, onSet)
+            JoeyRow("Rewind", Modifier.initialFocus(startRow == "on"), value = if (h.rewindOn) "On" else "Off",
+                detail = if (h.rewindOn) "Records while you play" else "Not recording",
+                onFocused = { if (it) row = "on" }) { onSet(h.copy(rewindOn = !h.rewindOn)) }
+            JoeyRow("How far back", Modifier.initialFocus(startRow == "back"), value = Hotkeys.rewindSecondsLabel(h.rewindSeconds) + "  ›",
+                onFocused = { if (it) row = "back" }, onClick = onBack)
+            JoeyRow("Steps", Modifier.initialFocus(startRow == "steps"), value = Hotkeys.rewindEveryLabel(h.rewindEvery) + "  ›",
+                onFocused = { if (it) row = "steps" }, onClick = onSteps)
+            PopupInfoNote("About ${Hotkeys.rewindMb(h.rewindSeconds, h.rewindEvery)} MB of memory for ${Hotkeys.rewindSecondsLabel(h.rewindSeconds)} at " +
+                "${Hotkeys.rewindEveryLabel(h.rewindEvery).lowercase()}, and about 3 ms of work for each moment kept (Thor).")
+            if (row == "alone") TakenFromPlayer1(h, a, player1)
+            Spacer(Modifier.height(6.dp))
+            when (row) {
+                "on" -> DescriptionLine("Rewind", "Off by default: recording takes memory and a little work every frame.")
+                "back" -> DescriptionLine("How far back", "The oldest moment rewind can go back to.")
+                "steps" -> DescriptionLine("Steps", "How often a moment is kept.")
+                "alone" -> {}
+                else -> DescriptionLine("Button", if (h.isAlone(a)) "On its own, without the hotkey button." else "Held with ${hotkeyKey(h.button)}, the hotkey button.")
             }
         }
     }

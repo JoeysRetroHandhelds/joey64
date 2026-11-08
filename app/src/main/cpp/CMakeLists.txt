@@ -13,6 +13,7 @@ add_library(joey64host SHARED
     vk_context.cpp
     vk_post.cpp
     rewind_test.cpp
+    rewind.cpp
     achievements.cpp)
 
 add_subdirectory(third_party/libadrenotools)

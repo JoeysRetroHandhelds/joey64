@@ -52,7 +52,9 @@ data class InGamePopup(
 ) {
     enum class Kind { Saved, Loaded, Slot, Screenshot, Reset, Problem, Account, Achievement, Progress, ChallengeFailed, Game, Stats,
         /** The hotkeys' (approved hotkeys mockup 2026-11-07). */
-        Volume, Mute, Resolution, Paused, NoAchievements }
+        Volume, Mute, Resolution, Paused, NoAchievements,
+        /** Approved Slow motion and Rewind mockup (2026-11-08). */
+        SlowMotion, Rewind }
 }
 
 /**
@@ -118,6 +120,8 @@ fun InGamePopupCard(p: InGamePopup) {
         InGamePopup.Kind.Resolution -> R.drawable.ic_zoom_in
         InGamePopup.Kind.Paused -> R.drawable.ic_pause
         InGamePopup.Kind.NoAchievements -> R.drawable.ic_trophy
+        InGamePopup.Kind.SlowMotion -> R.drawable.ic_clock
+        InGamePopup.Kind.Rewind -> R.drawable.ic_history
     }
     JoeyToast(icon, p.label, p.name, p.line, iconTint = when (p.kind) {
         InGamePopup.Kind.Problem, InGamePopup.Kind.ChallengeFailed -> JoeyTheme.colors.error

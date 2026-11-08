@@ -82,9 +82,9 @@ Joey64 has no audio settings at all.
 
 | Setting | Who has it | N64 | Plan |
 |---|---|---|---|
-| Slow motion | ARMSX2, RA, Dolphin (speed limit) | Med | planned (wanted) |
+| Slow motion | ARMSX2, RA, Dolphin (speed limit) | Med | built 2026-11-08 (Controls › Hotkeys) |
 | Frame advance | RA, FZ, ARMSX2 | Low | planned (wanted) |
-| Rewind | RA | Med | planned (measure cost first) |
+| Rewind | RA | Med | built 2026-11-08 (Controls › Hotkeys; measured first) |
 | Speed limit off / custom % | Dolphin, ARMSX2, Eden, Azahar | Low (fast-forward covers it) | new |
 | Overclock (count per op) | FZ, RA core option | Med (fixes lag in some games) | partly: smoother timing is automatic per game |
 | VI refresh rate | FZ | Low | new |
@@ -115,7 +115,7 @@ These are actions other apps can bind that Joey64 can't.
 | Save to slot N / load from slot N (each slot its own key) | ARMSX2 (0–9) | Med | new |
 | Save state and exit | ARMSX2 | Med | new |
 | Show or hide the stats overlay | ARMSX2, RA | Med | new (needs section 2) |
-| Slow motion, frame advance, rewind | ARMSX2, RA, FZ | Med | planned (with the features) |
+| Slow motion, frame advance, rewind | ARMSX2, RA, FZ | Med | built (frame advance 2026-11-07, the others 2026-11-08) |
 | Speed up / speed down step | FZ | Low | new |
 | Volume up / down, mute | RA | Med | new |
 | Open achievements | ARMSX2 | Med | new (pause menu has it) |
@@ -432,7 +432,7 @@ Each item needs Joey's mockup first. The order puts what players miss most first
 11. **With features already planned:**
     - turbo, with its hotkey
     - undo, with its hotkey
-    - slow motion, frame advance and rewind, each with hotkeys (rewind: measure first)
+    - slow motion, frame advance and rewind, each with hotkeys (built 2026-11-07 and 2026-11-08)
     - Picture shaders and bezels, with their hotkeys, and tab 10's additions
     - rumble strength and Transfer Pak
     - touch controls

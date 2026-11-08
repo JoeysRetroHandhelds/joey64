@@ -243,7 +243,8 @@ void AudioOut::writeFast(const int16_t* frames, size_t frameCount, double speed,
     const size_t f = fill();
     fillSum_ += f; ++fillCount_; // the stats line's fill, as waitForRoom keeps it outside fast-forward
     double err = std::max(-1.0, std::min(1.0, ((double)f - (double)target_) / (double)target_));
-    const double step = baseStep_ * std::max(1.0, speed) * (1.0 + 0.5 * err);
+    // Below 1: slow motion (approved 2026-11-08), its sound slower and lower.
+    const double step = baseStep_ * std::max(0.1, speed) * (1.0 + 0.5 * err);
     const float k = gain * (1.0f / 32768);
     for (size_t i = 0; i < frameCount; ++i) {
         const int16_t* cur = frames + i * 2;

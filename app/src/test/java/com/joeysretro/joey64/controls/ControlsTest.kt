@@ -151,6 +151,31 @@ class ControlsTest {
         assertEquals(setOf(HotkeyAction.PauseMenu), v3.alone)
     }
 
+    @Test fun slowMotionAndRewindDefaultsAndSettings() {
+        // Approved mockup 2026-11-08: Slow motion not set, Rewind hotkey button + L2, recording Off, 1 min, every 2 frames.
+        val d = Hotkeys()
+        assertNull(d.keys[HotkeyAction.SlowMotion])
+        assertEquals(KeyEvent.KEYCODE_BUTTON_L2, d.keys[HotkeyAction.Rewind])
+        assertFalse(d.isAlone(HotkeyAction.Rewind))
+        assertEquals(SlowMode.Toggle, d.slowMode)
+        assertEquals(50, d.slowSpeed)
+        assertFalse(d.rewindOn)
+        assertEquals(60, d.rewindSeconds)
+        assertEquals(2, d.rewindEvery)
+        val h = d.copy(slowMode = SlowMode.Hold, slowSpeed = 30, rewindOn = true, rewindSeconds = 120, rewindEvery = 4)
+        assertEquals(h, Hotkeys.fromJson(h.toJson()))
+        // Odd values in the file fall back to the defaults.
+        val odd = Hotkeys.fromJson(JSONObject("""{"version":4,"slowSpeed":55,"rewindSeconds":45,"rewindEvery":3}"""))
+        assertEquals(50, odd.slowSpeed); assertEquals(60, odd.rewindSeconds); assertEquals(2, odd.rewindEvery)
+        // A version 4 file gets Rewind on Select + L2, unless the user already gave L2 to a hotkey.
+        assertEquals(KeyEvent.KEYCODE_BUTTON_L2, Hotkeys.fromJson(JSONObject("""{"version":4,"button":109,"keys":{"Save":103}}""")).keys[HotkeyAction.Rewind])
+        assertNull(Hotkeys.fromJson(JSONObject("""{"version":4,"button":109,"keys":{"Mute":${KeyEvent.KEYCODE_BUTTON_L2}}}""")).keys[HotkeyAction.Rewind])
+        // The popup's memory line: 1 min at every 2 frames is about 264 MB (150 KB a moment).
+        assertEquals(264, Hotkeys.rewindMb(60, 2))
+        assertEquals("1 min", Hotkeys.rewindSecondsLabel(60)); assertEquals("30 s", Hotkeys.rewindSecondsLabel(30))
+        assertEquals("Every frame", Hotkeys.rewindEveryLabel(1)); assertEquals("Every 2 frames", Hotkeys.rewindEveryLabel(2))
+    }
+
     @Test fun fastForwardAndQuitSettingsAreKept() {
         val h = Hotkeys().copy(ffMode = FastForwardMode.Adaptive, ffSpeed = 250, quitTo = QuitTo.Exit)
         assertEquals(h, Hotkeys.fromJson(h.toJson()))

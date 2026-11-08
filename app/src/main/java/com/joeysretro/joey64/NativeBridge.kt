@@ -140,6 +140,20 @@ object NativeBridge {
     /** Fast-forward's speed in percent of normal (100 to 400; the thermal cap still applies). Any thread. */
     external fun setFastForwardSpeed(percent: Int)
 
+    /** Slow motion (approved 2026-11-08): percent of full speed (10-99), 0 = off. Its sound follows setAudio's
+     *  fast-forward sound, slower and lower. Fast-forward wins while both are on. Any thread. */
+    external fun setSlowMotion(percent: Int)
+
+    /** Rewind recording: on, a moment every [every] frames, at most [maxMoments] kept. A change starts it over;
+     *  applied on the emulation thread before its next frame. Any thread. */
+    external fun setRewind(on: Boolean, every: Int, maxMoments: Int)
+
+    /** The rewind hotkey held (goes back while held, the game goes on from there when let go). Any thread. */
+    external fun setRewinding(held: Boolean)
+
+    /** [moments that can still be gone back to, most kept, frames gone back since the press, 1 at the oldest]. */
+    external fun rewindInfo(): IntArray
+
     /** Settings › Audio: volume 0-100, mute, mono, fast-forward sound (0 mute, 1 quieter, 2 full) apply at once;
      *  latency (0 auto, 1 low, 2 safe) when the audio stream opens, so call it before loadGame. Any thread. */
     external fun setAudio(volume: Int, mute: Boolean, mono: Boolean, ffSound: Int, latency: Int)

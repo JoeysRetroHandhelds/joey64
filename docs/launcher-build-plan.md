@@ -651,7 +651,7 @@ Merged 2026-11-08 (3473758): app `drc-default` 04c51c3 (audit 2 fixes, compile t
 - **From other emulators, wanted (Joey, 2026-11-06, asked one by one).** Found in the local emulator sources; each needs a mockup first:
   - Turbo and autofire: hold a button to repeat it, per game (RetroArch, Project64, PPSSPP, DuckStation).
   - Undo load state and undo save state (DuckStation, PCSX2).
-  - Rewind (ares, RetroArch). Measure the cost first: N64 states are large, so maybe strong devices only.
+  - Rewind (ares, RetroArch). Measure the cost first: N64 states are large, so maybe strong devices only. Measured on the Thor 2026-11-08 (`N64_REWIND_TEST`, scratchpad rewindtest.sh, results/thor-rewind1.tsv; GoldenEye, Conker, SM64 from the bench states, 60 fps cap): with today's core every retro_serialize runs one whole extra frame (the core saves at the VI interrupt but only hands control back at the next VI), so a snapshot costs 5-10 ms at 1x and 8-34 ms at 4x, and a snapshot every frame shows 30 fps, every 6 frames 51 fps (one frame lost per snapshot). The 4x slowdown is that extra frame's RDP work, not the snapshot. Packed (XOR with the last one, deflate 1): 128-204 KB per snapshot from 16.8 MB raw, 26-28 ms each on a worker thread. Fix needed first: a core change that returns to the frontend right after the save (needs Joey's go), then measure again.
   - Frame advance and slow motion (ares, DuckStation, PCSX2, mupen64plus). Frame advance built 2026-11-07 as a hotkey next to Pause (Joey: "your call"); slow motion still waits.
   - Overscan crop (RMG, ares, gopher64), likely in Game settings › Picture.
   - Android TV: the leanback launcher entry, a banner, and checking the launcher at TV size (Dolphin, Lemuroid, Mupen64Plus AE).

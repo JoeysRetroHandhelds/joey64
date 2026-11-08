@@ -7,6 +7,7 @@
 #include "gpu_counters.h"
 #include "thermal.h"
 #include "display_opts.h"
+#include "rewind_test.h"
 #include <jni.h>
 #include <dlfcn.h>
 #include <android/log.h>
@@ -870,6 +871,9 @@ void runLoop() {
     const int64_t hintFfNs = (hintFfEnv && *hintFfEnv ? atoll(hintFfEnv) : 1000) * 1000;
     bool hintThreadsAdded = false;
     PerfHint perfHint;
+    // EXPERIMENT (rewind_test.h): N64_REWIND_TEST=<frames between snapshots>.
+    const int rewindEvery = getenv("N64_REWIND_TEST") ? atoi(getenv("N64_REWIND_TEST")) : 0;
+    RewindTest rewindTest;
     const char* noSplit = getenv("N64_PIN_SPLIT");
     const bool split = pin && !(noSplit && *noSplit == '0');
     const char* late = getenv("N64_LATE_INPUT");
@@ -1040,6 +1044,8 @@ void runLoop() {
             }
         }
         if (++framesSinceSaveCheck >= 120) { framesSinceSaveCheck = 0; flushSave(); }
+        if (rewindEvery > 0 && g_framesRun > 60)
+            rewindTest.frame(rewindEvery, [] { return core.serialize_size(); }, [](void* d, size_t n) { return core.serialize(d, n); });
         if (useHint) {
             perfHint.setTargetNs((ff || g_bench) && hintFfNs > 0 ? hintFfNs : 1000000000LL / 60 / 2);
             perfHint.reportFrame();

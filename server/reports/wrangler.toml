@@ -1,0 +1,20 @@
+name = "joey64-reports"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+
+# Devices reach it at the workers.dev address. Preview URLs stay off: every old version would
+# otherwise keep its own public address with the same database bound.
+workers_dev = true
+preview_urls = false
+
+# The reports database. `wrangler d1 create joey64-reports` prints the id to put here.
+[[d1_databases]]
+binding = "DB"
+database_name = "joey64-reports"
+database_id = "REPLACE_AFTER_d1_create"
+
+# Posts per IP address: the address is only counted here, never stored.
+[[ratelimits]]
+name = "PER_IP"
+namespace_id = "6401"
+simple = { limit = 10, period = 60 }

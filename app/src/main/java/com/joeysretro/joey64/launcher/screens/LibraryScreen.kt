@@ -111,19 +111,23 @@ fun LibraryScreen(model: LibraryModel, onSearch: () -> Unit) {
                 ProgressLine(r, width = 320.dp, centred = false)
             }
         }
-        // Covers downloading (approved 2026-11-07), the same line as reading; a pause says why.
-        art?.takeIf { reading == null }?.let { a ->
-            Column(Modifier.padding(start = JoeyTheme.spacing.margin, top = 12.dp)) {
-                Text("Getting box art", style = JoeyTheme.type.note, color = c.textDim, modifier = Modifier.padding(bottom = 6.dp))
-                ProgressLine(a, width = 320.dp, centred = false)
+        // The filter chip, and at the right end of its line (Joey 2026-11-07) covers downloading, the same
+        // progress line as reading, or why they paused.
+        androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().padding(start = JoeyTheme.spacing.margin, end = JoeyTheme.spacing.margin, top = 12.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            com.joeysretro.joey64.launcher.components.PageChip(view.label, com.joeysretro.joey64.R.drawable.ic_filter,
+                on = view != com.joeysretro.joey64.launcher.library.LibraryView.All) { showing = true }
+            androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+            art?.takeIf { reading == null }?.let { a ->
+                Column {
+                    Text("Getting box art", style = JoeyTheme.type.note, color = c.textDim, modifier = Modifier.padding(bottom = 6.dp))
+                    ProgressLine(a, width = 320.dp, centred = false)
+                }
+            }
+            if (artPaused && art == null && reading == null) {
+                Text("Box art paused · ScreenScraper is busy. Joey64 will try again later.", style = JoeyTheme.type.note, color = c.textDim)
             }
         }
-        if (artPaused && art == null && reading == null) {
-            Text("Box art paused · ScreenScraper is busy. Joey64 will try again later.", style = JoeyTheme.type.note, color = c.textDim,
-                modifier = Modifier.padding(start = JoeyTheme.spacing.margin, top = 12.dp))
-        }
-        com.joeysretro.joey64.launcher.components.PageChip(view.label, com.joeysretro.joey64.R.drawable.ic_filter,
-            Modifier.padding(start = JoeyTheme.spacing.margin, top = 12.dp), on = view != com.joeysretro.joey64.launcher.library.LibraryView.All) { showing = true }
         val f = facts
         val list = remember(all, view, f) { if (f == null) all else com.joeysretro.joey64.launcher.library.LibraryViews.show(all, view, f) }
         // Taking the last game out of a collection from its own options empties the view: the grid

@@ -133,10 +133,14 @@ class LauncherActivity : ComponentActivity() {
             // the setup pages, shown over the library (nothing on them is kept); none goes back.
             // boxart-reset: every downloaded or not-found cover is looked up again now (custom and
             // hidden ones stay), for checking the box-art source; the old files are overwritten as found.
+            // reports-ask: the reports question over the library; reports-send: a report now, even if one
+            // went today (to files/dev_reports_base when it exists, e.g. a local wrangler dev through adb reverse).
             val show = object : android.content.BroadcastReceiver() {
                 override fun onReceive(c: android.content.Context, i: android.content.Intent) {
                     val what = i.getStringExtra("what") ?: return
                     if (what == "boxart-reset") model.debugResetArt()
+                    else if (what == "reports-ask") model.debugAskReports()
+                    else if (what == "reports-send") model.debugSendReports()
                     else if (what.startsWith("update")) updates.debugShow(what) else model.debugSetupPage(what.takeIf { it == "first-run" || it == "data" || it == "import" })
                 }
             }

@@ -338,7 +338,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     private fun setFastForward(on: Boolean, percent: Int = hotkeys.ffSpeed) {
         NativeBridge.setFastForwardSpeed(percent)
-        if (on != fastForward) { fastForward = on; NativeBridge.setFastForward(on) }
+        if (on != fastForward) { sessionMark(); fastForward = on; NativeBridge.setFastForward(on) }
     }
 
     private fun toggleFastForward() = setFastForward(!fastForward)
@@ -568,7 +568,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (quitting) return
         quitting = true
         overlay?.screen = null
-        menuOpen = false
+        sessionMark(); menuOpen = false
         NativeBridge.pause(true)
         stateHandler.removeCallbacks(recoveryTick)
         stateHandler.post {
@@ -791,6 +791,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             if (NativeBridge.loadGame(rom, saveName)) {
                 NativeBridge.start(); started = true; owner = this; gameLoaded = true
                 startStates(saveName)
+                startSession(rom, saveName)
             }
             reportGameState(loading = false)
         }
@@ -892,6 +893,57 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         }
     }
 
+    // ---- reports (approved reports mockup, version A, Joey 2026-11-08) ----------------------------------
+    // Send reports on: this play session (time at normal speed, frames run and drawn) goes to files/reports,
+    // and the library sends it with the next report. Off: nothing is recorded. Dev starts (--es env/opts,
+    // renderer or driver overrides) are tests, not play: not recorded either.
+    private var session: com.joeysretro.joey64.reports.SessionTracker? = null
+
+    private fun startSession(rom: String, saveName: String) {
+        if (!com.joeysretro.joey64.reports.ReportPrefs.on(this)) return
+        if (listOf("env", "opts", "renderer", "driver").any { intent?.hasExtra(it) == true }) { JLog.i(TAG, "reports: a dev start, not recorded"); return }
+        val md5 = intent?.getStringExtra(EXTRA_MD5) ?: romMd5(rom) ?: return
+        // Settings that differ from the defaults: Video's for this game (all of them count for speed), Audio's.
+        val v = com.joeysretro.joey64.video.VideoStore(this).forGame(saveName.ifEmpty { null })
+        val a = com.joeysretro.joey64.audio.AudioStore(this).forGame(saveName.ifEmpty { null })
+        val settings = org.json.JSONObject()
+        for (k in com.joeysretro.joey64.video.VideoKey.entries) if (v[k] != k.default) settings.put("video." + k.key, v[k])
+        for (k in com.joeysretro.joey64.audio.AudioKey.entries) if (a[k] != k.default) settings.put("audio." + k.key, a[k])
+        val scale = if (parallel) (playUpscale ?: "1x").removeSuffix("x").toIntOrNull() ?: 1
+            else statsRenderer.substringAfter("GLideN64 ").removeSuffix("x").trim().toIntOrNull() ?: 1
+        val base = org.json.JSONObject().apply {
+            put("md5", md5.lowercase())
+            put("renderer", if (parallel) "parallel" else "gliden64")
+            put("scale", scale)
+            put("settings", settings)
+            put("gpu", gpuName.replace("(TM) ", ""))
+            put("driver", statsDriver)
+        }
+        // The library's report with no session yet names the GPU and driver from here.
+        getSharedPreferences("device", MODE_PRIVATE).edit().putString("report_gpu", gpuName.replace("(TM) ", "")).putString("report_driver", statsDriver).apply()
+        session = com.joeysretro.joey64.reports.SessionTracker(File(com.joeysretro.joey64.reports.ReportFiles.open(this), "${android.os.Process.myPid()}.json"),
+            com.joeysretro.joey64.reports.ReportFiles.pending(this), base)
+        sessionMark()
+        fpsHandler.postDelayed(sessionTick, SESSION_TICK_MS)
+    }
+
+    /** Playing at normal speed right now: not paused, no menu, no fast-forward. */
+    private val sessionCounting get() = resumed && !menuOpen && !hotkeyPaused && !fastForward && !quitting
+
+    /** Closes the stretch since the last mark, counted if play was counting through it. */
+    private fun sessionMark() {
+        session?.tick(sessionCounting, NativeBridge.framesRun(), NativeBridge.framesDrawn(), android.os.SystemClock.elapsedRealtime())
+    }
+
+    private val sessionTick = object : Runnable {
+        override fun run() {
+            val s = session ?: return
+            sessionMark()
+            stateHandler.post { s.writeOpen() }
+            fpsHandler.postDelayed(this, SESSION_TICK_MS)
+        }
+    }
+
     /** Every few minutes while playing (not while paused or quitting), the recovery state. */
     private val recoveryTick = object : Runnable {
         override fun run() {
@@ -922,7 +974,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     private fun openMenu() {
         val o = overlay ?: return
-        menuOpen = true
+        sessionMark(); menuOpen = true
         achievementsDirect = false
         NativeBridge.pause(true)
         // Held buttons and sticks are let go: the menu's window takes the pad from here.
@@ -1000,10 +1052,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     private fun closeMenu() {
         overlay?.screen = null
-        menuOpen = false
+        sessionMark(); menuOpen = false
         achievementsDirect = false
         // Resume goes on after the Pause hotkey too (approved hotkeys mockup 2026-11-07).
-        if (hotkeyPaused) { hotkeyPaused = false; overlay?.hide("paused", waiting = true) }
+        if (hotkeyPaused) { sessionMark(); hotkeyPaused = false; overlay?.hide("paused", waiting = true) }
         if (resumed && !quitting) NativeBridge.pause(false)
     }
 
@@ -1252,7 +1304,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private var hotkeyPaused = false
     private fun togglePause() {
         if (menuOpen) return
-        hotkeyPaused = !hotkeyPaused
+        sessionMark(); hotkeyPaused = !hotkeyPaused
         if (hotkeyPaused) {
             NativeBridge.pause(true)
             releaseAll()
@@ -1765,6 +1817,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     override fun onPause() {
         super.onPause()
         if (!mine) return
+        sessionMark(); session?.writeOpen()
         NativeBridge.pause(true)
         abandonAudioFocus()
         // Leaving the game (quit, home, another app): its progress is kept while rc_client still has it.
@@ -1785,6 +1838,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (!mine) return
         if (!menuOpen && !hotkeyPaused) NativeBridge.pause(false)
         if (started) { reportGameState(loading = false); requestAudioFocus() }
+        session?.tick(false, NativeBridge.framesRun(), NativeBridge.framesDrawn(), android.os.SystemClock.elapsedRealtime())
         resumed = true
         stats?.start()
         setRumbling(NativeBridge.rumble())
@@ -1806,6 +1860,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     override fun onDestroy() {
+        if (isFinishing) { fpsHandler.removeCallbacks(sessionTick); session?.finish(); session = null }
         uiScope.cancel()
         debugStick?.let { unregisterReceiver(it) }
         debugDump?.let { unregisterReceiver(it) }
@@ -1903,6 +1958,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         const val EXTRA_TITLE = "com.joeysretro.joey64.TITLE"
         /** The ROM's MD5 (.z64 order), from the launcher: Auto pak looks it up without hashing the ROM again. */
         const val EXTRA_MD5 = "com.joeysretro.joey64.MD5"
+        private const val SESSION_TICK_MS = 5_000L
         /** A 64DD disk's cartridge, as a content URI (F-Zero X Expansion Kit: F-Zero X (Japan)); without it a disk boots alone. */
         const val EXTRA_DD_CART = "com.joeysretro.joey64.DD_CART"
         const val STATE_AUTO = "auto"

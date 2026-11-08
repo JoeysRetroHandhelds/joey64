@@ -346,12 +346,33 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         play(g, com.joeysretro.joey64.MainActivity.STATE_AUTO, start)
     }
 
-    /** The launcher is in front again: a game it started has ended. */
+    // ---- reports (approved reports mockup, version A, Joey 2026-11-08) ---------------------------------
+
+    private val _askReports = MutableStateFlow(false)
+    /** "Help make Joey64 better?": once, the first time a game ends and the library is in front again. */
+    val askReports: StateFlow<Boolean> = _askReports
+
+    /** The question's answer: Send reports (true) or No thanks (false; B too). Never asked again. */
+    fun reportsAnswered(on: Boolean) {
+        _askReports.value = false
+        val app = getApplication<Application>()
+        com.joeysretro.joey64.reports.ReportPrefs.setOn(app, on)
+        JLog.i(TAG, "reports: ${if (on) "on" else "off"} (the library's question)")
+    }
+
+    /** Debug builds (SHOW reports-ask / reports-send): the question now; a report now, even if one went today. */
+    fun debugAskReports() { _askReports.value = true }
+    fun debugSendReports() { viewModelScope.launch { com.joeysretro.joey64.reports.ReportSender.maybeSend(getApplication(), force = true) } }
+
+    /** The launcher is in front again: a game it started has ended. Reports: today's goes now, if it hasn't. */
     fun resumed() {
+        val app = getApplication<Application>()
+        viewModelScope.launch { com.joeysretro.joey64.reports.ReportSender.maybeSend(app) }
         val p = plays
         if (!p.contains("game")) { checkStates(); return }
         val id = p.getLong("game", 0); val up = p.getLong("uptime", 0); val wall = p.getLong("wall", 0)
         p.edit().clear().apply()
+        if (!com.joeysretro.joey64.reports.ReportPrefs.asked(app)) _askReports.value = true
         val ms = android.os.SystemClock.uptimeMillis() - up
         // Negative: the device restarted since (uptime begins again), so the length isn't known.
         if (ms <= 0) { checkStates(); return }

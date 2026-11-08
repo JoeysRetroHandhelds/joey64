@@ -71,7 +71,7 @@ object LogFiles {
         prune(dir)
         NativeBridge.openLog(File(dir, "$session-app.log").absolutePath)
         captureLogcat(File(dir, "$session-system.log"))
-        catchUncaught()
+        catchUncaught(ctx.applicationContext)
         header(ctx, intent)
         previousExits(ctx, dir)
     }
@@ -97,10 +97,12 @@ object LogFiles {
         }
     }
 
-    private fun catchUncaught() {
+    private fun catchUncaught(app: Context) {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { t, e ->
             JLog.e(TAG, "uncaught exception on thread ${t.name}:\n${Log.getStackTraceString(e)}")
+            // Send reports on: the stack goes with the next report (the exit record has none for a Java crash).
+            com.joeysretro.joey64.reports.ReportSender.keepJavaCrash(app, "thread ${t.name}\n" + Log.getStackTraceString(e))
             previous?.uncaughtException(t, e)
         }
     }

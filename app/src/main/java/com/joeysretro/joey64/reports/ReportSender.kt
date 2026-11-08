@@ -1,0 +1,195 @@
+package com.joeysretro.joey64.reports
+
+import android.app.ActivityManager
+import android.app.ApplicationExitInfo
+import android.content.Context
+import android.os.Build
+import com.joeysretro.joey64.JLog
+import com.joeysretro.joey64.launcher.data.LibraryDb
+import com.joeysretro.joey64.launcher.update.AppUpdates
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+import java.time.LocalDate
+import java.time.ZoneOffset
+
+/**
+ * Sends what's waiting, at most once a day (UTC), when the library comes to the front and Send reports
+ * is on. Each report is one device part and its events: sessions are grouped by the GPU and driver
+ * they ran on (Settings can change the driver), covers and crashes go with the first. Anything the
+ * server didn't take for a reason that may pass (offline, busy, 429) waits for the next day.
+ */
+object ReportSender {
+    private const val TAG = "Joey64Reports"
+    const val SERVER = "https://joey64-reports.joeysretrohandhelds.workers.dev"
+    /** Reports a day the server takes from one install (server/reports/src/store.js, PER_INSTALL_DAY). */
+    private const val MAX_REPORTS = 3
+    private const val MAX_COVERS = 150
+
+    private val sending = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    fun today(): String = LocalDate.now(ZoneOffset.UTC).toString()
+
+    /** [force]: debug builds, send now even if a report went today. */
+    suspend fun maybeSend(ctx: Context, force: Boolean = false) = withContext(Dispatchers.IO) {
+        if (!ReportPrefs.on(ctx)) return@withContext
+        if (!force && ReportPrefs.lastSentDay(ctx) == today()) return@withContext
+        if (!sending.compareAndSet(false, true)) return@withContext
+        try { send(ctx) } catch (e: Exception) { JLog.w(TAG, "reports: $e") } finally { sending.set(false) }
+    }
+
+    private fun send(ctx: Context) {
+        val exits = exits(ctx)
+        sweepOpen(ctx, exits)
+        val pending = ReportFiles.pending(ctx).listFiles { f -> f.name.endsWith(".json") }.orEmpty().sortedBy { it.name }
+        val sessions = pending.mapNotNull { f -> try { f to JSONObject(f.readText()) } catch (e: Exception) { f.delete(); null } }
+        val db = LibraryDb.get(ctx)
+        val headers = db.headersOf(sessions.mapNotNull { ReportJson.md5(it.second.optString("md5")) }.toSet())
+
+        val sentCovers = ReportFiles.coversSent(ctx).takeIf { it.exists() }?.readLines()?.toHashSet() ?: hashSetOf()
+        val covers = db.coverReports().map { it to "${it.md5} ${it.kind} ${it.cover ?: ""}" }.filter { it.second !in sentCovers }.take(MAX_COVERS)
+        val coverEvents = covers.mapNotNull { (c, key) -> ReportJson.cover(c.md5, c.kind, c.header, c.title, c.cover)?.let { it to key } }
+
+        val crashEvents = exits.filter { it.crash && it.timestamp > ReportPrefs.exitsAfter(ctx) }
+            .map { ReportJson.crash(it.md5, it.where, it.summary) }
+
+        // Sessions by (gpu, driver), newest group first; covers and crashes ride with the first report.
+        val groups = sessions.groupBy { it.second.optString("gpu") to it.second.optString("driver") }
+            .entries.sortedByDescending { e -> e.value.maxOf { it.first.name } }
+        val devicePrefs = ctx.getSharedPreferences("device", Context.MODE_PRIVATE)
+        val plan = mutableListOf<Pair<Pair<String, String>, List<Pair<File, JSONObject>>>>()
+        if (groups.isEmpty()) plan += (devicePrefs.getString("report_gpu", "").orEmpty() to devicePrefs.getString("report_driver", "").orEmpty()) to emptyList()
+        else for (g in groups.take(MAX_REPORTS)) plan += g.key to g.value
+
+        val app = AppUpdates.installedVersion(ctx)
+        val core = core(ctx)
+        val install = ReportPrefs.install(ctx)
+        var anySent = false
+        var maxExit = 0L
+        for ((i, step) in plan.withIndex()) {
+            val (gpuDriver, group) = step
+            val extra = if (i == 0) crashEvents + coverEvents.map { it.first } else emptyList()
+            val sessionEvents = group.mapNotNull { (f, o) -> ReportJson.session(o, headers[o.optString("md5")])?.let { f to it } }
+                .take(ReportJson.MAX_EVENTS - extra.size)
+            val events = sessionEvents.map { it.second } + extra
+            if (events.isEmpty()) continue
+            val device = ReportJson.Device(Build.MANUFACTURER, Build.MODEL, if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL else null,
+                gpuDriver.first.ifEmpty { null }, gpuDriver.second.ifEmpty { null }, Build.VERSION.SDK_INT)
+            val body = ReportJson.report(install, app, core, device, events).toString()
+            val code = post(ctx, body)
+            JLog.i(TAG, "reports: sent ${sessionEvents.size} sessions" + (if (i == 0) ", ${coverEvents.size} covers, ${crashEvents.size} crashes" else "") + ": $code")
+            if (code == 204 || code == 400) {
+                // 400: the server can't read it, and it won't later either: dropped, not sent every day.
+                if (code == 400) JLog.e(TAG, "reports: the server refused the report: ${lastError ?: ""}")
+                sessionEvents.forEach { it.first.delete() }
+                if (i == 0) {
+                    ReportFiles.coversSent(ctx).appendText(coverEvents.joinToString("") { it.second + "\n" })
+                    maxExit = exits.maxOfOrNull { it.timestamp } ?: 0L
+                }
+                anySent = anySent || code == 204
+            } else break
+        }
+        if (maxExit > 0) ReportPrefs.setExitsAfter(ctx, maxOf(maxExit, ReportPrefs.exitsAfter(ctx).takeIf { it != Long.MAX_VALUE } ?: 0L))
+        if (anySent || (plan.all { it.second.isEmpty() } && crashEvents.isEmpty() && coverEvents.isEmpty())) ReportPrefs.setLastSentDay(ctx, today())
+    }
+
+    private var lastError: String? = null
+
+    /** The base address: the server, or in debug builds files/dev_reports_base (a local wrangler dev through adb reverse). */
+    private fun base(ctx: Context): String {
+        if (com.joeysretro.joey64.BuildConfig.DEBUG) File(ctx.filesDir, "dev_reports_base").takeIf { it.exists() }?.readText()?.trim()?.takeIf { it.isNotEmpty() }?.let { return it.trimEnd('/') }
+        return SERVER
+    }
+
+    private fun post(ctx: Context, body: String): Int {
+        lastError = null
+        val c = URL(base(ctx) + "/v1/report").openConnection() as HttpURLConnection
+        return try {
+            c.requestMethod = "POST"
+            c.connectTimeout = 15_000; c.readTimeout = 15_000
+            c.doOutput = true
+            c.setRequestProperty("Content-Type", "application/json")
+            c.setRequestProperty("User-Agent", "Joey64/${AppUpdates.installedVersion(ctx)}")
+            c.outputStream.use { it.write(body.toByteArray()) }
+            val code = c.responseCode
+            if (code >= 400) lastError = c.errorStream?.bufferedReader()?.use { it.readText().take(200) }
+            code
+        } catch (e: java.io.IOException) {
+            JLog.i(TAG, "reports: not sent ($e), trying again tomorrow")
+            -1
+        } finally { c.disconnect() }
+    }
+
+    /** The bundled core as About shows it: "dd 0ac9d17". */
+    private fun core(ctx: Context): String? {
+        val lines = try { ctx.assets.open("core-version.txt").bufferedReader().readLines() } catch (e: Exception) { return null }
+        fun field(k: String) = lines.firstOrNull { it.startsWith("$k:") }?.substringAfter(':')?.trim().orEmpty()
+        return listOf(field("branch"), field("commit").substringBefore(' ').take(7)).filter { it.isNotEmpty() }.joinToString(" ").ifEmpty { null }
+    }
+
+    /** One of our processes' ends as Android recorded it, and the session it was playing (by pid). */
+    private data class Exit(val pid: Int, val timestamp: Long, val crash: Boolean, var where: String, val summary: String, var md5: String? = null)
+
+    private fun exits(ctx: Context): List<Exit> {
+        if (Build.VERSION.SDK_INT < 30) return emptyList()
+        val list = try { ctx.getSystemService(ActivityManager::class.java).getHistoricalProcessExitReasons(null, 0, 16) } catch (e: Exception) { return emptyList() }
+        return list.map { x ->
+            val crash = x.reason == ApplicationExitInfo.REASON_CRASH || x.reason == ApplicationExitInfo.REASON_CRASH_NATIVE || x.reason == ApplicationExitInfo.REASON_ANR
+            Exit(x.pid, x.timestamp, crash, if (x.reason == ApplicationExitInfo.REASON_CRASH_NATIVE) "core" else "launcher", if (crash) summary(ctx, x) else "")
+        }
+    }
+
+    private fun summary(ctx: Context, x: ApplicationExitInfo): String {
+        val head = when (x.reason) {
+            ApplicationExitInfo.REASON_CRASH_NATIVE -> "native crash, signal ${x.status}"
+            ApplicationExitInfo.REASON_ANR -> "not responding (ANR)"
+            else -> "crash (Java)"
+        } + (x.description?.takeIf { it.isNotBlank() }?.let { ": $it" } ?: "")
+        val detail = when (x.reason) {
+            // The ANR trace is text: the main thread's stack is near the top.
+            ApplicationExitInfo.REASON_ANR -> try { x.traceInputStream?.bufferedReader()?.useLines { it.take(40).joinToString("\n") } } catch (e: Exception) { null }
+            // A Java crash has no trace in the exit record: LogFiles kept the stack when it happened.
+            ApplicationExitInfo.REASON_CRASH -> File(ReportFiles.dir(ctx), "java-crash-${x.pid}.txt").takeIf { it.exists() }?.let { f -> f.readText().also { f.delete() } }
+            else -> null
+        }
+        return scrub(head + (detail?.let { "\n" + it } ?: ""))
+    }
+
+    /** Paths and content addresses out of crash text (a file name in an exception's message can name the user's folders). */
+    fun scrub(s: String): String = s
+        .replace(Regex("""(content|file)://\S+"""), "<path>")
+        .replace(Regex("""/(storage|sdcard|mnt|data/user|data/data)/\S+"""), "<path>")
+
+    /**
+     * Sessions left in open/ by a process that is gone: they didn't end with a quit. One whose process
+     * crashed is sent as ended "crash" (and its crash gets the game's MD5); one stopped otherwise (swiped
+     * away, killed for memory) as "quit".
+     */
+    private fun sweepOpen(ctx: Context, exits: List<Exit>) {
+        val alive = try {
+            ctx.getSystemService(ActivityManager::class.java).runningAppProcesses.orEmpty().map { it.pid }.toSet()
+        } catch (e: Exception) { setOf(android.os.Process.myPid()) }
+        for (f in ReportFiles.open(ctx).listFiles { f -> f.name.endsWith(".json") }.orEmpty()) {
+            val pid = f.nameWithoutExtension.toIntOrNull() ?: run { f.delete(); continue }
+            if (pid in alive) continue
+            val o = try { JSONObject(f.readText()) } catch (e: Exception) { f.delete(); continue }
+            val exit = exits.firstOrNull { it.pid == pid }
+            if (exit?.crash == true) {
+                exit.md5 = o.optString("md5")
+                // A Java crash or ANR while playing: the game screen's side, not the library's.
+                if (exit.where == "launcher") exit.where = "host"
+            } else o.put("ended", "quit")
+            if (o.optLong("seconds") >= SessionTracker.MIN_SECONDS) ReportFiles.write(File(ReportFiles.pending(ctx), "${f.lastModified()}-$pid.json"), o.toString())
+            f.delete()
+        }
+    }
+
+    /** LogFiles' uncaught-exception handler: the stack, kept for the next report when Send reports is on. */
+    fun keepJavaCrash(ctx: Context, stack: String) {
+        if (!ReportPrefs.on(ctx)) return
+        try { ReportFiles.write(File(ReportFiles.dir(ctx), "java-crash-${android.os.Process.myPid()}.txt"), stack.take(2000)) } catch (e: Exception) { }
+    }
+}

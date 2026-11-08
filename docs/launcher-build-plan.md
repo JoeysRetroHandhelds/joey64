@@ -593,6 +593,27 @@ Joey chose the core fix (disk-only games load without a cartridge); the Joey64 s
 - **Box art gaps (Joey 2026-11-07: "we are going to fill the gaps ourselves for games without box art"):** Joey64 supplies its own covers for games ScreenScraper has none for, starting with the four SM64 hacks: Shotgun Mario 64 (Joey has a cover, about 430 px wide, 1.39:1), SM64 Elise, Super Mario Land 64, Peach's Fury. They go in the `joey64-data` repo (Joey 2026-11-07), downloaded at run time like the cheat lists. Built 2026-11-07 (Joey: "Yes, build it"): `JoeyCovers` reads `boxart/index.tsv` from the `release` branch and puts our covers ahead of ScreenScraper's; checked on the Thor from a feed on the PC (all four hacks, no download again on restart). Live once joey64-data's main is pushed and `release` moved to it.
 - Test disks: 15 games in `joey64/devtools/testdata/roms/64DD` (also on the Thor in /sdcard/Joey64Test/64DD).
 
+## Reports (built 2026-11-08)
+
+Joey 2026-11-07: "a server collecting reports, so that we can get information on best drivers to use, settings, box art fixed and more". Server: `server/reports` (Cloudflare Worker + D1), live at joey64-reports.joeysretrohandhelds.workers.dev in the Joey64 Cloudflare account since 2026-11-08. App side: approved reports mockup (Joey 2026-11-08: version A, one switch; asked once over the library), scratchpad `build_reports_mock.py`.
+
+Built (`reports/Reports.kt`, `reports/ReportSender.kt`, `launcher/screens/ReportsPopups.kt`):
+- Settings › About, right column top: Reports › Send reports (Off ›), popup Off / On / What's sent / Report ID Reset. What's sent is the licences' scrolling text box, now shared as `TextBoxPopup`.
+- The question "Help make Joey64 better?" once, over the library, the first time a game started from it ends (`LibraryModel.resumed`); focus on No thanks, B is No thanks. Answering, or setting the row, never asks again.
+- Sessions (game screen, only while Send reports is on, not for dev starts with env/opts/renderer/driver extras): time at normal speed (not paused, menu, fast-forward), average emulated and drawn fps, repeat frames, renderer and scale, Video and Audio settings that differ from the defaults, GPU and driver. Kept in `files/reports/open/<pid>.json` every 5 s; a quit moves it to `pending/`; one left by a dead process is sent as ended "crash" when Android recorded a crash for that pid, else "quit" (swiped away, killed). Under 20 s: dropped.
+- Crashes from ApplicationExitInfo after Send reports was turned on: native crash -> where "core" (signal, Android's description), Java crash or ANR while playing -> "host", otherwise "launcher"; a Java crash's stack comes from LogFiles' uncaught handler, an ANR's from its trace; paths and content URIs are scrubbed.
+- Covers from the library: "none" (ScreenScraper had none) and "replaced" (a downloaded ScreenScraper or Joey64 cover the user swapped for their own or No box art), each sent once (`covers-sent.txt`).
+- Sending: when the library comes to the front, at most once a UTC day, up to 3 reports (sessions grouped by GPU and driver; covers and crashes with the first). 204 or 400 clears what was sent (400 is logged: it would fail every day); offline, 429 or 5xx wait for the next day. Off deletes everything waiting. Debug: `SHOW --es what reports-ask|reports-send`, `files/dev_reports_base` (a local `wrangler dev` through adb reverse).
+- Differences from the mockup: What's sent leaves out "audio crackles" (the host keeps underruns but has no call for them yet), and the text box is plain text like the licences, no bold headings.
+
+Checked on the Thor against a local server (2026-11-08): the question, What's sent and back, Send reports saved; a session written every 5 s and received (header NSME, parallel 1x, 60 fps emulated, ended quit); a game killed by Android (an app backup) swept and sent as "quit" by the next launcher; a SIGSEGV (`kill -11`) recorded by Android as a native crash and sent as where "core" with the game's MD5 and its session ended "crash"; Settings › About's row and popup. The cover query was checked on a copy of the Thor's library (custom, hidden and none rows). Joey's data was put back after (library play time, recently played, device prefs).
+
+**Still to do, tracked:**
+- Native crash text is thin ("native crash, signal 11: crash"): the tombstone (protobuf) has the backtrace; reading its frames would make core crashes useful.
+- Audio underruns in sessions (needs a NativeBridge call for the host's count), then "audio crackles" back in What's sent.
+- The server's `where` values are core / launcher / host; "game" might read better (a server change and redeploy).
+- Seen while testing: Android's scheduled full backup killed Joey64 in the foreground mid-game (signal 9, 2026-11-07 23:17). The manifest has no `allowBackup`, so Android backs the app up by default. Joey's call: turn backup off, or limit it with backup rules.
+
 ## Not in this plan
 
 - Settings General; the real Library tab.

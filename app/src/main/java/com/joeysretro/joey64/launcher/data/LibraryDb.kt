@@ -218,6 +218,9 @@ data class GameDetails(
 /** A game's box_art row as [LibraryDb.artOfGames] reads it. */
 data class ArtRow(val gameId: Long, val md5: String, val kind: String?, val cover: String?)
 
+/** A cover event for reports: [kind] "none" or "replaced" (with the [cover] it had), [title] the file name without extension. */
+data class CoverReport(val md5: String, val header: String?, val kind: String, val cover: String?, val title: String)
+
 data class ArtLookup(val gameId: Long, val md5: String, val fileName: String, val crc32: String = "", val romSize: Long = 0)
 
 /** One of a game's files in a picked ROM folder. */
@@ -570,6 +573,30 @@ class LibraryDb private constructor(context: Context) :
                 " WHERE n IS NOT NULL AND (a.kind IS NULL OR (a.kind = 'none' AND (a.checked_at < ? OR a.cover IS NULL))) ORDER BY g.title COLLATE NOCASE",
             arrayOf(listedAt.toString()),
         ).use { c -> buildList { while (c.moveToNext()) add(ArtLookup(c.getLong(0), c.getString(1), c.getString(2).substringBeforeLast('.'), c.getString(3) ?: "", if (c.isNull(4)) 0 else c.getLong(4))) } }
+
+    /**
+     * Reports: library games ScreenScraper had no cover for ("none"), and games whose downloaded cover
+     * (ScreenScraper's or Joey64's own) the user replaced with their own image or No box art: chooseArt
+     * changes the kind only, so the cover it had is still in the row.
+     */
+    fun coverReports(): List<CoverReport> =
+        readableDatabase.rawQuery(
+            "SELECT g.md5, g.header_id, a.kind, a.cover, (SELECT f.name FROM files f WHERE f.game_id = g.id ORDER BY f.seen_at DESC LIMIT 1) n" +
+                " FROM games g JOIN box_art a ON a.game_id = g.id" +
+                " WHERE n IS NOT NULL AND ((a.kind = 'none' AND a.cover = 'screenscraper')" +
+                " OR (a.kind IN ('custom', 'hidden') AND (a.cover LIKE 'screenscraper:%' OR a.cover LIKE 'joey64:%')))" +
+                " ORDER BY g.title COLLATE NOCASE",
+            null,
+        ).use { c -> buildList { while (c.moveToNext()) add(CoverReport(c.getString(0), c.getString(1), if (c.getString(2) == "none") "none" else "replaced", c.getString(3), c.getString(4).substringBeforeLast('.'))) } }
+
+    /** The ROM header's game code ("NSME") of each game in [md5s] that has one. */
+    fun headersOf(md5s: Set<String>): Map<String, String> {
+        if (md5s.isEmpty()) return emptyMap()
+        return md5s.chunked(500).flatMap { chunk ->
+            readableDatabase.rawQuery("SELECT md5, header_id FROM games WHERE header_id IS NOT NULL AND md5 IN (" + chunk.joinToString(",") { "?" } + ")",
+                chunk.toTypedArray()).use { c -> buildList { while (c.moveToNext()) add(c.getString(0) to c.getString(1)) } }
+        }.toMap()
+    }
 
     /** Library games with an MD5 in [md5s], with what their tile shows now (kind and cover null: not looked up yet). */
     fun artOfGames(md5s: Set<String>): List<ArtRow> {

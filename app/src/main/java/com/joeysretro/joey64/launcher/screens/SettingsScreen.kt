@@ -241,8 +241,9 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
     val testing by updates.testing.collectAsStateWithLifecycle()
     var focused by remember { mutableStateOf("chk") }
     var copied by remember { mutableStateOf(false) }
-    // The popup open over About: "oss" (the licences list) or "gpl" (Joey64's licence).
+    // The popup open over About: "oss" (the licences list), "gpl" (Joey64's licence) or "reports" (Send reports).
     var open by remember { mutableStateOf<String?>(null) }
+    var reportsOn by remember { mutableStateOf(com.joeysretro.joey64.reports.ReportPrefs.on(context)) }
     // "Checked 10 minutes ago" stays true as time passes.
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { delay(30_000); now = System.currentTimeMillis() } }
@@ -253,6 +254,7 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
             "chk" -> if (row == RowState.Checking) listOf(Hint("B", "Back")) else listOf(Hint("A", "Check"), Hint("B", "Back"))
             "copy" -> listOf(Hint("A", "Copy"), Hint("B", "Back"))
             "gpl", "oss" -> listOf(Hint("A", "Read"), Hint("B", "Back"))
+            "rep" -> listOf(Hint("A", "Change"), Hint("B", "Back"))
             "src" -> listOf(Hint("A", "Open"), Hint("B", "Back"))
             else -> listOf(Hint("B", "Back"))
         })
@@ -283,6 +285,9 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
                 }
             }
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                // Reports (approved reports mockup 2026-11-08, screen 1): at the top of the right column.
+                SectionLabel("Reports")
+                JoeyRow("Send reports", value = if (reportsOn) "On ›" else "Off ›", sideways = true, onFocused = { if (it) focused = "rep" }) { open = "reports" }
                 SectionLabel("Licence")
                 JoeyRow("Joey64 is free software", value = "GPL 3.0 or later ›", sideways = true, onFocused = { if (it) focused = "gpl" }) { open = "gpl" }
                 JoeyRow("Source code", value = "joey64 on GitHub ›", sideways = true, onFocused = { if (it) focused = "src" }) {
@@ -311,6 +316,7 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
             "core" -> "Core" to "The emulator core this build runs: ${info.coreDetail}."
             "rdr" -> "Renderer" to "What draws the games on this device, picked when a game starts."
             "dev" -> "Device" to info.deviceDetail
+            "rep" -> "Send reports" to "Off: Joey64 sends nothing. On: how games run on this device, games with no cover, and crashes, to help make Joey64 better."
             "gpl" -> "Joey64 is free software" to "Under the GNU General Public License 3.0 or later: use it, share it, change it. Select to read it."
             "src" -> "Source code" to "The code this build is made from: ${JOEY64_LICENCE.url}."
             "oss" -> "Open-source licences" to "The projects Joey64 is built from, and the licence each one is under."
@@ -325,6 +331,9 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
     when (open) {
         "oss" -> OssListPopup { open = null }
         "gpl" -> LicenceTextPopup(JOEY64_LICENCE) { open = null }
+        "reports" -> SendReportsPopup(reportsOn, onDismiss = { open = null },
+            onSet = { on -> com.joeysretro.joey64.reports.ReportPrefs.setOn(context, on); reportsOn = on; open = null },
+            onResetId = { com.joeysretro.joey64.reports.ReportPrefs.newId(context) })
     }
 }
 

@@ -90,6 +90,9 @@ fun LibraryScreen(model: LibraryModel, onSearch: () -> Unit) {
     model.askContinue.collectAsStateWithLifecycle().value?.let { ask ->
         AskContinuePopup(ask) { carryOn -> model.continueAnswered(carryOn) { context.startActivity(it) } }
     }
+    // Reports, asked once (approved reports mockup 2026-11-08, screen 5); never over another question.
+    val askingSomething = model.recovery.collectAsStateWithLifecycle().value != null || model.askContinue.collectAsStateWithLifecycle().value != null
+    if (model.askReports.collectAsStateWithLifecycle().value && !askingSomething) AskReportsPopup(model::reportsAnswered)
     NeedsBiosPopup(model) { context.startActivity(it) }
     NeedsCartPopup(model) { context.startActivity(it) }
     var showing by remember { mutableStateOf(false) }

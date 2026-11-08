@@ -7,8 +7,10 @@ covers to make, and see crashes we never meet ourselves.
 
 Live since 2026-11-08 at https://joey64-reports.joeysretrohandhelds.workers.dev, in the Joey64
 Cloudflare account (JoeysRetroHandhelds, its own account, not Joey's personal one; `account_id` in
-`wrangler.toml` keeps deploys there). The app doesn't send anything yet: the opt-in question and the
-Settings row wait for Joey's design.
+`wrangler.toml` keeps deploys there). The app side (built 2026-11-08, approved mockup version A):
+Settings › About › Send reports, Off by default, asked once over the library; see the app's
+`reports/` package and `docs/launcher-build-plan.md` › Reports. The app doesn't send `underruns` yet.
+Crash `where`: core (native crash), host (Java crash or ANR while a game ran), launcher (otherwise).
 
 ## What a report holds
 

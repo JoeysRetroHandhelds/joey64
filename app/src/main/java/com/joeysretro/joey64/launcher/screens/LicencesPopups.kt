@@ -157,8 +157,14 @@ fun OssListPopup(onDismiss: () -> Unit) {
 @Composable
 fun LicenceTextPopup(entry: OssEntry, onDismiss: () -> Unit) {
     val context = LocalContext.current
-    val c = JoeyTheme.colors
     val text = remember(entry) { ossText(context, entry) }
+    TextBoxPopup(entry.name, "${entry.licenceLong} · ${entry.url}", text, onDismiss)
+}
+
+/** The scrolling text box (licences, Settings › About › Send reports › What's sent): D-pad, L1 / R1 a page. */
+@Composable
+fun TextBoxPopup(title: String, subtitle: String?, text: String, onDismiss: () -> Unit) {
+    val c = JoeyTheme.colors
     val scroll = rememberScrollState()
     val scope = rememberCoroutineScope()
     // L1 / R1 a page up or down (pad buttons reach a popup only through onPadButton).
@@ -168,7 +174,7 @@ fun LicenceTextPopup(entry: OssEntry, onDismiss: () -> Unit) {
             if (k == KeyEvent.KEYCODE_BUTTON_L1) scope.launch { scroll.animateScrollBy(-600f) }
         }) {
         Column {
-            PopupTitle(entry.name, "${entry.licenceLong} · ${entry.url}")
+            PopupTitle(title, subtitle)
             Box(
                 Modifier
                     .padding(horizontal = JoeyTheme.spacing.rowPadH).padding(bottom = 4.dp)

@@ -21,6 +21,12 @@ object NativeBridge {
      */
     external fun loadGame(romPath: String, saveName: String): Boolean
 
+    /**
+     * Before loadGame: the cartridge to start with a 64DD disk (a romPath ending .ndd/.d64), "" for the disk alone.
+     * F-Zero X Expansion Kit needs F-Zero X (Japan); other disks boot the 64DD IPL with no cartridge.
+     */
+    external fun setDdCart(path: String)
+
     /** Before loadGame: true = Vulkan (parallel-RDP/RSP), false = GLES3 (GLideN64). */
     external fun setRenderer(vulkan: Boolean)
 

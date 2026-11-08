@@ -615,6 +615,15 @@ Checked on the Thor against a local server (2026-11-08): the question, What's se
 - The server's `where` values are core / launcher / host; "game" might read better (a server change and redeploy).
 - Done 2026-11-08 (Joey: "Yes, turn it off"): Android's scheduled full backup had killed Joey64 in the foreground mid-game (signal 9, 2026-11-07 23:17), because the manifest didn't set `allowBackup`. Now `android:allowBackup="false"`; on the Thor `bmgr backupnow` answers "Backup is not allowed". Saves are kept by Back up Joey64 and a picked data folder.
 
+## Waiting on Joey (asked from this chat; kept until answered)
+
+- Report server: run `migrations/0002-session-details.sql` on the live database, then deploy the Worker (asked 2026-11-08).
+- Precompiled block lists, stages (b) shipped lists per ROM MD5 from the data repo and (c) lists collected from players (opt-in), README work order item 17: need a consent toggle (a menu Joey designs), an upload server (the app only downloads today) and the Play Store Data safety declaration (a list of ROM MD5s shows which games someone has). Stage (a), local lists only, needs none of that and is on the emulator chat's queue. (Sent here by the emulator chat for Joey, 2026-11-08.)
+- Netplay online server: "Leave this for now" (2026-11-06); ask again when netplay comes up.
+- Email history, Joey's own steps: GitHub settings "Keep my email addresses private" and "Block command line pushes that expose my email"; GitHub Support to purge old commits kept by PR refs (chameleon-app 2, chameleon-data 3, joeys-es-de-folders 1, mupen64plus-ae-retroachievements 1). No backups wait for deletion (deleted after clean copies went to `C:\Users\Joey\Backups\git-2026-11-05`).
+
+Merge plan for this branch (emulator chat, 2026-11-08): Duo compat passed 82/82 on dd-lazy. If the Flip's chain151 passes, merge app branch `drc-default` (bb49379: audit2/fixes plus the compile thread on by default on Mali) and bundle core `dd-drc` (fd9f40e, core-dd6.so); if it fails, merge audit2/fixes (d9ded20) and bundle dd-lazy (bb7ea98, core-dd5.so). Either way `startSession` goes in launchGame after `startStates`, then the Thor 64DD checks.
+
 ## Not in this plan
 
 - Settings General; the real Library tab.

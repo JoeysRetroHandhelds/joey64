@@ -634,7 +634,7 @@ Merged 2026-11-08 (3473758): app `drc-default` 04c51c3 (audit 2 fixes, compile t
 
 ## Not in this plan
 
-- Settings General; the real Library tab.
+- Settings General. (The real Library tab: built 2026-11-08 from the approved mockup; CLAUDE.md has it.)
 - Anything that needs Hardcore approval.
 - A second screen: not used for now (Joey, 2026-11-05).
 - **Wanted, not designed yet** (Joey 2026-11-05: "all of those are worth it"). Each needs a mockup first:

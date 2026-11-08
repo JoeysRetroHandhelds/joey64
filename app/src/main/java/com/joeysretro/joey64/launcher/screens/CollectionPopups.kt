@@ -63,7 +63,8 @@ internal fun GroupLabel(text: String) {
  */
 @Composable
 fun ShowPopup(model: LibraryModel, onDismiss: () -> Unit) {
-    val games = model.games.collectAsStateWithLifecycle().value.orEmpty()
+    // Counted from what the grid lays out (Settings › Library's regions and one version per game).
+    val games = model.shown.collectAsStateWithLifecycle().value.orEmpty()
     val collections by model.collections.collectAsStateWithLifecycle()
     val facts = model.facts.collectAsStateWithLifecycle().value ?: return
     val view by model.view.collectAsStateWithLifecycle()

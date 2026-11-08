@@ -114,6 +114,11 @@ object AppBackup {
                 put("launcher.json", JSONObject().apply {
                     put("theme", s.theme.name); put("popup_theme", s.popupTheme.name)
                     put("download_box_art", s.downloadBoxArt); put("download_cheats", s.downloadCheats)
+                    put("box_art_low", s.boxArtLow)
+                    put("library_sort", s.sortBy.name); put("library_favourites_first", s.favouritesFirst)
+                    put("library_regions", org.json.JSONArray(s.regions.map { it.name })); put("library_one_version", s.oneVersion)
+                    put("library_cover_size", s.coverSize.name); put("library_names", s.names.name)
+                    put("library_name_style", s.nameStyle.name); put("library_look_for", s.lookFor.name)
                 }.toString(1).toByteArray())
                 put("library.json", LibraryDb.get(context).exportLists().toString().toByteArray())
             }
@@ -203,6 +208,17 @@ object AppBackup {
                 PopupTheme.entries.firstOrNull { it.name == l.optString("popup_theme") }?.let { store.setPopupTheme(it) }
                 if (l.has("download_box_art")) store.setDownloadBoxArt(l.optBoolean("download_box_art"))
                 if (l.has("download_cheats")) store.setDownloadCheats(l.optBoolean("download_cheats"))
+                if (l.has("box_art_low")) store.setBoxArtLow(l.optBoolean("box_art_low"))
+                com.joeysretro.joey64.launcher.library.SortBy.entries.firstOrNull { it.name == l.optString("library_sort") }?.let { store.setSortBy(it) }
+                if (l.has("library_favourites_first")) store.setFavouritesFirst(l.optBoolean("library_favourites_first"))
+                l.optJSONArray("library_regions")?.let { a ->
+                    store.setRegions((0 until a.length()).mapNotNull { i -> com.joeysretro.joey64.launcher.library.RegionGroup.entries.firstOrNull { it.name == a.optString(i) } }.toSet())
+                }
+                if (l.has("library_one_version")) store.setOneVersion(l.optBoolean("library_one_version"))
+                com.joeysretro.joey64.launcher.library.CoverSize.entries.firstOrNull { it.name == l.optString("library_cover_size") }?.let { store.setCoverSize(it) }
+                com.joeysretro.joey64.launcher.library.NamesMode.entries.firstOrNull { it.name == l.optString("library_names") }?.let { store.setNames(it) }
+                com.joeysretro.joey64.launcher.library.NameStyle.entries.firstOrNull { it.name == l.optString("library_name_style") }?.let { store.setNameStyle(it) }
+                com.joeysretro.joey64.launcher.library.LookFor.entries.firstOrNull { it.name == l.optString("library_look_for") }?.let { store.setLookFor(it) }
             }
             library?.let { LibraryDb.get(context).importLists(it) }
         }

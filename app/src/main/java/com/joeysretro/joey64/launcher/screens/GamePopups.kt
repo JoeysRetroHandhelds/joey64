@@ -71,6 +71,8 @@ enum class GamePopup { Options, Details, Collections }
  */
 @Composable
 fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup: (GamePopup?) -> Unit, onPlay: () -> Unit) {
+    // The grid's landing (the popup's own is provided inside JoeyDialog): Hide game sends focus back to the first game.
+    val gridLanding = LocalFocusLanding.current
     var boxArt by remember { mutableStateOf(false) }
     var naming by remember { mutableStateOf(false) }
     // Read again after a Box art choice, so the popup shows the new cover.
@@ -106,6 +108,10 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
                     if (signedIn) JoeyOption("Achievements", value = "›") { onPopup(null); model.openAchievements(game) }
                     com.joeysretro.joey64.launcher.components.PopupDivider()
                     JoeyOption("Add to collection", value = "›") { onPopup(GamePopup.Collections) }
+                    // Settings › Library (approved mockup 2026-11-08, screen 8): the game leaves the library,
+                    // Search and the filters; Settings › Library › Hidden games shows it again. Its tile goes,
+                    // so focus lands on the grid's first game rather than the rail.
+                    JoeyOption("Hide game") { onPopup(null); model.setHidden(game, true) { gridLanding?.arm() } }
                 }
                 GamePopup.Details -> details?.let { d -> DetailsBody(game, d, model) { boxArt = true } }
                 GamePopup.Collections -> {}

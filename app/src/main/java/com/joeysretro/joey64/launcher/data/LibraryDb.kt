@@ -19,7 +19,7 @@ import com.joeysretro.joey64.launcher.library.RomInfo
  * the file is renamed or moved, or the same ROM sits in two folders.
  */
 object LibrarySchema {
-    const val VERSION = 5
+    const val VERSION = 6
 
     val V1 = listOf(
         // md5: RetroAchievements' N64 hash, the MD5 of the ROM in big-endian (.z64) byte order.
@@ -159,6 +159,14 @@ object LibrarySchema {
         "ALTER TABLE ra_sets ADD COLUMN list_json TEXT",
     )
 
+    /**
+     * Version 6 (Settings › Library, approved mockup 2026-11-08): Hidden games. A game's options › Hide game
+     * sets when; the game leaves the library, Search and the filters, and its saves stay.
+     */
+    val V6 = listOf(
+        "ALTER TABLE games ADD COLUMN hidden_at INTEGER",
+    )
+
     /** Tables the cache owns; emptied on sign-out. */
     val RA_CACHE = listOf("ra_achievements", "ra_sets")
 }
@@ -178,6 +186,15 @@ data class LibraryGame(
     val headerKey: String? = null,
     /** The header's 4-character game code ("NALE"); hacks keep the original's, so the player counts fall back to it. */
     val headerId: String? = null,
+    /** Settings › Library's sorts and regions (approved mockup 2026-11-08). */
+    val lastPlayedAt: Long? = null,
+    val playSeconds: Long = 0,
+    val addedAt: Long = 0,
+    /** The header's destination code ('E', 'J', 'P' ...); null until the file is read again (V3), and for disks. */
+    val region: Char? = null,
+    val revision: Int? = null,
+    /** When Hide game hid it; null = shown. */
+    val hiddenAt: Long? = null,
 )
 
 /** A collection the user made (Phase 5). Favourites isn't one: it's games.favorite, always first. */
@@ -242,7 +259,7 @@ class LibraryDb private constructor(context: Context) :
     }
 
     override fun onCreate(db: SQLiteDatabase) {
-        for (sql in LibrarySchema.V1 + LibrarySchema.V2 + LibrarySchema.V3 + LibrarySchema.V4 + LibrarySchema.V5) db.execSQL(sql)
+        for (sql in LibrarySchema.V1 + LibrarySchema.V2 + LibrarySchema.V3 + LibrarySchema.V4 + LibrarySchema.V5 + LibrarySchema.V6) db.execSQL(sql)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -260,6 +277,7 @@ class LibraryDb private constructor(context: Context) :
             db.execSQL("UPDATE files SET size = -1")
         }
         if (oldVersion < 5) for (sql in LibrarySchema.V5) db.execSQL(sql)
+        if (oldVersion < 6) for (sql in LibrarySchema.V6) db.execSQL(sql)
     }
 
     /** Adds a finished play session and keeps the game's total and last-played in step. */
@@ -286,11 +304,11 @@ class LibraryDb private constructor(context: Context) :
     fun exportLists(): org.json.JSONObject {
         val db = readableDatabase
         val games = org.json.JSONArray()
-        db.rawQuery("SELECT md5, crc32, header_id, title, added_at, last_played_at, favorite FROM games", null).use { c ->
+        db.rawQuery("SELECT md5, crc32, header_id, title, added_at, last_played_at, favorite, hidden_at FROM games", null).use { c ->
             while (c.moveToNext()) games.put(org.json.JSONObject().apply {
                 put("md5", c.getString(0)); put("crc32", c.getString(1)); if (!c.isNull(2)) put("header_id", c.getString(2))
                 put("title", c.getString(3)); put("added_at", c.getLong(4)); if (!c.isNull(5)) put("last_played_at", c.getLong(5))
-                put("favorite", c.getInt(6) != 0)
+                put("favorite", c.getInt(6) != 0); if (!c.isNull(7)) put("hidden_at", c.getLong(7))
             })
         }
         val sessions = org.json.JSONArray()
@@ -325,7 +343,10 @@ class LibraryDb private constructor(context: Context) :
                     put("md5", md5); put("crc32", g.optString("crc32")); if (g.has("header_id")) put("header_id", g.optString("header_id"))
                     put("title", g.optString("title", md5)); put("added_at", g.optLong("added_at", now))
                 }, SQLiteDatabase.CONFLICT_IGNORE)
-                update("games", ContentValues().apply { put("favorite", if (g.optBoolean("favorite")) 1 else 0) }, "md5 = ?", arrayOf(md5))
+                update("games", ContentValues().apply {
+                    put("favorite", if (g.optBoolean("favorite")) 1 else 0)
+                    if (g.has("hidden_at")) put("hidden_at", g.optLong("hidden_at")) else putNull("hidden_at")
+                }, "md5 = ?", arrayOf(md5))
             }
             val touched = mutableSetOf<Long>()
             val sessions = o.optJSONArray("sessions") ?: org.json.JSONArray()
@@ -445,17 +466,20 @@ class LibraryDb private constructor(context: Context) :
         }
     }
 
-    /** The library: every game with at least one file in a ROM folder, by title. */
+    /** The library: every game with at least one file in a ROM folder, by title; hidden ones too ([LibraryGame.hiddenAt]). */
     fun libraryGames(): List<LibraryGame> =
         readableDatabase.rawQuery(
-            "SELECT g.id, g.title, g.md5, a.kind, g.crc32, g.last_played_at IS NOT NULL, g.favorite, g.header_key, g.header_id FROM games g LEFT JOIN box_art a ON a.game_id = g.id" +
+            "SELECT g.id, g.title, g.md5, a.kind, g.crc32, g.last_played_at IS NOT NULL, g.favorite, g.header_key, g.header_id," +
+                " g.last_played_at, g.play_seconds, g.added_at, g.region, g.revision, g.hidden_at FROM games g LEFT JOIN box_art a ON a.game_id = g.id" +
                 " WHERE EXISTS (SELECT 1 FROM files f WHERE f.game_id = g.id) ORDER BY g.title COLLATE NOCASE",
             null,
         ).use { c ->
             buildList {
                 while (c.moveToNext()) add(LibraryGame(c.getLong(0), c.getString(1), c.getString(2), ArtKind.of(c.getString(3)),
                     crc32 = c.getString(4), played = c.getInt(5) != 0, favourite = c.getInt(6) != 0, headerKey = c.getString(7),
-                    headerId = c.getString(8)))
+                    headerId = c.getString(8), lastPlayedAt = if (c.isNull(9)) null else c.getLong(9), playSeconds = c.getLong(10),
+                    addedAt = c.getLong(11), region = if (c.isNull(12)) null else c.getInt(12).toChar(),
+                    revision = if (c.isNull(13)) null else c.getInt(13), hiddenAt = if (c.isNull(14)) null else c.getLong(14)))
             }
         }
 
@@ -474,6 +498,11 @@ class LibraryDb private constructor(context: Context) :
             while (c.moveToNext()) m.getOrPut(c.getLong(0)) { HashSet() }.add(c.getLong(1))
             m
         }
+
+    /** Hide game (Settings › Library › Hidden games shows it again): [at] when, null to show it. */
+    fun setHidden(gameId: Long, at: Long?) {
+        writableDatabase.execSQL("UPDATE games SET hidden_at = ? WHERE id = ?", arrayOf<Any?>(at, gameId))
+    }
 
     fun setFavourite(gameId: Long, on: Boolean) {
         writableDatabase.execSQL("UPDATE games SET favorite = ? WHERE id = ?", arrayOf<Any>(if (on) 1 else 0, gameId))

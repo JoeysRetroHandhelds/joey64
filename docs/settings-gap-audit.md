@@ -146,8 +146,8 @@ These are actions other apps can bind that Joey64 can't.
 
 | Setting | Who has it | N64 | Plan |
 |---|---|---|---|
-| Sort (name, last played, play time) and region filter | FZ, RA | Med | partly: collections and filters |
-| Cover size, names on tiles | ARMSX2, FZ | Med | new |
+| Sort (name, last played, play time) and region filter | FZ, RA | Med | built 2026-11-08 (Settings › Library) |
+| Cover size, names on tiles | ARMSX2, FZ | Med | built 2026-11-08 (Settings › Library) |
 | App language | Eden, Dolphin | Med (before Play Store) | new |
 | Picture-in-picture | Eden | Low | new |
 | Home-screen shortcuts | many | Med | planned later |
@@ -414,7 +414,7 @@ Each item needs Joey's mockup first. The order puts what players miss most first
    - Advanced: overclock, CPU core, thermal fallback
    - Expansion Pak off per game
    - slow motion and rewind: in Controls › Hotkeys next to Fast-forward (Joey 2026-11-08), not here
-9. **Library:**
+9. **Library:** built 2026-11-08 (approved mockup, "Approve as drawn"), all of:
    - sort
    - region filter
    - cover size and columns

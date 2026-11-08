@@ -184,7 +184,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             if (folders.isNotEmpty()) {
                 LifecycleResumeEffect(folders) {
                     model.resumed()
-                    model.refresh(folders)
+                    model.autoRefresh(folders)
                     onPauseOrDispose { }
                 }
             }

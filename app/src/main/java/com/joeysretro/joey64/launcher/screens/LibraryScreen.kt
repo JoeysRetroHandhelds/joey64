@@ -73,7 +73,8 @@ import com.joeysretro.joey64.launcher.theme.JoeyTheme
  */
 @Composable
 fun LibraryScreen(model: LibraryModel, onSearch: () -> Unit) {
-    val games by model.games.collectAsStateWithLifecycle()
+    // Settings › Library's order, regions and one version per game (approved 2026-11-08); hidden games left out.
+    val games by model.shown.collectAsStateWithLifecycle()
     val reading by model.reading.collectAsStateWithLifecycle()
     val art by model.artProgress.collectAsStateWithLifecycle()
     val artPaused by model.artPaused.collectAsStateWithLifecycle()
@@ -151,6 +152,12 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
     /** Focuses the first tile (Search's Enter: the first result, not the tile under the box). */
     firstTile: androidx.compose.ui.focus.FocusRequester? = null) {
     val context = LocalContext.current
+    // Settings › Library › Covers (approved mockup 2026-11-08): cover size and names.
+    val store = remember { com.joeysretro.joey64.launcher.settings.SettingsStore(context) }
+    val look = store.settings.collectAsStateWithLifecycle(initialValue = null).value
+    val size = look?.coverSize ?: com.joeysretro.joey64.launcher.library.CoverSize.Medium
+    val names = look?.names ?: com.joeysretro.joey64.launcher.library.NamesMode.DEFAULT
+    val style = look?.nameStyle ?: com.joeysretro.joey64.launcher.library.NameStyle.Short
     // The game whose tile has focus, for Start; null while focus is elsewhere.
     var focusedGame by remember { mutableStateOf<LibraryGame?>(null) }
     var popup by remember { mutableStateOf<Pair<Long, GamePopup>?>(null) }
@@ -181,14 +188,14 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
         val gap = with(LocalDensity.current) { 16.dp.toPx() }
         CompositionLocalProvider(LocalBringIntoViewSpec provides remember(gap) { RowGapSpec(gap) }) {
         LazyVerticalGrid(
-            columns = GridCells.Fixed(LocalScreenLayout.current.boxArtColumns),
+            columns = GridCells.Fixed(com.joeysretro.joey64.launcher.library.LibraryArrange.columns(LocalScreenLayout.current.boxArtColumns, size)),
             contentPadding = PaddingValues(horizontal = JoeyTheme.spacing.margin, vertical = 14.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
             modifier = Modifier.fillMaxSize().focusRestorer().focusGroup(),
         ) {
             itemsIndexed(list, key = { _, g -> g.id }) { i, g ->
-                GameTile(g, model.cover(g), Modifier.initialFocus(firstFocus && i == 0)
+                GameTile(g, model.cover(g), names, com.joeysretro.joey64.launcher.library.LibraryArrange.title(g, style), Modifier.initialFocus(firstFocus && i == 0)
                     .then(if (i == 0 && firstTile != null) Modifier.focusRequester(firstTile) else Modifier),
                     onFocus = { on -> if (on) focusedGame = g else if (focusedGame?.id == g.id) focusedGame = null },
                     onOptions = { popup = g.id to GamePopup.Options }) { model.playAsked(g) { context.startActivity(it) } }
@@ -214,19 +221,22 @@ private class RowGapSpec(private val margin: Float) : BringIntoViewSpec {
 
 /**
  * A game's tile: its cover, filling the tile (libretro's are ~1.43:1, the tile 1.45:1, so a sliver
- * is cropped), or without one, its name on a plain tile the size and shape of a cover. While a
- * cover loads the tile is plain, so a name doesn't flash up first.
+ * is cropped), or without one a plain tile the size and shape of a cover. While a cover loads the
+ * tile is plain, so a name doesn't flash up first. Settings › Library › Names (approved 2026-11-08):
+ * Only without box art puts [name] on a plain tile, Under the cover puts it under every tile, Off never.
  */
 @Composable
-private fun GameTile(game: LibraryGame, cover: File?, modifier: Modifier = Modifier, onFocus: (Boolean) -> Unit,
+private fun GameTile(game: LibraryGame, cover: File?, names: com.joeysretro.joey64.launcher.library.NamesMode, name: String,
+                     modifier: Modifier = Modifier, onFocus: (Boolean) -> Unit,
                      onOptions: () -> Unit, onClick: () -> Unit) {
     val c = JoeyTheme.colors
     val (source, focused) = rememberFocusState()
     LaunchedEffect(focused) { onFocus(focused) }
     val picture by rememberCover(cover)
     val shape = RoundedCornerShape(4.dp)
+    Column(modifier.fillMaxWidth()) {
     Box(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(1.45f)
             .coverSelection(focused)
@@ -237,9 +247,15 @@ private fun GameTile(game: LibraryGame, cover: File?, modifier: Modifier = Modif
         val p = picture
         when {
             p != null -> Image(p, contentDescription = game.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(shape))
-            cover == null -> Text(game.title, style = JoeyTheme.type.tile, color = c.textSecondary, textAlign = TextAlign.Center,
-                maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(10.dp))
+            cover == null && names == com.joeysretro.joey64.launcher.library.NamesMode.NoArt ->
+                Text(name, style = JoeyTheme.type.tile, color = c.textSecondary, textAlign = TextAlign.Center,
+                    maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(10.dp))
         }
+    }
+    if (names == com.joeysretro.joey64.launcher.library.NamesMode.Under) {
+        Text(name, style = JoeyTheme.type.note, color = if (focused) c.gold else c.textSecondary, maxLines = 1,
+            overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp, start = 2.dp, end = 2.dp))
+    }
     }
 }
 

@@ -1006,6 +1006,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         JLog.i(TAG, "widescreen / 60 fps: ${p.extras.log}")
         // RetroAchievements: signs in with the kept account first, so the game is identified as it loads.
         com.joeysretro.joey64.achievements.RaBridge.init(this)
+        com.joeysretro.joey64.achievements.RaBridge.gameStarting()
         trial?.begin()
         if (NativeBridge.loadGame(rom, saveName)) {
             NativeBridge.start(); started = true; owner = this; gameLoaded = true
@@ -1089,6 +1090,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             badges = { ids, files -> runOnUiThread { if (!destroyed) overlay?.setChallengeBadges(ids, files) } },
             screenshot = { stateHandler.post { if (st.screenshot() == null) JLog.w(TAG, "screenshot on unlock: not saved") } },
         ).also { com.joeysretro.joey64.achievements.RaBridge.listeners += it }
+        // Offline unlocks: RAOfflineProxy picked and not running, so no achievements this game (in place of the summary).
+        if (com.joeysretro.joey64.achievements.RaBridge.offThisGame) uiScope.launch {
+            pop("ra", InGamePopup.Kind.AchievementsOff, "", "Achievements off", com.joeysretro.joey64.achievements.OfflineRoute.OFF_LINE)
+        }
         // The progress cache (decided 2026-11-04): the set and its progress, for the Achievements pages.
         raCache = com.joeysretro.joey64.achievements.RaCache(this).also { com.joeysretro.joey64.achievements.RaBridge.listeners += it }
         // The pause menu's title: the game's name in the library, else the ROM's (a frontend's game).

@@ -59,6 +59,15 @@ object RaBridge {
     /** The kept sign-in was refused (password changed on the website): the game's "Sign-in expired" pop-up. */
     private val _expired = MutableStateFlow(false)
     val expired: StateFlow<Boolean> = _expired
+    /** RAOfflineProxy's address while it runs (its broadcast), null when it isn't: Settings › Offline unlocks. */
+    private val _proxyHost = MutableStateFlow<String?>(null)
+    val proxyHost: StateFlow<String?> = _proxyHost
+    /** Offline unlocks' route ([OfflineRoute]): set while no game runs, fixed for a game once it starts. */
+    @Volatile private var route = OfflineRoute.of(OfflineBy.Joey64, null)
+    @Volatile private var opts: RaOptions? = null
+    /** This game started without achievements: RAOfflineProxy is picked and isn't running. */
+    @Volatile var offThisGame = false
+        private set
 
     private val http = Executors.newFixedThreadPool(2) { r -> Thread(r, "ra-http").apply { isDaemon = true } }
     private val io = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -84,11 +93,11 @@ object RaBridge {
         nativeInit()
         userAgent = "Joey64/${BuildConfig.VERSION_NAME} ${userAgentClause()}".trim()
         ready = true
-        optionsChanged(RaSettings.current(app))
         val p = prefs(app)
         // Until 2026-11-07 a dev build kept the account here unsealed; it lives in SignInStore now.
         if (p.contains("token") || p.contains("user")) p.edit().remove("token").remove("user").apply()
-        p.getString("host", null)?.let { if (isLocalHost(it)) setHost(it) }
+        _proxyHost.value = p.getString("host", null)?.takeIf { isLocalHost(it) }
+        optionsChanged(RaSettings.current(app)) // sets the route too
         val kept = try { runBlocking { SignInStore(app).load() } } catch (e: Exception) { JLog.e(TAG, "kept sign-in unreadable: $e"); null }
         // Back online: the waiting unlocks go (sendUnsent checks there's an account and no game).
         try {
@@ -141,7 +150,53 @@ object RaBridge {
     /** Settings › RetroAchievements changed (or the process started): the parts the engine uses. */
     fun optionsChanged(o: RaOptions) {
         richPresence = o.richPresence
-        if (ready) setOptions(o.achievements, o.encore, o.spectator, o.unofficial)
+        opts = o
+        if (!ready) return
+        if (!gameLoaded()) applyRoute(o)
+        setOptions(o.achievements && !route.blocked, o.encore, o.spectator, o.unofficial)
+    }
+
+    /**
+     * Offline unlocks: the route from the choice and RAOfflineProxy's address, given to rc_client. Only
+     * while no game runs, so a change applies from the next game (approved mockup 2026-11-08).
+     */
+    private fun applyRoute(o: RaOptions) {
+        val next = OfflineRoute.of(o.offlineBy, _proxyHost.value)
+        if (next != route) JLog.i(TAG, "offline unlocks: ${o.offlineBy.label}" + when {
+            next.blocked -> ", RAOfflineProxy not running: achievements off"
+            next.host != null -> " at ${next.host}"
+            else -> ""
+        })
+        val moved = next.host != route.host
+        route = next
+        setHost(next.host)
+        // The kept sign-in went to the old server and got no answer (a proxy that wasn't there): try it at the new one.
+        if (moved && !next.blocked) signInAgain()
+    }
+
+    /** Signs in again with the kept account when the last try got no answer (no points yet) and none is under way. */
+    private fun signInAgain() {
+        val ctx = appContext ?: return
+        // Only a kept account whose sign-in got no answer (init's own first sign-in isn't under way yet here).
+        fun waiting() = _account.value.let { it != null && it.score == null } && login == Login.None
+        if (!waiting()) return
+        io.launch {
+            val kept = try { SignInStore(ctx).load() } catch (e: Exception) { null } ?: return@launch
+            if (!waiting()) return@launch
+            JLog.i(TAG, "signing in again as ${kept.user} (the server changed)")
+            login = Login.Token
+            loginWithToken(kept.user, kept.token)
+        }
+    }
+
+    /** MainActivity, just before the game loads: the route for this game, and whether it has achievements. */
+    fun gameStarting() {
+        val o = opts ?: return
+        if (!ready) return
+        applyRoute(o)
+        setOptions(o.achievements && !route.blocked, o.encore, o.spectator, o.unofficial)
+        offThisGame = o.achievements && route.blocked
+        if (offThisGame) JLog.i(TAG, "game starts without achievements: RAOfflineProxy is picked and isn't running")
     }
 
     /**
@@ -155,8 +210,15 @@ object RaBridge {
             return false
         }
         prefs(context).edit().apply { if (host == null) remove("host") else putString("host", host) }.apply()
-        if (ready) setHost(host)
+        _proxyHost.value = host
         JLog.i(TAG, if (host == null) "host override cleared" else "host override: $host")
+        // Used only when RAOfflineProxy is picked, and from the next game if one is running.
+        val o = opts
+        if (ready && o != null && !gameLoaded()) {
+            applyRoute(o)
+            setOptions(o.achievements && !route.blocked, o.encore, o.spectator, o.unofficial)
+        }
+        if (host != null) sendLater(5_000)
         return true
     }
 
@@ -299,7 +361,9 @@ object RaBridge {
             }
             RaUnlockQueue.parseAward(post)?.let { award ->
                 val q = queue ?: return@let
-                if (RaUnlockQueue.settled(status, body)) q.remove(award.user, award.id) else { q.add(award, System.currentTimeMillis()); sendLater() }
+                // With RAOfflineProxy picked, it keeps them: Joey64's queue only takes its own (Offline unlocks).
+                if (RaUnlockQueue.settled(status, body)) q.remove(award.user, award.id)
+                else if (route.queue) { q.add(award, System.currentTimeMillis()); sendLater() }
             }
             serverResponse(handle, status, body)
         }
@@ -337,6 +401,8 @@ object RaBridge {
         val waiting = q.all().filter { it.user.equals(user, ignoreCase = true) }
         if (waiting.isEmpty()) return
         if (gameLoaded()) { sendLater(); return }
+        // Left over from before RAOfflineProxy was picked: they go through it, so they wait while it isn't running.
+        if (route.blocked) { JLog.i(TAG, "offline queue: ${waiting.size} waiting for RAOfflineProxy"); return }
         var left = 0
         for (u in waiting) {
             val secs = ((System.currentTimeMillis() - u.atMs) / 1000).coerceIn(1, Int.MAX_VALUE.toLong()).toInt()

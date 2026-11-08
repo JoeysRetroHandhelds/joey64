@@ -36,6 +36,8 @@ data class RaOptions(
     val richPresence: Boolean = true,
     val unlockSound: UnlockSoundChoice = UnlockSoundChoice.Chime,
     val soundVolume: Int = 70,
+    /** Offline unlocks (approved mockup 2026-11-08): Joey64's own queue or RAOfflineProxy, one at a time. */
+    val offlineBy: OfflineBy = OfflineBy.Joey64,
 ) {
     companion object {
         val STAY_SECONDS = listOf(3, 5, 8, 10, 15)
@@ -91,6 +93,7 @@ object RaSettings {
             richPresence = p.getBoolean("richPresence", d.richPresence),
             unlockSound = UnlockSoundChoice.of(p.getString("unlockSound", null), d.unlockSound),
             soundVolume = p.getInt("soundVolume", d.soundVolume).takeIf { it in UnlockSound.VOLUME_STEPS } ?: d.soundVolume,
+            offlineBy = OfflineBy.of(p.getString("offlineBy", null)),
         )
     }
 
@@ -112,6 +115,7 @@ object RaSettings {
             .putBoolean("richPresence", o.richPresence)
             .putString("unlockSound", o.unlockSound.name)
             .putInt("soundVolume", o.soundVolume)
+            .putString("offlineBy", o.offlineBy.name)
             .apply()
     }
 }

@@ -56,7 +56,9 @@ data class InGamePopup(
         /** Approved Slow motion and Rewind mockup (2026-11-08). */
         SlowMotion, Rewind,
         /** Controls extras' Tap to hold: a button held by a tap (approved mockup 2026-11-08). */
-        Held }
+        Held,
+        /** Offline unlocks: RAOfflineProxy picked and not running (approved mockup 2026-11-08). */
+        AchievementsOff }
 }
 
 /**
@@ -125,11 +127,12 @@ fun InGamePopupCard(p: InGamePopup) {
         InGamePopup.Kind.SlowMotion -> R.drawable.ic_clock
         InGamePopup.Kind.Rewind -> R.drawable.ic_history
         InGamePopup.Kind.Held -> R.drawable.ic_hand_click
+        InGamePopup.Kind.AchievementsOff -> R.drawable.ic_trophy_off
     }
     JoeyToast(icon, p.label, p.name, p.line, iconTint = when (p.kind) {
         InGamePopup.Kind.Problem, InGamePopup.Kind.ChallengeFailed -> JoeyTheme.colors.error
         InGamePopup.Kind.Account, InGamePopup.Kind.Achievement, InGamePopup.Kind.Progress, InGamePopup.Kind.Game,
-        InGamePopup.Kind.NoAchievements -> JoeyTheme.colors.gold
+        InGamePopup.Kind.NoAchievements, InGamePopup.Kind.AchievementsOff -> JoeyTheme.colors.gold
         else -> null
     }, badge = p.badge, compact = p.compact, framed = p.framed, extra = p.extra, bar = p.bar)
 }

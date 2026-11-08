@@ -55,6 +55,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.joeysretro.joey64.R
+import com.joeysretro.joey64.achievements.OfflineBy
+import com.joeysretro.joey64.achievements.OfflineRoute
 import com.joeysretro.joey64.achievements.PopupSpot
 import com.joeysretro.joey64.achievements.RaBridge
 import com.joeysretro.joey64.achievements.RaOptions
@@ -249,6 +251,11 @@ private fun SignedIn(account: RaBridge.Account, onHints: (List<Hint>) -> Unit, m
     var picker by remember { mutableStateOf<String?>(null) }
     var volumeFocused by remember { mutableStateOf(false) }
     fun set(change: (RaOptions) -> RaOptions) = RaSettings.update(context, change)
+    // Offline unlocks: RAOfflineProxy running or not, and Joey64's waiting unlocks, kept current while the tab is open.
+    val proxyRunning = RaBridge.proxyHost.collectAsStateWithLifecycle().value != null
+    val waiting by produceState(RaBridge.unsentCount()) {
+        while (true) { value = RaBridge.unsentCount(); kotlinx.coroutines.delay(2_000L) }
+    }
 
     LaunchedEffect(focused) {
         onHints(when (focused) {
@@ -272,6 +279,8 @@ private fun SignedIn(account: RaBridge.Account, onHints: (List<Hint>) -> Unit, m
                 SectionLabel("Account")
                 AccountBlock(account)
                 Toggle("ach", "Achievements", o.achievements, first = true) { x, v -> x.copy(achievements = v) }
+                JoeyRow("Offline unlocks", sideways = true, value = OfflineRoute.rowValue(o.offlineBy, proxyRunning, waiting) + "  ›",
+                    onFocused = { if (it) focused = "off" }) { picker = "off" }
                 JoeyRow("Sign out", sideways = true, onFocused = { if (it) focused = "out" }) {
                     if (RaBridge.unsentCount() > 0) picker = "out" else RaBridge.signOut()
                 }
@@ -304,7 +313,8 @@ private fun SignedIn(account: RaBridge.Account, onHints: (List<Hint>) -> Unit, m
                 }
         }
         Spacer(Modifier.height(6.dp))
-        val (title, text) = describe(focused, account)
+        val (title, text) = if (focused == "off") "Offline unlocks" to OfflineRoute.describe(o.offlineBy, proxyRunning, waiting)
+            else describe(focused, account)
         DescriptionLine(title, text)
     }
 
@@ -318,6 +328,35 @@ private fun SignedIn(account: RaBridge.Account, onHints: (List<Hint>) -> Unit, m
             set { it.copy(unlockSound = s) }; picker = null
         }
         "out" -> SignOutPrompt(RaBridge.unsentCount(), onDismiss = { picker = null }) { picker = null; RaBridge.signOut() }
+        "off" -> OfflinePicker(o.offlineBy, proxyRunning, onDismiss = { picker = null }) { by -> set { it.copy(offlineBy = by) }; picker = null }
+    }
+}
+
+/**
+ * Offline unlocks (approved mockup 2026-11-08, scratchpad build_proxy2.py): Joey64 or RAOfflineProxy, one at
+ * a time; RAOfflineProxy's line says whether it's running right now. Applies from the next game.
+ */
+@Composable
+private fun OfflinePicker(current: OfflineBy, proxyRunning: Boolean, onDismiss: () -> Unit, onPick: (OfflineBy) -> Unit) {
+    val c = JoeyTheme.colors
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Pick"), Hint("B", "Close")), width = 520.dp) {
+        Column {
+            PopupTitle("Offline unlocks", "Who keeps the unlocks you earn offline")
+            for (by in OfflineBy.entries) {
+                val on = by == current
+                JoeyRow(by.label,
+                    modifier = if (on) Modifier.initialFocus() else Modifier,
+                    detail = when (by) {
+                        OfflineBy.Joey64 -> "Joey64 keeps them and sends them once you're back online"
+                        OfflineBy.Proxy -> "A separate app. Its games also load their achievements offline"
+                    },
+                    value = if (by == OfflineBy.Proxy) (if (proxyRunning) "Running" else "Not running") else null,
+                    trailing = { f ->
+                        if (on) Icon(painterResource(R.drawable.ic_tick), contentDescription = "Chosen", tint = rowValueColor(c, f), modifier = Modifier.size(16.dp))
+                    }) { onPick(by) }
+            }
+            PopupNote("Applies from the next game.")
+        }
     }
 }
 

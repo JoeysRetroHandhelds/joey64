@@ -62,6 +62,8 @@ sealed interface PauseScreen {
     data class GameSettings(val saveName: String) : PauseScreen
     /** Resuming after a row read only at start changed (screen 10): Restart now or Later. [subtitle] names the rows. */
     data class Restart(val subtitle: String) : PauseScreen
+    /** RetroAchievements' sign-in, from a tap on the Sign-in expired pop-up; closes back to the game. */
+    data object SignIn : PauseScreen
 }
 
 enum class MenuRow { Resume, Save, Load, GameSettings, Controls, Cheats, Achievements }
@@ -89,6 +91,8 @@ interface PauseActions {
     fun closeCheats()
     fun openAchievements()
     fun closeAchievements()
+    /** The sign-in popup closed (signed in, or B): back to the game. */
+    fun closeSignIn()
     /** Cheats' "Press GameShark button": back to the game with the button held for a second. */
     fun pressGameShark()
     fun reset()
@@ -123,6 +127,10 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
     if (screen is PauseScreen.Cheats) {
         com.joeysretro.joey64.launcher.screens.InGameCheats(screen.game,
             com.joeysretro.joey64.launcher.screens.GameSharkRow(screen.gameSharkKeys) { actions.pressGameShark() }) { actions.closeCheats() }
+        return
+    }
+    if (screen is PauseScreen.SignIn) {
+        com.joeysretro.joey64.launcher.screens.InGameSignIn { actions.closeSignIn() }
         return
     }
     if (screen is PauseScreen.Achievements) {
@@ -172,7 +180,7 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
                     detail = "Saves to the auto slot, then starts again from there") { actions.restartNow() }
                 com.joeysretro.joey64.launcher.components.JoeyRow("Later", detail = "Keep playing as it is") { actions.restartLater() }
             }
-            is PauseScreen.Controls, is PauseScreen.Cheats, is PauseScreen.Achievements, is PauseScreen.GameSettings -> {}
+            is PauseScreen.Controls, is PauseScreen.Cheats, is PauseScreen.Achievements, is PauseScreen.GameSettings, PauseScreen.SignIn -> {}
         }
     }
 }

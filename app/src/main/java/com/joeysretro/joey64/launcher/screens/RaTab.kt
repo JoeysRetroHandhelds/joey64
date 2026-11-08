@@ -215,6 +215,17 @@ private fun SignInPopup(onDismiss: () -> Unit) {
     }
 }
 
+/**
+ * The same sign-in popup over the paused game (a tap on the Sign-in expired pop-up). It closes by
+ * itself once signed in; the game's achievements then load (the host's loginDone).
+ */
+@Composable
+fun InGameSignIn(onDone: () -> Unit) {
+    val account by RaBridge.account.collectAsStateWithLifecycle()
+    LaunchedEffect(account) { if (account != null) onDone() }
+    SignInPopup(onDismiss = onDone)
+}
+
 /** A field while the sign-in is under way: its text, dimmed, nothing to press. */
 @Composable
 private fun StaticField(text: String) {

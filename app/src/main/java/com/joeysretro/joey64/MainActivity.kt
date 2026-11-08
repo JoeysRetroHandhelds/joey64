@@ -1131,8 +1131,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     /**
      * Tap to open (plan, Phase 7): tapping an achievement pop-up or the challenge badges opens the
-     * pause menu's Achievements at that achievement. The pop-up windows can't be touched (the game
-     * keeps the pad), so the game's window checks where a tap lands. Other pop-ups do nothing.
+     * pause menu's Achievements at that achievement; tapping Sign-in expired opens the sign-in popup
+     * over the paused game. The pop-up windows can't be touched (the game keeps the pad), so the
+     * game's window checks where a tap lands. Other pop-ups do nothing.
      */
     private var tapDown: GameOverlay.Tap? = null
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
@@ -1153,10 +1154,18 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private fun opensAchievements(t: GameOverlay.Tap) = when (t) {
         is GameOverlay.Tap.Badges -> true
         is GameOverlay.Tap.Popup -> t.popup.kind in setOf(InGamePopup.Kind.Achievement, InGamePopup.Kind.Progress,
-            InGamePopup.Kind.ChallengeFailed, InGamePopup.Kind.Game)
+            InGamePopup.Kind.ChallengeFailed, InGamePopup.Kind.Game) || signsIn(t)
     }
 
+    private fun signsIn(t: GameOverlay.Tap) = t is GameOverlay.Tap.Popup && t.popup.key == "ra" && t.popup.kind == InGamePopup.Kind.Account
+
     private fun openAchievementsAt(t: GameOverlay.Tap) {
+        if (signsIn(t)) {
+            overlay?.hide("ra")
+            openMenu()
+            overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.SignIn
+            return
+        }
         val id = when (t) {
             is GameOverlay.Tap.Badges -> t.newest
             is GameOverlay.Tap.Popup -> t.popup.key.substringAfter('-', "").toIntOrNull()
@@ -1252,6 +1261,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         override fun openAchievements() {
             overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Achievements()
         }
+        override fun closeSignIn() { closeMenu() }
         override fun closeAchievements() {
             // Opened by the Achievements hotkey: B goes back to the game, not the menu.
             if (achievementsDirect) { closeMenu(); return }

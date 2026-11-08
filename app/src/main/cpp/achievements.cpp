@@ -52,6 +52,9 @@ std::mutex g_hostMutex;
 std::string g_host;                  // what setHost gave rc_client, for awardRequest
 std::atomic<bool> g_gameWanted{false};
 std::atomic<bool> g_enabled{true};     // Settings › RetroAchievements › Achievements
+// The running game's set didn't load (signed out, or the kept sign-in was refused): a sign-in that
+// works during the game loads it then (the in-game Sign-in expired pop-up's sign-in).
+std::atomic<bool> g_loadAgain{false};
 
 struct Env {
     JNIEnv* env = nullptr;
@@ -217,12 +220,22 @@ void onEvent(const rc_client_event_t* ev, rc_client_t*) {
     emit(j.done());
 }
 
+void gameDone(int result, const char* error, rc_client_t*, void*);
+
 void loginDone(int result, const char* error, rc_client_t*, void*) {
     Json j;
     j.str("event", "login").num("result", result).str("error", result == RC_OK ? "" : (error ? error : rc_error_str(result)));
     if (result == RC_OK) j.raw("user", userJson());
     RLOGI("sign-in: %s", result == RC_OK ? "ok" : (error ? error : rc_error_str(result)));
     emit(j.done());
+    if (result != RC_OK || !g_loadAgain || !g_enabled || !g_hash[0]) return;
+    {
+        std::lock_guard<std::mutex> lk(g_ramMutex);
+        if (!g_ram) return; // no game running
+    }
+    g_loadAgain = false;
+    RLOGI("signed in during the game: loading its set");
+    rc_client_begin_load_game(g_client, g_hash, gameDone, nullptr);
 }
 
 void gameDone(int result, const char* error, rc_client_t*, void*) {
@@ -230,6 +243,7 @@ void gameDone(int result, const char* error, rc_client_t*, void*) {
     j.str("event", "gameLoaded").num("result", result).str("hash", g_hash)
         .str("error", result == RC_OK ? "" : (error ? error : rc_error_str(result)));
     if (result == RC_OK) j.raw("game", gameJson());
+    if (result != RC_OK) g_loadAgain = true;
     RLOGI("game %s: %s", g_hash, result == RC_OK ? "identified" : (error ? error : rc_error_str(result)));
     emit(j.done());
 }
@@ -281,11 +295,13 @@ void gameLoaded(const uint8_t* rom, size_t romSize, uint8_t* ram, size_t ramSize
     if (!g_enabled) { RLOGI("achievements are off in Settings"); return; }
     const rc_client_user_t* u = rc_client_get_user_info(g_client);
     // Signed in, or a sign-in under way (rc_client waits for it before loading).
-    if (!u && !g_gameWanted) return;
+    if (!u && !g_gameWanted) { g_loadAgain = true; return; }
+    g_loadAgain = false;
     rc_client_begin_load_game(g_client, g_hash, gameDone, nullptr);
 }
 
 void gameUnloaded() {
+    g_loadAgain = false;
     if (g_client) rc_client_unload_game(g_client);
     std::lock_guard<std::mutex> lk(g_ramMutex);
     g_ram = nullptr; g_ramSize = 0;

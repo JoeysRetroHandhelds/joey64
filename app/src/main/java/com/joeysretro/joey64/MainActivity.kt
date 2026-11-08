@@ -88,7 +88,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         LogFiles.start(this, intent)
-        if (gameLoaded && hasRom(intent)) { switching = true; switchGame(); return }
+        if (gameLoaded && hasRom(intent)) { switching = true; afterLauncherSaved { if (!isDestroyed) switchGame() }; return }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // Dev check (2026-11-05 recheck): whether this device offers sustained performance mode (checked before only on the Flip and Portal)
         JLog.w(TAG, "sustained performance mode supported: " +
@@ -1440,8 +1440,40 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
      * game screen again in a fresh process (RestartActivity), passing the unpacked path and save name so no URI grant
      * has to survive the restart. The intent's other extras (env, opts, renderer, ...) go along.
      */
+    /**
+     * Runs [then] once the library (LauncherActivity, in this process) has had its state saved, so the process restart
+     * in [switchGame] doesn't drop it: Android removes an activity whose process dies before its state was saved
+     * ("app died, no saved state", Thor 2026-11-07), and Quit to library then went to the home screen. Right away when
+     * the library isn't showing; after 2 s at the latest.
+     */
+    private fun afterLauncherSaved(then: () -> Unit) {
+        if (!com.joeysretro.joey64.launcher.LauncherActivity.started) { then(); return }
+        val app = application
+        val handler = android.os.Handler(mainLooper)
+        var done = false
+        lateinit var watch: android.app.Application.ActivityLifecycleCallbacks
+        val go = { if (!done) { done = true; app.unregisterActivityLifecycleCallbacks(watch); then() } }
+        watch = object : android.app.Application.ActivityLifecycleCallbacks {
+            override fun onActivitySaveInstanceState(a: android.app.Activity, out: Bundle) {
+                if (a is com.joeysretro.joey64.launcher.LauncherActivity) handler.post { go() }
+            }
+            override fun onActivityCreated(a: android.app.Activity, b: Bundle?) {}
+            override fun onActivityStarted(a: android.app.Activity) {}
+            override fun onActivityResumed(a: android.app.Activity) {}
+            override fun onActivityPaused(a: android.app.Activity) {}
+            override fun onActivityStopped(a: android.app.Activity) {}
+            override fun onActivityDestroyed(a: android.app.Activity) {}
+        }
+        app.registerActivityLifecycleCallbacks(watch)
+        handler.postDelayed({ go() }, 2000)
+    }
+
     private fun switchGame() {
         JLog.i(TAG, "new ROM while a game is loaded: restarting the process for it")
+        // A game screen still open (a frontend sent a ROM mid-game): the new one replaces the task. None open (the
+        // library's Play after Quit to library): the task keeps the library under the new game screen, so its Quit to
+        // library goes back there (2026-11-07: CLEAR_TASK here sent every second game's quit to the home screen).
+        val clearTask = owner != null
         owner?.let { NativeBridge.stop(); it.finish() }
         owner = null
         // The game before is closed on purpose: nothing to recover for it.
@@ -1457,8 +1489,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             }
             putExtra(EXTRA_ROM_PATH, rom)
             putExtra(EXTRA_SAVE_NAME, saveName)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (clearTask) addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK)
         }
+        // This screen only hands over: gone before the new one comes, so Back from it doesn't land here.
+        if (!clearTask) finish()
         RestartActivity.restart(this, next)
     }
     override fun surfaceRedrawNeeded(holder: SurfaceHolder) {}

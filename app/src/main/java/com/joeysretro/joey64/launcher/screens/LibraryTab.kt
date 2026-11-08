@@ -36,7 +36,10 @@ import com.joeysretro.joey64.launcher.components.PopupTitle
 import com.joeysretro.joey64.launcher.components.SectionLabel
 import com.joeysretro.joey64.launcher.components.initialFocus
 import com.joeysretro.joey64.launcher.settings.SettingsStore
+import com.joeysretro.joey64.launcher.storage.BiosImport
 import com.joeysretro.joey64.launcher.storage.DataFolders
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.joeysretro.joey64.launcher.storage.FolderNames
 import com.joeysretro.joey64.launcher.storage.RomFolders
 import kotlinx.coroutines.launch
@@ -70,6 +73,26 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
     var removing by remember { mutableStateOf<String?>(null) }
     // Add a folder's outcome ("Added · 82 games"), or "Looking…" while it reads.
     var addStatus by remember { mutableStateOf<String?>(null) }
+    // 64DD BIOS (approved 2026-11-07): what bios/ holds, read again after a pick; the pick's outcome popup.
+    var biosHave by remember { mutableStateOf<Map<String, BiosImport.Ipl?>?>(null) }
+    var biosLooking by remember { mutableStateOf(false) }
+    var biosFound by remember { mutableStateOf<List<BiosImport.Ipl>?>(null) }
+    var biosPicked by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) { biosHave = withContext(Dispatchers.IO) { BiosImport.installed(context) } }
+    val biosPicker = rememberBiosPicker { uris ->
+        landing?.arm()
+        if (uris.isEmpty()) return@rememberBiosPicker
+        biosPicked = uris.size
+        biosLooking = true
+        scope.launch {
+            val found = withContext(Dispatchers.IO) {
+                try { BiosImport.import(context, uris) } catch (e: Exception) { JLog.e(TAG, "64DD BIOS: $e"); emptyList() }
+            }
+            biosHave = withContext(Dispatchers.IO) { BiosImport.installed(context) }
+            biosLooking = false
+            biosFound = found
+        }
+    }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         landing?.arm()
@@ -108,6 +131,11 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
                 }
                 JoeyRow("Add a folder", Modifier.initialFocus(focused == "add"), value = addStatus ?: "›",
                     sideways = true, onFocused = { if (it) focused = "add" }) { if (addStatus != "Looking…") picker.launch(RomFolders.initialPickerUri(context)) }
+                SectionLabel("BIOS")
+                val biosLabel = biosHave?.let { BiosImport.label(it) }
+                JoeyRow("64DD BIOS", Modifier.initialFocus(focused == "bios"),
+                    value = when { biosLooking -> "Looking…"; biosLabel != null -> "$biosLabel ✓"; biosHave == null -> null; else -> "Not set ›" },
+                    sideways = true, onFocused = { if (it) focused = "bios" }) { if (!biosLooking) biosPicker.launch(BIOS_TYPES) }
             }
             Column(Modifier.weight(1f)) {
                 SectionLabel("Downloads")
@@ -121,13 +149,29 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
         }
         Spacer(Modifier.height(6.dp))
         val (title, text) = when (focused) {
-            "add" -> "Add a folder" to "Another folder with N64 games: .z64, .v64, .n64, .zip and .7z. Other systems' ROMs are left out."
+            "add" -> "Add a folder" to "Another folder with N64 games: .z64, .v64, .n64, 64DD disks (.ndd, .d64), .zip and .7z. Other systems' ROMs are left out."
             "art" -> "Download box art" to "Covers from ScreenScraper, once per game. Off: no downloads; covers already here stay."
             "artq" -> "Box art quality" to "High: covers 640 pixels wide. Low: 320, a quarter of the space and quicker to download. Covers already here stay as they are."
+            "bios" -> "64DD BIOS" to "Needed for 64DD disks. Pick your BIOS file, or several; Joey64 keeps a copy of each one it knows."
             "cheats" -> "Download cheats" to "Each game's cheat lists from joey64-cheats. Off: no downloads; lists already here stay."
             else -> "ROM folder" to "Where Joey64 finds your games. Removing it keeps their saves, states and play time."
         }
         DescriptionLine(title, text)
+    }
+
+    biosFound?.let { found ->
+        JoeyDialog(onDismiss = { biosFound = null }, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 470.dp) {
+            Column {
+                if (found.isNotEmpty()) {
+                    PopupTitle(foundBiosTitle(found))
+                    JoeyRow("OK", Modifier.initialFocus(true)) { biosFound = null }
+                } else {
+                    PopupTitle(noBiosTitle(biosPicked))
+                    JoeyRow("Choose again", Modifier.initialFocus(true)) { biosFound = null; biosPicker.launch(BIOS_TYPES) }
+                    JoeyRow("Cancel") { biosFound = null }
+                }
+            }
+        }
     }
 
     removing?.let { tree ->

@@ -47,12 +47,40 @@ class GameLauncher(private val context: Context, private val db: LibraryDb) {
                 .setDataAndType(uri, "application/octet-stream")
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             loadState?.let { intent.putExtra(MainActivity.EXTRA_LOAD_STATE, it) }
+            if (isDisk(f, uri)) {
+                intent.putExtra(EXTRA_IS_DISK, true)
+                cartFor(game)?.let { intent.putExtra(MainActivity.EXTRA_DD_CART, it.toString()) }
+            }
             // For recently played (JoeyOS reads it): the file in the ROMs folder, not the unpacked copy, and the title.
             intent.putExtra(MainActivity.EXTRA_SOURCE_URI, f.uri).putExtra(MainActivity.EXTRA_SOURCE_NAME, f.name)
                 .putExtra(MainActivity.EXTRA_TITLE, game.title).putExtra(MainActivity.EXTRA_MD5, game.md5)
             JLog.i(TAG, "playing ${game.title} from ${f.name}" + (loadState?.let { ", loading the $it state" } ?: ""))
             return intent
         }
+        return null
+    }
+
+    /** [f] (or the file unpacked from it, [uri]) is a 64DD disk. */
+    private fun isDisk(f: GameFile, uri: Uri) =
+        RomReader.isDiskName(f.name) || RomReader.isDiskName(uri.lastPathSegment ?: "")
+
+    /**
+     * The cartridge a 64DD disk plays with ([DD_CARTS]): the newest-played game in the library with that header game
+     * code, as a content URI (unpacked when it's in an archive). Null: the disk needs none, or it isn't in the library
+     * (the disk then starts alone).
+     */
+    private fun cartFor(disk: LibraryGame): Uri? {
+        val code = DD_CARTS[disk.md5] ?: DD_CART_TITLES.entries.firstOrNull { disk.title.startsWith(it.key) }?.value ?: return null
+        for (cart in db.gamesWithCode(code)) {
+            for (f in readableFiles(cart)) {
+                val uri = try {
+                    if (ArchiveReader.isZip(f.name) || ArchiveReader.is7z(f.name)) unpacked(cart, f) else f.uri.toUri()
+                } catch (e: Exception) { JLog.w(TAG, "can't open ${f.name}: $e"); null } ?: continue
+                JLog.i(TAG, "64DD: ${disk.title} plays with ${cart.title}")
+                return uri
+            }
+        }
+        JLog.w(TAG, "64DD: ${disk.title} needs the $code cartridge, which isn't in the library; starting the disk alone")
         return null
     }
 
@@ -103,12 +131,14 @@ class GameLauncher(private val context: Context, private val db: LibraryDb) {
      */
     private fun unpackEntry(entry: String, input: java.io.InputStream, dir: File, f: GameFile): File? {
         val head = ByteArray(4)
-        if (input.readNBytesCompat(head) < 4 || RomByteOrder.of(head) == null) return null
+        val n = input.readNBytesCompat(head)
+        // A 64DD disk by its name (disks have no common first word); a ROM by its first word.
+        if (!RomReader.isDiskName(entry.substringAfterLast('/')) && (n < 4 || RomByteOrder.of(head) == null)) return null
         dir.mkdirs()
         val ext = entry.substringAfterLast('.', "z64").lowercase()
         val target = File(dir, ScanPlanner.titleOf(f.name) + "." + ext)
         val part = File(dir, target.name + PART)
-        part.outputStream().use { o -> o.write(head); input.copyTo(o, 256 * 1024) }
+        part.outputStream().use { o -> o.write(head, 0, n.coerceAtLeast(0)); input.copyTo(o, 256 * 1024) }
         if (!part.renameTo(target)) { part.delete(); throw IOException("can't unpack ${f.name}") }
         return target
     }
@@ -124,6 +154,19 @@ class GameLauncher(private val context: Context, private val db: LibraryDb) {
     companion object {
         const val LAUNCH_DIR = "launch"
         const val KEEP = 3
+        /** On the intent: the game is a 64DD disk (the library checks for the BIOS before starting it). */
+        const val EXTRA_IS_DISK = "com.joeysretro.joey64.launcher.IS_DISK"
+        /**
+         * 64DD disks that play with a cartridge in (the cartridge boots and reads the disk), by the disk's MD5: the
+         * cartridge's header game code. F-Zero X - Expansion Kit (Japan): F-Zero X (Japan); Dezaemon DD (Japan)
+         * (Proto): Dezaemon 3D (Japan).
+         */
+        val DD_CARTS = mapOf(
+            "cb2fb00c3921245ae04bb38ba01abe92" to "CFZJ",
+            "40aa8ec52c5e025d6c6ad94cebc2218f" to "CDZJ",
+        )
+        /** The same by title, for other dumps of those disks. */
+        val DD_CART_TITLES = mapOf("F-Zero X - Expansion Kit" to "CFZJ", "Dezaemon DD" to "CDZJ")
         private const val PART = ".part"
         private const val TAG = "Joey64Launch"
     }

@@ -90,6 +90,7 @@ fun LibraryScreen(model: LibraryModel, onSearch: () -> Unit) {
     model.askContinue.collectAsStateWithLifecycle().value?.let { ask ->
         AskContinuePopup(ask) { carryOn -> model.continueAnswered(carryOn) { context.startActivity(it) } }
     }
+    NeedsBiosPopup(model) { context.startActivity(it) }
     var showing by remember { mutableStateOf(false) }
     if (showing) ShowPopup(model) { showing = false }
 

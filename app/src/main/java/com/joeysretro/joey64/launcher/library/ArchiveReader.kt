@@ -30,7 +30,7 @@ object ArchiveReader {
         while (found == null) {
             val e = zip.nextEntry ?: break
             if (e.isDirectory || skip(e.name)) continue
-            found = RomReader.read(zip)?.let { ArchivedRom(e.name, it) }
+            found = RomReader.read(e.name, zip)?.let { ArchivedRom(e.name, it) }
         }
         found
     } catch (e: java.util.zip.ZipException) {
@@ -39,7 +39,7 @@ object ArchiveReader {
 
     /** Reads the 7z in [channel]. Null when no entry is an N64 ROM (or the 7z is damaged). Closes [channel]. */
     fun read7z(channel: SeekableByteChannel): ArchivedRom? = firstIn7z(channel) { name, input ->
-        RomReader.read(input)?.let { ArchivedRom(name, it) }
+        RomReader.read(name, input)?.let { ArchivedRom(name, it) }
     }
 
     /**

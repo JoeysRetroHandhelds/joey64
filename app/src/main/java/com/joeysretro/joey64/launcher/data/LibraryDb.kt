@@ -385,7 +385,9 @@ class LibraryDb private constructor(context: Context) :
                     put("region", info.header.region.code.code)
                     put("revision", info.header.revision)
                     put("rom_size", info.size)
-                    put("header_key", com.joeysretro.joey64.cheats.CheatLogic.keyOf(info.header))
+                    // A 64DD disk has no header CRCs, so no cheat-list key (every disk would share 00000000-00000000-4A).
+                    if (info.header.crc1 == 0L && info.header.crc2 == 0L) putNull("header_key")
+                    else put("header_key", com.joeysretro.joey64.cheats.CheatLogic.keyOf(info.header))
                 }, "md5 = ?", arrayOf(info.md5))
             }
             val row = ContentValues().apply {
@@ -580,6 +582,13 @@ class LibraryDb private constructor(context: Context) :
             put("checked_at", checkedAt)
         }, SQLiteDatabase.CONFLICT_REPLACE)
     }
+
+    /** Games in the library whose header game code is [code] ("CFZJ"), most recently played first: a 64DD disk's cartridge. */
+    fun gamesWithCode(code: String): List<LibraryGame> =
+        readableDatabase.rawQuery("SELECT g.id, g.title, g.md5 FROM games g WHERE g.header_id = ? " +
+            "AND EXISTS (SELECT 1 FROM files f WHERE f.game_id = g.id) ORDER BY g.last_played_at DESC", arrayOf(code)).use { c ->
+            buildList { while (c.moveToNext()) add(LibraryGame(c.getLong(0), c.getString(1), c.getString(2))) }
+        }
 
     /** A game's files, most recently seen first (the same ROM can sit in two folders). */
     fun filesOf(gameId: Long): List<GameFile> =

@@ -59,7 +59,8 @@ data class BackupInfo(val madeAt: Long, val parts: Set<BackupPart>, val saves: I
 object AppBackup {
     private const val TAG = "Joey64Backup"
     const val MANIFEST = "joey64-backup.json"
-    private val SAVE_KINDS = listOf(DataKind.Saves, DataKind.States, DataKind.Backups)
+    /** The 64DD BIOS goes with the saves: a restored disk save needs it to start. */
+    private val SAVE_KINDS = listOf(DataKind.Saves, DataKind.States, DataKind.Backups, DataKind.Bios)
     /** Settings folders in Joey64's own storage. */
     private val SETTINGS_DIRS = listOf("video", "audio", "controls", "onscreen", SavesStore.DIR)
     /** SharedPreferences that are settings (not the RetroAchievements account: that's SignInStore's). */
@@ -162,7 +163,7 @@ object AppBackup {
                         seg.size == 3 && seg[0] == "data" -> {
                             val kind = DataKind.entries.firstOrNull { it.dir == seg[1] }
                             val part = when (kind) {
-                                DataKind.Saves, DataKind.States, DataKind.Backups -> BackupPart.Saves
+                                DataKind.Saves, DataKind.States, DataKind.Backups, DataKind.Bios -> BackupPart.Saves
                                 DataKind.Screenshots -> BackupPart.Screenshots
                                 DataKind.Cheats -> BackupPart.Settings
                                 else -> null

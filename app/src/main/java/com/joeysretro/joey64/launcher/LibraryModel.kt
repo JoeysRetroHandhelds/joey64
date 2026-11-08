@@ -461,6 +461,28 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     fun openAchievements(game: LibraryGame) { _achievementsFor.value = com.joeysretro.joey64.launcher.screens.AchievementsGame(game.id, game.title) }
     fun closeAchievements() { _achievementsFor.value = null }
 
+    /** A 64DD disk's Play with no 64DD BIOS in the data folder's bios/ (approved 2026-11-07); [missed]: the last pick had none. */
+    data class NeedsBios(val game: LibraryGame, val intent: Intent, val missed: Boolean = false)
+    private val _needsBios = MutableStateFlow<NeedsBios?>(null)
+    /** "This game needs the 64DD BIOS", or null. */
+    val needsBios: StateFlow<NeedsBios?> = _needsBios
+
+    /** The files picked in [needsBios]'s popup: saved when they hold a 64DD BIOS, and then the game starts. */
+    fun biosPicked(uris: List<Uri>, start: (Intent) -> Unit) {
+        val ask = _needsBios.value ?: return
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            val ready = withContext(Dispatchers.IO) {
+                try { com.joeysretro.joey64.launcher.storage.BiosImport.import(app, uris) } catch (e: Exception) { JLog.e(TAG, "64DD BIOS: $e") }
+                com.joeysretro.joey64.launcher.storage.BiosImport.ready(app)
+            }
+            if (ready) { _needsBios.value = null; started(ask.game); start(ask.intent) } else _needsBios.value = ask.copy(missed = true)
+        }
+    }
+
+    fun biosCancelled() { _needsBios.value = null }
+
     /** Gets [game] ready and hands [start] its intent. One at a time: a second press while a zip unpacks does nothing. */
     fun play(game: LibraryGame, loadState: String? = null, start: (Intent) -> Unit) {
         if (starting) return
@@ -468,7 +490,12 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 val intent = withContext(Dispatchers.IO) { launcher.intentFor(game, loadState) }
-                if (intent != null) { started(game); start(intent) } else JLog.w(TAG, "no readable file for ${game.title}")
+                val app = getApplication<Application>()
+                if (intent != null && intent.getBooleanExtra(GameLauncher.EXTRA_IS_DISK, false) &&
+                    !withContext(Dispatchers.IO) { com.joeysretro.joey64.launcher.storage.BiosImport.ready(app) }) {
+                    JLog.i(TAG, "${game.title} is a 64DD disk and there's no 64DD BIOS: asking for it")
+                    _needsBios.value = NeedsBios(game, intent)
+                } else if (intent != null) { started(game); start(intent) } else JLog.w(TAG, "no readable file for ${game.title}")
             } finally {
                 starting = false
             }

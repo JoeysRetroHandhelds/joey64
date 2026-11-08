@@ -40,6 +40,7 @@ fun SearchScreen(model: LibraryModel, onHints: (List<Hint>) -> Unit, onClose: ()
     model.askContinue.collectAsStateWithLifecycle().value?.let { ask ->
         AskContinuePopup(ask) { carryOn -> model.continueAnswered(carryOn) { ctx.startActivity(it) } }
     }
+    NeedsBiosPopup(model) { ctx.startActivity(it) }
     var query by rememberSaveable { mutableStateOf("") }
     // Y on the results: back into the field, typing. Bumped to make a fresh field that starts typing.
     var edit by remember { mutableIntStateOf(0) }

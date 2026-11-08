@@ -117,6 +117,37 @@ object RomReader {
      */
     fun read(input: InputStream): RomInfo? = read(input, MAX_HASHED)
 
+    /** A 64DD disk image (.ndd, .d64) by its file name: disks have no common first word. */
+    fun isDiskName(name: String) = com.joeysretro.joey64.RomFiles.isDiskName(name)
+
+    /**
+     * Reads a 64DD disk from [input] to its end: MD5 and CRC-32 of the whole file, as it is (disks have one byte
+     * order). Disks have no cartridge header: the header is empty, region Japan (every 64DD disk released), CRCs 0.
+     * Null when it is empty.
+     */
+    fun readDisk(input: InputStream): RomInfo? {
+        val buf = ByteArray(64 * 1024)
+        val md5 = MessageDigest.getInstance("MD5")
+        val crc = CRC32()
+        var total = 0L
+        while (true) {
+            val n = input.read(buf)
+            if (n < 0) break
+            md5.update(buf, 0, n); crc.update(buf, 0, n); total += n
+        }
+        if (total == 0L) return null
+        return RomInfo(
+            header = RomHeader(name = "", gameCode = null, region = RomRegion.of('J'), revision = 0, crc1 = 0, crc2 = 0),
+            byteOrder = RomByteOrder.BigEndian,
+            size = total,
+            md5 = md5.digest().joinToString("") { "%02x".format(it) },
+            crc32 = "%08X".format(crc.value),
+        )
+    }
+
+    /** [read] or, for a 64DD disk named [name], [readDisk]. */
+    fun read(name: String, input: InputStream): RomInfo? = if (isDiskName(name)) readDisk(input) else read(input)
+
     /** [maxHashed] is [MAX_HASHED]; smaller only in tests. */
     internal fun read(input: InputStream, maxHashed: Long): RomInfo? {
         val buf = ByteArray(64 * 1024)

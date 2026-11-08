@@ -69,6 +69,14 @@ import kotlinx.coroutines.launch
 // Activity.dispatchKeyEvent as library-internal, so lint flags the override and the super call.
 @SuppressLint("RestrictedApi")
 class LauncherActivity : ComponentActivity() {
+    companion object {
+        /**
+         * Between onStart and onStop: the game screen's process restart waits until Android has saved the library's
+         * state (MainActivity.afterLauncherSaved), or the library is dropped from the task when the process goes.
+         */
+        @Volatile var started = false
+    }
+
     private val keys = KeyNormaliser { super.dispatchKeyEvent(it) }
     private val model: LibraryModel by viewModels()
     private val importModel: ImportModel by viewModels()
@@ -83,6 +91,7 @@ class LauncherActivity : ComponentActivity() {
     // when the launcher comes up, and changes (Settings, a game's pause menu or hotkeys) go out.
     override fun onStart() {
         super.onStart()
+        started = true
         // Settings that came in: every screen starts again, so none keeps (and later saves) the old ones.
         com.joeysretro.joey64.saves.SettingsMirror.sync(this) { runOnUiThread { if (!isFinishing && !isDestroyed) recreate() } }
     }
@@ -90,6 +99,7 @@ class LauncherActivity : ComponentActivity() {
     override fun onStop() {
         com.joeysretro.joey64.saves.SettingsMirror.pushSoon(this)
         super.onStop()
+        started = false
     }
 
     override fun onDestroy() {

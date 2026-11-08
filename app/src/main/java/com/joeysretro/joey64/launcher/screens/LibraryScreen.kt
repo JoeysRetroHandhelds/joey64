@@ -119,10 +119,7 @@ fun LibraryScreen(model: LibraryModel, onSearch: () -> Unit) {
                 on = view != com.joeysretro.joey64.launcher.library.LibraryView.All) { showing = true }
             androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
             art?.takeIf { reading == null }?.let { a ->
-                Column {
-                    Text("Getting box art", style = JoeyTheme.type.note, color = c.textDim, modifier = Modifier.padding(bottom = 6.dp))
-                    ProgressLine(a, width = 320.dp, centred = false)
-                }
+                ProgressLine(a, width = 160.dp, label = "Getting box art")
             }
             if (artPaused && art == null && reading == null) {
                 Text("Box art paused · ScreenScraper is busy. Joey64 will try again later.", style = JoeyTheme.type.note, color = c.textDim)

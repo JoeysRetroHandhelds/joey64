@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,16 +29,29 @@ import kotlinx.coroutines.delay
 
 /**
  * The one progress bar: a thin bar with "37 of 211 · about 20 s left" under it (copying saves and
- * states, reading the games). The time left is worked out again every second.
+ * states, reading the games). The time left is worked out again every second. With a [label], all
+ * on one line, "Getting box art ▬▬▬ 37 of 211 · about 2 h left", as tall as a chip (box art beside
+ * the library's filter, Joey 2026-11-07); [width] is then the bar's.
  */
 @Composable
-fun ProgressLine(progress: Progress, modifier: Modifier = Modifier, width: Dp = 420.dp, centred: Boolean = true) {
+fun ProgressLine(progress: Progress, modifier: Modifier = Modifier, width: Dp = 420.dp, centred: Boolean = true, label: String? = null) {
     val c = JoeyTheme.colors
     var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     LaunchedEffect(Unit) {
         while (true) { delay(1000); now = SystemClock.elapsedRealtime() }
     }
     val shown by animateFloatAsState(progress.fraction, label = "progress")
+    if (label != null) {
+        Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+            Text(label, style = JoeyTheme.type.note, color = c.textDim)
+            val shape = RoundedCornerShape(3.dp)
+            Box(Modifier.padding(horizontal = 12.dp).width(width).height(6.dp).background(c.chip, shape)) {
+                Box(Modifier.fillMaxWidth(shown).fillMaxHeight().background(c.buttonPrimary, shape))
+            }
+            Text(progress.text(now), style = JoeyTheme.type.small, color = c.textDim)
+        }
+        return
+    }
     Column(modifier.width(width), horizontalAlignment = if (centred) Alignment.CenterHorizontally else Alignment.Start) {
         val shape = RoundedCornerShape(3.dp)
         Box(Modifier.fillMaxWidth().height(6.dp).background(c.chip, shape)) {

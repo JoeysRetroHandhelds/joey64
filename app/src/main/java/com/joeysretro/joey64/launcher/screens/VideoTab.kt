@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -40,10 +42,15 @@ import com.joeysretro.joey64.launcher.components.DescriptionLine
 import com.joeysretro.joey64.launcher.components.Hint
 import com.joeysretro.joey64.launcher.components.JoeyDialog
 import com.joeysretro.joey64.launcher.components.JoeyRow
+import com.joeysretro.joey64.launcher.components.PopupNote
 import com.joeysretro.joey64.launcher.components.PopupTitle
+import com.joeysretro.joey64.launcher.components.RowTag
 import com.joeysretro.joey64.launcher.components.SectionLabel
 import com.joeysretro.joey64.launcher.components.initialFocus
 import com.joeysretro.joey64.launcher.controls.Control
+import com.joeysretro.joey64.launcher.theme.JoeyTheme
+import com.joeysretro.joey64.video.ExtraKind
+import com.joeysretro.joey64.video.GameExtras
 import com.joeysretro.joey64.video.VideoChoices
 import com.joeysretro.joey64.video.VideoKey
 import com.joeysretro.joey64.video.VideoSettings
@@ -55,7 +62,8 @@ import kotlin.math.pow
 
 /**
  * Settings › Video (approved mockup, 2026-11-07: scratchpad build_video.py). Left, Picture:
- * Resolution, Aspect ratio, Integer scaling, Screen orientation, Fill the camera cutout. Right,
+ * Resolution, Aspect ratio, Widescreen, 60 fps (approved version A, 2026-11-08: build_enh.py), Integer scaling,
+ * Screen orientation, Fill the camera cutout. Right,
  * Look: Colour (popup with a preview), Sharpening, Black frame insertion; Advanced: one row that
  * opens Renderer, driver, timing (with N64 video filters inside). For All games or one game
  * ([target], the chip in Settings' header): a game keeps only the rows changed for it, each with
@@ -98,9 +106,36 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
     }
     fun dot(vararg keys: VideoKey) = target != null && keys.any { it in own }
 
+    // Widescreen and 60 fps: a game's versions from its cheat lists (downloaded now if they aren't kept); All games
+    // shows how many games have them. Null while loading.
+    val extras by androidx.compose.runtime.produceState<GameExtras?>(null, target) {
+        value = if (target == null) GameExtras.NONE else withContext(Dispatchers.IO) {
+            val game = com.joeysretro.joey64.launcher.data.LibraryDb.get(context).gameWithFile(target, com.joeysretro.joey64.states.GameStates::saveNameOf)
+            val keys = com.joeysretro.joey64.cheats.CheatLogic.keys(game?.headerKey)
+            val lists = com.joeysretro.joey64.cheats.CheatLists(context).sourcesForGame(keys, download = true)
+            if (lists == null) GameExtras.NONE else GameExtras.from(lists, keys.firstOrNull())
+        }
+    }
+    val counts = remember(target) { if (target == null) com.joeysretro.joey64.cheats.CheatLists(context).extrasCounts() else null }
+    val hardcore = com.joeysretro.joey64.achievements.RaHardcore.on()
+    val fpsTitle = if (extras?.pal == true) "50 fps" else "60 fps"
+    /** The row's value, and whether it can be changed (greyed: Hardcore, or no code for this game). */
+    fun extraValue(k: ExtraKind): Pair<String, Boolean> {
+        val key = if (k == ExtraKind.Widescreen) VideoKey.Widescreen else VideoKey.Fps
+        val x = extras
+        return when {
+            hardcore -> "Off in Hardcore" to false
+            target == null -> VideoChoices.label(key, v[key]) to true
+            x == null -> "" to false
+            x.of(k).isEmpty() -> "None for this game" to false
+            else -> (x.pick(k, v[key])?.label ?: "Off") to true
+        }
+    }
+
     val rowKeys: Map<String, List<VideoKey>> = mapOf(
         "res" to listOf(VideoKey.Resolution), "asp" to listOf(VideoKey.Aspect), "int" to listOf(VideoKey.Integer),
         "ori" to listOf(VideoKey.Orientation), "cut" to listOf(VideoKey.Cutout), "col" to COLOUR_KEYS,
+        "ws" to listOf(VideoKey.Widescreen), "fps" to listOf(VideoKey.Fps),
         "shp" to listOf(VideoKey.Sharpen, VideoKey.SharpenStrength), "bfi" to listOf(VideoKey.Bfi), "adv" to ADVANCED_KEYS)
 
     LaunchedEffect(target) {
@@ -112,7 +147,8 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
 
     Column(modifier.fillMaxSize()) {
         Row(Modifier.weight(1f).fillMaxWidth().focusRestorer().focusGroup(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            Column(Modifier.weight(1f)) {
+            // Seven rows: the last ones scroll into view (approved version A shows Fill the camera cutout below the fold).
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                 SectionLabel("Picture")
                 @Composable
                 fun row(id: String, label: String, k: VideoKey) =
@@ -120,6 +156,12 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
                         dot = dot(k), onFocused = { if (it) focused = id }) { popup = VPopup.Choice(k) }
                 row("res", "Resolution", VideoKey.Resolution)
                 row("asp", "Aspect ratio", VideoKey.Aspect)
+                for ((id, k) in listOf("ws" to ExtraKind.Widescreen, "fps" to ExtraKind.Fps)) {
+                    val key = if (k == ExtraKind.Widescreen) VideoKey.Widescreen else VideoKey.Fps
+                    val (value, enabled) = extraValue(k)
+                    JoeyRow(if (k == ExtraKind.Widescreen) "Widescreen" else fpsTitle, Modifier.initialFocus(startRow == id), value = value,
+                        enabled = enabled, sideways = true, dot = dot(key), onFocused = { if (it) focused = id }) { popup = VPopup.Extra(k) }
+                }
                 row("int", "Integer scaling", VideoKey.Integer)
                 row("ori", "Screen orientation", VideoKey.Orientation)
                 row("cut", "Fill the camera cutout", VideoKey.Cutout)
@@ -140,7 +182,11 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
         }
         Spacer(Modifier.height(6.dp))
         val changed = target != null && rowKeys[focused].orEmpty().any { it in own }
-        val (title, text) = describe(focused, v)
+        val (title, text) = when (focused) {
+            "ws" -> "Widescreen" to extraText(ExtraKind.Widescreen, hardcore, target != null && extras?.widescreen?.isEmpty() == true)
+            "fps" -> fpsTitle to extraText(ExtraKind.Fps, hardcore, target != null && extras?.fps?.isEmpty() == true)
+            else -> describe(focused, v)
+        }
         DescriptionLine(title, if (changed) "Changed for this game. ${allGamesNote(focused, VideoSettings.resolve(all, null))}" else text)
     }
 
@@ -157,6 +203,19 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
             onLook = { popup = VPopup.Look },
             onChoice = { k, row -> popup = VPopup.Choice(k, VPopup.Filters(row)) },
             onToggle = { k -> set(k, if (k == VideoKey.Deinterlace) (if (v[k] == "bob") "weave" else "bob") else if (v.on(k)) "off" else "on") })
+        is VPopup.Extra -> {
+            val key = if (p.kind == ExtraKind.Widescreen) VideoKey.Widescreen else VideoKey.Fps
+            val x = extras
+            if (target == null) ExtraPopup(if (p.kind == ExtraKind.Widescreen) "Widescreen" else "60 fps", "All games",
+                VideoChoices.extrasAll.map { ch -> ExtraOption(ch.value, ch.label, if (ch.value == GameExtras.ALL) countsLine(counts) else ch.detail, false) },
+                v[key], if (p.kind == ExtraKind.Fps) FPS_NOTE else null, onDismiss = { popup = null }) { set(key, it); popup = null }
+            else if (x != null) ExtraPopup(if (p.kind == ExtraKind.Widescreen) "Widescreen" else fpsTitle, target,
+                listOf(ExtraOption("off", "Off", null, false)) + x.of(p.kind).map { ExtraOption(it.name, it.label, it.detail, it.wip) },
+                x.pick(p.kind, v[key])?.name ?: "off",
+                listOfNotNull(if (p.kind == ExtraKind.Fps) FPS_NOTE else null, credit(x.source[p.kind])).joinToString(" "),
+                onDismiss = { popup = null }) { set(key, it); popup = null }
+            // Still loading the game's lists: the popup opens once they're read.
+        }
         VPopup.Look -> LookPopup(v.look, onDismiss = { popup = VPopup.Filters("look") }) { set(VideoSettings.LOOKS.getValue(it)); popup = VPopup.Filters("look") }
     }
 }
@@ -171,6 +230,7 @@ private sealed class VPopup {
     object Sharpen : VPopup()
     data class Advanced(val row: String) : VPopup()
     data class Filters(val row: String) : VPopup()
+    data class Extra(val kind: ExtraKind) : VPopup()
     object Look : VPopup()
 }
 
@@ -179,7 +239,7 @@ internal fun sharpenValue(v: VideoSettings) = if (v[VideoKey.Sharpen] == "off") 
 
 private fun describe(row: String, v: VideoSettings): Pair<String, String> = when (row) {
     "res" -> "Resolution" to "Native draws the game at the N64's own size, the most accurate and the fastest. Higher is sharper but slower. Applies when the game next starts."
-    "asp" -> "Aspect ratio" to "The shape of the picture. Auto is 4:3, and 16:9 when a widescreen cheat is on."
+    "asp" -> "Aspect ratio" to "The shape of the picture. Auto is 4:3, and 16:9 when Widescreen is on."
     "int" -> "Integer scaling" to "Scales by whole numbers only, so every pixel is the same size. Leaves a border."
     "ori" -> "Screen orientation" to "Which way the game is shown. Landscape on handhelds."
     "cut" -> "Fill the camera cutout" to "Draws the picture behind the camera hole, for Stretch to the screen."
@@ -191,6 +251,8 @@ private fun describe(row: String, v: VideoSettings): Pair<String, String> = when
 
 private fun allGamesNote(row: String, all: VideoSettings): String = when (row) {
     "res" -> "All games uses ${VideoChoices.label(VideoKey.Resolution, all[VideoKey.Resolution])}."
+    "ws" -> "All games uses ${VideoChoices.label(VideoKey.Widescreen, all[VideoKey.Widescreen])}."
+    "fps" -> "All games uses ${VideoChoices.label(VideoKey.Fps, all[VideoKey.Fps])}."
     "asp" -> "All games uses ${VideoChoices.label(VideoKey.Aspect, all[VideoKey.Aspect])}."
     "int" -> "All games uses ${VideoChoices.label(VideoKey.Integer, all[VideoKey.Integer])}."
     "ori" -> "All games uses ${VideoChoices.label(VideoKey.Orientation, all[VideoKey.Orientation])}."
@@ -212,7 +274,56 @@ private fun title(k: VideoKey) = when (k) {
     VideoKey.Pacing -> "Frame pacing"
     VideoKey.Thermal -> "Thermal fallback"
     VideoKey.Supersample -> "Supersampling"
+    VideoKey.Widescreen -> "Widescreen"
+    VideoKey.Fps -> "60 fps"
     else -> k.key
+}
+
+private const val FPS_NOTE = "The game runs at 60 frames a second instead of 30. Joey64 also runs the N64's CPU faster for it, so a weaker device may slow down."
+
+/** The line under the focused Widescreen / 60 fps row (approved version A, screens 1, 3, 5 and 6). */
+private fun extraText(k: ExtraKind, hardcore: Boolean, none: Boolean): String = when {
+    hardcore -> "Off while RetroAchievements Hardcore is on. Your pick comes back when it's off."
+    none -> if (k == ExtraKind.Widescreen) "There's no widescreen code for this game yet." else "There's no 60 fps code for this game yet."
+    k == ExtraKind.Widescreen -> "Shows more of the game at the sides, for a wide screen. The picture switches to 16:9 with it. Some games draw the HUD wider. Applies when the game next starts."
+    else -> "$FPS_NOTE Applies when the game next starts."
+}
+
+/** All games' "When a game has one": how many games the downloaded lists have codes for. */
+private fun countsLine(c: Pair<Int, Int>?): String? = c?.let { (ws, fps) -> "$ws games have a widescreen code, $fps have 60 fps" }
+
+/** Where a game's codes came from, in small type (approved version A, screen 2). */
+private fun credit(source: String?): String? = when (source) {
+    null -> null
+    "joey64" -> "Codes from Joey64's own list."
+    "project64" -> "Codes from Project64's enhancements."
+    "libretro" -> "Codes from libretro's cheat database."
+    "fz-retroben" -> "Codes from M64Plus FZ (retroben)."
+    "rmg-custom" -> "Codes from Rosalie's Mupen GUI."
+    else -> "Codes from $source."
+}
+
+private data class ExtraOption(val value: String, val label: String, val detail: String?, val wip: Boolean)
+
+/** Widescreen or 60 fps (version A, screens 2 to 4): Off and the game's versions (or All games' two), the tick on the one in use. */
+@Composable
+private fun ExtraPopup(title: String, subtitle: String?, options: List<ExtraOption>, current: String, note: String?,
+                       onDismiss: () -> Unit, onPick: (String) -> Unit) {
+    val c = JoeyTheme.colors
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 490.dp) {
+        Column {
+            PopupTitle(title, subtitle)
+            for (o in options) {
+                val on = o.value == current
+                JoeyRow(o.label, Modifier.initialFocus(on), detail = o.detail,
+                    trailing = if (on || o.wip) { _ ->
+                        if (o.wip) RowTag("WIP", c.gold, c.chip)
+                        if (on) PickerTick()
+                    } else null) { onPick(o.value) }
+            }
+            if (note != null) PopupNote(note)
+        }
+    }
 }
 
 /** The approved small popup: a title and the choices with their lines, the tick on the one in use. */

@@ -143,7 +143,7 @@ private sealed interface CheatPopup {
 }
 
 /** Phase 7 (RetroAchievements) says when Hardcore is on; until then it never is. */
-private fun hardcoreOn(): Boolean = false
+private fun hardcoreOn(): Boolean = com.joeysretro.joey64.achievements.RaHardcore.on()
 
 @Composable
 private fun CheatsContent(game: CheatsGame, sink: CheatsSink, onHints: (List<Hint>) -> Unit, gameShark: GameSharkRow? = null) {

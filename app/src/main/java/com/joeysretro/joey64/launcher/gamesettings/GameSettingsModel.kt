@@ -83,6 +83,8 @@ class GameSettingsModel(private val video: VideoStore, private val audio: AudioS
         }
         one(VideoKey.Resolution, "Resolution", "res")
         one(VideoKey.Aspect, "Aspect ratio", "asp")
+        one(VideoKey.Widescreen, "Widescreen", "ws")
+        one(VideoKey.Fps, "60 fps", "fps")
         one(VideoKey.Integer, "Integer scaling", "int")
         one(VideoKey.Orientation, "Screen orientation", "ori")
         one(VideoKey.Cutout, "Fill the camera cutout", "cut")

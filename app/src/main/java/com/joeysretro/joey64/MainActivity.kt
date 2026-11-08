@@ -484,6 +484,36 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         else -> "Turnip Gen8 V38"
     }
 
+    /** The widescreen and 60 fps codes this game started with (Settings › Video), from [prepareGame]. */
+    private var extrasOn = com.joeysretro.joey64.video.ExtrasOn.NONE
+
+    /**
+     * On [gameIo]: [rom]'s widescreen and 60 fps versions from its kept cheat lists (the scan downloads them; nothing is
+     * fetched here), and the ones Video's rows pick. None while Hardcore is on.
+     */
+    private fun gameExtras(rom: String): com.joeysretro.joey64.video.ExtrasOn {
+        val keys = headerKeys(rom)
+        if (keys.isEmpty()) return com.joeysretro.joey64.video.ExtrasOn.NONE
+        val v = videoAtStart
+        if (v[com.joeysretro.joey64.video.VideoKey.Widescreen] == "off" && v[com.joeysretro.joey64.video.VideoKey.Fps] == "off")
+            return com.joeysretro.joey64.video.ExtrasOn.NONE
+        val lists = kotlinx.coroutines.runBlocking { com.joeysretro.joey64.cheats.CheatLists(this@MainActivity).sourcesForGame(keys, download = false) }
+            ?: return com.joeysretro.joey64.video.ExtrasOn.NONE.copy(log = "lists not downloaded")
+        val x = com.joeysretro.joey64.video.GameExtras.from(lists, keys.first())
+        return com.joeysretro.joey64.video.ExtrasOn.of(x, v, com.joeysretro.joey64.achievements.RaHardcore.on())
+    }
+
+    /** The cheat lists' keys for [rom]'s header ("" a 64DD disk with no cartridge: none). */
+    private fun headerKeys(rom: String): List<String> = if (rom.isEmpty()) emptyList() else try {
+        val buf = File(rom).inputStream().use { i -> ByteArray(0x40).also { b -> if (i.read(b) < b.size) throw java.io.IOException("short ROM") } }
+        val order = com.joeysretro.joey64.launcher.library.RomByteOrder.of(buf) ?: throw java.io.IOException("not an N64 ROM")
+        order.toBigEndian(buf, buf.size)
+        com.joeysretro.joey64.cheats.CheatLogic.keys(com.joeysretro.joey64.cheats.CheatLogic.keyOf(
+            com.joeysretro.joey64.launcher.library.RomReader.parseHeader(buf)))
+    } catch (e: Exception) {
+        JLog.e(TAG, "cheats: can't read the ROM header: $e"); emptyList()
+    }
+
     /** Settings › Video for the game this screen was started for (onCreate), then as Game settings changes it in game. */
     private var video = com.joeysretro.joey64.video.VideoSettings.DEFAULTS
     /** Video as the game started: the rows read only at start (VideoKey.AT_START) keep these values until a restart. */
@@ -562,6 +592,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private fun startRowName(key: String) = when (key) {
         "Driver" -> "GPU driver"; "Pacing" -> "Frame pacing"; "Thermal" -> "Thermal fallback"; "Supersample" -> "Supersampling"
         "NativeTexLod" -> "Native texture detail"; "NativeTexRect" -> "Native 2D (TEX_RECT)"; "Apps" -> "Play alongside other apps"
+        "Fps" -> "60 fps"
         else -> key
     }
 
@@ -631,7 +662,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     /** The host's display state from [video]: shape, integer scaling, black frames, colour, sharpening. */
     private fun applyVideoDisplay() {
         val v = video
-        val (aw, ah) = com.joeysretro.joey64.video.VideoApply.aspect(v, widescreenOn = false)
+        val (aw, ah) = com.joeysretro.joey64.video.VideoApply.aspect(v, extrasOn.shape)
         NativeBridge.setDisplay(aw, ah, v.on(com.joeysretro.joey64.video.VideoKey.Integer), v.on(com.joeysretro.joey64.video.VideoKey.Bfi))
         NativeBridge.setColour(v.int(com.joeysretro.joey64.video.VideoKey.Brightness), v.int(com.joeysretro.joey64.video.VideoKey.Contrast), v.int(com.joeysretro.joey64.video.VideoKey.Saturation), v.int(com.joeysretro.joey64.video.VideoKey.Gamma))
         NativeBridge.setSharpen(when (v[com.joeysretro.joey64.video.VideoKey.Sharpen]) { "cas" -> 1; "fsr" -> 2; else -> 0 }, v.int(com.joeysretro.joey64.video.VideoKey.SharpenStrength))
@@ -758,17 +789,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     /** The cheats the user left on for this game ([GameCheats]), given to the core before it loads the game. */
     private fun applyCheats(rom: String, saveName: String) {
-        cheatKeys = if (rom.isEmpty()) emptyList() else try { // "": a 64DD disk with no cartridge, no header
-            val buf = File(rom).inputStream().use { i -> ByteArray(0x40).also { b -> if (i.read(b) < b.size) throw java.io.IOException("short ROM") } }
-            val order = com.joeysretro.joey64.launcher.library.RomByteOrder.of(buf) ?: throw java.io.IOException("not an N64 ROM")
-            order.toBigEndian(buf, buf.size)
-            com.joeysretro.joey64.cheats.CheatLogic.keys(com.joeysretro.joey64.cheats.CheatLogic.keyOf(
-                com.joeysretro.joey64.launcher.library.RomReader.parseHeader(buf)))
-        } catch (e: Exception) {
-            JLog.e(TAG, "cheats: can't read the ROM header: $e"); emptyList()
-        }
+        cheatKeys = headerKeys(rom) // "": a 64DD disk with no cartridge, no header
         if (saveName.isEmpty()) return
-        val lines = com.joeysretro.joey64.cheats.GameCheats(this, saveName).read().codeLines()
+        val lines = com.joeysretro.joey64.cheats.GameCheats(this, saveName).read().codeLines() + extrasOn.codeLines
         for (l in lines) NativeBridge.addCheat(l)
         cheatsMost = lines.size
         JLog.i(TAG, "cheats: ${lines.size} on, keys ${cheatKeys.joinToString()}")
@@ -792,7 +815,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         contentResolver.openInputStream(uri)?.use { RomFiles.extract(it, romCache, name) }
 
     /** What [prepareGame] got ready off the main thread: the ROM, its save name, a 64DD disk's cartridge, Settings › Saves. */
-    private class Prepared(val rom: String, val saveName: String, val ddCart: String?, val savesOpts: com.joeysretro.joey64.saves.SavesOptions)
+    private class Prepared(val rom: String, val saveName: String, val ddCart: String?, val savesOpts: com.joeysretro.joey64.saves.SavesOptions,
+                           val extras: com.joeysretro.joey64.video.ExtrasOn)
     /** [prepareGame] stopped because a 64DD disk's cartridge didn't unpack. */
     @Volatile private var cartFailed = false
     /** [prepareGame] is running on [gameIo]. */
@@ -843,7 +867,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         com.joeysretro.joey64.launcher.storage.SrmSync.pull(this, saveName)
         com.joeysretro.joey64.saves.SaveBackups.maybeBackUp(com.joeysretro.joey64.launcher.storage.DataFolders.current(this).space,
             saveName, opts.backups, opts.backupsKeep)
-        return Prepared(rom, saveName, ddCart, opts)
+        return Prepared(rom, saveName, ddCart, opts, gameExtras(if (disk) ddCart ?: "" else rom))
     }
 
     /** On the main thread, with a surface: the rest of the start. */
@@ -853,9 +877,15 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         startRom = rom; startSave = saveName
         NativeBridge.setDdCart(ddCart ?: "")
         applyControls(rom, saveName)
+        extrasOn = p.extras // before applyCheats, which hands the core their codes
         applyCheats(if (RomFiles.isDiskName(rom)) ddCart ?: "" else rom, saveName)
         applyAudio(saveName)
         savesOpts = p.savesOpts
+        // A 60 fps code makes the game's CPU work harder: the CPU runs at counter factor 1 (the smoother timing's
+        // CountPerOp=1), unless --es opts sets it.
+        if (p.extras.fps && devString("opts")?.contains("mupen64plus-CountPerOp") != true) NativeBridge.setOption("mupen64plus-CountPerOp", "1")
+        if (p.extras.shape != null) applyVideoDisplay()
+        JLog.i(TAG, "widescreen / 60 fps: ${p.extras.log}")
         // RetroAchievements: signs in with the kept account first, so the game is identified as it loads.
         com.joeysretro.joey64.achievements.RaBridge.init(this)
         trial?.begin()
@@ -1014,6 +1044,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val settings = org.json.JSONObject()
         for (k in com.joeysretro.joey64.video.VideoKey.entries) if (v[k] != k.default) settings.put("video." + k.key, v[k])
         for (k in com.joeysretro.joey64.audio.AudioKey.entries) if (a[k] != k.default) settings.put("audio." + k.key, a[k])
+        // The widescreen / 60 fps versions actually on (the rows above say what was asked for).
+        extrasOn.widescreenName?.let { settings.put("on.widescreen", it) }
+        extrasOn.fpsName?.let { settings.put("on.fps", it) }
         val scale = if (parallel) (playUpscale ?: "1x").removeSuffix("x").toIntOrNull() ?: 1
             else statsRenderer.substringAfter("GLideN64 ").removeSuffix("x").trim().toIntOrNull() ?: 1
         val base = org.json.JSONObject().apply {
@@ -1137,7 +1170,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private fun sendCheats() {
         val st = states ?: return
         stateHandler.post {
-            val lines = com.joeysretro.joey64.cheats.GameCheats(this@MainActivity, st.saveName).read().codeLines()
+            // The widescreen / 60 fps codes the game started with stay with the cheats.
+            val lines = com.joeysretro.joey64.cheats.GameCheats(this@MainActivity, st.saveName).read().codeLines() + extrasOn.codeLines
             NativeBridge.setCheats(lines.toTypedArray())
             JLog.i(TAG, "cheats: ${lines.size} on")
             if (lines.size > cheatsMost) { cheatsMost = lines.size; session?.put("cheats", cheatsMost) }

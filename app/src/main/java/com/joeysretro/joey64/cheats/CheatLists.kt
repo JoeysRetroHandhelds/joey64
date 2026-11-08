@@ -63,6 +63,35 @@ class CheatLists(private val context: Context) {
         if (merged.isEmpty()) Outcome.None else Outcome.Found(merged)
     }
 
+    /**
+     * [keys]' lists by source as downloaded, before [CheatLogic.tidy] (widescreen and 60 fps codes are still in them),
+     * for Settings › Video's Widescreen and 60 fps. Null: not kept and couldn't be fetched.
+     */
+    suspend fun sourcesForGame(keys: List<String>, download: Boolean): Map<String, List<Cheat>>? = withContext(Dispatchers.IO) {
+        if (keys.isEmpty()) return@withContext emptyMap()
+        val index = try { index(download) } catch (e: IOException) { null } ?: return@withContext null
+        val out = HashMap<String, MutableList<Cheat>>()
+        var missing = false
+        for (k in keys) for (src in index[k].orEmpty().keys) {
+            val text = try { list(src, k, download) } catch (e: IOException) { null }
+            if (text == null) { missing = true; continue }
+            try { out.getOrPut(src) { ArrayList() } += CheatLogic.parseList(text) } catch (e: Exception) { JLog.e(TAG, "bad list $src/$k: $e") }
+        }
+        if (out.isEmpty() && missing) null else out
+    }
+
+    /** How many games the kept index has widescreen and 60 fps codes for; null before it's downloaded. */
+    fun extrasCounts(): Pair<Int, Int>? = try {
+        val games = org.json.JSONObject(File(dir, INDEX).readText()).getJSONObject("games")
+        var ws = 0; var fps = 0
+        for (k in games.keys()) games.getJSONObject(k).optJSONArray("extras")?.let { a ->
+            val e = (0 until a.length()).map { a.getString(it) }
+            if ("widescreen" in e) ws++
+            if ("60fps" in e) fps++
+        }
+        ws to fps
+    } catch (e: Exception) { null }
+
     /** The scan's pass: every game's lists fetched ahead, so Cheats opens at once and works offline. */
     suspend fun prefetch(games: Collection<List<String>>) = withContext(Dispatchers.IO) {
         val index = try { index(true) } catch (e: IOException) { JLog.w(TAG, "cheats: no index: $e"); return@withContext } ?: return@withContext

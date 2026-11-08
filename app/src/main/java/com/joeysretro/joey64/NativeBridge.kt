@@ -161,6 +161,15 @@ object NativeBridge {
     /** RETRO_DEVICE_ID_JOYPAD_* bitmask for N64 [port] 0..3 (Controls, `PlayerInput.buttons`). */
     external fun setButtons(port: Int, mask: Int)
 
+    /**
+     * Controls extras' macro on [port]: step i holds RetroPad bits [masks] and the N64 stick ([sx], [sy], libretro
+     * range, 0 = the player's own stick) for [frames] polls; [repeat] plays it again until [stopMacro]. Any thread.
+     */
+    external fun playMacro(port: Int, masks: IntArray, sx: IntArray, sy: IntArray, frames: IntArray, repeat: Boolean)
+
+    /** Stops [port]'s macro: [now] at once, else a repeating one after its pass. */
+    external fun stopMacro(port: Int, now: Boolean)
+
     /** Analog sticks in libretro range -32768..32767 for [port]. index 0 = left, 1 = right (C-buttons). */
     external fun setAnalog(port: Int, index: Int, x: Int, y: Int)
 

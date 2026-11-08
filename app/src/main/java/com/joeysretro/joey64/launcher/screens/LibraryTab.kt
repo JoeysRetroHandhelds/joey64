@@ -308,7 +308,7 @@ private fun HiddenPopup(hidden: List<LibraryGame>, onDismiss: () -> Unit, onShow
 
 /** The Regions popup's tick box: gold and ticked when on. */
 @Composable
-private fun TickBox(on: Boolean) {
+internal fun TickBox(on: Boolean) {
     val c = JoeyTheme.colors
     val shape = RoundedCornerShape(4.dp)
     Box(Modifier.padding(end = 10.dp).size(18.dp).then(if (on) Modifier.background(c.gold, shape) else Modifier.border(2.dp, c.textDim, shape)),

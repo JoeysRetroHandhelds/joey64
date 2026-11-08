@@ -174,6 +174,10 @@ private sealed interface Popup {
     data object Diagram : Popup
     /** Start: Reset tab for the player on screen (approved mockup B, 2026-11-07). */
     data object ResetPlayer : Popup
+    /** Controls extras (approved mockup 2026-11-08): Tap to hold, Macros, Profiles. */
+    data object Tap : Popup
+    data object Macros : Popup
+    data object Profiles : Popup
 }
 
 /** What a remap popup sets. */
@@ -238,7 +242,8 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             Control.TabPrev -> { if (!hk) { player = (p + 3) % 4; open = emptySet() }; true }
             Control.TabNext -> { if (!hk) { player = (p + 1) % 4; open = emptySet() }; true }
             Control.Extra -> { edit { if (hk) clearHotkey(editor, row) else clearRow(editor, p, row) }; true }
-            Control.Search -> { edit { if (hk) resetHotkey(editor, row) else resetRow(editor, p, row) }; true }
+            // Tap to hold and Macros: Y is Use All games on a game; on All games they have no default but none.
+            Control.Search -> { if (!(row in EXTRA_ROWS && target == null)) edit { if (hk) resetHotkey(editor, row) else resetRow(editor, p, row) }; true }
             Control.Options -> { if (!hk && editor.shown.players[p].device != DeviceChoice.None) popup = Popup.ResetPlayer; true }
             else -> false
         }
@@ -258,6 +263,8 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             focused == "StickFeel" && !off -> listOf(Hint("A", "Open"), Hint("Y", if (target == null) "Reset to default" else "Use All games"),
                 Hint("L/R", "Player"), Hint("B", backLabel))
             off -> listOf(Hint("L/R", "Player"), Hint("B", backLabel))
+            focused in EXTRA_ROWS -> listOfNotNull(Hint("A", "Change"), if (target == null) null else Hint("Y", "Use All games"),
+                Hint("L/R", "Player"), Hint("B", backLabel))
             else -> listOf(Hint("A", "Change"), Hint("X", "Clear"), Hint("Y", if (target == null) "Reset to default" else "Use All games"),
                 Hint("L/R", "Player"), Hint("B", backLabel))
         }).let { if (hotkeysOpen || off) it else withResetHint(it) })
@@ -266,6 +273,11 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
     val landing = LocalFocusLanding.current
     LaunchedEffect(hotkeysOpen) { landing?.arm() }
 
+    // "Mario Kart loaded" after a profile loads (mockup 9), for 3 seconds.
+    var loaded by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(loaded) { if (loaded != null) { kotlinx.coroutines.delay(3_000L); loaded = null } }
+
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().padding(horizontal = s.margin).padding(top = 14.dp, bottom = 6.dp)) {
         if (hotkeysOpen) {
             HotkeysPage(editor, version, focused, onFocused = { focused = it }, onOpen = { popup = it }) { popup = Popup.Remap(it) }
@@ -286,6 +298,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             Row(Modifier.padding(top = 6.dp, bottom = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 PageChip("Auto map", R.drawable.ic_wand, onFocused = { if (it) focused = "chipAuto" }) { if (!off) popup = Popup.AutoConfirm }
                 PageChip("View controller", R.drawable.ic_eye, onFocused = { if (it) focused = "chipView" }) { popup = Popup.Diagram }
+                PageChip("Profiles", R.drawable.ic_bookmark, onFocused = { if (it) focused = "chipProfiles" }) { if (!off) popup = Popup.Profiles }
             }
             TwoColumns(Modifier.weight(1f), left = {
                 SectionLabel("Controller")
@@ -328,8 +341,18 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
                 JoeyRow("Pak", value = pakValue(setup.pak, autoPak) + "  ›", enabled = !off, sideways = true,
                     dot = "Pak" in changed,
                     onFocused = { if (it) focused = "Pak" }) { popup = Popup.PakChoice }
+                SectionLabel("Extras")
+                JoeyRow("Tap to hold", value = com.joeysretro.joey64.controls.latchLabel(setup.latch) + "  ›", enabled = !off, sideways = true,
+                    dot = "Tap" in changed, onFocused = { if (it) focused = "Tap" }) { popup = Popup.Tap }
+                JoeyRow("Macros", value = macrosValue(setup.macros.size) + "  ›", enabled = !off, sideways = true,
+                    dot = "Macros" in changed, onFocused = { if (it) focused = "Macros" }) { popup = Popup.Macros }
             }
         }
+    }
+    loaded?.let { name ->
+        com.joeysretro.joey64.launcher.components.JoeyToast(R.drawable.ic_circle_check, "Profiles", "$name loaded",
+            "Player ${player + 1}, ${targetTitle ?: "All games"}", Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 16.dp))
+    }
     }
 
     // ---- popups ----
@@ -424,6 +447,10 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
         Popup.Diagram -> JoeyDialog(onDismiss = close, hints = listOf(Hint("B", "Close")), width = 760.dp) {
             ControllerDiagram(player, deviceName(setup.device), setup, face)
         }
+        Popup.Tap -> TapToHoldPopup(player, setup.latch, { l -> edit { editor.set(player, setup.copy(latch = l)) } }, close)
+        Popup.Macros -> MacrosPopup(player, setup.macros, editor.hotkeys, { m -> edit { editor.set(player, setup.copy(macros = m)) } }, close)
+        Popup.Profiles -> ProfilesPopup(player, deviceName(setup.device), targetTitle ?: target, editor, version,
+            onChanged = { version++ }, onLoaded = { name -> loaded = name; close() }, onDismiss = close)
         Popup.ResetPlayer -> {
             val who = "Player ${player + 1}"
             val g = targetTitle ?: target
@@ -440,6 +467,10 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
 }
 
 private const val TAG = "Joey64Controls"
+private val EXTRA_ROWS = setOf("Tap", "Macros")
+
+/** The Macros row's value: "None", "1 macro", "2 macros". */
+private fun macrosValue(n: Int) = when (n) { 0 -> "None"; 1 -> "1 macro"; else -> "$n macros" }
 
 @Composable
 private fun BindingRow(b: N64Button, label: String, setup: PlayerSetup, face: AutoMap.FaceCodes?, off: Boolean, changed: Boolean,
@@ -561,7 +592,7 @@ private fun HotkeysPage(editor: ControlsEditor, version: Int, focused: String, o
 }
 
 /** A hotkey's value on the page and in its popup: "Select + R1", just "Back" on its own, or Not set. */
-private fun hotkeyValue(h: Hotkeys, a: HotkeyAction): String {
+internal fun hotkeyValue(h: Hotkeys, a: HotkeyAction): String {
     val k = h.keys[a] ?: return InputNames.NOT_SET
     return if (h.isAlone(a)) hotkeyKey(k) else hotkeyKey(h.button) + " + " + hotkeyKey(k)
 }
@@ -812,7 +843,7 @@ private fun Tick() {
 }
 
 @Composable
-private fun ChoicePopup(title: String, subtitle: String?, choices: List<Choice>, onDismiss: () -> Unit, onPick: (Int) -> Unit) {
+internal fun ChoicePopup(title: String, subtitle: String?, choices: List<Choice>, onDismiss: () -> Unit, onPick: (Int) -> Unit) {
     JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Back")), width = 470.dp) {
         Column {
             PopupTitle(title, subtitle)
@@ -876,7 +907,7 @@ private fun AutoMapConfirm(player: Int, name: String, dev: android.view.InputDev
 
 /** The 5 s bar: runs down, then [onTimeout]. */
 @Composable
-private fun TimeBar(onTimeout: () -> Unit) {
+internal fun TimeBar(onTimeout: () -> Unit) {
     val c = JoeyTheme.colors
     val left = remember { Animatable(1f) }
     val timeout by rememberUpdatedState(onTimeout)
@@ -890,7 +921,7 @@ private fun TimeBar(onTimeout: () -> Unit) {
 }
 
 @Composable
-private fun PressBody(title: String, line: String, note: String) {
+internal fun PressBody(title: String, line: String, note: String) {
     val c = JoeyTheme.colors
     PopupTitle(title)
     Text(line, style = JoeyTheme.type.body, color = c.text, modifier = Modifier.padding(horizontal = 10.dp).padding(top = 6.dp, bottom = 12.dp))

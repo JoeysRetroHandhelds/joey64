@@ -101,6 +101,10 @@ data class PlayerSetup(
     val pak: Pak = Pak.Auto,
     /** Controls › Stick feel (range, curve, gate, invert, swap, anti-dead zone, trigger threshold). */
     val feel: StickFeel = StickFeel(),
+    /** Tap to hold (Controls extras): these stay held after one tap, until tapped again. */
+    val latch: Set<N64Button> = emptySet(),
+    /** Macros (Controls extras), up to [Macro.MAX]. */
+    val macros: List<Macro> = emptyList(),
 ) {
     fun with(b: N64Button, input: PadInput?) = copy(buttons = buttons + (b to input))
 
@@ -111,6 +115,8 @@ data class PlayerSetup(
         if (deadZone != other.deadZone) add("DeadZone")
         if (pak != other.pak) add("Pak")
         addAll(feel.differences(other.feel))
+        if (latch != other.latch) add("Tap")
+        if (macros != other.macros) add("Macros")
     }
 
     fun toJson(): JSONObject = JSONObject().apply {
@@ -124,6 +130,8 @@ data class PlayerSetup(
         put("deadZone", deadZone)
         put("pak", pak.name)
         put("feel", feel.toJson())
+        put("latch", JSONArray().apply { N64Button.entries.filter { it in latch }.forEach { put(it.name) } })
+        put("macros", JSONArray().apply { macros.forEach { put(it.toJson()) } })
     }
 
     companion object {
@@ -148,6 +156,12 @@ data class PlayerSetup(
                 deadZone = o.optInt("deadZone", fallback.deadZone).coerceIn(0, 50),
                 pak = Pak.entries.firstOrNull { it.name == o.optString("pak") } ?: fallback.pak,
                 feel = o.optJSONObject("feel")?.let { StickFeel.fromJson(it, fallback.feel) } ?: fallback.feel,
+                latch = o.optJSONArray("latch")?.let { a ->
+                    (0 until a.length()).mapNotNull { i -> LATCHABLE.firstOrNull { it.name == a.optString(i) } }.toSet()
+                } ?: fallback.latch,
+                macros = o.optJSONArray("macros")?.let { a ->
+                    (0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.let { Macro.fromJson(it) } }.take(Macro.MAX)
+                } ?: fallback.macros,
             )
         }
     }

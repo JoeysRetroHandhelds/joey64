@@ -1649,12 +1649,14 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     private fun hotkeySave() {
         val st = states ?: return
+        letGoHeld()
         val slot = currentSlot()
         stateHandler.post { val ok = st.save(slot); runOnUiThread { popSaved(slot, ok) } }
     }
 
     private fun hotkeyLoad() {
         val st = states ?: return
+        letGoHeld()
         val slot = currentSlot()
         stateHandler.post {
             val savedAt = st.savedAt(slot)
@@ -1749,6 +1751,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (quitting) return
         quitting = true
         NativeBridge.pause(true)
+        releaseAll()
         stateHandler.removeCallbacks(recoveryTick)
         stateHandler.post {
             if (startLoadFailed) JLog.e(TAG, "states: the state asked for at start didn't load, so the auto slot is kept as it was")
@@ -1988,10 +1991,65 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         NativeBridge.setButtons(p, input.buttons())
         val (x, y) = input.stick()
         NativeBridge.setAnalog(p, 0, PlayerInput.toRetroStick(x), PlayerInput.toRetroStick(y))
+        showHeld()
     }
 
     private fun releaseAll() {
+        stopMacros()
         for (p in 0..3) { players[p].release(); push(p); NativeBridge.setAnalog(p, 1, 0, 0) }
+    }
+
+    /** A save state or load: buttons held by a tap and macros playing stop; buttons pressed now stay pressed. */
+    private fun letGoHeld() {
+        stopMacros()
+        for (p in 0..3) { players[p].releaseLatches(); push(p) }
+    }
+
+    // Controls extras' Tap to hold (approved mockup 2026-11-08): a pop-up at the top left while a button is held by a tap.
+    private var heldShown = ""
+    private fun showHeld() {
+        val parts = (0..3).mapNotNull { p -> players[p].latched().takeIf { it.isNotEmpty() }?.let { p to it } }
+        val text = when (parts.size) {
+            0 -> ""
+            1 -> com.joeysretro.joey64.controls.heldLine(parts[0].second)
+            else -> parts.joinToString(" · ") { (p, held) -> "P${p + 1} " + com.joeysretro.joey64.controls.latchLabel(held) } + " held"
+        }
+        if (text == heldShown) return
+        heldShown = text
+        if (text.isEmpty()) overlay?.hide("held", waiting = true)
+        else overlay?.show(InGamePopup("held", InGamePopup.Kind.Held, "", text, "", compact = true,
+            stayMs = com.joeysretro.joey64.launcher.ingame.PopupQueue.UNTIL_HIDDEN))
+    }
+
+    // Controls extras' macros: the key that started one, with its player, until it's let go.
+    private val macroKeys = HashMap<Int, Pair<Int, com.joeysretro.joey64.controls.Macro>>()
+
+    /** A macro's button for player [p] ([withHotkey]: the hotkey button is held): it plays, and the game never sees the button. */
+    private fun macroKey(p: Int, code: Int, event: KeyEvent, withHotkey: Boolean): Boolean {
+        if (event.action != KeyEvent.ACTION_DOWN) return false
+        val m = com.joeysretro.joey64.controls.Macro.forKey(players[p].setup.macros, code, withHotkey) ?: return false
+        if (event.repeatCount == 0) {
+            val steps = m.steps
+            NativeBridge.playMacro(p, IntArray(steps.size) { steps[it].mask() },
+                IntArray(steps.size) { PlayerInput.toRetroStick(steps[it].stickXY().first) },
+                IntArray(steps.size) { PlayerInput.toRetroStick(steps[it].stickXY().second) },
+                IntArray(steps.size) { steps[it].frames }, m.repeat)
+            macroKeys[code] = p to m
+            JLog.i(TAG, "macro: P${p + 1} ${m.name}, ${steps.size} steps${if (m.repeat) ", repeating" else ""}")
+        }
+        return true
+    }
+
+    /** A macro's button let go: a repeating one stops after its pass; a Once one plays to its end. */
+    private fun macroKeyUp(code: Int): Boolean {
+        val (p, m) = macroKeys.remove(code) ?: return false
+        if (m.repeat) NativeBridge.stopMacro(p, false)
+        return true
+    }
+
+    private fun stopMacros() {
+        for (p in 0..3) NativeBridge.stopMacro(p, true)
+        macroKeys.clear()
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -2005,6 +2063,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             if (event.action == KeyEvent.ACTION_UP && !event.isCanceled && !quitting && !menuOpen) openMenu()
             return true
         }
+        // A macro's button let go (the hotkey button may already be up).
+        if (event.action == KeyEvent.ACTION_UP && macroKeyUp(code)) return true
         // The hotkey button held makes the next button a hotkey.
         if (inGame && code == hotkeys.button) {
             when (event.action) {
@@ -2023,11 +2083,16 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (hotkeyHeld && inGame) {
             // Both edges are the hotkey's: the game never sees them.
             hotkeys.actionFor(code, alone = false)?.let { action -> hotkeyEdge(action, event, down); return true }
+            // Then a macro on hotkey button + this button.
+            val hp = playerFor(event.device, event.deviceId)
+            if (hp >= 0 && macroKey(hp, code, event, withHotkey = true)) return true
         }
         val p = playerFor(event.device, event.deviceId)
         if (KeyEvent.isGamepadButton(code) || p >= 0) usePad(event.device, event.deviceId)
         // A hotkey on its own wins over the game's use of the button (the Hotkeys popup says so).
         if (inGame) hotkeys.actionFor(code, alone = true)?.let { action -> hotkeyEdge(action, event, down); return true }
+        // A macro's button wins over the player's use of it.
+        if (inGame && p >= 0 && macroKey(p, code, event, withHotkey = false)) return true
         if (p < 0 || !players[p].uses(code)) return super.dispatchKeyEvent(event)
         if (inputLat && event.action == KeyEvent.ACTION_DOWN) noteInputLat(event.eventTime, true, 0)
         when (event.action) {

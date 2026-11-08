@@ -54,7 +54,9 @@ data class InGamePopup(
         /** The hotkeys' (approved hotkeys mockup 2026-11-07). */
         Volume, Mute, Resolution, Paused, NoAchievements,
         /** Approved Slow motion and Rewind mockup (2026-11-08). */
-        SlowMotion, Rewind }
+        SlowMotion, Rewind,
+        /** Controls extras' Tap to hold: a button held by a tap (approved mockup 2026-11-08). */
+        Held }
 }
 
 /**
@@ -122,6 +124,7 @@ fun InGamePopupCard(p: InGamePopup) {
         InGamePopup.Kind.NoAchievements -> R.drawable.ic_trophy
         InGamePopup.Kind.SlowMotion -> R.drawable.ic_clock
         InGamePopup.Kind.Rewind -> R.drawable.ic_history
+        InGamePopup.Kind.Held -> R.drawable.ic_hand_click
     }
     JoeyToast(icon, p.label, p.name, p.line, iconTint = when (p.kind) {
         InGamePopup.Kind.Problem, InGamePopup.Kind.ChallengeFailed -> JoeyTheme.colors.error

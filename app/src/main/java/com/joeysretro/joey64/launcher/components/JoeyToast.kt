@@ -87,7 +87,7 @@ fun JoeyToast(
             Icon(painterResource(icon), contentDescription = null, tint = iconTint ?: c.good, modifier = Modifier.size(if (compact) 17.dp else 22.dp))
         }
         Column(Modifier.padding(start = if (compact) 9.dp else 10.dp)) {
-            Text(accented(label, c.gold), style = JoeyTheme.type.label, color = c.textDim, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (label.isNotEmpty()) Text(accented(label, c.gold), style = JoeyTheme.type.label, color = c.textDim, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(name, style = if (framed) JoeyTheme.type.button.copy(fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic) else JoeyTheme.type.button,
                 color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (!compact && line.isNotEmpty()) Text(line, style = JoeyTheme.type.small, color = c.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)

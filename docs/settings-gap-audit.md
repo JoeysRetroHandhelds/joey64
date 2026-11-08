@@ -424,11 +424,11 @@ Each item needs Joey's mockup first. The order puts what players miss most first
    - several ROM folders
    - rescan setting
    - box-art download setting
-10. **Controls extras:**
-    - latch
-    - named profiles
+10. **Controls extras:** built 2026-11-08 (approved mockup, "Approve as drawn"; scratchpad build_ctlextras.py / ctlextras_mock.png), all but Raphnet:
+    - latch: Tap to hold
+    - named profiles: the Profiles chip
     - macros
-    - Raphnet (test first)
+    - Raphnet (test first): left out of this build (our core has no raw-access input path like M64Plus AE's raphnet plugin); at the back of the README queue (Joey 2026-11-08)
 11. **With features already planned:**
     - turbo, with its hotkey
     - undo, with its hotkey

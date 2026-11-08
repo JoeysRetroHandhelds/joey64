@@ -193,6 +193,22 @@ std::atomic<int> g_buttons[kPorts] = {};
 std::atomic<int> g_tapped[kPorts] = {}; // presses not yet seen by a poll, so sub-frame taps still register
 int g_polledButtons[kPorts] = {};       // emulation thread only
 std::atomic<int> g_analog[kPorts][2][2] = {};
+// Controls extras' macros (approved mockup 2026-11-08): a run of presses per port, one step held for
+// its frames, counted in polls (sampleButtons). Its buttons are added to the player's; a step with a
+// stick direction takes over the N64 stick for its frames. Started and stopped from the UI thread.
+struct MacroStepN { int mask; int sx, sy; int frames; };
+struct MacroPlay {
+    std::vector<MacroStepN> steps;
+    bool repeat = false, stopping = false, active = false;
+    size_t idx = 0;
+    int left = 0;
+};
+std::mutex g_macroMutex;
+MacroPlay g_macro[kPorts];
+std::atomic<bool> g_macroAny{false};
+bool g_macroStickOn[kPorts] = {};        // emulation thread only
+int g_macroStick[kPorts][2] = {};
+bool g_macroStickAny = false;
 // Ports with a controller plugged in (bit per port), applied after load_game. Default: player 1 only.
 std::atomic<int> g_portsPresent{1};
 std::atomic<bool> g_portsChanged{false}; // set while a game runs: applied between frames
@@ -531,6 +547,28 @@ void sampleButtons() {
         }
         g_polledButtons[p] = g_buttons[p].load() | held;
     }
+    if (g_macroAny.load() || g_macroStickAny) {
+        std::lock_guard<std::mutex> lk(g_macroMutex);
+        bool any = false, stick = false;
+        for (int p = 0; p < kPorts; ++p) {
+            MacroPlay& m = g_macro[p];
+            g_macroStickOn[p] = false;
+            if (!m.active || m.steps.empty()) { m.active = false; continue; }
+            const MacroStepN& s = m.steps[m.idx];
+            g_polledButtons[p] |= s.mask;
+            if (s.sx || s.sy) { g_macroStickOn[p] = true; g_macroStick[p][0] = s.sx; g_macroStick[p][1] = s.sy; stick = true; }
+            if (--m.left <= 0) {
+                if (++m.idx >= m.steps.size()) {
+                    m.idx = 0;
+                    if (!m.repeat || m.stopping) m.active = false;
+                }
+                m.left = m.steps[m.idx].frames;
+            }
+            any = any || m.active;
+        }
+        g_macroStickAny = stick;
+        if (!any) g_macroAny = false;
+    }
     if (g_vulkan) {
         timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); // the clock display timing reports in
         g_vk.notePoll(ts.tv_sec * 1000000000LL + ts.tv_nsec);
@@ -545,8 +583,10 @@ int16_t input_state(unsigned port, unsigned device, unsigned index, unsigned id)
         if (id == RETRO_DEVICE_ID_JOYPAD_MASK) return (int16_t)mask;
         return (mask >> id) & 1;
     }
-    if (device == RETRO_DEVICE_ANALOG && index < 2 && id < 2)
+    if (device == RETRO_DEVICE_ANALOG && index < 2 && id < 2) {
+        if (index == 0 && g_macroStickOn[port]) return (int16_t)g_macroStick[port][id];
         return (int16_t)g_analog[port][index][id].load();
+    }
     return 0;
 }
 
@@ -1668,6 +1708,34 @@ JNIEXPORT jboolean JNICALL JNI(loadState)(JNIEnv* env, jobject, jbyteArray data,
 JNIEXPORT void JNICALL JNI(setButtons)(JNIEnv*, jobject, jint port, jint mask) {
     if (port < 0 || port >= kPorts) return;
     g_tapped[port] |= mask & ~g_buttons[port].exchange(mask);
+}
+
+// Plays a macro on [port] from its next poll: each step's RetroPad bits and stick for its frames.
+// [repeat]: again and again until stopMacro.
+JNIEXPORT void JNICALL JNI(playMacro)(JNIEnv* env, jobject, jint port, jintArray masks, jintArray sx, jintArray sy,
+                                      jintArray frames, jboolean repeat) {
+    if (port < 0 || port >= kPorts) return;
+    jsize n = env->GetArrayLength(masks);
+    if (n <= 0 || env->GetArrayLength(sx) != n || env->GetArrayLength(sy) != n || env->GetArrayLength(frames) != n) return;
+    std::vector<jint> m(n), x(n), y(n), f(n);
+    env->GetIntArrayRegion(masks, 0, n, m.data());
+    env->GetIntArrayRegion(sx, 0, n, x.data());
+    env->GetIntArrayRegion(sy, 0, n, y.data());
+    env->GetIntArrayRegion(frames, 0, n, f.data());
+    std::vector<MacroStepN> steps((size_t)n);
+    for (jsize i = 0; i < n; ++i) steps[i] = {m[i] & 0xffff, x[i], y[i], std::max(1, std::min(60, (int)f[i]))};
+    std::lock_guard<std::mutex> lk(g_macroMutex);
+    MacroPlay& p = g_macro[port];
+    p.steps = std::move(steps);
+    p.repeat = repeat; p.stopping = false; p.active = true; p.idx = 0; p.left = p.steps[0].frames;
+    g_macroAny = true;
+}
+
+// Stops [port]'s macro: [now] at once (the pause menu, a state loaded), else a repeating one after its pass.
+JNIEXPORT void JNICALL JNI(stopMacro)(JNIEnv*, jobject, jint port, jboolean now) {
+    if (port < 0 || port >= kPorts) return;
+    std::lock_guard<std::mutex> lk(g_macroMutex);
+    if (now) g_macro[port].active = false; else g_macro[port].stopping = true;
 }
 
 JNIEXPORT void JNICALL JNI(setAnalog)(JNIEnv*, jobject, jint port, jint i, jint x, jint y) {

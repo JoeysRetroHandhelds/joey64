@@ -17,7 +17,7 @@ class GpuRulesTest {
         assertEquals(GpuRules.Driver.TURNIP, GpuRules.autoDriver(f).value)
         // with Turnip loaded the name is Turnip's
         val t = GpuRules.family(adreno, "Turnip Adreno (TM) 740", null)
-        assertEquals(mapOf("N64_SMOOTHER" to "1", "mupen64plus-parallel-rdp-synchronous" to "True"), env(t))
+        assertEquals(mapOf("N64_SMOOTHER" to "1", "mupen64plus-parallel-rdp-synchronous" to "True", "N64_RDP_PREBUILD" to "0"), env(t))
         assertEquals(8, GpuRules.upscaleTop(t).value)
         assertEquals("parallel", GpuRules.autoRenderer(true, true, true, t).value)
         assertEquals("gliden64", GpuRules.autoRenderer(true, true, false, f).value)
@@ -26,7 +26,7 @@ class GpuRulesTest {
     @Test fun odin3830() {
         val f = GpuRules.family(adreno, "Adreno (TM) 830", "Adreno830v2")
         assertEquals(GpuRules.Driver.TURNIP, GpuRules.autoDriver(f).value)
-        assertEquals(mapOf("N64_SMOOTHER" to "1", "mupen64plus-parallel-rdp-synchronous" to "True"), env(f))
+        assertEquals(mapOf("N64_SMOOTHER" to "1", "mupen64plus-parallel-rdp-synchronous" to "True", "N64_RDP_PREBUILD" to "0"), env(f))
         assertEquals(listOf("N64_KGSL_PRIO"), GpuRules.beforeDriver("Odin3").map { it.key })
         assertTrue(GpuRules.beforeDriver("Retroid Pocket 5").isEmpty())
     }
@@ -34,7 +34,7 @@ class GpuRulesTest {
     @Test fun duo722() {
         val f = GpuRules.family(adreno, "Turnip Adreno (TM) 722", null)
         assertEquals(GpuRules.Driver.FAUX123, GpuRules.autoDriver(GpuRules.family(adreno, "Adreno (TM) 722", null)).value)
-        assertEquals(mapOf("mupen64plus-parallel-rdp-synchronous" to "True"), env(f))
+        assertEquals(mapOf("mupen64plus-parallel-rdp-synchronous" to "True", "N64_RDP_PREBUILD" to "0"), env(f))
         assertEquals(2, GpuRules.upscaleTop(f).value)
     }
 

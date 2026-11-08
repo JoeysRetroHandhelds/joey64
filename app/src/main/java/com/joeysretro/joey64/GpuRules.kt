@@ -102,6 +102,10 @@ object GpuRules {
         // USA) or halts (New Tetris), and sync costs ~1-2 ms a frame. On Mali sync can cost a third of the frame
         // rate, so async plus kSyncRdpGames.
         if (adreno) add(Setting("mupen64plus-parallel-rdp-synchronous", "True", true, "Adreno: parallel-RDP synchronous"))
+        // No pipeline pre-build on Adreno (Joey 2026-11-07): with the driver cache cold (after a driver update or a cleared
+        // cache) building the saved list first stalled ~0.6 s at start in every game on the Portal (portal-pbfirst),
+        // on-demand compiling 63-170 ms; warm launches wait 0 ms either way. Mali keeps it.
+        if (adreno) add(Setting("N64_RDP_PREBUILD", "0", false, "Adreno: no pipeline pre-build"))
     }
 
     /**

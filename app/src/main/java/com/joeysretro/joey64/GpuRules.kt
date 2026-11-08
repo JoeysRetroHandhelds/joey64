@@ -124,6 +124,7 @@ class GpuTrial(private val store: Store, install: String, systemGpu: String) {
     interface Store {
         fun get(key: String): String?
         fun put(key: String, value: String?)
+        fun keys(): Set<String>
     }
 
     private val key = "trial|$install|$systemGpu"
@@ -139,6 +140,8 @@ class GpuTrial(private val store: Store, install: String, systemGpu: String) {
 
     /** The level this start runs at, after stepping down if the last two starts failed; and what happened, for the log. */
     fun decide(): Pick {
+        // Records of earlier installs or system drivers never apply again (the key changed): drop them.
+        for (k in store.keys()) if (k.startsWith("trial|") && k != key) store.put(k, null)
         var s = read()
         var stepped = false
         if (!s.good && s.fails >= FAILS && s.level < TOP) { s = State(s.level + 1, 0, false); write(s); stepped = true }

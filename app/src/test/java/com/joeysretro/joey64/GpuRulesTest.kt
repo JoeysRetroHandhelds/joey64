@@ -65,6 +65,15 @@ class GpuRulesTest {
         val m = HashMap<String, String>()
         override fun get(key: String) = m[key]
         override fun put(key: String, value: String?) { if (value == null) m.remove(key) else m[key] = value }
+        override fun keys(): Set<String> = m.keys.toSet()
+    }
+
+    @Test
+    fun oldRecordsAreDropped() {
+        val st = MapStore()
+        GpuTrial(st, "1", "Mali-G52 MC2").apply { decide(); begin(); drew() }
+        GpuTrial(st, "2", "Mali-G52 MC2").apply { decide(); begin() } // a new install: a new record, the old one goes
+        assertEquals(setOf("trial|2|Mali-G52 MC2"), st.keys())
     }
 
     @Test fun trialStepsDownAfterTwoFailedStarts() {

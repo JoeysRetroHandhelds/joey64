@@ -451,6 +451,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         override fun get(key: String) = prefs.getString(key, null)
         // commit: on disk before the start that may crash
         override fun put(key: String, value: String?) { prefs.edit().putString(key, value).commit() }
+        override fun keys(): Set<String> = prefs.all.keys
     }
 
     /** GpuRules' switches, unless --es env (a variable) or --es opts (a core option, applied after these) sets them. */

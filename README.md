@@ -322,3 +322,4 @@ Dropped for good (no case where they helped): pre-rotation, shared present mode,
 - [ ] Rumble: strength setting for built-in motors, vibration on its own thread (flycast); gyro aiming for hacks that support it (Dolphin reads controller gyro via SensorManager)
 - [ ] Dev: debug properties changeable without relaunching for A/B runs (hakuX's debug.hakux.*), like our `--es env`
 - [ ] Maybe: frame generation through Lossless Scaling's Vulkan layer (Eden; the user supplies the DLL) for 20-30 fps games
+- [ ] Our own offline RetroAchievements, like SeedlessDS and WatermelonDS have (Joey 2026-11-08: "add ... to the queue at the back"): earn achievements with no connection and send the unlocks to RetroAchievements later. First look at how those two do it (and Joey's RAOfflineProxy), then build on the RetroAchievements item above

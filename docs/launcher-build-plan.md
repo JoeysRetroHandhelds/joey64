@@ -110,7 +110,7 @@ So Joey64 uses the **Storage Access Framework**, the way PPSSPP does on Play. Th
   - under 520 dp a page title's chips go on the line under it (`PageHeader`); setup pages scroll and shrink their margins and wordmark; button rows wrap
   - in a game, the pause menu's pages follow the screen too (JoeyDialog measures its own window)
   - checked 2026-11-08: Game settings, Cheats, Search, Achievements and the setup pages at 427x320 and 640x480; the pause menu and its pages on the Thor's bottom screen
-  - Still open: the exact density each target ships with (RG405M, RG476H, RG477M, RP Nova) needs `adb shell wm density` on the device; checked at the likely sizes (427x320, 640x480, 731x549 dp)
+  - Still open: the exact density each target ships with (RG405M, RG476H, RG477M, RP Nova) needs `adb shell wm density` on the device, or reports from people who send them (screen size and density in each report since 2026-11-08, server/reports/queries/screens.sql); checked at the likely sizes (427x320, 640x480, 731x549 dp)
 - Drop forced landscape. 4:3, square and portrait layouts are checked in Compose previews at those sizes. No second screen is used (Joey, 2026-11-05).
 - **Storage layer:** picked folders, file descriptors to native code, and moving data when the folder changes.
 - **SQLite** (built into Android) for games, hashes, play time, collections and the achievement progress cache. The sign-in key is encrypted with the Android Keystore.

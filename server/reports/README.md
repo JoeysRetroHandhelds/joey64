@@ -92,5 +92,18 @@ wrangler d1 execute joey64-reports --remote --file queries/missing-covers.sql
 `schema.sql` as steps that can run twice (`IF NOT EXISTS`); new columns go in `schema.sql` and a new
 `migrations/` file, which is run once with `--remote` before the deploy.
 
-A report is one request and writes 1 + its events rows: check those against the account's plan limits
-for Workers and D1 before turning reports on for everyone.
+## Free plan limits (checked 2026-11-08, Cloudflare's pages of 2026-10-29/30)
+
+| Limit (free) | What one report uses | Room |
+|---|---|---|
+| Workers: 100,000 requests a day (reset 00:00 UTC; over it, error 1027) | 1 request | 100,000 reports a day; an install sends 1 a day (3 at most) |
+| Workers: 10 ms CPU a request | parsing and checking: a 263 KB report (4x the 64 KB cap) took 1.7 ms in node on JoeyPC | a full report is well inside it |
+| D1: 100,000 rows written a day | 2 for the report (row + index), 2 a session or cover (md5 index), 1 a crash | about 16,000 reports a day at 2 sessions each; a first report with 150 covers writes about 300 once |
+| D1: 5 million rows read a day | the per-install count uses its index: a few rows | not a concern |
+| D1: 500 MB a database | about 450 bytes a report with one session (measured: 20,000 in SQLite, schema of 2026-11-08) | about 1.1 million sessions |
+| D1: 50 queries a request | 3 (the count, the report row, one batch) | fine |
+
+Database size is the limit that comes first: at 1,000 installs reporting 2 sessions a day it fills in
+about 1.5 years, at 10,000 in about 2 months. Before that, roll old sessions up into per-game, GPU and
+driver totals and delete the rows, or move to the paid plan. Over a daily limit, the Worker or D1 fails,
+the app gets no 204 and sends the same reports the next day, so nothing is lost but a day.

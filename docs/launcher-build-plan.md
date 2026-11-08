@@ -617,7 +617,7 @@ Checked on the Thor against a local server (2026-11-08): the question, What's se
 
 ## Waiting on Joey (asked from this chat; kept until answered)
 
-- Precompiled block lists, stages (b) shipped lists per ROM MD5 from the data repo and (c) lists collected from players (opt-in), README work order item 17: need a consent toggle (a menu Joey designs), an upload server (the app only downloads today) and the Play Store Data safety declaration (a list of ROM MD5s shows which games someone has). Stage (a), local lists only, needs none of that and is on the emulator chat's queue. (Sent here by the emulator chat for Joey, 2026-11-08.)
+- Precompiled block lists DECIDED (Joey 2026-11-08: "(b) only, for now"): stage (b), lists per ROM MD5 shipped from the data repo like the cheat lists, yes; stage (c), lists collected from players, not now (it would need a consent switch Joey designs, an upload server and the Play Store data-safety entry). Stage (a), local lists, is on the emulator chat's queue.
 - Netplay online server: "Leave this for now" (2026-11-06); ask again when netplay comes up.
 - Email history, Joey's own steps: GitHub settings "Keep my email addresses private" and "Block command line pushes that expose my email"; GitHub Support to purge old commits kept by PR refs (chameleon-app 2, chameleon-data 3, joeys-es-de-folders 1, mupen64plus-ae-retroachievements 1). No backups wait for deletion (deleted after clean copies went to `C:\Users\Joey\Backups\git-2026-11-05`).
 

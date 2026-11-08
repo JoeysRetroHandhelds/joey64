@@ -50,5 +50,19 @@ class LibraryViewsTest {
         assertEquals(4, table["434389C1"])
         assertEquals(4, table["B6330846"])
         assertEquals(1, table["3CE60709"])
+        // By game code: Super Smash Bros. (NAL) four, Super Mario 64 (NSM) one.
+        assertEquals(4, table["@NAL"])
+        assertEquals(1, table["@NSM"])
+    }
+
+    @Test fun aHackFallsBackToItsGameCode() {
+        val facts = LibraryFacts(players = mapOf("434389C1" to 4, "@NAL" to 4, "@NSM" to 1), listed = emptySet(), members = emptyMap())
+        val remix = LibraryGame(9, "Smash Remix", "d".repeat(32), crc32 = "12345678", headerId = "NALE")
+        val starRoad = LibraryGame(10, "Super Mario Star Road", "e".repeat(32), crc32 = "87654321", headerId = "NSME")
+        val unknown = LibraryGame(11, "Homebrew", "f".repeat(32), crc32 = "11111111", headerId = null)
+        assertEquals(4, LibraryViews.playersOf(remix, facts))
+        assertEquals(1, LibraryViews.playersOf(starRoad, facts))
+        assertEquals(null, LibraryViews.playersOf(unknown, facts))
+        assertEquals(listOf(9L), LibraryViews.show(listOf(remix, starRoad, unknown), LibraryView.Filter(AutoFilter.FourPlayers), facts).map { it.id })
     }
 }

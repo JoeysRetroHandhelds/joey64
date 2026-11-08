@@ -176,6 +176,8 @@ data class LibraryGame(
     val favourite: Boolean = false,
     /** The header's "CRC1-CRC2-CC", the cheat lists' key; null until the ROM is read again (V4). */
     val headerKey: String? = null,
+    /** The header's 4-character game code ("NALE"); hacks keep the original's, so the player counts fall back to it. */
+    val headerId: String? = null,
 )
 
 /** A collection the user made (Phase 5). Favourites isn't one: it's games.favorite, always first. */
@@ -446,13 +448,14 @@ class LibraryDb private constructor(context: Context) :
     /** The library: every game with at least one file in a ROM folder, by title. */
     fun libraryGames(): List<LibraryGame> =
         readableDatabase.rawQuery(
-            "SELECT g.id, g.title, g.md5, a.kind, g.crc32, g.last_played_at IS NOT NULL, g.favorite, g.header_key FROM games g LEFT JOIN box_art a ON a.game_id = g.id" +
+            "SELECT g.id, g.title, g.md5, a.kind, g.crc32, g.last_played_at IS NOT NULL, g.favorite, g.header_key, g.header_id FROM games g LEFT JOIN box_art a ON a.game_id = g.id" +
                 " WHERE EXISTS (SELECT 1 FROM files f WHERE f.game_id = g.id) ORDER BY g.title COLLATE NOCASE",
             null,
         ).use { c ->
             buildList {
                 while (c.moveToNext()) add(LibraryGame(c.getLong(0), c.getString(1), c.getString(2), ArtKind.of(c.getString(3)),
-                    crc32 = c.getString(4), played = c.getInt(5) != 0, favourite = c.getInt(6) != 0, headerKey = c.getString(7)))
+                    crc32 = c.getString(4), played = c.getInt(5) != 0, favourite = c.getInt(6) != 0, headerKey = c.getString(7),
+                    headerId = c.getString(8)))
             }
         }
 

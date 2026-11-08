@@ -26,7 +26,7 @@ sealed interface LibraryView {
 
 /** What the filters need beyond the games themselves. */
 class LibraryFacts(
-    /** CRC32 to the most players a game takes. */
+    /** CRC32 to the most players a game takes; "@" + a game code's first 3 characters for any version of it. */
     val players: Map<String, Int>,
     /** MD5s No-Intro lists. */
     val listed: Set<String>,
@@ -42,12 +42,19 @@ object LibraryViews {
         LibraryView.Favourites -> game.favourite
         is LibraryView.Collection -> game.id in facts.members[view.id].orEmpty()
         is LibraryView.Filter -> when (view.filter) {
-            AutoFilter.FourPlayers -> (facts.players[game.crc32] ?: 0) >= 4
+            AutoFilter.FourPlayers -> (playersOf(game, facts) ?: 0) >= 4
             AutoFilter.Hacks -> game.md5 !in facts.listed
             AutoFilter.NeverPlayed -> !game.played
             AutoFilter.HasAchievements -> game.md5.lowercase() in facts.withSets
         }
     }
+
+    /**
+     * The most players [game] takes: by its CRC, else by its header's game code (a hack, translation
+     * or randomizer: Smash Remix has Super Smash Bros.' NALE), else null.
+     */
+    fun playersOf(game: LibraryGame, facts: LibraryFacts): Int? =
+        facts.players[game.crc32] ?: game.headerId?.takeIf { it.length == 4 }?.let { facts.players["@" + it.take(3)] }
 
     fun show(games: List<LibraryGame>, view: LibraryView, facts: LibraryFacts) = games.filter { matches(it, view, facts) }
 
@@ -68,13 +75,13 @@ object LibraryViews {
     private fun fold(s: String): String =
         java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "").lowercase()
 
-    /** assets/n64-players.tsv (devtools/make-players.py): CRC32, a tab, the most players. */
+    /** assets/n64-players.tsv (devtools/make-players.py): CRC32 (or "@" + a game code's first 3 characters), a tab, the most players. */
     fun parsePlayers(text: String): Map<String, Int> {
         val m = HashMap<String, Int>(2048)
         for (line in text.lineSequence()) {
             if (line.isEmpty() || line[0] == '#') continue
             val tab = line.indexOf('\t')
-            if (tab == 8) line.substring(9).toIntOrNull()?.let { m[line.substring(0, 8)] = it }
+            if (tab == 8 || (tab == 4 && line[0] == '@')) line.substring(tab + 1).toIntOrNull()?.let { m[line.substring(0, tab)] = it }
         }
         return m
     }

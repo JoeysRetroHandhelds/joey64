@@ -140,4 +140,50 @@ class ControlsExtrasTest {
         assertTrue(store.all().players[0].latch.isEmpty())
         assertEquals(setOf("Tap"), g.changed(0))
     }
+
+    // ---- Turbo (approved mockup 2026-11-08) ----
+
+    @Test fun turboLabelsMaskAndNames() {
+        assertEquals("Off", turboLabel(emptySet()))
+        assertEquals("A, B", turboLabel(setOf(N64Button.B, N64Button.A)))
+        assertEquals("Z, C up", turboLabel(setOf(N64Button.CUp, N64Button.Z)))
+        // A button held by a tap doesn't repeat; Start can't be ticked.
+        assertEquals(1 shl N64Button.A.retroBit, turboMask(setOf(N64Button.A, N64Button.Z), setOf(N64Button.Z)))
+        assertEquals(0, turboMask(setOf(N64Button.Start), emptySet()))
+        assertEquals("A and B", turboNames(setOf(N64Button.A, N64Button.B), and = true))
+        assertEquals("A, B and Z", turboNames(setOf(N64Button.Z, N64Button.A, N64Button.B), and = true))
+        assertEquals("A, B", turboNames(setOf(N64Button.A, N64Button.B)))
+        assertEquals(10, DEFAULT_TURBO_SPEED)
+        assertEquals(listOf(5, 8, 10, 15, 20), TURBO_SPEEDS)
+    }
+
+    @Test fun turboRoundTripDotAndOldFiles() {
+        val base = ControlsSet.defaults().players[0]
+        assertTrue(base.turbo.isEmpty())
+        assertEquals(10, base.turboSpeed)
+        val s = base.copy(turbo = setOf(N64Button.A, N64Button.CDown), turboSpeed = 15)
+        assertEquals(s, PlayerSetup.fromJson(s.toJson(), base))
+        assertEquals(setOf("Turbo"), s.differences(base))
+        assertEquals(setOf("Turbo"), base.copy(turboSpeed = 20).differences(base))
+        val old = base.toJson().apply { remove("turbo"); remove("turboSpeed") }
+        assertEquals(base, PlayerSetup.fromJson(old, base))
+        // A speed that isn't a choice, or Start in the list, is dropped.
+        val odd = s.toJson().put("turboSpeed", 7).put("turbo", org.json.JSONArray().put("Start").put("A"))
+        val r = PlayerSetup.fromJson(odd, base)
+        assertEquals(setOf(N64Button.A), r.turbo)
+        assertEquals(10, r.turboSpeed)
+    }
+
+    @Test fun turboRowResetsAndProfilesKeepIt() {
+        val store = ControlsStore(tmp.root)
+        val e = ControlsEditor(store, "Star Fox 64 (USA)", byPos)
+        e.set(0, e.shown.players[0].copy(turbo = setOf(N64Button.A, N64Button.B), turboSpeed = 20))
+        assertEquals(setOf("Turbo"), e.changed(0))
+        e.resetRow(0, "Turbo")
+        assertTrue(e.changed(0).isEmpty())
+        val prof = Profile("Shooter", 0L, "Pad", ControlsSet.defaults().players[0].copy(turbo = setOf(N64Button.Z), turboSpeed = 8))
+        val applied = Profile.applyTo(ControlsSet.defaults().players[1], prof)
+        assertEquals(setOf(N64Button.Z), applied.turbo)
+        assertEquals(8, applied.turboSpeed)
+    }
 }

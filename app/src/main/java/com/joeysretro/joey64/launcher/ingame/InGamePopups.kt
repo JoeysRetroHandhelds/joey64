@@ -58,7 +58,9 @@ data class InGamePopup(
         /** Controls extras' Tap to hold: a button held by a tap (approved mockup 2026-11-08). */
         Held,
         /** Offline unlocks: RAOfflineProxy picked and not running (approved mockup 2026-11-08). */
-        AchievementsOff }
+        AchievementsOff,
+        /** The Turbo hotkey and Undo load / save state (approved mockups 2026-11-08). */
+        Turbo, TurboOff, Undo }
 }
 
 /**
@@ -128,11 +130,15 @@ fun InGamePopupCard(p: InGamePopup) {
         InGamePopup.Kind.Rewind -> R.drawable.ic_history
         InGamePopup.Kind.Held -> R.drawable.ic_hand_click
         InGamePopup.Kind.AchievementsOff -> R.drawable.ic_trophy_off
+        InGamePopup.Kind.Turbo -> R.drawable.ic_bolt
+        InGamePopup.Kind.TurboOff -> R.drawable.ic_bolt_off
+        InGamePopup.Kind.Undo -> R.drawable.ic_arrow_back_up
     }
     JoeyToast(icon, p.label, p.name, p.line, iconTint = when (p.kind) {
         InGamePopup.Kind.Problem, InGamePopup.Kind.ChallengeFailed -> JoeyTheme.colors.error
         InGamePopup.Kind.Account, InGamePopup.Kind.Achievement, InGamePopup.Kind.Progress, InGamePopup.Kind.Game,
-        InGamePopup.Kind.NoAchievements, InGamePopup.Kind.AchievementsOff -> JoeyTheme.colors.gold
+        InGamePopup.Kind.NoAchievements, InGamePopup.Kind.AchievementsOff,
+        InGamePopup.Kind.Turbo, InGamePopup.Kind.TurboOff -> JoeyTheme.colors.gold
         else -> null
     }, badge = p.badge, compact = p.compact, framed = p.framed, extra = p.extra, bar = p.bar)
 }

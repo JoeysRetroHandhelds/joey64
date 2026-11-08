@@ -209,6 +209,12 @@ std::atomic<bool> g_macroAny{false};
 bool g_macroStickOn[kPorts] = {};        // emulation thread only
 int g_macroStick[kPorts][2] = {};
 bool g_macroStickAny = false;
+// Turbo (approved mockup 2026-11-08): per port, these bits repeat while held, so many presses a second
+// (counted in polls, 60 a second); the Turbo hotkey turns it off for every port. Set from the UI thread.
+std::atomic<int> g_turboMask[kPorts] = {};
+std::atomic<int> g_turboSpeed[kPorts] = {};
+std::atomic<bool> g_turboOn{true};
+int g_turboPolls[kPorts] = {};           // emulation thread only: polls since a turbo button went down
 // Ports with a controller plugged in (bit per port), applied after load_game. Default: player 1 only.
 std::atomic<int> g_portsPresent{1};
 std::atomic<bool> g_portsChanged{false}; // set while a game runs: applied between frames
@@ -546,6 +552,12 @@ void sampleButtons() {
             if (g_tapHold[p][i] > 0) { --g_tapHold[p][i]; held |= 1 << i; }
         }
         g_polledButtons[p] = g_buttons[p].load() | held;
+        // Turbo: pressed for the first half of each beat, let go for the second (10 a second: 3 polls each).
+        const int t = g_turboOn.load() ? g_turboMask[p].load() : 0;
+        if (t & g_polledButtons[p]) {
+            const int n = g_turboPolls[p]++, speed = std::max(1, g_turboSpeed[p].load());
+            if ((n * speed * 2 / 60) % 2) g_polledButtons[p] &= ~t;
+        } else g_turboPolls[p] = 0;
     }
     if (g_macroAny.load() || g_macroStickAny) {
         std::lock_guard<std::mutex> lk(g_macroMutex);
@@ -1737,6 +1749,14 @@ JNIEXPORT void JNICALL JNI(stopMacro)(JNIEnv*, jobject, jint port, jboolean now)
     std::lock_guard<std::mutex> lk(g_macroMutex);
     if (now) g_macro[port].active = false; else g_macro[port].stopping = true;
 }
+
+JNIEXPORT void JNICALL JNI(setTurbo)(JNIEnv*, jobject, jint port, jint mask, jint perSecond) {
+    if (port < 0 || port >= kPorts) return;
+    g_turboSpeed[port] = std::max(1, std::min(30, (int)perSecond));
+    g_turboMask[port] = mask & 0xffff;
+}
+
+JNIEXPORT void JNICALL JNI(setTurboOn)(JNIEnv*, jobject, jboolean on) { g_turboOn = on; }
 
 JNIEXPORT void JNICALL JNI(setAnalog)(JNIEnv*, jobject, jint port, jint i, jint x, jint y) {
     if (port < 0 || port >= kPorts || i < 0 || i > 1) return;

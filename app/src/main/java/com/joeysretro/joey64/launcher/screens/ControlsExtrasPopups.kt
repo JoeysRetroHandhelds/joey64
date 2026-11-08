@@ -19,6 +19,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.unit.dp
 import com.joeysretro.joey64.controls.ControlsEditor
@@ -30,6 +31,8 @@ import com.joeysretro.joey64.controls.MacroStep
 import com.joeysretro.joey64.controls.N64Button
 import com.joeysretro.joey64.controls.Profile
 import com.joeysretro.joey64.controls.StickDir
+import com.joeysretro.joey64.controls.TURBO_BUTTONS
+import com.joeysretro.joey64.controls.TURBO_SPEEDS
 import com.joeysretro.joey64.controls.fullLabel
 import com.joeysretro.joey64.launcher.components.ButtonRow
 import com.joeysretro.joey64.launcher.components.ControllerTextField
@@ -89,6 +92,47 @@ internal fun TapToHoldPopup(player: Int, latch: Set<N64Button>, onSet: (Set<N64B
             Spacer(Modifier.height(6.dp))
             val n = focused.fullLabel()
             DescriptionLine(n, "Tap $n and the game sees it held; tap it again to let go. The other buttons work as always.")
+        }
+    }
+}
+
+// ---- Turbo (approved mockup 2026-11-08, scratchpad build_turbo.py, screen 2) ----
+
+@Composable
+internal fun TurboPopup(player: Int, turbo: Set<N64Button>, speed: Int, latch: Set<N64Button>,
+                        onSet: (Set<N64Button>, Int) -> Unit, onDismiss: () -> Unit) {
+    // null: the Speed row.
+    var focused by remember { mutableStateOf<N64Button?>(TURBO_BUTTONS.firstOrNull { it in turbo && it !in latch } ?: TURBO_BUTTONS.first { it !in latch }) }
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Tick"), Hint("◀▶", "Speed"), Hint("B", "Done")), width = 560.dp) {
+        Column {
+            PopupTitle("Player ${player + 1} turbo",
+                "A ticked button presses itself again and again while you hold it. For mashing A through text, firing with Z or B.")
+            Row {
+                for (col in listOf(TURBO_BUTTONS.take(5), TURBO_BUTTONS.drop(5))) Column(Modifier.weight(1f)) {
+                    for (b in col) {
+                        val held = b in latch
+                        val on = b in turbo && !held
+                        JoeyRow(b.fullLabel(), Modifier.initialFocus(b == focused), value = if (held) "Tap to hold" else null,
+                            enabled = !held, leading = { _ -> Box(Modifier.alpha(if (held) 0.35f else 1f)) { TickBox(on) } }, sideways = true,
+                            onFocused = { if (it) focused = b }) { if (!held) onSet(if (on) turbo - b else turbo + b, speed) }
+                    }
+                }
+            }
+            PopupDivider()
+            val step: (Int) -> Unit = { by ->
+                val i = (TURBO_SPEEDS.indexOf(speed).takeIf { it >= 0 } ?: TURBO_SPEEDS.indexOf(com.joeysretro.joey64.controls.DEFAULT_TURBO_SPEED)) + by
+                onSet(turbo, TURBO_SPEEDS[i.coerceIn(0, TURBO_SPEEDS.lastIndex)])
+            }
+            JoeyRow("Speed", Modifier.sideways(onStep = step), detail = "How many presses a second",
+                value = if (focused == null) "◀ $speed a second ▶" else "$speed a second", sideways = true,
+                onFocused = { if (it) focused = null }) { }
+            Spacer(Modifier.height(6.dp))
+            val f = focused
+            if (f == null) DescriptionLine("Speed", "5, 8, 10, 15 or 20 presses a second, with Left and Right. 10 is the default.")
+            else {
+                val n = f.fullLabel()
+                DescriptionLine(n, "Hold $n and the game sees it pressed and let go $speed times a second. Let go and it stops. Unticked buttons work as always.")
+            }
         }
     }
 }

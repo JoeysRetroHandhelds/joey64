@@ -170,6 +170,12 @@ object NativeBridge {
     /** Stops [port]'s macro: [now] at once, else a repeating one after its pass. */
     external fun stopMacro(port: Int, now: Boolean)
 
+    /** Turbo (approved mockup 2026-11-08): [port]'s RetroPad bits in [mask] repeat while held, [perSecond] presses a second. Any thread. */
+    external fun setTurbo(port: Int, mask: Int, perSecond: Int)
+
+    /** The Turbo hotkey: every player's turbo off for this play, or on again. Any thread. */
+    external fun setTurboOn(on: Boolean)
+
     /** Analog sticks in libretro range -32768..32767 for [port]. index 0 = left, 1 = right (C-buttons). */
     external fun setAnalog(port: Int, index: Int, x: Int, y: Int)
 

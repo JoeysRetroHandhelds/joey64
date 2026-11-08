@@ -14,6 +14,30 @@ val LATCHABLE: List<N64Button> = listOf(
     N64Button.R, N64Button.CUp, N64Button.CDown, N64Button.CLeft, N64Button.CRight,
 )
 
+/** Turbo (approved mockup 2026-11-08, scratchpad build_turbo.py): the buttons it can tick, no Start (two columns). */
+val TURBO_BUTTONS: List<N64Button> = listOf(
+    N64Button.A, N64Button.B, N64Button.Z, N64Button.L, N64Button.R,
+    N64Button.CUp, N64Button.CDown, N64Button.CLeft, N64Button.CRight,
+)
+
+/** Turbo's Speed choices, presses a second; 10 is the default. */
+val TURBO_SPEEDS: List<Int> = listOf(5, 8, 10, 15, 20)
+const val DEFAULT_TURBO_SPEED = 10
+
+/** The Turbo row's value: "Off", or the ticked buttons ("A, B"). */
+fun turboLabel(turbo: Set<N64Button>): String =
+    if (turbo.isEmpty()) "Off" else TURBO_BUTTONS.filter { it in turbo }.joinToString(", ") { it.fullLabel() }
+
+/** The RetroPad bits that repeat for a player: turbo's, less any held by a tap (a button can't be both). */
+fun turboMask(turbo: Set<N64Button>, latch: Set<N64Button>): Int =
+    TURBO_BUTTONS.filter { it in turbo && it !in latch }.fold(0) { m, b -> m or (1 shl b.retroBit) }
+
+/** "A, B" or "A and B": the turbo buttons of every player, for the hotkey's pop-ups. */
+fun turboNames(all: Set<N64Button>, and: Boolean = false): String {
+    val n = TURBO_BUTTONS.filter { it in all }.map { it.fullLabel() }
+    return if (and && n.size > 1) n.dropLast(1).joinToString(", ") + " and " + n.last() else n.joinToString(", ")
+}
+
 /** "A", "Start", "C up", "D-pad left": a button's name on its own, out of its group. */
 fun N64Button.fullLabel(): String = when (this) {
     in N64Button.C -> "C " + label.lowercase()
@@ -168,6 +192,7 @@ data class Profile(
         fun applyTo(player: PlayerSetup, profile: Profile): PlayerSetup = player.copy(
             buttons = profile.setup.buttons, stick = profile.setup.stick, deadZone = profile.setup.deadZone,
             feel = profile.setup.feel, latch = profile.setup.latch, macros = profile.setup.macros,
+            turbo = profile.setup.turbo, turboSpeed = profile.setup.turboSpeed,
         )
     }
 }

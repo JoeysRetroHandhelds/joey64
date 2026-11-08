@@ -82,6 +82,7 @@ class ControlsEditor(
             "Pak" -> cur.copy(pak = base.pak)
             "Tap" -> cur.copy(latch = base.latch)
             "Macros" -> cur.copy(macros = base.macros)
+            "Turbo" -> cur.copy(turbo = base.turbo, turboSpeed = base.turboSpeed)
             // The page's Stick feel row: all of it; a row inside its popup: that one.
             "StickFeel" -> cur.copy(feel = base.feel)
             in StickFeel.ROWS -> cur.copy(feel = cur.feel.withRow(row, base.feel))
@@ -111,7 +112,7 @@ class ControlsEditor(
      */
     fun resetPlayer(player: Int) {
         // Tap to hold and macros stay: the approved popup names the rows it resets, and they aren't among them.
-        if (game == null) { val cur = all.players[player]; set(player, defaultsFor(cur).copy(latch = cur.latch, macros = cur.macros)); return }
+        if (game == null) { val cur = all.players[player]; set(player, defaultsFor(cur).copy(latch = cur.latch, macros = cur.macros, turbo = cur.turbo, turboSpeed = cur.turboSpeed)); return }
         val o = own ?: return
         val next = o.with(player, all.players[player])
         if ((0..3).all { next.players[it].copy(device = all.players[it].device).differences(all.players[it]).isEmpty() }) removeGame(game)

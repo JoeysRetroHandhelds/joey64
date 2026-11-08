@@ -1422,9 +1422,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             overlay?.screen = null
             stateHandler.post {
                 val savedAt = if (save) null else st.savedAt(slot)
-                val ok = if (save) st.save(slot) else st.load(slot)
+                val ok = if (save) st.save(slot) else st.load(slot, undoable = true)
                 // A state loaded by hand: the game is somewhere real again, so quitting writes the auto slot.
-                if (ok && !save) startLoadFailed = false
+                if (ok && !save) { startLoadFailed = false; loadedThisPlay = true }
+                if (ok && save) savedThisPlay = true
                 runOnUiThread {
                     if (ok && slot != StateSlots.AUTO) setCurrentSlot(slot)
                     closeMenu()
@@ -1481,6 +1482,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             HotkeyAction.Pause -> togglePause()
             HotkeyAction.FrameAdvance -> frameAdvance()
             HotkeyAction.Achievements -> openAchievementsHotkey()
+            HotkeyAction.UndoLoad -> hotkeyUndoLoad()
+            HotkeyAction.UndoSave -> hotkeyUndoSave()
+            HotkeyAction.Turbo -> toggleTurbo()
         }
     }
 
@@ -1656,7 +1660,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val st = states ?: return
         letGoHeld()
         val slot = currentSlot()
-        stateHandler.post { val ok = st.save(slot); runOnUiThread { popSaved(slot, ok) } }
+        stateHandler.post { val ok = st.save(slot); if (ok) savedThisPlay = true; runOnUiThread { popSaved(slot, ok) } }
     }
 
     private fun hotkeyLoad() {
@@ -1666,10 +1670,68 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         stateHandler.post {
             val savedAt = st.savedAt(slot)
             if (savedAt == null) { runOnUiThread { popEmpty(slot) }; return@post }
-            val ok = st.load(slot)
-            if (ok) startLoadFailed = false
+            val ok = st.load(slot, undoable = true)
+            if (ok) { startLoadFailed = false; loadedThisPlay = true }
             runOnUiThread { popLoaded(slot, ok, savedAt) }
         }
+    }
+
+    // ---- Undo load state / Undo save state (approved mockup 2026-11-08, scratchpad build_undo.py) ----
+
+    /** Whether a load / save by hand happened this play, for Nothing to undo's line. */
+    @Volatile private var loadedThisPlay = false
+    @Volatile private var savedThisPlay = false
+
+    private fun hotkeyUndoLoad() {
+        val st = states ?: return
+        letGoHeld()
+        stateHandler.post {
+            val slot = st.undoLoad()
+            runOnUiThread {
+                if (slot != null) pop("state", InGamePopup.Kind.Undo, "Undo load state", "Back to before loading ${slotName(slot).lowercase()}", "")
+                else pop("state", InGamePopup.Kind.Undo, "Undo load state", NOTHING_TO_UNDO,
+                    if (loadedThisPlay) "Already undone" else "No state loaded since the game started")
+            }
+        }
+    }
+
+    private fun hotkeyUndoSave() {
+        val st = states ?: return
+        stateHandler.post {
+            val u = st.undoSave()
+            runOnUiThread {
+                if (u != null) pop("state", InGamePopup.Kind.Undo, "Undo save state",
+                    slotName(u.slot) + (u.savedAt?.let { " is back to " + slotDate(it) } ?: " is empty again"), "")
+                else pop("state", InGamePopup.Kind.Undo, "Undo save state", NOTHING_TO_UNDO,
+                    if (savedThisPlay) "Already undone" else "No state saved since the game started")
+            }
+        }
+    }
+
+    // ---- Turbo (approved mockup 2026-11-08, scratchpad build_turbo.py) ----
+
+    /** The Turbo hotkey's switch, for this play only: the next game starts with it on. */
+    private var turboOn = true
+
+    /** Each player's turbo buttons and speed to the host (a button held by a tap doesn't repeat). */
+    private fun applyTurbo() {
+        for (i in 0..3) {
+            val s = players[i].setup
+            NativeBridge.setTurbo(i, com.joeysretro.joey64.controls.turboMask(s.turbo, s.latch), s.turboSpeed)
+        }
+        NativeBridge.setTurboOn(turboOn)
+    }
+
+    private fun toggleTurbo() {
+        val all = (0..3).filter { controls.players[it].device != DeviceChoice.None }
+            .flatMap { players[it].setup.let { s -> s.turbo - s.latch } }.toSet()
+        if (all.isEmpty()) { pop("turbo", InGamePopup.Kind.Turbo, "", "No turbo buttons", "Controls › Turbo"); return }
+        turboOn = !turboOn
+        NativeBridge.setTurboOn(turboOn)
+        JLog.i(TAG, "turbo " + if (turboOn) "on" else "off")
+        if (turboOn) pop("turbo", InGamePopup.Kind.Turbo, "", "Turbo on", com.joeysretro.joey64.controls.turboNames(all))
+        else pop("turbo", InGamePopup.Kind.TurboOff, "", "Turbo off",
+            com.joeysretro.joey64.controls.turboNames(all, and = true) + if (all.size == 1) " presses normally" else " press normally")
     }
 
     private fun stepSlot(by: Int) {
@@ -1712,9 +1774,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // Settings › On screen › Pop-ups (problems always show).
         val off = when (kind) {
             InGamePopup.Kind.Saved, InGamePopup.Kind.Loaded, InGamePopup.Kind.Slot -> !onScreen.popStates
+            InGamePopup.Kind.Undo -> !onScreen.popStates && name != NOTHING_TO_UNDO
             InGamePopup.Kind.Screenshot -> !onScreen.popScreenshots
             InGamePopup.Kind.Reset -> !onScreen.popReset
             InGamePopup.Kind.Volume, InGamePopup.Kind.Mute, InGamePopup.Kind.Resolution -> !onScreen.popHotkeys
+            InGamePopup.Kind.Turbo, InGamePopup.Kind.TurboOff -> !onScreen.popHotkeys && name != "No turbo buttons"
             else -> false
         }
         if (off) return
@@ -1884,6 +1948,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         hotkeys = controlsStore.hotkeys()
         applyRewind()
         for (i in 0..3) players[i].setup = controls.players[i]
+        turboOn = true
+        applyTurbo()
         playerOfDevice.clear()
         portsPresent = 1
         for (i in 1..3) if (controls.players[i].device != DeviceChoice.None) portsPresent = portsPresent or (1 shl i)
@@ -1944,6 +2010,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         controlsStore.saveAll(all.with(free, setup))
         controls = controls.with(free, if (currentSaveName.isNotEmpty() && controlsStore.game(currentSaveName) != null) controls.players[free].copy(device = choice) else setup)
         players[free].setup = controls.players[free]
+        applyTurbo()
         if (portsPresent and (1 shl free) == 0) {
             portsPresent = portsPresent or (1 shl free)
             NativeBridge.setPortsPresent(portsPresent)
@@ -1965,6 +2032,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         applyRewind()
         if (slowMotion) NativeBridge.setSlowMotion(hotkeys.slowSpeed)
         for (i in 0..3) { players[i].setup = controls.players[i]; players[i].release(); push(i) }
+        applyTurbo()
         playerOfDevice.clear()
         var ports = 1
         for (i in 1..3) if (controls.players[i].device != DeviceChoice.None) ports = ports or (1 shl i)
@@ -2292,6 +2360,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     companion object {
+        private const val NOTHING_TO_UNDO = "Nothing to undo"
         /**
          * The instance whose surface, pause and stop calls reach the native side: the one that loaded the game. A ROM
          * handed over while the game screen is already open makes a second instance; the first one's surfaceDestroyed,

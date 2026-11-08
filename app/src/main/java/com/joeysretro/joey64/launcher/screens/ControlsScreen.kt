@@ -176,6 +176,8 @@ private sealed interface Popup {
     data object ResetPlayer : Popup
     /** Controls extras (approved mockup 2026-11-08): Tap to hold, Macros, Profiles. */
     data object Tap : Popup
+    /** Turbo (approved mockup 2026-11-08, scratchpad build_turbo.py). */
+    data object Turbo : Popup
     data object Macros : Popup
     data object Profiles : Popup
 }
@@ -344,6 +346,8 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
                 SectionLabel("Extras")
                 JoeyRow("Tap to hold", value = com.joeysretro.joey64.controls.latchLabel(setup.latch) + "  ›", enabled = !off, sideways = true,
                     dot = "Tap" in changed, onFocused = { if (it) focused = "Tap" }) { popup = Popup.Tap }
+                JoeyRow("Turbo", value = com.joeysretro.joey64.controls.turboLabel(setup.turbo) + "  ›", enabled = !off, sideways = true,
+                    dot = "Turbo" in changed, onFocused = { if (it) focused = "Turbo" }) { popup = Popup.Turbo }
                 JoeyRow("Macros", value = macrosValue(setup.macros.size) + "  ›", enabled = !off, sideways = true,
                     dot = "Macros" in changed, onFocused = { if (it) focused = "Macros" }) { popup = Popup.Macros }
             }
@@ -448,6 +452,8 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             ControllerDiagram(player, deviceName(setup.device), setup, face)
         }
         Popup.Tap -> TapToHoldPopup(player, setup.latch, { l -> edit { editor.set(player, setup.copy(latch = l)) } }, close)
+        Popup.Turbo -> TurboPopup(player, setup.turbo, setup.turboSpeed, setup.latch,
+            { t, s -> edit { editor.set(player, setup.copy(turbo = t, turboSpeed = s)) } }, close)
         Popup.Macros -> MacrosPopup(player, setup.macros, editor.hotkeys, { m -> edit { editor.set(player, setup.copy(macros = m)) } }, close)
         Popup.Profiles -> ProfilesPopup(player, deviceName(setup.device), targetTitle ?: target, editor, version,
             onChanged = { version++ }, onLoaded = { name -> loaded = name; close() }, onDismiss = close)
@@ -467,7 +473,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
 }
 
 private const val TAG = "Joey64Controls"
-private val EXTRA_ROWS = setOf("Tap", "Macros")
+private val EXTRA_ROWS = setOf("Tap", "Turbo", "Macros")
 
 /** The Macros row's value: "None", "1 macro", "2 macros". */
 private fun macrosValue(n: Int) = when (n) { 0 -> "None"; 1 -> "1 macro"; else -> "$n macros" }
@@ -576,14 +582,14 @@ private fun HotkeysPage(editor: ControlsEditor, version: Int, focused: String, o
             JoeyRow("Hotkey button", Modifier.initialFocus(), value = hotkeyKey(h.button) + "  ›", sideways = true,
                 onFocused = { if (it) onFocused("hkButton") }) { onChange(Target.HotkeyButton) }
             SectionLabel("States")
-            for (a in listOf(HotkeyAction.Save, HotkeyAction.Load, HotkeyAction.NextSlot, HotkeyAction.PrevSlot)) row(a)
+            for (a in listOf(HotkeyAction.Save, HotkeyAction.Load, HotkeyAction.NextSlot, HotkeyAction.PrevSlot, HotkeyAction.UndoLoad, HotkeyAction.UndoSave)) row(a)
             SectionLabel("Sound")
             for (a in listOf(HotkeyAction.VolumeUp, HotkeyAction.VolumeDown, HotkeyAction.Mute)) row(a)
             SectionLabel("Picture")
             for (a in listOf(HotkeyAction.UpscaleUp, HotkeyAction.UpscaleDown)) row(a)
     }) {
             SectionLabel("Game")
-            for (a in listOf(HotkeyAction.PauseMenu, HotkeyAction.Pause, HotkeyAction.FrameAdvance, HotkeyAction.FastForward, HotkeyAction.SlowMotion, HotkeyAction.Rewind, HotkeyAction.Screenshot, HotkeyAction.Stats,
+            for (a in listOf(HotkeyAction.PauseMenu, HotkeyAction.Pause, HotkeyAction.FrameAdvance, HotkeyAction.FastForward, HotkeyAction.SlowMotion, HotkeyAction.Rewind, HotkeyAction.Turbo, HotkeyAction.Screenshot, HotkeyAction.Stats,
                 HotkeyAction.Achievements, HotkeyAction.GameShark, HotkeyAction.Reset, HotkeyAction.Quit)) row(a)
     }
     Spacer(Modifier.height(6.dp))
@@ -612,6 +618,9 @@ private fun hotkeyDescription(a: HotkeyAction): String? = when (a) {
     HotkeyAction.Pause -> "Stops the game where it is, with no menu, until you press it again."
     HotkeyAction.FrameAdvance -> "Paused, each press runs the game one frame, without sound. Playing, it pauses."
     HotkeyAction.Achievements -> "Opens the pause menu's Achievements page. B goes back to the game."
+    HotkeyAction.UndoLoad -> "Goes back to where you were just before the last load state, if it was the wrong slot."
+    HotkeyAction.UndoSave -> "Puts back the slot the last save state wrote over, with its picture and date."
+    HotkeyAction.Turbo -> "Turns turbo off for this play, and on again. Which buttons repeat is set in Controls › Turbo."
     else -> null
 }
 
@@ -634,6 +643,9 @@ private fun hotkeyPopupLine(a: HotkeyAction): String = when (a) {
     HotkeyAction.Achievements -> "Opens the Achievements page."
     HotkeyAction.GameShark -> "The GameShark's button, held for as long as you hold it."
     HotkeyAction.Reset -> "Starts the game over, as the console's Reset."
+    HotkeyAction.UndoLoad -> "Back to just before the last load state."
+    HotkeyAction.UndoSave -> "Puts back the slot the last save wrote over."
+    HotkeyAction.Turbo -> "Turbo off for this play, and on again."
     HotkeyAction.FastForward, HotkeyAction.SlowMotion, HotkeyAction.Rewind, HotkeyAction.Quit -> ""
 }
 

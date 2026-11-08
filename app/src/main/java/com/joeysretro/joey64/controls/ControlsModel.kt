@@ -105,6 +105,9 @@ data class PlayerSetup(
     val latch: Set<N64Button> = emptySet(),
     /** Macros (Controls extras), up to [Macro.MAX]. */
     val macros: List<Macro> = emptyList(),
+    /** Turbo (approved mockup 2026-11-08): these repeat while held, [turboSpeed] presses a second. */
+    val turbo: Set<N64Button> = emptySet(),
+    val turboSpeed: Int = DEFAULT_TURBO_SPEED,
 ) {
     fun with(b: N64Button, input: PadInput?) = copy(buttons = buttons + (b to input))
 
@@ -117,6 +120,7 @@ data class PlayerSetup(
         addAll(feel.differences(other.feel))
         if (latch != other.latch) add("Tap")
         if (macros != other.macros) add("Macros")
+        if (turbo != other.turbo || turboSpeed != other.turboSpeed) add("Turbo")
     }
 
     fun toJson(): JSONObject = JSONObject().apply {
@@ -132,6 +136,8 @@ data class PlayerSetup(
         put("feel", feel.toJson())
         put("latch", JSONArray().apply { N64Button.entries.filter { it in latch }.forEach { put(it.name) } })
         put("macros", JSONArray().apply { macros.forEach { put(it.toJson()) } })
+        put("turbo", JSONArray().apply { N64Button.entries.filter { it in turbo }.forEach { put(it.name) } })
+        put("turboSpeed", turboSpeed)
     }
 
     companion object {
@@ -162,6 +168,10 @@ data class PlayerSetup(
                 macros = o.optJSONArray("macros")?.let { a ->
                     (0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.let { Macro.fromJson(it) } }.take(Macro.MAX)
                 } ?: fallback.macros,
+                turbo = o.optJSONArray("turbo")?.let { a ->
+                    (0 until a.length()).mapNotNull { i -> TURBO_BUTTONS.firstOrNull { it.name == a.optString(i) } }.toSet()
+                } ?: fallback.turbo,
+                turboSpeed = o.optInt("turboSpeed", fallback.turboSpeed).takeIf { it in TURBO_SPEEDS } ?: fallback.turboSpeed,
             )
         }
     }
@@ -218,6 +228,10 @@ enum class HotkeyAction(val label: String, /** null: not set until the user pick
     Stats("Stats overlay", KeyEvent.KEYCODE_BUTTON_X),
     /** Opens the pause menu's Achievements page; B goes back to the game. */
     Achievements("Achievements", null),
+    /** Approved turbo and undo mockups (2026-11-08): all Not set. */
+    UndoLoad("Undo load state", null),
+    UndoSave("Undo save state", null),
+    Turbo("Turbo", null),
     /** Held for as long as the buttons are (approved 2026-11-07). */
     GameShark("GameShark button", KeyEvent.KEYCODE_BUTTON_THUMBL),
     /** Not set by default (Joey 2026-11-07). */

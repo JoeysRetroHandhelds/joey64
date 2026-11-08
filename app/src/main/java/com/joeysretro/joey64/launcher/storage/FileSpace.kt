@@ -26,6 +26,9 @@ interface FileSpace {
     /** Deletes a file, or a folder when it's empty. True when it's gone. */
     fun delete(path: List<String>): Boolean
 
+    /** Sets a file's modified time (Undo save state puts a slot's date back). False where it can't. */
+    fun setModified(path: List<String>, time: Long): Boolean = false
+
     /**
      * A file descriptor for native code, as PPSSPP does on Play: Kotlin opens the file through the
      * folder the user picked, and the core reads and writes the descriptor directly. [mode] is
@@ -64,6 +67,8 @@ class DirSpace(val root: File) : FileSpace {
         val f = file(path)
         return !f.exists() || f.delete()
     }
+
+    override fun setModified(path: List<String>, time: Long): Boolean = file(path).setLastModified(time)
 
     override fun openFd(path: List<String>, mode: String): ParcelFileDescriptor? {
         val f = file(path)

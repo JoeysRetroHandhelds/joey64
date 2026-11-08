@@ -430,8 +430,8 @@ Each item needs Joey's mockup first. The order puts what players miss most first
     - macros
     - Raphnet (test first): left out of this build (our core has no raw-access input path like M64Plus AE's raphnet plugin); at the back of the README queue (Joey 2026-11-08)
 11. **With features already planned:**
-    - turbo, with its hotkey
-    - undo, with its hotkey
+    - turbo, with its hotkey (built 2026-11-08)
+    - undo, with its hotkey (built 2026-11-08: Undo load state and Undo save state)
     - slow motion, frame advance and rewind, each with hotkeys (built 2026-11-07 and 2026-11-08)
     - Picture shaders and bezels, with their hotkeys, and tab 10's additions
     - rumble strength and Transfer Pak

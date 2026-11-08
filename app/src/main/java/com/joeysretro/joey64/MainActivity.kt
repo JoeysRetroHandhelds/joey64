@@ -149,6 +149,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // compat 82/82 on both. Other GPUs were not measured with it, so it is off there. --es env wins.
         if ("Adreno" !in gpuName && android.system.Os.getenv("N64_RDP_RING_LAZY") == null)
             android.system.Os.setenv("N64_RDP_RING_LAZY", "0", true)
+        // The recompiler's compile thread (core N64_DRC_THREAD, off unless =1) on Mali only (2026-11-08, Joey: "your call"):
+        // new code runs in the interpreter while a worker compiles it. Flip MK64 race start (flip-mkthread4, 3 rounds):
+        // worst frame 88-90 -> 45 ms; speed -0.4% geomean (flip-drcthread4). Adreno has no such hitches (Odin 3 worst
+        // block 1-2 ms) and lost on worst frames (odin3-drcthread4: game 40 8.6 -> 23-31 ms), so it stays off there.
+        if ("Mali" in gpuName && android.system.Os.getenv("N64_DRC_THREAD") == null)
+            android.system.Os.setenv("N64_DRC_THREAD", "1", true)
         // Smoother timing (CountPerOp=1, README item 15) for the games that lag on hardware, strong devices only
         // (Joey 2026-11-06; compat passed on the Odin 3 and Portal, odin3-/portal-smoothc): Adreno 730 and up (Portal,
         // Odin 3, Thor). The host picks the games (kSmootherGames). --es env N64_SMOOTHER=0|1 wins.

@@ -76,8 +76,10 @@ object ReportSender {
                 .take(ReportJson.MAX_EVENTS - extra.size)
             val events = sessionEvents.map { it.second } + extra
             if (events.isEmpty()) continue
+            val screen = mainScreen(ctx)
             val device = ReportJson.Device(Build.MANUFACTURER, Build.MODEL, if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL else null,
-                gpuDriver.first.ifEmpty { null }, gpuDriver.second.ifEmpty { null }, Build.VERSION.SDK_INT)
+                gpuDriver.first.ifEmpty { null }, gpuDriver.second.ifEmpty { null }, Build.VERSION.SDK_INT,
+                screen?.first, screen?.second, screen?.third)
             val body = ReportJson.report(install, app, core, device, events).toString()
             val code = post(ctx, body)
             JLog.i(TAG, "reports: sent ${sessionEvents.size} sessions" + (if (i == 0) ", ${coverEvents.size} covers, ${crashEvents.size} crashes" else "") + ": $code")
@@ -211,4 +213,16 @@ object ReportSender {
         if (!ReportPrefs.on(ctx)) return
         try { ReportFiles.write(File(ReportFiles.dir(ctx), "java-crash-${android.os.Process.myPid()}.txt"), stack.take(2000)) } catch (e: Exception) { }
     }
+
+    /**
+     * The main screen as layouts see it: its size in pixels, long side first, and its density in dpi
+     * (the Thor's main screen, not the second one). Null when Android won't say.
+     */
+    @Suppress("DEPRECATION")
+    private fun mainScreen(ctx: Context): Triple<Int, Int, Int>? = try {
+        val dm = ctx.getSystemService(android.hardware.display.DisplayManager::class.java)
+        val display = dm.getDisplay(android.view.Display.DEFAULT_DISPLAY)
+        val m = android.util.DisplayMetrics().also { display.getRealMetrics(it) }
+        Triple(maxOf(m.widthPixels, m.heightPixels), minOf(m.widthPixels, m.heightPixels), m.densityDpi)
+    } catch (e: RuntimeException) { null }
 }

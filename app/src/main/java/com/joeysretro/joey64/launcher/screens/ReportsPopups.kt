@@ -26,6 +26,7 @@ import com.joeysretro.joey64.launcher.components.initialFocus
 /** Screen 4: every field a report holds, and what never goes (server/reports/README.md). */
 const val WHATS_SENT = """This device
   • Maker, model, chip, GPU and its driver, Android version
+  • Screen size and density
   • Joey64 and core version
 
 Each game you play

@@ -174,7 +174,9 @@ class SessionTracker(private val openFile: File, private val pendingDir: File, p
 
 /** The report the server takes (server/reports/src/validate.js, format 1). Pure: unit tested. */
 object ReportJson {
-    data class Device(val maker: String?, val model: String?, val soc: String?, val gpu: String?, val driver: String?, val android: Int)
+    /** [screenW] x [screenH]: the main screen in pixels, long side first; [dpi] its density (dp = px * 160 / dpi). */
+    data class Device(val maker: String?, val model: String?, val soc: String?, val gpu: String?, val driver: String?, val android: Int,
+                      val screenW: Int? = null, val screenH: Int? = null, val dpi: Int? = null)
 
     const val MAX_EVENTS = 200
     private val MD5 = Regex("^[0-9a-f]{32}$")
@@ -200,6 +202,10 @@ object ReportJson {
             clean(d.gpu, 64)?.let { put("gpu", it) }
             clean(d.driver, 96)?.let { put("driver", it) }
             if (d.android in 21..99) put("android", d.android)
+            // Added 2026-11-08 (server migrations/0003-screen.sql); the server takes each on its own.
+            d.screenW?.takeIf { it in 100..10000 }?.let { put("screenW", it) }
+            d.screenH?.takeIf { it in 100..10000 }?.let { put("screenH", it) }
+            d.dpi?.takeIf { it in 60..1000 }?.let { put("dpi", it) }
         })
         put("events", JSONArray(events))
     }

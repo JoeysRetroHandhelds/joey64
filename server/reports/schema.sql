@@ -13,7 +13,10 @@ CREATE TABLE IF NOT EXISTS reports (
   soc       TEXT,
   gpu       TEXT,           -- "Adreno 750"
   driver    TEXT,           -- the Vulkan driver in use: "system 0512.744" or "Turnip 25.1"
-  android   INTEGER         -- SDK level
+  android   INTEGER,        -- SDK level
+  screen_w  INTEGER,        -- the main screen in pixels, long side (migrations/0003-screen.sql)
+  screen_h  INTEGER,        -- short side
+  screen_dpi INTEGER        -- its density; dp = px * 160 / dpi
 );
 CREATE INDEX IF NOT EXISTS reports_install_day ON reports (install, day);
 

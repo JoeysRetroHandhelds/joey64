@@ -162,6 +162,10 @@ export function validate(body) {
     gpu: str(d.gpu, "gpu", 64),
     driver: str(d.driver, "driver", 96),
     android: num(d.android, "android", 21, 99, { int: true }),
+    // Added 2026-11-08 (migrations/0003-screen.sql); each may be missing (an older app).
+    screen_w: num(d.screenW, "screenW", 100, 10000, { int: true }),
+    screen_h: num(d.screenH, "screenH", 100, 10000, { int: true }),
+    screen_dpi: num(d.dpi, "dpi", 60, 1000, { int: true }),
     events: body.events.map(event),
   };
 }

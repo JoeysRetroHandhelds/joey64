@@ -25,6 +25,15 @@ class ReportsTest {
         assertEquals(1, r.getJSONArray("events").length())
     }
 
+    @Test fun screenGoesWhenAndroidGaveOne() {
+        val dev = ReportJson.report("id", "1", null, ReportJson.Device("AYN", "Thor", null, null, null, 34, 1920, 1080, 369), emptyList())
+            .getJSONObject("device")
+        assertEquals(1920, dev.getInt("screenW")); assertEquals(1080, dev.getInt("screenH")); assertEquals(369, dev.getInt("dpi"))
+        val none = ReportJson.report("id", "1", null, ReportJson.Device("AYN", "Thor", null, null, null, 34, 0, null, 5000), emptyList())
+            .getJSONObject("device")
+        assertFalse(none.has("screenW")); assertFalse(none.has("screenH")); assertFalse(none.has("dpi"))
+    }
+
     @Test fun deviceLeavesOutWhatTheServerWouldRefuse() {
         val d = ReportJson.Device(null, "x".repeat(100), "", null, "a\u0001b", 5)
         val dev = ReportJson.report("id", "1", null, d, emptyList()).getJSONObject("device")

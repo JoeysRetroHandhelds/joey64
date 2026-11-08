@@ -8,7 +8,7 @@ export function good(events) {
     install: INSTALL,
     app: "0.9.0",
     core: "dd 0ac9d17",
-    device: { maker: "AYN", model: "Thor", soc: "SM8650", gpu: "Adreno 750", driver: "system 0762.10", android: 34 },
+    device: { maker: "AYN", model: "Thor", soc: "SM8650", gpu: "Adreno 750", driver: "system 0762.10", android: 34, screenW: 1920, screenH: 1080, dpi: 369 },
     events: events ?? [
       { type: "session", md5: MD5, header: "NSME", renderer: "parallel", scale: 1, settings: { frameskip: "auto", widescreen: true },
         seconds: 1800, emuFps: 60.1, drawnFps: 30.0, dupes: 30.1, underruns: 0, ended: "quit",

@@ -20,6 +20,14 @@ test("a good report keeps every event, trimmed to the tables", () => {
   assert.equal(r.events[0].rdp_sync, 0);
   assert.equal(r.events[0].from_state, 1);
   assert.equal(r.events[0].cpu_core, "dynarec");
+  assert.deepEqual([r.screen_w, r.screen_h, r.screen_dpi], [1920, 1080, 369]);
+});
+
+test("an older app's device, without the screen, is taken", () => {
+  const b = good();
+  for (const k of ["screenW", "screenH", "dpi"]) delete b.device[k];
+  const r = validate(b);
+  assert.deepEqual([r.screen_w, r.screen_h, r.screen_dpi], [null, null, null]);
 });
 
 test("an older app's session, without the details, is taken", () => {
@@ -64,6 +72,8 @@ for (const [name, change] of [
   ["cpuCore", (b) => { b.events[0].cpuCore = "jit"; }],
   ["frames not a whole number", (b) => { b.events[0].frames = 1.5; }],
   ["device not an object", (b) => { b.device = "Thor"; }],
+  ["screenW out of range", (b) => { b.device.screenW = 99999; }],
+  ["dpi not a whole number", (b) => { b.device.dpi = 369.5; }],
 ]) {
   test(`rejected: ${name}`, () => {
     const b = good();

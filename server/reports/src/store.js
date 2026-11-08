@@ -6,8 +6,8 @@ export const PER_INSTALL_DAY = 6;
 /** One report row, then its events, in one batch (D1 runs a batch as one transaction). */
 export async function store(db, r, day) {
   const row = await db.prepare(
-    "INSERT INTO reports (install, day, app, core, maker, model, soc, gpu, driver, android) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
-  ).bind(r.install, day, r.app, r.core, r.maker, r.model, r.soc, r.gpu, r.driver, r.android).first();
+    "INSERT INTO reports (install, day, app, core, maker, model, soc, gpu, driver, android, screen_w, screen_h, screen_dpi) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+  ).bind(r.install, day, r.app, r.core, r.maker, r.model, r.soc, r.gpu, r.driver, r.android, r.screen_w, r.screen_h, r.screen_dpi).first();
   const id = row.id;
   const statements = r.events.map((e) => {
     switch (e.type) {

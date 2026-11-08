@@ -22,7 +22,8 @@ Crash `where`: core (native crash), host (Java crash or ANR while a game ran), l
   "install": "<random uuid v4, made by the app, the user can reset it>",
   "app": "0.9.0", "core": "0ac9d17",
   "device": { "maker": "AYN", "model": "Thor", "soc": "SM8550", "gpu": "Adreno 740",
-              "driver": "Turnip Gen8 V38", "android": 34 },
+              "driver": "Turnip Gen8 V38", "android": 34,
+              "screenW": 1920, "screenH": 1080, "dpi": 369 },
   "events": [
     { "type": "session", "md5": "<rom md5>", "header": "NSME", "renderer": "parallel", "scale": 1,
       "settings": { "only": "the ones that differ from the defaults" },

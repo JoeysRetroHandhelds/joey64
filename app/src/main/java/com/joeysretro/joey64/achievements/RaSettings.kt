@@ -34,6 +34,8 @@ data class RaOptions(
     val screenshotOnUnlock: Boolean = false,
     val saveBadges: Boolean = true,
     val richPresence: Boolean = true,
+    val unlockSound: UnlockSoundChoice = UnlockSoundChoice.Chime,
+    val soundVolume: Int = 70,
 ) {
     companion object {
         val STAY_SECONDS = listOf(3, 5, 8, 10, 15)
@@ -87,6 +89,8 @@ object RaSettings {
             screenshotOnUnlock = p.getBoolean("screenshotOnUnlock", d.screenshotOnUnlock),
             saveBadges = p.getBoolean("saveBadges", d.saveBadges),
             richPresence = p.getBoolean("richPresence", d.richPresence),
+            unlockSound = UnlockSoundChoice.of(p.getString("unlockSound", null), d.unlockSound),
+            soundVolume = p.getInt("soundVolume", d.soundVolume).takeIf { it in UnlockSound.VOLUME_STEPS } ?: d.soundVolume,
         )
     }
 
@@ -106,6 +110,8 @@ object RaSettings {
             .putBoolean("screenshotOnUnlock", o.screenshotOnUnlock)
             .putBoolean("saveBadges", o.saveBadges)
             .putBoolean("richPresence", o.richPresence)
+            .putString("unlockSound", o.unlockSound.name)
+            .putInt("soundVolume", o.soundVolume)
             .apply()
     }
 }

@@ -98,7 +98,7 @@ class RaPopups(
         worker.execute { try { handle(event) } catch (e: Exception) { JLog.e(TAG, "pop-up for ${event.optString("event")} failed: $e") } }
     }
 
-    fun stop() { RaBridge.listeners.remove(this); worker.shutdownNow() }
+    fun stop() { RaBridge.listeners.remove(this); worker.shutdownNow(); UnlockSound.stop() }
 
     private fun badge(url: String?): File? = url?.takeIf { it.isNotEmpty() }?.let { RaBadges.await(app, it, BADGE_WAIT_MS) }
 
@@ -122,6 +122,7 @@ class RaPopups(
                 if (a == null) return
                 unlocked += a.optInt("id")
                 if (o.screenshotOnUnlock) screenshot()
+                UnlockSound.play(app, o.unlockSound, o.soundVolume)
                 if (o.popUnlocks) show(RaPopupText.unlock(a, game, offline, badge(a.optString("badge"))))
                 // The unlock that beats the game (a progression or win one): the Beaten card after it.
                 val nowBeaten = game != null && game.optDouble("beaten", 0.0) > 0

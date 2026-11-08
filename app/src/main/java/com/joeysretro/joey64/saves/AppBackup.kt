@@ -62,7 +62,8 @@ object AppBackup {
     /** The 64DD BIOS goes with the saves: a restored disk save needs it to start. */
     private val SAVE_KINDS = listOf(DataKind.Saves, DataKind.States, DataKind.Backups, DataKind.Bios)
     /** Settings folders in Joey64's own storage. */
-    private val SETTINGS_DIRS = listOf("video", "audio", "controls", "onscreen", SavesStore.DIR)
+    private val SETTINGS_DIRS = listOf("video", "audio", "controls", "onscreen", SavesStore.DIR,
+        com.joeysretro.joey64.achievements.UnlockSound.DIR)
     /** SharedPreferences that are settings (not the RetroAchievements account: that's SignInStore's). */
     private val PREFS = listOf("ra_settings", "states")
     private val NAME_OK = Regex("""[^/\\]+""")

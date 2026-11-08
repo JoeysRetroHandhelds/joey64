@@ -512,9 +512,7 @@ private fun HotkeysPage(editor: ControlsEditor, version: Int, focused: String, o
     Text("Hotkeys", style = JoeyTheme.type.pageTitle, color = c.text)
     Spacer(Modifier.height(8.dp))
     // Longer than the screen: both columns scroll together, with the focus.
-    Row(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).focusRestorer().focusGroup(),
-        horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-        Column(Modifier.weight(1f)) {
+    TwoColumns(Modifier.weight(1f).verticalScroll(rememberScrollState()), scroll = false, left = {
             SectionLabel("Hotkey button")
             JoeyRow("Hotkey button", Modifier.initialFocus(), value = hotkeyKey(h.button) + "  ›", sideways = true,
                 onFocused = { if (it) onFocused("hkButton") }) { onChange(Target.HotkeyButton) }
@@ -524,12 +522,10 @@ private fun HotkeysPage(editor: ControlsEditor, version: Int, focused: String, o
             for (a in listOf(HotkeyAction.VolumeUp, HotkeyAction.VolumeDown, HotkeyAction.Mute)) row(a)
             SectionLabel("Picture")
             for (a in listOf(HotkeyAction.UpscaleUp, HotkeyAction.UpscaleDown)) row(a)
-        }
-        Column(Modifier.weight(1f)) {
+    }) {
             SectionLabel("Game")
             for (a in listOf(HotkeyAction.PauseMenu, HotkeyAction.Pause, HotkeyAction.FrameAdvance, HotkeyAction.FastForward, HotkeyAction.Screenshot, HotkeyAction.Stats,
                 HotkeyAction.Achievements, HotkeyAction.GameShark, HotkeyAction.Reset, HotkeyAction.Quit)) row(a)
-        }
     }
     Spacer(Modifier.height(6.dp))
     HotkeyAction.entries.firstOrNull { "hk" + it.name == focused }?.let { a -> hotkeyDescription(a)?.let { DescriptionLine(a.label, it) } }

@@ -59,6 +59,9 @@ import com.joeysretro.joey64.achievements.PopupSpot
 import com.joeysretro.joey64.achievements.RaBridge
 import com.joeysretro.joey64.achievements.RaOptions
 import com.joeysretro.joey64.achievements.RaSettings
+import com.joeysretro.joey64.achievements.UnlockSound
+import com.joeysretro.joey64.achievements.UnlockSoundChoice
+import com.joeysretro.joey64.launcher.components.TwoColumns
 import com.joeysretro.joey64.launcher.components.ControllerTextField
 import com.joeysretro.joey64.launcher.components.PromptText
 import com.joeysretro.joey64.launcher.components.PromptHeader
@@ -77,6 +80,7 @@ import com.joeysretro.joey64.launcher.components.rowValueColor
 import com.joeysretro.joey64.launcher.theme.JoeyTheme
 import com.joeysretro.joey64.launcher.theme.PictureColors
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.NumberFormat
 
@@ -89,8 +93,9 @@ import java.text.NumberFormat
  * name, points), Achievements, Sign out; Play: Hardcore (locked, "Not approved yet"), Encore mode,
  * Spectator mode, Unofficial achievements; More: Screenshot on unlock, Save badges for offline,
  * Rich presence. Right: Pop-ups: Unlocks, Progress, Challenge badges, Leaderboards (locked, "Needs
- * Hardcore"), Game start summary, Pop-up place, Badge place, Pop-ups stay for. The Sound rows come
- * with Joey64's sounds. Sign out asks first only when unlocks are still unsent (the offline queue,
+ * Hardcore"), Game start summary, Pop-up place, Badge place, Pop-ups stay for; Sound: Unlock sound
+ * (a picker that plays each as focus reaches it, and Your own sound, a file Joey64 keeps a copy
+ * of), Volume (Left / Right in 10% steps, playing the sound at each). Sign out asks first only when unlocks are still unsent (the offline queue,
  * RaUnlockQueue): Stay signed in, or Sign out anyway, which drops them.
  */
 @Composable
@@ -231,6 +236,7 @@ private fun SignedIn(account: RaBridge.Account, onHints: (List<Hint>) -> Unit, m
     val o = RaSettings.options(context).collectAsStateWithLifecycle().value ?: RaOptions()
     var focused by remember { mutableStateOf("ach") }
     var picker by remember { mutableStateOf<String?>(null) }
+    var volumeFocused by remember { mutableStateOf(false) }
     fun set(change: (RaOptions) -> RaOptions) = RaSettings.update(context, change)
 
     LaunchedEffect(focused) {
@@ -250,9 +256,8 @@ private fun SignedIn(account: RaBridge.Account, onHints: (List<Hint>) -> Unit, m
             onFocused = { if (it) focused = key }) { set { change(it, !on) } }
 
     Column(modifier.fillMaxSize()) {
-        Row(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).focusRestorer().focusGroup(),
-            horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            Column(Modifier.weight(1f)) {
+        // The two columns scroll together (as approved), so one scroll around both.
+        TwoColumns(Modifier.weight(1f).verticalScroll(rememberScrollState()), scroll = false, left = {
                 SectionLabel("Account")
                 AccountBlock(account)
                 Toggle("ach", "Achievements", o.achievements, first = true) { x, v -> x.copy(achievements = v) }
@@ -268,10 +273,9 @@ private fun SignedIn(account: RaBridge.Account, onHints: (List<Hint>) -> Unit, m
                 Toggle("shot", "Screenshot on unlock", o.screenshotOnUnlock) { x, v -> x.copy(screenshotOnUnlock = v) }
                 Toggle("badge", "Save badges for offline", o.saveBadges) { x, v -> x.copy(saveBadges = v) }
                 Toggle("rp", "Rich presence", o.richPresence) { x, v -> x.copy(richPresence = v) }
-            }
-            Column(Modifier.weight(1f)) {
+        }) {
                 SectionLabel("Pop-ups")
-                Toggle("pun", "Unlocks", o.popUnlocks, top = true) { x, v -> x.copy(popUnlocks = v) }
+                Toggle("pun", "Unlocks", o.popUnlocks, top = !com.joeysretro.joey64.launcher.layout.LocalScreenLayout.current.singleColumnSettings) { x, v -> x.copy(popUnlocks = v) }
                 Toggle("ppr", "Progress", o.popProgress) { x, v -> x.copy(popProgress = v) }
                 Toggle("pch", "Challenge badges", o.popChallenges) { x, v -> x.copy(popChallenges = v) }
                 JoeyRow("Leaderboards", sideways = true, value = "Needs Hardcore", enabled = false, lock = true, onFocused = { if (it) focused = "lb" })
@@ -279,7 +283,14 @@ private fun SignedIn(account: RaBridge.Account, onHints: (List<Hint>) -> Unit, m
                 JoeyRow("Pop-up place", sideways = true, value = o.popPlace.label, onFocused = { if (it) focused = "place" }) { picker = "place" }
                 JoeyRow("Badge place", sideways = true, value = o.badgePlace.label, onFocused = { if (it) focused = "bplace" }) { picker = "bplace" }
                 JoeyRow("Pop-ups stay for", sideways = true, value = "${o.popSeconds} seconds", onFocused = { if (it) focused = "dur" }) { picker = "dur" }
-            }
+                SectionLabel("Sound")
+                JoeyRow("Unlock sound", sideways = true, value = o.unlockSound.label, onFocused = { if (it) focused = "snd" }) { picker = "snd" }
+                StepRow("Volume", "${o.soundVolume}%", UnlockSound.VOLUME_STEPS, o.soundVolume, volumeFocused, first = false,
+                    enabled = o.unlockSound != UnlockSoundChoice.None,
+                    onFocused = { volumeFocused = it; if (it) focused = "vol" }) { v ->
+                    set { it.copy(soundVolume = v) }
+                    UnlockSound.play(context, o.unlockSound, v)
+                }
         }
         Spacer(Modifier.height(6.dp))
         val (title, text) = describe(focused, account)
@@ -292,6 +303,9 @@ private fun SignedIn(account: RaBridge.Account, onHints: (List<Hint>) -> Unit, m
         "bplace" -> PlacePicker("Badge place", "Challenge badges and the leaderboard timer", o.badgePlace, taken = o.popPlace, takenBy = "Pop-ups",
             badges = true, onDismiss = { picker = null }) { spot -> set { it.copy(badgePlace = spot) }; picker = null }
         "dur" -> StayPicker(o.popSeconds, onDismiss = { picker = null }) { s -> set { it.copy(popSeconds = s) }; picker = null }
+        "snd" -> SoundPicker(o.unlockSound, o.soundVolume, onDismiss = { UnlockSound.stop(); picker = null }) { s ->
+            set { it.copy(unlockSound = s) }; picker = null
+        }
         "out" -> SignOutPrompt(RaBridge.unsentCount(), onDismiss = { picker = null }) { picker = null; RaBridge.signOut() }
     }
 }
@@ -332,6 +346,8 @@ private fun describe(key: String, account: RaBridge.Account): Pair<String, Strin
     "psum" -> "Game start summary" to "When a game starts: its achievement set and how much of it you have."
     "place" -> "Pop-up place" to "Where unlock, progress and game-start pop-ups show over the game. Challenge badges and the leaderboard timer have their own place."
     "bplace" -> "Badge place" to "Where challenge badges and the leaderboard timer show over the game."
+    "snd" -> "Unlock sound" to "Plays as an achievement unlocks, with or without its pop-up."
+    "vol" -> "Volume" to "Unlock sound only. The game's sound is not changed."
     else -> "Pop-ups stay for" to "How long unlock and game-start pop-ups stay on screen."
 }
 
@@ -429,6 +445,54 @@ private fun StayPicker(current: Int, onDismiss: () -> Unit, onPick: (Int) -> Uni
                 TickOption("$s seconds", s == current, modifier = if (s == current) Modifier.initialFocus() else Modifier) { onPick(s) }
             }
             PopupNote("Several unlocks at once queue up, one after another.")
+        }
+    }
+}
+
+/**
+ * Unlock sound: None, Joey64's three, Your own sound ›. Each plays as focus moves to it (not the
+ * one focused when it opens). Your own sound opens Android's file picker; a file that goes in is
+ * picked and played, one that doesn't says why under the list.
+ */
+@Composable
+private fun SoundPicker(current: UnlockSoundChoice, volume: Int, onDismiss: () -> Unit, onPick: (UnlockSoundChoice) -> Unit) {
+    val context = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var problem by remember { mutableStateOf<String?>(null) }
+    var opened by remember { mutableStateOf(false) }
+    val files = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val err = withContext(Dispatchers.IO) { UnlockSound.importOwn(context, uri) }
+            problem = err
+            if (err == null) { UnlockSound.play(context, UnlockSoundChoice.Own, volume); onPick(UnlockSoundChoice.Own) }
+        }
+    }
+    fun focusedOn(s: UnlockSoundChoice, has: Boolean) {
+        if (!has) return
+        if (!opened) { opened = true; return }
+        if (s != UnlockSoundChoice.Own || UnlockSound.ownFile(context).isFile) UnlockSound.play(context, s, volume) else UnlockSound.stop()
+    }
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Pick"), Hint("B", "Back"))) {
+        Column {
+            PopupTitle("Unlock sound", "Each one plays as you move to it")
+            for (s in UnlockSoundChoice.entries) {
+                val own = s == UnlockSoundChoice.Own
+                TickOption(if (own) "Your own sound ›" else s.label, s == current,
+                    modifier = if (s == current) Modifier.initialFocus() else Modifier,
+                    onFocused = { focusedOn(s, it) }) {
+                    if (own) files.launch(arrayOf("audio/wav", "audio/x-wav", "audio/ogg", "audio/mpeg", "audio/*"))
+                    else onPick(s)
+                }
+            }
+            problem?.let { msg ->
+                Row(Modifier.padding(start = 12.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(painterResource(R.drawable.ic_alert), contentDescription = null, tint = JoeyTheme.colors.error, modifier = Modifier.size(15.dp))
+                    Text(msg, style = JoeyTheme.type.note, color = JoeyTheme.colors.error, modifier = Modifier.padding(start = 7.dp))
+                }
+            }
+            PopupNote("Your own sound: a .wav, .ogg or .mp3 file from your device. Joey64 keeps a copy, so moving the file later doesn't break it.")
         }
     }
 }

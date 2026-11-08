@@ -5,8 +5,10 @@ how each game ran on their GPU and driver, games with no cover or a wrong one, a
 sent back. The point (Joey, 2026-11-07): learn the best drivers and settings per GPU and game, find
 covers to make, and see crashes we never meet ourselves.
 
-Not deployed yet. The app doesn't send anything yet either: the opt-in question and the Settings row
-wait for Joey's design.
+Live since 2026-11-08 at https://joey64-reports.joeysretrohandhelds.workers.dev, in the Joey64
+Cloudflare account (JoeysRetroHandhelds, its own account, not Joey's personal one; `account_id` in
+`wrangler.toml` keeps deploys there). The app doesn't send anything yet: the opt-in question and the
+Settings row wait for Joey's design.
 
 ## What a report holds
 
@@ -53,6 +55,18 @@ per install), 404/405 anything else. `GET /health` says `ok`.
 - `test/`: `npm test` (node --test, a fake D1), and `sh test/local-run.sh` (wrangler dev with a local
   D1: posts samples, prints what was stored).
 
+## Wrangler login
+
+This PC's default wrangler login is another account. Joey64's login lives in its own folder, so set it
+for every wrangler command here (Git Bash):
+
+```
+export XDG_CONFIG_HOME='C:\Users\Joey\.joey64-cloudflare'
+wrangler whoami   # should say the JoeysRetroHandhelds account
+```
+
+Run without it, `account_id` in `wrangler.toml` makes the command fail instead of touching the other account.
+
 ## Run a query
 
 ```
@@ -61,11 +75,10 @@ wrangler d1 execute joey64-reports --remote --file queries/missing-covers.sql
 
 `--local` runs it on the database `test/local-run.sh` made.
 
-## Deploy (ask Joey first: it creates resources in their Cloudflare account)
+## Deploy
 
-1. `wrangler d1 create joey64-reports`, put the id it prints in `wrangler.toml` (`database_id`).
-2. `wrangler d1 execute joey64-reports --remote --file schema.sql`
-3. `wrangler deploy`. The address is `https://joey64-reports.<account subdomain>.workers.dev`.
+`wrangler deploy`, after `npm test` and `sh test/local-run.sh`. Schema changes: add them to
+`schema.sql` as steps that can run twice (`IF NOT EXISTS`) and run the file with `--remote`.
 
 A report is one request and writes 1 + its events rows: check those against the account's plan limits
 for Workers and D1 before turning reports on for everyone.

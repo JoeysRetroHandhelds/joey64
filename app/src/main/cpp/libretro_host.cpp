@@ -1209,7 +1209,7 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
         for (const char* n : {"IPL_JPN.n64", "IPL_USA.n64", "IPL_DEV.n64", "IPL.n64"}) ipl = ipl || access((dir + n).c_str(), R_OK) == 0;
         retro_game_info dd[2] = { { p, nullptr, 0, nullptr }, { g_ddCart.c_str(), nullptr, 0, nullptr } };
         LOGI("64DD disk %s, %s", p, g_ddCart.empty() ? "no cartridge" : ("cartridge " + g_ddCart).c_str());
-        if (!ipl) { LOGE("64DD: no IPL BIOS in %s (IPL_JPN.n64, IPL_USA.n64, IPL_DEV.n64 or IPL.n64)", dir.c_str()); ok = false; }
+        if (!ipl) { LOGE("64DD: no IPL BIOS: the data folder's bios/ has none of IPL_JPN.n64, IPL_USA.n64, IPL_DEV.n64, IPL.n64 (copied to %s)", dir.c_str()); ok = false; }
         else if (!core.load_game_special) { LOGE("64DD: the core has no retro_load_game_special"); ok = false; }
         else if (!g_ddCart.empty() && buf.empty()) ok = false; // can't read the cartridge (logged above)
         else ok = core.load_game_special(1 /* RETRO_GAME_TYPE_DD */, dd, g_ddCart.empty() ? 1 : 2);

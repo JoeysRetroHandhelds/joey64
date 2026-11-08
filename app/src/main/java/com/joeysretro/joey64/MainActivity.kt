@@ -772,6 +772,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (!started) {
             val (rom, saveName) = resolveRom() ?: run { JLog.e(TAG, "No ROM. Push one to ${getExternalFilesDir(null)}/test.z64"); return }
             startRom = rom; startSave = saveName
+            // A 64DD disk: the IPL BIOS comes from the data folder's bios/ (the core reads its copy in files/system).
+            if (RomFiles.isDiskName(rom)) com.joeysretro.joey64.launcher.storage.BiosSync.refresh(this)
             val ddCart = if (RomFiles.isDiskName(rom)) resolveDdCart() else null
             NativeBridge.setDdCart(ddCart ?: "")
             reportGameState(loading = true)

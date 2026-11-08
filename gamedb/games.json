@@ -216,13 +216,15 @@
     {
       "disk": "Kyojin no Doshin (Japan)", "title": "Kyojin no Doshin (64DD)",
       "notes": [
-        "Flip: boots, intro then \"Now loading\", 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)"
+        "Flip: boots, intro then \"Now loading\", 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)",
+        "Flip: the game draws ~15 fps and gives a quarter of its audio (~780 underruns per 5 s) while the emulator runs 61 VI/s at 1-4 ms each: it waits inside the emulated machine (likely the 64DD read timing), see the README 64DD item"
       ]
     },
     {
       "disk": "Super Mario 64 - Disk Version (Japan) (Proto)", "title": "Super Mario 64 Disk Version (64DD prototype)",
       "notes": [
-        "Flip: boots to the title and into the game, 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)"
+        "Flip: boots to the title and into the game, 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)",
+        "Flip: the game draws 1-8 fps and gives a quarter of its audio (SM64 cartridge: same 32006 Hz rate, full audio) while the emulator runs 61 VI/s at 1-4 ms each, see the README 64DD item"
       ]
     },
     {

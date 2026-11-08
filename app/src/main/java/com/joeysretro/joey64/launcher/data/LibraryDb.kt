@@ -215,6 +215,9 @@ data class GameDetails(
 )
 
 /** A game whose cover hasn't been looked up against the current listing: its first file's name, without extension. */
+/** A game's box_art row as [LibraryDb.artOfGames] reads it. */
+data class ArtRow(val gameId: Long, val md5: String, val kind: String?, val cover: String?)
+
 data class ArtLookup(val gameId: Long, val md5: String, val fileName: String, val crc32: String = "", val romSize: Long = 0)
 
 /** One of a game's files in a picked ROM folder. */
@@ -567,6 +570,18 @@ class LibraryDb private constructor(context: Context) :
                 " WHERE n IS NOT NULL AND (a.kind IS NULL OR (a.kind = 'none' AND (a.checked_at < ? OR a.cover IS NULL))) ORDER BY g.title COLLATE NOCASE",
             arrayOf(listedAt.toString()),
         ).use { c -> buildList { while (c.moveToNext()) add(ArtLookup(c.getLong(0), c.getString(1), c.getString(2).substringBeforeLast('.'), c.getString(3) ?: "", if (c.isNull(4)) 0 else c.getLong(4))) } }
+
+    /** Library games with an MD5 in [md5s], with what their tile shows now (kind and cover null: not looked up yet). */
+    fun artOfGames(md5s: Set<String>): List<ArtRow> {
+        if (md5s.isEmpty()) return emptyList()
+        return md5s.chunked(500).flatMap { chunk ->
+            readableDatabase.rawQuery(
+                "SELECT g.id, g.md5, a.kind, a.cover FROM games g LEFT JOIN box_art a ON a.game_id = g.id" +
+                    " WHERE g.md5 IN (" + chunk.joinToString(",") { "?" } + ") AND EXISTS (SELECT 1 FROM files f WHERE f.game_id = g.id)",
+                chunk.toTypedArray(),
+            ).use { c -> buildList { while (c.moveToNext()) add(ArtRow(c.getLong(0), c.getString(1), c.getString(2), c.getString(3))) } }
+        }
+    }
 
     /** Debug builds only (SHOW boxart-reset): downloaded and not-found covers are looked up again; custom and hidden stay. */
     fun debugForgetArt() {

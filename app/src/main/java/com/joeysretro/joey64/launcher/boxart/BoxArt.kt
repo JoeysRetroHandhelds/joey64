@@ -100,8 +100,9 @@ class BoxArt(private val context: Context, private val db: LibraryDb) {
         val listed = BoxArtFixes.get(context).filterValues { it is BoxArtFixes.Fix.Game }.keys
         val installed = try { context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime } catch (e: Exception) { 0L }
         db.retryNone(listed, installed).takeIf { it > 0 }?.let { JLog.i(TAG, "box art: $it games without a cover are listed in fixes.tsv now, looking them up again") }
+        val ours = joeyCovers(now, onCover)
         val todo = db.artToLookUp(now - RETRY_NONE_MS)
-        if (todo.isEmpty()) return@withContext Outcome.Done(0, 0, 0)
+        if (todo.isEmpty()) return@withContext Outcome.Done(ours, 0, 0)
         if (!ScreenScraper.usable) {
             JLog.w(TAG, "box art: this build has no ScreenScraper login (local.properties), ${todo.size} games not looked up")
             return@withContext Outcome.Done(0, 0, 0)
@@ -110,7 +111,7 @@ class BoxArt(private val context: Context, private val db: LibraryDb) {
         val table = BoxArtTable.get(context)
         val fixes = BoxArtFixes.get(context)
         dir.mkdirs()
-        var found = 0; var none = 0; var failed = 0; var busy = 0
+        var found = ours; var none = 0; var failed = 0; var busy = 0
         for ((i, g) in todo.withIndex()) {
             coroutineContext.ensureActive()
             onProgress(i, todo.size)
@@ -134,9 +135,37 @@ class BoxArt(private val context: Context, private val db: LibraryDb) {
                 }
             }
         }
-        JLog.i(TAG, "box art: ${todo.size} to look up, $found downloaded, $none without a cover, $failed failed, $busy left for later (busy), " +
+        JLog.i(TAG, "box art: ${todo.size} to look up, ${found - ours} downloaded ($ours of Joey64's own before), $none without a cover, $failed failed, $busy left for later (busy), " +
             "${SystemClock.elapsedRealtime() - t0} ms")
         Outcome.Done(found, none, failed, busy = busy > 0)
+    }
+
+    /**
+     * Joey64's own covers ([JoeyCovers]) for the library games they're for, ahead of any lookup: they win over
+     * ScreenScraper's, and a changed picture replaces the one kept. A cover the user chose (Custom) or No box art
+     * (Hidden) stays. Returns how many were downloaded.
+     */
+    private fun joeyCovers(now: Long, onCover: () -> Unit): Int {
+        val covers = JoeyCovers(context)
+        val index = covers.index()
+        var n = 0
+        for (row in db.artOfGames(index.keys)) {
+            if (row.kind == ArtKind.Custom.db || row.kind == ArtKind.Hidden.db) continue
+            val want = JoeyCovers.PREFIX + index[row.md5]
+            if (row.kind == ArtKind.Downloaded.db && row.cover == want) continue
+            try {
+                dir.mkdirs()
+                keep(covers.picture(row.md5), file(row.md5))
+                db.setArt(row.gameId, ArtKind.Downloaded.db, want, now)
+                JLog.i(TAG, "cover for ${row.md5}: Joey64's own")
+                n++
+                onCover()
+            } catch (e: IOException) {
+                // No change: tried again next run.
+                JLog.w(TAG, "box art: Joey64's cover for ${row.md5} not downloaded ($e)")
+            }
+        }
+        return n
     }
 
     private enum class Result { Found, None, Failed, Busy, Offline }
@@ -208,8 +237,10 @@ class BoxArt(private val context: Context, private val db: LibraryDb) {
     }
 
     /** Downloads [url] and keeps it as a JPEG, written whole or not at all. */
-    private fun download(url: String, to: File) {
-        val bytes = ScreenScraper.get(url, "cover")
+    private fun download(url: String, to: File) = keep(ScreenScraper.get(url, "cover"), to)
+
+    /** Keeps the picture [bytes] as a JPEG at [to], written whole or not at all. */
+    private fun keep(bytes: ByteArray, to: File) {
         val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: throw NotAnImage(bytes.size)
         val part = File(to.parentFile, to.name + ".part")
         try {

@@ -34,13 +34,14 @@ data class Progress(
         return ((elapsed * (1 - f) / f) / 1000).toLong()
     }
 
-    /** "37 of 211 · about 20 s left", "37 of 211 · about 2 min left", "37 of 211". */
+    /** "37 of 211 · about 20 s left", "… about 2 min left", "… about 2 h left" (from 90 min), "37 of 211". */
     fun text(now: Long): String {
         val left = secondsLeft(now) ?: return "$done of $total$unit"
         val eta = when {
             left < 5 -> "a few seconds left"
             left < 60 -> "about ${(left + 4) / 5 * 5} s left"
-            else -> "about ${(left + 30) / 60} min left"
+            left < 90 * 60 -> "about ${(left + 30) / 60} min left"
+            else -> "about ${(left + 1800) / 3600} h left"
         }
         return "$done of $total$unit · $eta"
     }

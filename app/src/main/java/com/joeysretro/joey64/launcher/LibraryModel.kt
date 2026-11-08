@@ -174,10 +174,18 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         if (!settings.settings.first().downloadBoxArt) return
         art = viewModelScope.launch {
             var got = 0
-            val outcome = boxArt.fetch {
+            val started = android.os.SystemClock.elapsedRealtime()
+            _artPaused.value = false
+            val outcome = try {
+                boxArt.fetch(maxWidth = if (settings.settings.first().boxArtLow) BoxArt.LOW_WIDTH else BoxArt.HIGH_WIDTH,
+                    onProgress = { done, total -> _art.value = Progress(done, total, started) }) {
                 // Covers appear as they come, a few at a time.
                 if (++got % 4 == 0) _games.value = db.libraryGames()
             }
+            } finally {
+                _art.value = null
+            }
+            _artPaused.value = outcome is BoxArt.Outcome.Done && outcome.busy
             _games.value = withContext(Dispatchers.IO) { db.libraryGames() }
             waitingForNetwork = outcome is BoxArt.Outcome.Offline
             if (outcome is BoxArt.Outcome.Offline) {
@@ -192,9 +200,24 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
 
     fun offlineSeen() { _offline.value = false }
 
+    private val _art = MutableStateFlow<Progress?>(null)
+    /** Covers downloading (approved 2026-11-07: "Getting box art" over the grid), null when not. */
+    val artProgress: StateFlow<Progress?> = _art
+    private val _artPaused = MutableStateFlow(false)
+    /** ScreenScraper stopped answering (busy, closed or today's limit): "Box art paused" until the next run. */
+    val artPaused: StateFlow<Boolean> = _artPaused
+
+    /** Debug builds (SHOW boxart-reset): look every downloaded and not-found cover up again. */
+    fun debugResetArt() {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { db.debugForgetArt() }
+            fetchArt(newGames = false)
+        }
+    }
+
     /** [game]'s cover file, null when it shows none (a title tile). */
     fun cover(game: LibraryGame): java.io.File? = when (game.art) {
-        com.joeysretro.joey64.launcher.data.ArtKind.Libretro -> boxArt.file(game.md5)
+        com.joeysretro.joey64.launcher.data.ArtKind.Downloaded -> boxArt.file(game.md5)
         com.joeysretro.joey64.launcher.data.ArtKind.Custom -> boxArt.customFile(game.md5)
         else -> null
     }

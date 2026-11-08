@@ -121,10 +121,13 @@ class LauncherActivity : ComponentActivity() {
             // mode). update, update-downloading, update-permission, update-failed (add -testing for a
             // testing build): the updater's prompts, whose buttons only close them. first-run, data, import:
             // the setup pages, shown over the library (nothing on them is kept); none goes back.
+            // boxart-reset: every downloaded or not-found cover is looked up again now (custom and
+            // hidden ones stay), for checking the box-art source; the old files are overwritten as found.
             val show = object : android.content.BroadcastReceiver() {
                 override fun onReceive(c: android.content.Context, i: android.content.Intent) {
                     val what = i.getStringExtra("what") ?: return
-                    if (what.startsWith("update")) updates.debugShow(what) else model.debugSetupPage(what.takeIf { it == "first-run" || it == "data" || it == "import" })
+                    if (what == "boxart-reset") model.debugResetArt()
+                    else if (what.startsWith("update")) updates.debugShow(what) else model.debugSetupPage(what.takeIf { it == "first-run" || it == "data" || it == "import" })
                 }
             }
             val showFilter = android.content.IntentFilter("com.joeysretro.joey64.SHOW")

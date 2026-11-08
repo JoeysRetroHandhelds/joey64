@@ -1,0 +1,4 @@
+# Box-art fixes (BoxArtFixes.kt): ROMs whose cover the lookup gets wrong or can't find.
+# MD5 (RetroAchievements' N64 hash, as the library's games.md5) <TAB> ScreenScraper game ID, or "none" for no cover <TAB> what it is.
+# Add or change a line in the same commit as the cover check that found it.
+80e5019c9dd12648f909b3a5715ed580	108717	Super Mario Star Road Final - Deluxe Edition (Hack by Skelux): Super Mario 64 - Star Road; no name search finds it

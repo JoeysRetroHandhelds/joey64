@@ -23,6 +23,13 @@ class ProgressTest {
         assertEquals("99 of 100 · a few seconds left", Progress(99, 100, startedAt = 0).text(10_000))
     }
 
+    @Test fun hoursForLongRuns() {
+        // Box art for a big library: 37 of 1,140 in 5 min, so about 2.5 h to go; 74 in 5 min, 72 min.
+        val p = Progress(37, 1140, startedAt = 0)
+        assertEquals("37 of 1140 · about 2 h left", p.text(300_000))
+        assertEquals("74 of 1140 · about 72 min left", Progress(74, 1140, startedAt = 0).text(300_000))
+    }
+
     @Test fun roundsUpToFiveSeconds() {
         // 50% in 11 s: 11 s left, shown as 15.
         assertEquals("50 of 100 · about 15 s left", Progress(50, 100, startedAt = 0).text(11_000))

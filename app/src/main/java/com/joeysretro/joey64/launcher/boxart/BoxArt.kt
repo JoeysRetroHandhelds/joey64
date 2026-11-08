@@ -4,21 +4,16 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.SystemClock
-import android.util.Log
 import com.joeysretro.joey64.BuildConfig
 import com.joeysretro.joey64.JLog
+import com.joeysretro.joey64.launcher.data.ArtKind
 import com.joeysretro.joey64.launcher.data.ArtLookup
 import com.joeysretro.joey64.launcher.data.LibraryDb
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileNotFoundException
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
-import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.coroutineContext
 
 /** The MD5 -> No-Intro name table built from libretro-database (assets/boxart/n64-names.tsv, devtools/boxart/build-table.py). */
@@ -42,16 +37,20 @@ object BoxArtTable {
 }
 
 /**
- * Box art (plan, Phase 2; decided 2026-11-05): libretro's covers, picked by [BoxArtNames],
- * downloaded once from thumbnails.libretro.com and kept in `files/boxart/<md5>.jpg`. libretro
- * publishes no terms for other apps, so: our own User-Agent, each cover once, the folder listing
- * fetched at most once a week and kept, three downloads at a time.
+ * Box art (plan, Phase 2; ScreenScraper since 2026-11-07, Joey's call, libretro-thumbnails before):
+ * covers from [ScreenScraper], downloaded once and kept in `files/boxart/<md5>.jpg`. One request at
+ * a time (its limit without a user account). Each game is looked up by its ROM's MD5; when the game
+ * found doesn't fit the name (most hacks hash to the original game), by name, so a hack with a cover
+ * of its own gets it, else the original game's cover. A game in [BoxArtFixes] gets the cover that
+ * names, whatever the lookup would find. Nothing found: "none",
+ * looked up again a week later. Busy, closed or out of quota: the rest wait for the next run.
+ * Covers from libretro already here stay.
  */
 class BoxArt(private val context: Context, private val db: LibraryDb) {
 
     sealed interface Outcome {
-        /** [found] covers downloaded, [none] games with no cover. */
-        data class Done(val found: Int, val none: Int, val failed: Int) : Outcome
+        /** [found] covers downloaded, [none] games with no cover; [busy]: ScreenScraper stopped answering, the rest wait for a later run. */
+        data class Done(val found: Int, val none: Int, val failed: Int, val busy: Boolean = false) : Outcome
         /** No connection (or the server didn't answer): nothing changed, try again once online. */
         data object Offline : Outcome
     }
@@ -91,74 +90,94 @@ class BoxArt(private val context: Context, private val db: LibraryDb) {
         }
     }
 
-    /** Looks up and downloads every library game's cover not yet looked up against the listing. [onCover] after each new one. */
-    suspend fun fetch(onCover: () -> Unit = {}): Outcome = withContext(Dispatchers.IO) {
+    /** Looks up and downloads the cover of every library game not looked up yet (or found with none over a week ago). [onCover] after each new one. */
+    suspend fun fetch(maxWidth: Int = HIGH_WIDTH, onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }, onCover: () -> Unit = {}): Outcome = withContext(Dispatchers.IO) {
         val t0 = SystemClock.elapsedRealtime()
-        // Nothing to look up against the listing kept (or, with none kept, nothing never looked up):
-        // done, without going online, so a connection isn't needed and no offline popup is due.
-        val kept = File(dir, LISTING).let { if (it.exists()) it.lastModified() else 0L }
-        if (db.artToLookUp(kept).isEmpty() && (kept == 0L || fresh(kept))) return@withContext Outcome.Done(0, 0, 0)
-        val listing = try { listing() } catch (e: IOException) {
-            JLog.w(TAG, "can't get the cover listing: $e")
-            return@withContext Outcome.Offline
-        }
-        val todo = db.artToLookUp(listing.fetchedAt)
+        val now = System.currentTimeMillis()
+        val todo = db.artToLookUp(now - RETRY_NONE_MS)
         if (todo.isEmpty()) return@withContext Outcome.Done(0, 0, 0)
+        if (!ScreenScraper.usable) {
+            JLog.w(TAG, "box art: this build has no ScreenScraper login (local.properties), ${todo.size} games not looked up")
+            return@withContext Outcome.Done(0, 0, 0)
+        }
+        File(dir, "listing.txt").delete() // libretro's cover listing, no longer used
         val table = BoxArtTable.get(context)
+        val fixes = BoxArtFixes.get(context)
         dir.mkdirs()
-        val found = AtomicInteger(); val none = AtomicInteger(); val failed = AtomicInteger(); val offline = AtomicInteger()
-        val pool = Executors.newFixedThreadPool(THREADS)
-        try {
-            todo.map { g ->
-                pool.submit {
-                    if (offline.get() > 0) return@submit
-                    when (val r = lookUp(g, table, listing)) {
-                        Result.Found -> { found.incrementAndGet(); onCover() }
-                        Result.None -> none.incrementAndGet()
-                        Result.Failed -> failed.incrementAndGet()
-                        Result.Offline -> offline.incrementAndGet()
-                    }
+        var found = 0; var none = 0; var failed = 0; var busy = 0
+        for ((i, g) in todo.withIndex()) {
+            coroutineContext.ensureActive()
+            onProgress(i, todo.size)
+            when (lookUp(g, table, fixes, now, maxWidth)) {
+                Result.Found -> { found++; onCover() }
+                Result.None -> none++
+                Result.Failed -> failed++
+                Result.Busy -> { busy = todo.size - found - none - failed; break }
+                Result.Offline -> {
+                    JLog.w(TAG, "box art: offline after $found covers")
+                    return@withContext if (found == 0) Outcome.Offline else Outcome.Done(found, none, failed)
                 }
-            }.forEach { it.get() }
-        } finally {
-            pool.shutdown()
+            }
         }
-        coroutineContext.ensureActive()
-        JLog.i(TAG, "box art: ${todo.size} looked up, ${found.get()} downloaded, ${none.get()} without a cover, ${failed.get()} failed, " +
-            "${SystemClock.elapsedRealtime() - t0} ms (listing ${listing.covers.size} covers)")
-        if (offline.get() > 0 && found.get() == 0) Outcome.Offline else Outcome.Done(found.get(), none.get(), failed.get())
+        JLog.i(TAG, "box art: ${todo.size} to look up, $found downloaded, $none without a cover, $failed failed, $busy left for later (busy), " +
+            "${SystemClock.elapsedRealtime() - t0} ms")
+        Outcome.Done(found, none, failed, busy = busy > 0)
     }
 
-    private enum class Result { Found, None, Failed, Offline }
+    private enum class Result { Found, None, Failed, Busy, Offline }
 
-    private fun lookUp(g: ArtLookup, table: Map<String, String>, listing: Listing): Result {
-        val match = BoxArtNames.pick(table[g.md5], g.fileName, listing.covers)
-        if (match == null) {
-            db.setArt(g.gameId, "none", null, listing.fetchedAt)
-            return Result.None
+    private fun lookUp(g: ArtLookup, table: Map<String, String>, fixes: Map<String, BoxArtFixes.Fix>, now: Long, maxWidth: Int): Result = try {
+        val base = ScreenScraper.base(devBase())
+        val noIntro = table[g.md5]
+        val byHash = {
+            val p = mutableMapOf("systemeid" to "${ScreenScraper.N64}", "romtype" to "rom", "romnom" to g.fileName + ".z64", "md5" to g.md5)
+            if (g.romSize > 0) p["romtaille"] = "${g.romSize}"
+            if (g.crc32.isNotEmpty()) p["crc"] = g.crc32
+            ScreenScraperPick.game(ScreenScraper.jeuInfos(base, p))?.takeIf { it.covers.isNotEmpty() }
         }
-        return try {
-            download(BoxArtNames.url(base(), match.cover), file(g.md5))
-            db.setArt(g.gameId, "libretro", match.cover, listing.fetchedAt)
-            JLog.i(TAG, "cover for ${g.fileName}: ${match.cover} (${match.how})")
-            Result.Found
-        } catch (e: FileNotFoundException) {
-            // In the listing but gone from the server: none until the next listing.
-            JLog.w(TAG, "cover ${match.cover} not on the server")
-            db.setArt(g.gameId, "none", null, listing.fetchedAt)
+        val term = ScreenScraperPick.searchTerm(noIntro ?: g.fileName)
+        val byName = {
+            if (term.isEmpty()) null else ScreenScraper.jeuRecherche(base, term).firstOrNull()?.let { j ->
+                // Search answers carry no media list: the game's own lookup has them.
+                val hit = ScreenScraperPick.game(j)
+                if (hit == null || !hit.fits(term)) null
+                else ScreenScraperPick.game(ScreenScraper.jeuInfos(base, mapOf("systemeid" to "${ScreenScraper.N64}", "gameid" to hit.id)))
+                    ?.takeIf { it.covers.isNotEmpty() }
+            }
+        }
+        // The MD5's game counts when its name fits: hacks (some are in the table too, Sealed Palace as a
+        // "Pirate" OoT) mostly hash to the original game, whose cover is kept for when a name search finds none.
+        val fix = fixes[g.md5]
+        val hashed = if (fix == null) byHash() else null
+        val (game, how) = when {
+            fix == BoxArtFixes.Fix.None -> null to "fix"
+            fix is BoxArtFixes.Fix.Game -> ScreenScraperPick.game(ScreenScraper.jeuInfos(base, mapOf("systemeid" to "${ScreenScraper.N64}", "gameid" to fix.id))) to "fix"
+            hashed != null && hashed.fits(term) -> hashed to "MD5"
+            else -> byName()?.let { it to "name" } ?: hashed?.let { it to "MD5, the original game" } ?: (null to "")
+        }
+        val cover = game?.let { ScreenScraperPick.cover(it, noIntro ?: g.fileName) }
+        if (game == null || cover == null) {
+            db.setArt(g.gameId, "none", "screenscraper", now)
             Result.None
-        } catch (e: IOException) {
-            // No row either way: looked up again next time.
-            if (e is java.net.UnknownHostException || e is java.net.ConnectException || e is java.net.SocketTimeoutException) return Result.Offline
-            JLog.w(TAG, "can't download ${match.cover}" + "\n" + Log.getStackTraceString(e))
-            Result.Failed
+        } else {
+            download(ScreenScraper.mediaUrl(cover.second, maxWidth), file(g.md5))
+            db.setArt(g.gameId, ArtKind.Downloaded.db, "screenscraper:${game.id}:${cover.first}", now)
+            JLog.i(TAG, "cover for ${g.fileName}: ${game.name} (${cover.first}, by $how)")
+            Result.Found
         }
+    } catch (e: ScreenScraper.Busy) {
+        JLog.w(TAG, "box art: ScreenScraper busy or closed (${e.code}), stopping until next time")
+        Result.Busy
+    } catch (e: IOException) {
+        // No row either way: looked up again next time.
+        if (e is java.net.UnknownHostException || e is java.net.ConnectException || e is java.net.SocketTimeoutException) Result.Offline
+        else { JLog.w(TAG, "box art: ${g.fileName}: $e"); Result.Failed }
     }
 
-    /** Downloads [url] and keeps it as a JPEG (a cover's PNG is ~300 KB, the JPEG about a fifth), written whole or not at all. */
+    /** Downloads [url] and keeps it as a JPEG, written whole or not at all. */
     private fun download(url: String, to: File) {
-        val bytes = get(url)
-        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: throw IOException("not an image: $url")
+        val bytes = ScreenScraper.get(url, "cover")
+        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: throw IOException("cover: not an image (${bytes.size} bytes)")
         val part = File(to.parentFile, to.name + ".part")
         try {
             part.outputStream().use { if (!bmp.compress(Bitmap.CompressFormat.JPEG, 90, it)) throw IOException("can't encode") }
@@ -169,68 +188,18 @@ class BoxArt(private val context: Context, private val db: LibraryDb) {
         }
     }
 
-    private class Listing(val covers: BoxArtNames.Covers, val fetchedAt: Long)
-
-    @Volatile private var cached: Listing? = null
-
-    /**
-     * The cover names: the kept listing while it's less than [LISTING_DAYS] old, else a fresh one
-     * (kept when it parses). A stale kept listing still serves when the server can't be reached.
-     */
-    private fun listing(): Listing {
-        cached?.let { if (fresh(it.fetchedAt)) return it }
-        val kept = File(dir, LISTING)
-        val keptAt = if (kept.exists()) kept.lastModified() else 0L
-        if (keptAt > 0 && fresh(keptAt)) return read(kept, keptAt).also { cached = it }
-        val fetched = try {
-            String(get(base()), Charsets.UTF_8)
-        } catch (e: IOException) {
-            if (keptAt > 0) return read(kept, keptAt).also { cached = it }
-            throw e
-        }
-        val names = BoxArtNames.parseListing(fetched)
-        if (names.size < 100) throw IOException("cover listing has only ${names.size} names")
-        dir.mkdirs()
-        val part = File(dir, "$LISTING.part")
-        part.writeText(names.joinToString("\n"))
-        if (!part.renameTo(kept)) { part.delete(); throw IOException("can't keep the listing") }
-        return Listing(BoxArtNames.Covers(names), kept.lastModified()).also { cached = it }
+    /** Debug builds read a stand-in API address from `files/dev_boxart_base` (a feed on the PC, for testing offline and failures). */
+    private fun devBase(): String? {
+        if (!BuildConfig.DEBUG) return null
+        return try { File(context.filesDir, "dev_boxart_base").readText().trim() } catch (e: IOException) { null }
     }
 
-    private fun read(f: File, at: Long) = Listing(BoxArtNames.Covers(f.readLines().filter { it.isNotEmpty() }), at)
-
-    private fun fresh(at: Long) = System.currentTimeMillis() - at < LISTING_DAYS * 24 * 3600_000L
-
-    private fun get(url: String): ByteArray {
-        val c = URL(url).openConnection() as HttpURLConnection
-        c.connectTimeout = 10_000
-        c.readTimeout = 20_000
-        c.setRequestProperty("User-Agent", "Joey64/${BuildConfig.VERSION_NAME}")
-        try {
-            val code = c.responseCode
-            if (code == 404) throw FileNotFoundException(url)
-            if (code != 200) throw IOException("HTTP $code from $url")
-            return c.inputStream.use { it.readBytes() }
-        } finally {
-            c.disconnect()
-        }
-    }
-
-    /** The covers folder; debug builds read a stand-in from `files/dev_boxart_base` (a feed on the PC, for testing offline and failures). */
-    private fun base(): String {
-        if (BuildConfig.DEBUG) {
-            val dev = try { File(context.filesDir, "dev_boxart_base").readText().trim() } catch (e: IOException) { "" }
-            if (dev.isNotEmpty()) return dev.trimEnd('/') + "/"
-        }
-        return BASE
-    }
-
-    private companion object {
-        const val TAG = "Joey64BoxArt"
-        const val BASE = "https://thumbnails.libretro.com/Nintendo%20-%20Nintendo%2064/Named_Boxarts/"
-        const val LISTING = "listing.txt"
-        const val LISTING_DAYS = 7
-        const val THREADS = 3
-        const val CUSTOM_WIDTH = 1024
+    companion object {
+        /** Settings › Library › Box art quality: High (the default) and Low, covers' widths in pixels. */
+        const val HIGH_WIDTH = 640
+        const val LOW_WIDTH = 320
+        private const val TAG = "Joey64BoxArt"
+        private const val RETRY_NONE_MS = 7 * 24 * 3600_000L
+        private const val CUSTOM_WIDTH = 1024
     }
 }

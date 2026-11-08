@@ -183,8 +183,8 @@ data class GameCollection(val id: Long, val name: String)
 
 /** What a game's tile shows, from `box_art.kind` (V2). Null: no row yet, not looked up. */
 enum class ArtKind(val db: String) {
-    /** A downloaded libretro cover. */
-    Libretro("libretro"),
+    /** A downloaded cover (ScreenScraper; libretro-thumbnails before 2026-11-07, kept under the same name). */
+    Downloaded("libretro"),
     /** Looked up, nothing found: a title tile. */
     None("none"),
     /** A picture the user chose (Details, Change box art). */
@@ -192,7 +192,7 @@ enum class ArtKind(val db: String) {
     /** No box art, by the user's choice: a title tile, never looked up again. */
     Hidden("hidden");
 
-    val shows get() = this == Libretro || this == Custom
+    val shows get() = this == Downloaded || this == Custom
 
     companion object {
         fun of(db: String?) = entries.firstOrNull { it.db == db }
@@ -215,7 +215,7 @@ data class GameDetails(
 )
 
 /** A game whose cover hasn't been looked up against the current listing: its first file's name, without extension. */
-data class ArtLookup(val gameId: Long, val md5: String, val fileName: String)
+data class ArtLookup(val gameId: Long, val md5: String, val fileName: String, val crc32: String = "", val romSize: Long = 0)
 
 /** One of a game's files in a picked ROM folder. */
 data class GameFile(val uri: String, val treeUri: String, val name: String)
@@ -543,7 +543,7 @@ class LibraryDb private constructor(context: Context) :
             )
         }
 
-    /** The user's Change box art choice: [kind] Custom, Hidden, or Libretro again; the libretro cover's name stays. */
+    /** The user's Change box art choice: [kind] Custom, Hidden, or Downloaded again; the downloaded cover's name stays. */
     fun chooseArt(gameId: Long, kind: ArtKind) {
         writableDatabase.transaction {
             val row = ContentValues().apply { put("kind", kind.db) }
@@ -554,16 +554,22 @@ class LibraryDb private constructor(context: Context) :
     }
 
     /**
-     * Games to look up against the cover listing fetched at [listedAt]: never looked up, or
-     * "none" against an older listing. Library games only.
+     * Games whose cover to look up: never looked up, or "none" when checked before [listedAt] or
+     * against libretro-thumbnails (cover null; ScreenScraper's "none" rows say "screenscraper").
+     * Library games only.
      */
     fun artToLookUp(listedAt: Long): List<ArtLookup> =
         readableDatabase.rawQuery(
-            "SELECT g.id, g.md5, (SELECT f.name FROM files f WHERE f.game_id = g.id ORDER BY f.seen_at DESC LIMIT 1) n" +
+            "SELECT g.id, g.md5, (SELECT f.name FROM files f WHERE f.game_id = g.id ORDER BY f.seen_at DESC LIMIT 1) n, g.crc32, g.rom_size" +
                 " FROM games g LEFT JOIN box_art a ON a.game_id = g.id" +
-                " WHERE n IS NOT NULL AND (a.kind IS NULL OR (a.kind = 'none' AND a.checked_at < ?)) ORDER BY g.title COLLATE NOCASE",
+                " WHERE n IS NOT NULL AND (a.kind IS NULL OR (a.kind = 'none' AND (a.checked_at < ? OR a.cover IS NULL))) ORDER BY g.title COLLATE NOCASE",
             arrayOf(listedAt.toString()),
-        ).use { c -> buildList { while (c.moveToNext()) add(ArtLookup(c.getLong(0), c.getString(1), c.getString(2).substringBeforeLast('.'))) } }
+        ).use { c -> buildList { while (c.moveToNext()) add(ArtLookup(c.getLong(0), c.getString(1), c.getString(2).substringBeforeLast('.'), c.getString(3) ?: "", if (c.isNull(4)) 0 else c.getLong(4))) } }
+
+    /** Debug builds only (SHOW boxart-reset): downloaded and not-found covers are looked up again; custom and hidden stay. */
+    fun debugForgetArt() {
+        writableDatabase.delete("box_art", "kind IN ('libretro', 'none')", null)
+    }
 
     /** Records what [gameId] shows; see [LibrarySchema.V2]. */
     fun setArt(gameId: Long, kind: String, cover: String?, checkedAt: Long) {

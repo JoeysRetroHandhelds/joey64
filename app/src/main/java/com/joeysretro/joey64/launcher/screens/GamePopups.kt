@@ -182,7 +182,7 @@ private fun BoxArtPopup(game: LibraryGame, d: GameDetails?, model: LibraryModel,
                         tint = rowTextColor(c, focused, c.value), modifier = Modifier.size(18.dp))
                 }, onClick = onClick)
             Choice("Choose image…", inUse == ArtKind.Custom, first = true) { pick.launch(arrayOf("image/*")) }
-            if (model.hasDownloaded(game)) Choice("Downloaded art", inUse == ArtKind.Libretro) { scope.launch { model.chooseArt(game, ArtKind.Libretro); onDone(true) } }
+            if (model.hasDownloaded(game)) Choice("Downloaded art", inUse == ArtKind.Downloaded) { scope.launch { model.chooseArt(game, ArtKind.Downloaded); onDone(true) } }
             Choice("No box art", inUse == ArtKind.Hidden || inUse == ArtKind.None) { scope.launch { model.chooseArt(game, ArtKind.Hidden); onDone(true) } }
         }
     }

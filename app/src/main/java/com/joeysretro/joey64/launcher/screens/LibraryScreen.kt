@@ -75,6 +75,8 @@ import com.joeysretro.joey64.launcher.theme.JoeyTheme
 fun LibraryScreen(model: LibraryModel, onSearch: () -> Unit) {
     val games by model.games.collectAsStateWithLifecycle()
     val reading by model.reading.collectAsStateWithLifecycle()
+    val art by model.artProgress.collectAsStateWithLifecycle()
+    val artPaused by model.artPaused.collectAsStateWithLifecycle()
     val view by model.view.collectAsStateWithLifecycle()
     val facts by model.facts.collectAsStateWithLifecycle()
     val landing = LocalFocusLanding.current
@@ -108,6 +110,17 @@ fun LibraryScreen(model: LibraryModel, onSearch: () -> Unit) {
                 Text("Reading your games", style = JoeyTheme.type.note, color = c.textDim, modifier = Modifier.padding(bottom = 6.dp))
                 ProgressLine(r, width = 320.dp, centred = false)
             }
+        }
+        // Covers downloading (approved 2026-11-07), the same line as reading; a pause says why.
+        art?.takeIf { reading == null }?.let { a ->
+            Column(Modifier.padding(start = JoeyTheme.spacing.margin, top = 12.dp)) {
+                Text("Getting box art", style = JoeyTheme.type.note, color = c.textDim, modifier = Modifier.padding(bottom = 6.dp))
+                ProgressLine(a, width = 320.dp, centred = false)
+            }
+        }
+        if (artPaused && art == null && reading == null) {
+            Text("Box art paused · ScreenScraper is busy. Joey64 will try again later.", style = JoeyTheme.type.note, color = c.textDim,
+                modifier = Modifier.padding(start = JoeyTheme.spacing.margin, top = 12.dp))
         }
         com.joeysretro.joey64.launcher.components.PageChip(view.label, com.joeysretro.joey64.R.drawable.ic_filter,
             Modifier.padding(start = JoeyTheme.spacing.margin, top = 12.dp), on = view != com.joeysretro.joey64.launcher.library.LibraryView.All) { showing = true }

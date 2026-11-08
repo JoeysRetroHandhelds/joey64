@@ -113,6 +113,8 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
                 SectionLabel("Downloads")
                 JoeyRow("Download box art", Modifier.initialFocus(focused == "art"), value = if (s.downloadBoxArt) "On" else "Off",
                     sideways = true, onFocused = { if (it) focused = "art" }) { scope.launch { store.setDownloadBoxArt(!s.downloadBoxArt) } }
+                JoeyRow("Box art quality", Modifier.initialFocus(focused == "artq"), value = if (s.boxArtLow) "Low" else "High",
+                    sideways = true, onFocused = { if (it) focused = "artq" }) { scope.launch { store.setBoxArtLow(!s.boxArtLow) } }
                 JoeyRow("Download cheats", Modifier.initialFocus(focused == "cheats"), value = if (s.downloadCheats) "On" else "Off",
                     sideways = true, onFocused = { if (it) focused = "cheats" }) { scope.launch { store.setDownloadCheats(!s.downloadCheats) } }
             }
@@ -120,7 +122,8 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
         Spacer(Modifier.height(6.dp))
         val (title, text) = when (focused) {
             "add" -> "Add a folder" to "Another folder with N64 games: .z64, .v64, .n64, .zip and .7z. Other systems' ROMs are left out."
-            "art" -> "Download box art" to "Covers from libretro's thumbnails, once per game. Off: no downloads; covers already here stay."
+            "art" -> "Download box art" to "Covers from ScreenScraper, once per game. Off: no downloads; covers already here stay."
+            "artq" -> "Box art quality" to "High: covers 640 pixels wide. Low: 320, a quarter of the space and quicker to download. Covers already here stay as they are."
             "cheats" -> "Download cheats" to "Each game's cheat lists from joey64-cheats. Off: no downloads; lists already here stay."
             else -> "ROM folder" to "Where Joey64 finds your games. Removing it keeps their saves, states and play time."
         }

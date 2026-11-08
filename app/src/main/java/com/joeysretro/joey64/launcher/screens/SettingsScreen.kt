@@ -291,7 +291,7 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
                 }
                 SectionLabel("Credits")
                 JoeyRow("Open-source licences", value = "${OSS_ENTRIES.size} ›", sideways = true, onFocused = { if (it) focused = "oss" }) { open = "oss" }
-                JoeyRow("Box art", value = "libretro-thumbnails", sideways = true, onFocused = { if (it) focused = "art" })
+                JoeyRow("Box art", value = "ScreenScraper", sideways = true, onFocused = { if (it) focused = "art" })
                 JoeyRow("Game list", value = "No-Intro · libretro", sideways = true, onFocused = { if (it) focused = "db" })
                 JoeyRow("Cheats", value = "Project64 · RMG · FZ · libretro", sideways = true, onFocused = { if (it) focused = "cht" })
                 JoeyRow("Controllers", value = "SDL · RetroArch", sideways = true, onFocused = { if (it) focused = "ctl" })
@@ -314,7 +314,7 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
             "gpl" -> "Joey64 is free software" to "Under the GNU General Public License 3.0 or later: use it, share it, change it. Select to read it."
             "src" -> "Source code" to "The code this build is made from: ${JOEY64_LICENCE.url}."
             "oss" -> "Open-source licences" to "The projects Joey64 is built from, and the licence each one is under."
-            "art" -> "Box art" to "Covers come from libretro-thumbnails (thumbnails.libretro.com), downloaded once per game."
+            "art" -> "Box art" to "Covers come from ScreenScraper (screenscraper.fr), downloaded once per game. A hack without a cover of its own gets the original game's."
             "db" -> "Game list" to "Game names from No-Intro's lists, through libretro-database."
             "cht" -> "Cheats" to "From Project64, Rosalie's Mupen GUI, M64Plus FZ (retroben's codes) and libretro-database, each under its own licence."
             "ctl" -> "Controllers" to "Auto map's controller table is built from SDL_GameControllerDB and RetroArch's joypad autoconfig."

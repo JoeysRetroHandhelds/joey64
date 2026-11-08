@@ -151,7 +151,7 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
             "art" -> "Download box art" to "Covers from ScreenScraper, once per game. Off: no downloads; covers already here stay."
             "artq" -> "Box art quality" to "High: covers 640 pixels wide. Low: 320, a quarter of the space and quicker to download. Covers already here stay as they are."
             "bios" -> "64DD BIOS" to "Needed for 64DD disks. Pick the folder with your BIOS files; Joey64 keeps a copy of each one it knows."
-            "cheats" -> "Download cheats" to "Each game's cheat lists from joey64-cheats. Off: no downloads; lists already here stay."
+            "cheats" -> "Download cheats" to "Each game's cheat lists from joey64-data. Off: no downloads; lists already here stay."
             else -> "ROM folder" to "Where Joey64 finds your games. Removing it keeps their saves, states and play time."
         }
         DescriptionLine(title, text)

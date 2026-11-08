@@ -8,7 +8,7 @@ import org.json.JSONObject
 data class CheatOption(val value: String, val label: String)
 
 /**
- * One cheat from a `joey64-cheats` list (plan, Phase 6). [name] is its folders and its own name,
+ * One cheat from a `joey64-data` list (plan, Phase 6). [name] is its folders and its own name,
  * split by `\` ("Infinite Items\2 player Mode\Player 1"). [codes] are GameShark codes,
  * "8016609D 00??". [flags]: "gs_button", "boot", "needs_value" (the repo's README).
  */

@@ -17,7 +17,7 @@ import java.net.UnknownHostException
 
 /**
  * The cheat lists (plan, Phase 6; decided 2026-11-05): nothing bundled, every list downloaded
- * from `joey64-cheats` (its `release` branch, `dist/`) and kept in `files/cheatlists/`. The
+ * from `joey64-data` (its `release` branch, `dist/`) and kept in `files/cheatlists/`. The
  * index says which sources have a list for a game; a game's lists are fetched the first time
  * they're wanted (Cheats opened, or the scan's pass), then kept. The index is fetched again when
  * it's more than a week old; when it changed, the kept lists go, so they're fetched fresh.
@@ -150,7 +150,7 @@ class CheatLists(private val context: Context) {
 
     private companion object {
         const val TAG = "Joey64Cheats"
-        const val BASE = "https://raw.githubusercontent.com/JoeysRetroHandhelds/joey64-cheats/release/dist/"
+        const val BASE = "https://raw.githubusercontent.com/JoeysRetroHandhelds/joey64-data/release/dist/"
         const val INDEX = "index.json"
         const val INDEX_DAYS = 7
     }

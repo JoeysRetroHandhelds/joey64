@@ -116,7 +116,7 @@ class CheatLogicTest {
     }
 
     @Test fun theShippedRepoFormatParses() {
-        // A file as tools/convert.py writes it (joey64-cheats dist/project64/3E5055B6-2E92DA52-45.json, first cheats).
+        // A file as tools/convert.py writes it (joey64-data dist/project64/3E5055B6-2E92DA52-45.json, first cheats).
         val text = """{"source":"project64","license":"GPL-2.0-only","key":"3E5055B6-2E92DA52-45","game":"Mario Kart 64 (U)","cheats":[{"name":"Battle Mode\\Infinite Balloons\\Player 1","codes":["8118D8C0 0003"]},{"name":"Have\\Bonus Mode and All Gold Cups","codes":["50000401 0000","8018ED10 00??"],"options":[["00","Off"],["FF","On"]]}]}"""
         val merged = CheatLogic.merge(mapOf("project64" to CheatLogic.parseList(text)))
         assertEquals(2, merged.size)

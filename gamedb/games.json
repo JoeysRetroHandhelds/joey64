@@ -203,7 +203,7 @@
       "disk": "SimCity 64 (Japan)", "title": "SimCity 64 (64DD)",
       "notes": [
         "Flip: boots from the disk alone (IPL_JPN.n64), Maxis logo, 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)",
-        "Thor (2026-11-07, app 9263f30 + core dd ddf3103, before the VI event fix in core dd 7a8c4ba, IPL_JPN = Japan v1.2, 30-60 s from the start): started from the library (the launcher asked for the BIOS first), 64DD logo then HAL's, 61 emu fps"
+        "Thor (2026-11-07, app 9263f30 + core dd ddf3103, before the VI event fix in core dd 7a8c4ba, IPL_JPN = Japan v1.2, 30-60 s from the start): started from the library (the launcher asked for the BIOS first), 64DD logo then HAL's, 61 emu fps", "Thor (2026-11-07, app e02f8ec + core dd 0ac9d17 = VI event fix + Doshin CountPerOp 1, IPL_JPN = Japan v1.2, started by intent, 30 and 60 s): title (push start) at 30 s and 60 s, 60 emu fps, 60 drawn at 60 s (14 at 30 s on a still frame)"
       ]
     },
     {
@@ -220,7 +220,7 @@
       "notes": [
         "Flip: boots, intro then \"Now loading\", 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)",
         "Flip: the game draws ~15 fps and gives a quarter of its audio (~780 underruns per 5 s) while the emulator runs 61 VI/s at 1-4 ms each: it waits inside the emulated machine (likely the 64DD read timing), see the README 64DD item",
-        "Thor (2026-11-07, app 9263f30 + core dd ddf3103, before the VI event fix in core dd 7a8c4ba, IPL_JPN = Japan v1.2, 30-60 s from the start): intro at 30 s, 61 emu fps, 15 drawn (as on the Flip); the Demo (Kiosk) [b] and Kaihou Sensen [b] disks the same"
+        "Thor (2026-11-07, app 9263f30 + core dd ddf3103, before the VI event fix in core dd 7a8c4ba, IPL_JPN = Japan v1.2, 30-60 s from the start): intro at 30 s, 61 emu fps, 15 drawn (as on the Flip); the Demo (Kiosk) [b] and Kaihou Sensen [b] disks the same", "Thor (2026-11-07, app e02f8ec + core dd 0ac9d17 = VI event fix + Doshin CountPerOp 1, IPL_JPN = Japan v1.2, started by intent, 30 and 60 s): title menu at 30 s, 60 emu fps, 60 drawn (was 15 before the fix); the Demo (Kiosk) [b] and Kaihou Sensen [b] disks the same"
       ]
     },
     {
@@ -228,14 +228,14 @@
       "notes": [
         "Flip: boots to the title and into the game, 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)",
         "Flip: the game draws 1-8 fps and gives a quarter of its audio (SM64 cartridge: same 32006 Hz rate, full audio) while the emulator runs 61 VI/s at 1-4 ms each, see the README 64DD item",
-        "Thor (2026-11-07, app 9263f30 + core dd ddf3103, before the VI event fix in core dd 7a8c4ba, IPL_JPN = Japan v1.2, 30-60 s from the start): Nintendo logo at 30 s, 61 emu fps, 6 drawn"
+        "Thor (2026-11-07, app 9263f30 + core dd ddf3103, before the VI event fix in core dd 7a8c4ba, IPL_JPN = Japan v1.2, 30-60 s from the start): Nintendo logo at 30 s, 61 emu fps, 6 drawn", "Thor (2026-11-07, app e02f8ec + core dd 0ac9d17 = VI event fix + Doshin CountPerOp 1, IPL_JPN = Japan v1.2, started by intent, 30 and 60 s): title at 30 s, star intro at 60 s, 60 emu fps, 30 drawn as on the cartridge (was 6 at the Nintendo logo before the fix)"
       ]
     },
     {
       "disk": "Nihon Pro Golf Tour 64 (Japan) [b]", "title": "Nihon Pro Golf Tour 64 (64DD)",
       "notes": [
         "Flip: boots to its menu, 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)",
-        "Thor (2026-11-07, app 9263f30 + core dd ddf3103, before the VI event fix in core dd 7a8c4ba, IPL_JPN = Japan v1.2, 30-60 s from the start): black at 30 s, Japan Golf Tour logo at 60 s, 61 emu fps"
+        "Thor (2026-11-07, app 9263f30 + core dd ddf3103, before the VI event fix in core dd 7a8c4ba, IPL_JPN = Japan v1.2, 30-60 s from the start): black at 30 s, Japan Golf Tour logo at 60 s, 61 emu fps", "Thor (2026-11-07, app e02f8ec + core dd 0ac9d17 = VI event fix + Doshin CountPerOp 1, IPL_JPN = Japan v1.2, started by intent, 30 and 60 s): Japan Tour Players Club logo at 30 s (60 drawn), intro with the staff credits at 60 s (30 drawn), 60 emu fps"
       ]
     },
     {

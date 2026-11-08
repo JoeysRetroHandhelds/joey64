@@ -45,6 +45,17 @@ object ScreenScraper {
 
     fun base(dev: String?) = dev?.takeIf { it.isNotEmpty() }?.trimEnd('/')?.plus("/") ?: BASE
 
+    /**
+     * A game's front cover for [region], fetched with no lookup: mediaJeu.php by game ID (checked
+     * 2026-11-07: the same bytes as the address a lookup gives). A region or game it doesn't have
+     * answers the text "NOMEDIA", which isn't an image, so the caller falls back to a lookup.
+     */
+    fun coverUrl(base: String, gameId: String, region: String, maxWidth: Int): String {
+        val q = mapOf("devid" to devId, "devpassword" to devPassword, "softname" to SOFT, "systemeid" to "$N64", "jeuid" to gameId, "media" to "box-2D($region)")
+            .entries.joinToString("&") { (k, v) -> k + "=" + URLEncoder.encode(v, "UTF-8") }
+        return mediaUrl(base + "mediaJeu.php?" + q, maxWidth)
+    }
+
     /** [url] (a media address from an answer) at most [maxWidth] wide, as JPEG. */
     fun mediaUrl(url: String, maxWidth: Int) = "$url&maxwidth=$maxWidth&outputformat=jpg"
 

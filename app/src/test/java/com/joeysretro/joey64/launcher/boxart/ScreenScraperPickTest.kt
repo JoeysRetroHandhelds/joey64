@@ -77,7 +77,15 @@ class ScreenScraperPickTest {
         assertEquals(mapOf("a".repeat(32) to BoxArtFixes.Fix.Game("108717"), "b".repeat(32) to BoxArtFixes.Fix.None), f)
     }
 
-    /** Every line of the shipped fixes list is used: a typo would drop it silently. */
+    @Test fun fixesTakeARegionAndTheFirstLineWins() {
+        val t = '\t'
+        val f = BoxArtFixes.parse(listOf("a".repeat(32) + "${t}108717${t}us${t}Star Road", "a".repeat(32) + "${t}5396${t}eu",
+            "b".repeat(32) + "${t}5396${t}Not a region: a note").joinToString("\n"))
+        assertEquals(BoxArtFixes.Fix.Game("108717", "us"), f["a".repeat(32)])
+        assertEquals(BoxArtFixes.Fix.Game("5396", null), f["b".repeat(32)])
+    }
+
+    /** Every line of the shipped fixes list is used once: a typo or a second line for an MD5 would be dropped silently. */
     @Test fun shippedFixes() {
         val f = listOf(File("src/main/assets/boxart/fixes.tsv"), File("app/src/main/assets/boxart/fixes.tsv")).first { it.exists() }
         val lines = f.readLines().filter { it.isNotBlank() && !it.startsWith("#") }

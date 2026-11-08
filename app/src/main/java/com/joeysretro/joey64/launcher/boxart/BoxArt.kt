@@ -126,7 +126,10 @@ class BoxArt(private val context: Context, private val db: LibraryDb) {
 
     private enum class Result { Found, None, Failed, Busy, Offline }
 
-    private fun lookUp(g: ArtLookup, table: Map<String, String>, fixes: Map<String, BoxArtFixes.Fix>, now: Long, maxWidth: Int): Result = try {
+    /** ScreenScraper answered with something other than a picture ("NOMEDIA" for a cover it doesn't have). */
+    private class NotAnImage(size: Int) : IOException("cover: not an image ($size bytes)")
+
+    private fun lookUp(g: ArtLookup, table: Map<String, String>, fixes: Map<String, BoxArtFixes.Fix>, now: Long, maxWidth: Int): Result { return try {
         val base = ScreenScraper.base(devBase())
         val noIntro = table[g.md5]
         val byHash = {
@@ -148,6 +151,17 @@ class BoxArt(private val context: Context, private val db: LibraryDb) {
         // The MD5's game counts when its name fits: hacks (some are in the table too, Sealed Palace as a
         // "Pirate" OoT) mostly hash to the original game, whose cover is kept for when a name search finds none.
         val fix = fixes[g.md5]
+        // A known game with its cover's region: straight to the cover, no lookup. Not there (NOMEDIA, or
+        // anything that isn't an image): the lookups below, as for any game.
+        if (fix is BoxArtFixes.Fix.Game && fix.region != null) {
+            val got = try { download(ScreenScraper.coverUrl(base, fix.id, fix.region, maxWidth), file(g.md5)); true }
+                catch (e: NotAnImage) { JLog.w(TAG, "box art: ${g.fileName}: the listed cover isn't there, looking it up"); false }
+            if (got) {
+                db.setArt(g.gameId, ArtKind.Downloaded.db, "screenscraper:${fix.id}:${fix.region}", now)
+                JLog.i(TAG, "cover for ${g.fileName}: game ${fix.id} (${fix.region}, listed)")
+                return Result.Found
+            }
+        }
         val hashed = if (fix == null) byHash() else null
         val (game, how) = when {
             fix == BoxArtFixes.Fix.None -> null to "fix"
@@ -173,11 +187,12 @@ class BoxArt(private val context: Context, private val db: LibraryDb) {
         if (e is java.net.UnknownHostException || e is java.net.ConnectException || e is java.net.SocketTimeoutException) Result.Offline
         else { JLog.w(TAG, "box art: ${g.fileName}: $e"); Result.Failed }
     }
+    }
 
     /** Downloads [url] and keeps it as a JPEG, written whole or not at all. */
     private fun download(url: String, to: File) {
         val bytes = ScreenScraper.get(url, "cover")
-        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: throw IOException("cover: not an image (${bytes.size} bytes)")
+        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: throw NotAnImage(bytes.size)
         val part = File(to.parentFile, to.name + ".part")
         try {
             part.outputStream().use { if (!bmp.compress(Bitmap.CompressFormat.JPEG, 90, it)) throw IOException("can't encode") }

@@ -612,7 +612,7 @@ Checked on the Thor against a local server (2026-11-08): the question, What's se
 **Still to do, tracked:**
 - Done 2026-11-08: native crash text from the tombstone's backtrace; audio underruns in sessions and "audio crackles" back in What's sent.
 - Done 2026-11-08 (Joey: "Yes, deploy"): migration 0002 run on the live database (sessions 12 -> 28 columns), Worker deployed (version 99e77947); a test report posted live was stored with the new fields (204), then deleted.
-- The server's `where` values are core / launcher / host; "game" might read better (a server change and redeploy).
+- Decided 2026-11-08 (Joey: "Keep core/host/launcher"): the crash `where` names stay as they are.
 - Done 2026-11-08 (Joey: "Yes, turn it off"): Android's scheduled full backup had killed Joey64 in the foreground mid-game (signal 9, 2026-11-07 23:17), because the manifest didn't set `allowBackup`. Now `android:allowBackup="false"`; on the Thor `bmgr backupnow` answers "Backup is not allowed". Saves are kept by Back up Joey64 and a picked data folder.
 
 ## Waiting on Joey (asked from this chat; kept until answered)

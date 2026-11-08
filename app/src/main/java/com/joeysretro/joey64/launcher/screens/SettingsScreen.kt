@@ -17,6 +17,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -221,7 +222,14 @@ private val RESETTABLE = setOf(SettingsTab.Appearance, SettingsTab.Video, Settin
 
 /** Settings' tab row (L1 / R1 move along it; a tap picks one), also Game settings' Video and Audio. */
 @Composable
-internal fun SettingsTabs(labels: List<String>, on: Int, onTap: (Int) -> Unit) {
+internal fun SettingsTabs(
+    labels: List<String>, on: Int,
+    /** A count after each label, dimmer (a game's set tabs: "Bonus 48"). */
+    counts: List<Int?> = emptyList(),
+    /** Tabs with a dot after the label (a set with an active challenge). */
+    dots: Set<Int> = emptySet(),
+    onTap: (Int) -> Unit,
+) {
     val c = JoeyTheme.colors
     // More tabs than the width holds (eight since Library): the row scrolls, keeping the one in use
     // in view, and a label never wraps or shrinks.
@@ -229,12 +237,21 @@ internal fun SettingsTabs(labels: List<String>, on: Int, onTap: (Int) -> Unit) {
     LaunchedEffect(on) { bring.getOrNull(on)?.bringIntoView() }
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 6.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         labels.forEachIndexed { i, label ->
-            Text(label, style = JoeyTheme.type.tab, color = if (i == on) c.text else c.textSecondary, maxLines = 1, softWrap = false,
-                modifier = Modifier
-                    .bringIntoViewRequester(bring[i])
-                    .then(if (i == on) Modifier.background(c.chip, RoundedCornerShape(6.dp)) else Modifier)
-                    .pointerInput(i) { detectTapGestures { onTap(i) } }
-                    .padding(horizontal = 12.dp, vertical = 4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier
+                .bringIntoViewRequester(bring[i])
+                .then(if (i == on) Modifier.background(c.chip, RoundedCornerShape(6.dp)) else Modifier)
+                .pointerInput(i) { detectTapGestures { onTap(i) } }
+                .padding(horizontal = 12.dp, vertical = 4.dp)) {
+                val count = counts.getOrNull(i)
+                val text = if (count == null) androidx.compose.ui.text.AnnotatedString(label) else androidx.compose.ui.text.buildAnnotatedString {
+                    append(label)
+                    pushStyle(androidx.compose.ui.text.SpanStyle(color = if (i == on) c.textSecondary else c.textDim, fontWeight = androidx.compose.ui.text.font.FontWeight.Normal))
+                    append("  $count")
+                    pop()
+                }
+                Text(text, style = JoeyTheme.type.tab, color = if (i == on) c.text else c.textSecondary, maxLines = 1, softWrap = false)
+                if (i in dots) Box(Modifier.padding(start = 6.dp).size(7.dp).background(c.tagChallenge, androidx.compose.foundation.shape.CircleShape))
+            }
         }
     }
 }

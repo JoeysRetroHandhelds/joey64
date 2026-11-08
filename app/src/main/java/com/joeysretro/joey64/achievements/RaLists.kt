@@ -26,6 +26,8 @@ data class RaAchievement(
     val type: Int,
     /** rc_client's section (bucket) when the list was made. */
     val section: Int,
+    /** Its set's id when the game has more than one set ([RaGame.sets]), else 0. */
+    val set: Int = 0,
 ) {
     val isUnlocked get() = unlocked != 0
     val missable get() = type == TYPE_MISSABLE
@@ -42,7 +44,7 @@ data class RaAchievement(
             o.optInt("id"), o.optString("title"), o.optString("description"), o.optInt("points"),
             o.optString("badge"), o.optString("badgeLocked"), o.optString("progress"), o.optDouble("percent", 0.0).toFloat(),
             o.optDouble("rarity", 0.0).toFloat(), o.optDouble("unlockTime", 0.0).toLong(), o.optInt("unlocked"),
-            o.optInt("type"), o.optInt("sectionType"),
+            o.optInt("type"), o.optInt("sectionType"), o.optInt("set"),
         )
 
         fun parseList(json: String?): List<RaAchievement> {
@@ -69,6 +71,8 @@ data class RaGame(
     val completed: Long,
     /** The library's last-played time (ms), 0 when never. */
     val lastPlayed: Long,
+    /** Its sets when it has more than one: the main set first, then the subsets. Empty for one set. */
+    val sets: List<RaSet> = emptyList(),
 ) {
     val mastered get() = achievements > 0 && unlocked >= achievements
     val fraction get() = if (achievements == 0) 0f else unlocked.toFloat() / achievements
@@ -78,7 +82,22 @@ data class RaGame(
             gameId, o.optInt("id"), o.optString("title"), o.optString("badge"), o.optInt("achievements"),
             o.optInt("unlocked"), o.optInt("points"), o.optInt("pointsUnlocked"),
             o.optDouble("beaten", 0.0).toLong(), o.optDouble("completed", 0.0).toLong(), lastPlayed,
+            o.optJSONArray("sets")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it)?.let(RaSet::parse) } }.orEmpty()
+                .takeIf { it.size > 1 }.orEmpty(),
         )
+    }
+}
+
+/**
+ * One of a game's sets (approved set tabs mockup 2026-11-08, subsets_mock.png): the main set or a
+ * subset, with the user's progress in it. RetroAchievements counts each set on its own.
+ */
+data class RaSet(val id: Int, val title: String, val achievements: Int, val unlocked: Int, val points: Int, val pointsUnlocked: Int) {
+    val fraction get() = if (achievements == 0) 0f else unlocked.toFloat() / achievements
+
+    companion object {
+        fun parse(o: JSONObject) = RaSet(o.optInt("id"), o.optString("title"), o.optInt("achievements"), o.optInt("unlocked"),
+            o.optInt("points"), o.optInt("pointsUnlocked"))
     }
 }
 
@@ -154,9 +173,33 @@ object RaLists {
 
     private fun n(v: Int) = String.format(Locale.US, "%,d", v)
 
-    /** A game row's grey line: "18 of 40 unlocked · 164 points", "All 36 unlocked · 400 points". */
-    fun gameLine(g: RaGame) = if (g.mastered) "All ${g.achievements} unlocked · ${n(g.points)} points"
-        else "${g.unlocked} of ${g.achievements} unlocked · ${n(g.pointsUnlocked)} points"
+    /**
+     * A game row's grey line: "18 of 40 unlocked · 164 points", "All 36 unlocked · 400 points". With
+     * subsets it's the main set's, and the others are counted: "13 of 115 unlocked · 130 points · + 2 sets".
+     */
+    fun gameLine(g: RaGame): String {
+        val line = if (g.mastered) "All ${g.achievements} unlocked · ${n(g.points)} points"
+            else "${g.unlocked} of ${g.achievements} unlocked · ${n(g.pointsUnlocked)} points"
+        val more = g.sets.size - 1
+        return if (more > 0) "$line · + $more ${if (more == 1) "set" else "sets"}" else line
+    }
+
+    /**
+     * A set's tab: "Main set" first, then the subset's own name. RetroAchievements has named subsets
+     * as their own games ("Super Mario 64 [Subset - Bonus]"): then only the part in the brackets.
+     */
+    fun setLabel(index: Int, s: RaSet): String {
+        if (index == 0) return "Main set"
+        return Regex("""\[Subset\s*-\s*(.+?)\s*]""").find(s.title)?.groupValues?.get(1) ?: s.title.ifEmpty { "Set ${index + 1}" }
+    }
+
+    /** The header line on a set's tab: "Bonus · 1 of 48 unlocked · 1 of 240 points", or with a filter "Bonus · Locked · 47 of 48". */
+    fun setSummary(label: String, s: RaSet, f: AchFilter, shown: Int) = "$label · " +
+        if (f == AchFilter.All) "${s.unlocked} of ${s.achievements} unlocked · ${n(s.pointsUnlocked)} of ${n(s.points)} points"
+        else "${f.label} · $shown of ${s.achievements}"
+
+    /** The achievements of the set with [setId] (all of them when the game has one set). */
+    fun inSet(list: List<RaAchievement>, setId: Int?) = if (setId == null) list else list.filter { it.set == setId }
 
     /** One game's header line: "18 of 40 unlocked · 164 of 400 points", or with a filter "Locked · 22 of 40". */
     fun gameSummary(g: RaGame, f: AchFilter, shown: Int) =

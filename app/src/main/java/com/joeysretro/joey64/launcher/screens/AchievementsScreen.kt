@@ -110,8 +110,9 @@ fun GameAchievementsScreen(game: AchievementsGame, onHints: (List<Hint>) -> Unit
         }
     }
     var showing by remember { mutableStateOf(false) }
-    PageShell(onClose = { if (showing) showing = false else onClose() })
-    GameAchievementsContent(game.title, data, live = false, onHints = onHints, showing = showing, onShow = { showing = it })
+    val tabs = remember { SetTabStep() }
+    PageShell(onClose = { if (showing) showing = false else onClose() }, onTab = { tabs.step(it) })
+    GameAchievementsContent(game.title, data, live = false, onHints = onHints, showing = showing, onShow = { showing = it }, tabs = tabs, tabHint = "Set")
 }
 
 /** The pause menu's Achievements: the same page as a panel over the paused game, rc_client's live list. */
@@ -125,22 +126,41 @@ fun InGameAchievements(title: String, focusId: Int? = null, backLabel: String = 
         val g = (info ?: fake?.first)?.let { RaGame.parse(0, JSONObject(it), 0L) }
         GameData(g, RaAchievement.parseList(if (fake != null) fake.second else RaBridge.achievementList()), System.currentTimeMillis())
     }
-    JoeyDialog(onDismiss = onClose, hints = hints, width = 780.dp) {
+    val tabs = remember { SetTabStep() }
+    JoeyDialog(onDismiss = onClose, hints = hints, width = 780.dp, onPadButton = { key ->
+        when (key) {
+            android.view.KeyEvent.KEYCODE_BUTTON_L1 -> tabs.step(-1)
+            android.view.KeyEvent.KEYCODE_BUTTON_R1 -> tabs.step(1)
+        }
+    }) {
         Box(Modifier.heightIn(max = 520.dp)) {
             GameAchievementsContent(title, data, live = true, onHints = { hints = it.map { h -> if (h.key == "B") Hint("B", backLabel) else h } },
-                showing = showing, onShow = { showing = it }, focusId = focusId, inPanel = true)
+                showing = showing, onShow = { showing = it }, focusId = focusId, inPanel = true, tabs = tabs, tabHint = "Tab")
         }
     }
 }
 
 private data class GameData(val game: RaGame?, val list: List<RaAchievement>, val keptAt: Long)
 
+/** L1/R1 from the page or the panel, to the set tabs (approved mockup 2026-11-08, subsets_mock.png). */
+private class SetTabStep {
+    var onStep: ((Int) -> Unit)? = null
+    fun step(delta: Int) { onStep?.invoke(delta) }
+}
+
 /** B / Back and the launcher's buttons while a page is up (as Cheats does): the page takes them. */
 @Composable
-private fun PageShell(onClose: () -> Unit) {
+private fun PageShell(onClose: () -> Unit, onTab: ((Int) -> Unit)? = null) {
     BackHandler(onBack = onClose)
     DisposableEffect(Unit) {
-        val handler: (Control) -> Boolean = { true }
+        val handler: (Control) -> Boolean = { ctl ->
+            when (ctl) {
+                Control.TabPrev -> onTab?.invoke(-1)
+                Control.TabNext -> onTab?.invoke(1)
+                else -> {}
+            }
+            true
+        }
         ControlBus.push(handler)
         onDispose { ControlBus.pop(handler) }
     }
@@ -202,26 +222,47 @@ private fun GamesList(onHints: (List<Hint>) -> Unit, onClose: () -> Unit, focusG
 private fun GameAchievementsContent(
     title: String, data: GameData?, live: Boolean, onHints: (List<Hint>) -> Unit,
     showing: Boolean, onShow: (Boolean) -> Unit, focusId: Int? = null, inPanel: Boolean = false,
+    tabs: SetTabStep? = null, tabHint: String = "Set",
 ) {
     val c = JoeyTheme.colors
     var filter by remember { mutableStateOf(AchFilter.All) }
     var sort by remember { mutableStateOf(AchSort.RaOrder) }
     var onChip by remember { mutableStateOf(false) }
-    LaunchedEffect(onChip) { onHints(listOfNotNull(if (onChip) Hint("A", "Show") else null, Hint("B", "Back"))) }
+    // The set tabs (approved mockup 2026-11-08): only for a game with more than one set. The filter
+    // and sort stay when the tab changes; in game, the panel opens on the tab of [focusId]'s set.
+    val sets = data?.game?.sets.orEmpty()
+    val tabbed = sets.size > 1
+    var setPicked by remember { mutableStateOf(-1) }
+    val setIdx = if (setPicked in sets.indices) setPicked
+        else focusId?.let { id -> data?.list?.firstOrNull { it.id == id } }?.let { a -> sets.indexOfFirst { it.id == a.set } }?.takeIf { it >= 0 } ?: 0
+    val landing = LocalFocusLanding.current
+    var tabChanged by remember { mutableStateOf(0) }
+    tabs?.onStep = { delta -> if (tabbed) { setPicked = (setIdx + delta + sets.size) % sets.size; tabChanged++ } }
+    // A new tab: focus lands on its first row, as when the page opens.
+    LaunchedEffect(tabChanged) { if (tabChanged > 0) landing?.arm() }
+    LaunchedEffect(onChip, tabbed) {
+        onHints(listOfNotNull(if (onChip) Hint("A", "Show") else null, if (tabbed) Hint("L/R", tabHint) else null, Hint("B", "Back")))
+    }
     val d = data ?: return
     val g = d.game
-    val shown = remember(d, filter, sort) { RaLists.achievements(d.list, filter, sort, live) }
+    val set = sets.getOrNull(setIdx)?.takeIf { tabbed }
+    val inSet = remember(d, set) { RaLists.inSet(d.list, set?.id) }
+    val shown = remember(inSet, filter, sort) { RaLists.achievements(inSet, filter, sort, live) }
     val now = System.currentTimeMillis()
     val listState = rememberLazyListState()
     Column((if (inPanel) Modifier.fillMaxWidth() else Modifier.fillMaxSize().padding(horizontal = JoeyTheme.spacing.margin).padding(top = 14.dp, bottom = 6.dp))) {
         Header(
             title = g?.title?.ifEmpty { null } ?: title,
-            line = g?.let { RaLists.gameSummary(it, filter, shown.size) } ?: "",
+            line = g?.let { if (set != null) RaLists.setSummary(RaLists.setLabel(setIdx, set), set, filter, shown.size) else RaLists.gameSummary(it, filter, shown.size) } ?: "",
             picture = { Picture(g?.let { badgeFile(it.badge) }, 34.dp) },
             chip = filter.label, chipOn = filter != AchFilter.All, onChip = { onShow(true) }, chipShown = g != null, onChipFocused = { onChip = it },
             chipFirst = g != null && shown.isEmpty(),
         )
-        if (g != null) ThinBar(g.fraction, Modifier.fillMaxWidth().padding(top = 10.dp))
+        if (g != null) ThinBar(set?.fraction ?: g.fraction, Modifier.fillMaxWidth().padding(top = 10.dp))
+        if (tabbed) SettingsTabs(sets.mapIndexed { i, s -> RaLists.setLabel(i, s) }, setIdx, counts = sets.map { it.achievements },
+            // In game, a dot on a set with an active challenge, so it isn't missed on another tab.
+            dots = if (!live) emptySet() else sets.indices.filter { i -> d.list.any { it.set == sets[i].id && it.section == RaAchievement.ACTIVE_CHALLENGE } }.toSet(),
+        ) { setPicked = it; tabChanged++ }
         if (g == null) Empty(if (live) "This game has no RetroAchievements set, or it wasn't found." else "Play this game once, and its achievements show here.", holdFocus = true)
         else if (!live && d.list.any { !it.isUnlocked && it.progress.isNotEmpty() })
             Text("Progress from the last time you played, ${SlotDates.label(d.keptAt, now)}", style = JoeyTheme.type.small, color = c.textDim,
@@ -239,7 +280,7 @@ private fun GameAchievementsContent(
         }
     }
     if (showing) AchShowPopup(
-        filters = AchFilter.entries.map { it.label }, counts = RaLists.achCounts(d.list).let { m -> AchFilter.entries.map { m[it] } },
+        filters = AchFilter.entries.map { it.label }, counts = RaLists.achCounts(inSet).let { m -> AchFilter.entries.map { m[it] } },
         filter = filter.ordinal, sorts = AchSort.entries.map { it.label }, sort = sort.ordinal,
         onFilter = { filter = AchFilter.entries[it] }, onSort = { sort = AchSort.entries[it] }, onDismiss = { onShow(false) },
     )

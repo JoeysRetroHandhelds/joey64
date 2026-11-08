@@ -15,6 +15,7 @@
 #include <mutex>
 #include <algorithm>
 #include <string>
+#include <unordered_map>
 
 #include "joeylog.h"
 
@@ -107,6 +108,30 @@ std::string achievementJson(const rc_client_achievement_t* a) {
     return j.done();
 }
 
+// The game's sets when it has more than one (main set first, then the subsets), each with the
+// user's progress in it: the set tabs (approved mockup 2026-11-08, subsets_mock.png). "" for one set.
+std::string setsJson() {
+    rc_client_subset_list_t* list = rc_client_create_subset_list(g_client);
+    std::string out;
+    if (list && list->num_subsets > 1) {
+        out = "[";
+        for (uint32_t i = 0; i < list->num_subsets; i++) {
+            const rc_client_subset_t* s = list->subsets[i];
+            rc_client_user_game_summary_t sum{};
+            rc_client_get_user_subset_summary(g_client, s->id, &sum);
+            Json j;
+            j.num("id", s->id).str("title", s->title)
+                .num("achievements", sum.num_core_achievements).num("unlocked", sum.num_unlocked_achievements)
+                .num("points", sum.points_core).num("pointsUnlocked", sum.points_unlocked);
+            if (i) out += ',';
+            out += j.done();
+        }
+        out += "]";
+    }
+    if (list) rc_client_destroy_subset_list(list);
+    return out;
+}
+
 std::string gameJson() {
     Json j;
     const rc_client_game_t* g = g_client ? rc_client_get_game_info(g_client) : nullptr;
@@ -117,6 +142,8 @@ std::string gameJson() {
         .num("achievements", sum.num_core_achievements).num("unlocked", sum.num_unlocked_achievements)
         .num("points", sum.points_core).num("pointsUnlocked", sum.points_unlocked)
         .num("beaten", (double)sum.beaten_time).num("completed", (double)sum.completed_time);
+    std::string sets = setsJson();
+    if (!sets.empty()) j.raw("sets", sets);
     return j.done();
 }
 
@@ -464,6 +491,16 @@ JNIEXPORT jstring JNICALL RAJNI(gameInfo)(JNIEnv* env, jclass) {
 JNIEXPORT jstring JNICALL RAJNI(achievementList)(JNIEnv* env, jclass) {
     std::string out = "[";
     if (g_client && rc_client_is_game_loaded(g_client)) {
+        // Each achievement's set (0 with one set): the lock-state grouping splits every bucket by set,
+        // the progress grouping's shared ones (challenges, recent unlocks, almost there) don't.
+        std::unordered_map<uint32_t, uint32_t> setOf;
+        if (rc_client_achievement_list_t* bySet = rc_client_create_achievement_list(g_client,
+                RC_CLIENT_ACHIEVEMENT_CATEGORY_CORE_AND_UNOFFICIAL, RC_CLIENT_ACHIEVEMENT_LIST_GROUPING_LOCK_STATE)) {
+            for (uint32_t b = 0; b < bySet->num_buckets; b++)
+                for (uint32_t i = 0; i < bySet->buckets[b].num_achievements; i++)
+                    setOf[bySet->buckets[b].achievements[i]->id] = bySet->buckets[b].subset_id;
+            rc_client_destroy_achievement_list(bySet);
+        }
         rc_client_achievement_list_t* list = rc_client_create_achievement_list(g_client,
             RC_CLIENT_ACHIEVEMENT_CATEGORY_CORE_AND_UNOFFICIAL, RC_CLIENT_ACHIEVEMENT_LIST_GROUPING_PROGRESS);
         for (uint32_t b = 0; list && b < list->num_buckets; b++) {
@@ -473,6 +510,8 @@ JNIEXPORT jstring JNICALL RAJNI(achievementList)(JNIEnv* env, jclass) {
                 std::string a = achievementJson(bucket.achievements[i]);
                 a.pop_back();
                 Json extra; extra.str("section", bucket.label).num("sectionType", bucket.bucket_type);
+                auto s = setOf.find(bucket.achievements[i]->id);
+                if (s != setOf.end() && s->second) extra.num("set", s->second);
                 out += a + "," + extra.done().substr(1);
             }
         }

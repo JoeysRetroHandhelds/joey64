@@ -53,13 +53,21 @@ class BiosImportTest {
     }
 
     @Test fun aDiskIsHashedWhole() {
-        val disk = ByteArray(200_000) { (it * 7).toByte() }
+        val disk = ByteArray(1_200_000) { (it * 7).toByte() }
         val info = RomReader.read("x.ndd", ByteArrayInputStream(disk))!!
         assertEquals(BiosImport.md5(disk), info.md5)
-        assertEquals(200_000L, info.size)
+        assertEquals(1_200_000L, info.size)
         assertEquals('J', info.header.region.code)
         assertNull(info.header.gameCode)
         // The same bytes named as a ROM: not an N64 ROM (no first word).
         assertNull(RomReader.read("x.z64", ByteArrayInputStream(disk)))
+    }
+
+    @Test fun aCommodore64DiskIsNotA64ddDisk() {
+        // .d64 is also the C64's disk extension: 174,848 bytes for 35 tracks (code audit 2).
+        val c64 = ByteArray(174_848) { (it * 3).toByte() }
+        assertNull(RomReader.read("Impossible Mission.d64", ByteArrayInputStream(c64)))
+        assertEquals(false, com.joeysretro.joey64.launcher.library.RomCheck.isN64("Impossible Mission.d64", ByteArrayInputStream(c64)))
+        assertEquals(true, com.joeysretro.joey64.launcher.library.RomCheck.isN64("Disk.d64", ByteArrayInputStream(ByteArray(RomReader.MIN_DISK_SIZE.toInt()))))
     }
 }

@@ -64,6 +64,7 @@ object SrmSync {
     private fun key(name: String) = if (name.endsWith(".srm")) name.removeSuffix(".srm") else name
 
     /** Before the game loads. */
+    @Synchronized
     fun pull(context: Context, saveName: String) {
         val folder = DataFolders.current(context)
         if (folder.isInternal || saveName.isEmpty()) return
@@ -72,6 +73,7 @@ object SrmSync {
     }
 
     /** Puts the game's working copies in the picked folder when they changed since the last time. */
+    @Synchronized
     fun push(context: Context, saveName: String) {
         val folder = DataFolders.current(context)
         if (folder.isInternal || saveName.isEmpty()) return
@@ -80,6 +82,7 @@ object SrmSync {
     }
 
     /** Every working copy that changed (before a backup or a move reads the picked folder). */
+    @Synchronized
     fun pushAll(context: Context) {
         val folder = DataFolders.current(context)
         if (folder.isInternal) return
@@ -91,12 +94,33 @@ object SrmSync {
     /** The folder changed: nothing is in step with the new one yet. */
     fun forget(context: Context) { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().commit() }
 
-    /** [name] from [space]'s saves/ into [work]; a working copy changed since it was last in step goes out instead. */
+    /** The folder's copy of [name] as its listing gives it (size, time), or null when it has none or no time. */
+    private fun folderStamp(space: FileSpace, name: String): Pair<Long, Long>? =
+        space.list(listOf(DataKind.Saves.dir)).firstOrNull { it.name == name && !it.isDir }?.takeIf { it.modified > 0 }?.let { it.size to it.modified }
+
+    /** Remembers the folder's copy as it is now in step with the working copy, so an unchanged one isn't pulled again. */
+    private fun noteFolder(space: FileSpace, name: String, st: Stamps) {
+        val k = key(name)
+        val fs = folderStamp(space, name)
+        st.put("$k|size", fs?.first ?: -1L); st.put("$k|mod", fs?.second ?: -1L)
+    }
+
+    /**
+     * [name] from [space]'s saves/ into [work]; a working copy changed since it was last in step goes out instead. Both in
+     * step and the folder's copy as it was then (size and time): nothing to copy (a 64DD disk save is 64.9 MB, and this
+     * runs at every start; code audit 2).
+     */
     fun pullFile(space: FileSpace, work: File, name: String, st: Stamps) {
         val f = File(work, name)
         val rec = st.get(key(name))
         try {
             if (f.isFile && rec >= 0 && f.lastModified() != rec) { JLog.i(TAG, "$name: the working copy is newer, pushing it first"); pushFile(space, work, name, st); return }
+            if (f.isFile && rec >= 0) {
+                val fs = folderStamp(space, name)
+                if (fs != null && fs.first == st.get("${key(name)}|size") && fs.second == st.get("${key(name)}|mod")) {
+                    JLog.i(TAG, "$name: in step with the data folder, not copied"); return
+                }
+            }
             val input = space.openRead(listOf(DataKind.Saves.dir, name))
             if (input == null) { if (f.isFile) pushFile(space, work, name, st); return }
             work.mkdirs()
@@ -105,6 +129,7 @@ object SrmSync {
             val size = input.use { i -> part.outputStream().use { i.copyTo(it, 1 shl 16) } }
             if (!part.renameTo(f)) { f.delete(); if (!part.renameTo(f)) throw IOException("can't put $name in place") }
             st.put(key(name), f.lastModified())
+            noteFolder(space, name, st)
             JLog.i(TAG, "$name: pulled $size bytes from the data folder")
         } catch (e: Exception) {
             JLog.e(TAG, "$name: can't pull: $e")
@@ -123,6 +148,7 @@ object SrmSync {
             if (!f.inputStream().use { FileCopy.writeChecked(it, space, listOf(DataKind.Saves.dir, name)) })
                 throw IOException("can't write $name")
             st.put(key(name), at)
+            noteFolder(space, name, st)
             JLog.i(TAG, "$name: pushed ${f.length()} bytes to the data folder")
         } catch (e: Exception) {
             JLog.e(TAG, "$name: can't push: $e")

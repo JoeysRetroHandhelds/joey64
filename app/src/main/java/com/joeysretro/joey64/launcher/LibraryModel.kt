@@ -161,6 +161,24 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
             _games.value = withContext(Dispatchers.IO) { db.libraryGames() }
             try { reloadCollections() } catch (e: Exception) { JLog.e(TAG, "can't read collections" + "\n" + Log.getStackTraceString(e)) }
         }
+        // A disk the library started didn't start (no IPL for its region, or its cartridge didn't unpack): ask again.
+        viewModelScope.launch {
+            GameStartFailed.failed.collect { failed ->
+                if (failed == null) return@collect
+                GameStartFailed.take()
+                val md5 = failed.intent.getStringExtra(com.joeysretro.joey64.MainActivity.EXTRA_MD5)
+                val game = (_games.value ?: withContext(Dispatchers.IO) { db.libraryGames() }).firstOrNull { it.md5 == md5 }
+                if (game == null) { JLog.w(TAG, "a 64DD disk didn't start, and it isn't in the library ($md5)"); return@collect }
+                val code = GameLauncher.cartCode(game)
+                if (failed.need == GameStartFailed.Need.Cart && code != null) {
+                    JLog.i(TAG, "${game.title} didn't start (its $code cartridge didn't unpack): asking for it")
+                    _needsCart.value = NeedsCart(game, code, failed.intent.getStringExtra(com.joeysretro.joey64.MainActivity.EXTRA_LOAD_STATE))
+                } else if (failed.need == GameStartFailed.Need.Bios) {
+                    JLog.i(TAG, "${game.title} didn't start (no IPL for its region): asking for the 64DD BIOS")
+                    _needsBios.value = NeedsBios(game, failed.intent, failedStart = true)
+                }
+            }
+        }
         app.getSystemService(ConnectivityManager::class.java)?.registerDefaultNetworkCallback(network)
     }
 
@@ -482,8 +500,12 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     fun openAchievements(game: LibraryGame) { _achievementsFor.value = com.joeysretro.joey64.launcher.screens.AchievementsGame(game.id, game.title) }
     fun closeAchievements() { _achievementsFor.value = null }
 
-    /** A 64DD disk's Play with no 64DD BIOS in the data folder's bios/ (approved 2026-11-07); [missed]: the last pick had none. */
-    data class NeedsBios(val game: LibraryGame, val intent: Intent, val missed: Boolean = false)
+    /**
+     * A 64DD disk's Play with no 64DD BIOS in the data folder's bios/ (approved 2026-11-07); [missed]: the last pick had none.
+     * [failedStart]: the disk was started and the core shut down (its region's IPL wasn't there, code audit 2): a pick then
+     * counts only when bios/ has the Japan IPL every retail disk starts from.
+     */
+    data class NeedsBios(val game: LibraryGame, val intent: Intent, val missed: Boolean = false, val failedStart: Boolean = false)
     private val _needsBios = MutableStateFlow<NeedsBios?>(null)
     /** "This game needs the 64DD BIOS", or null. */
     val needsBios: StateFlow<NeedsBios?> = _needsBios
@@ -495,7 +517,8 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
             val app = getApplication<Application>()
             val ready = withContext(Dispatchers.IO) {
                 try { com.joeysretro.joey64.launcher.storage.BiosImport.importFolder(app, folder) } catch (e: Exception) { JLog.e(TAG, "64DD BIOS: $e") }
-                com.joeysretro.joey64.launcher.storage.BiosImport.ready(app)
+                if (ask.failedStart) com.joeysretro.joey64.launcher.storage.BiosImport.readyForRetail(app)
+                else com.joeysretro.joey64.launcher.storage.BiosImport.ready(app)
             }
             if (ready) { _needsBios.value = null; go(ask.game, ask.intent, start) } else _needsBios.value = ask.copy(missed = true)
         }

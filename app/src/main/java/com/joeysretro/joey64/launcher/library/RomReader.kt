@@ -121,9 +121,23 @@ object RomReader {
     fun isDiskName(name: String) = com.joeysretro.joey64.RomFiles.isDiskName(name)
 
     /**
+     * The smallest file taken as a 64DD disk: their images are 55-70 MB, while .d64 is also the Commodore 64's disk
+     * extension (~170 KB), so a C64 disk in a ROM folder isn't listed as a 64DD game (code audit 2, finding 3).
+     */
+    const val MIN_DISK_SIZE = 1L shl 20
+
+    /** [input] has at least [MIN_DISK_SIZE] bytes (reads up to that many). */
+    fun diskSized(input: InputStream): Boolean {
+        val buf = ByteArray(64 * 1024)
+        var total = 0L
+        while (total < MIN_DISK_SIZE) { val n = input.read(buf); if (n < 0) break; total += n }
+        return total >= MIN_DISK_SIZE
+    }
+
+    /**
      * Reads a 64DD disk from [input] to its end: MD5 and CRC-32 of the whole file, as it is (disks have one byte
      * order). Disks have no cartridge header: the header is empty, region Japan (every 64DD disk released), CRCs 0.
-     * Null when it is empty.
+     * Null when it is smaller than [MIN_DISK_SIZE] (not a 64DD disk: a Commodore 64 .d64).
      */
     fun readDisk(input: InputStream): RomInfo? {
         val buf = ByteArray(64 * 1024)
@@ -135,7 +149,7 @@ object RomReader {
             if (n < 0) break
             md5.update(buf, 0, n); crc.update(buf, 0, n); total += n
         }
-        if (total == 0L) return null
+        if (total < MIN_DISK_SIZE) return null
         return RomInfo(
             header = RomHeader(name = "", gameCode = null, region = RomRegion.of('J'), revision = 0, crc1 = 0, crc2 = 0),
             byteOrder = RomByteOrder.BigEndian,

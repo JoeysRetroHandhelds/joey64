@@ -274,6 +274,11 @@ void noteDrawn() {
     if (g_framesDrawn.fetch_add(1) == 0)
         g_firstFrameMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - g_loadStart).count();
 }
+// The core asked to shut down (RETRO_ENVIRONMENT_SHUTDOWN): it could not start the game; MainActivity polls it.
+std::atomic<bool> g_coreShutDown{false};
+// The core said it could not load the 64DD IPL (its region's file, else IPL.n64, is missing): why a disk didn't start,
+// as against a disk or disk save it could not read.
+std::atomic<bool> g_ddIplMissing{false};
 // Rumble Pak, players 1-4 (players 2-4 since 2026-11-07; before, the core's calls for ports 1-3 were
 // refused): the core switches each motor on/off; a UI-side thread waits in waitRumble for any player's
 // motor to change and drives that player's controller (or the device's) vibrator. Polling it from a
@@ -315,6 +320,13 @@ retro_proc_address_t hw_get_proc_address(const char* name) {
 
 void log_cb(enum retro_log_level level, const char* fmt, ...) {
     va_list ap; va_start(ap, fmt);
+    {   // any level: the core sends its errors at a lower one than RETRO_LOG_ERROR
+        char line[512];
+        va_list cp; va_copy(cp, ap);
+        vsnprintf(line, sizeof line, fmt, cp);
+        va_end(cp);
+        if (strstr(line, "Failed to load DD IPL ROM")) g_ddIplMissing = true;
+    }
     joeyLogV(level >= RETRO_LOG_ERROR ? ANDROID_LOG_ERROR : level == RETRO_LOG_WARN ? ANDROID_LOG_WARN : ANDROID_LOG_INFO, "core", fmt, ap);
     va_end(ap);
 }
@@ -330,6 +342,7 @@ bool environment(unsigned cmd, void* data) {
     case RETRO_ENVIRONMENT_SHUTDOWN:
         // The core could not start the game (e.g. a 64DD disk whose region has no IPL BIOS); it then runs no frames.
         LOGE("core: shut down, the game did not start");
+        g_coreShutDown = true;
         return true;
     case RETRO_ENVIRONMENT_GET_CAN_DUPE:
         *static_cast<bool*>(data) = true; return true;
@@ -1185,6 +1198,8 @@ JNIEXPORT void JNICALL JNI(setDdCart)(JNIEnv* env, jobject, jstring path) {
 
 JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstring saveName) {
     g_loadStart = std::chrono::steady_clock::now();
+    g_coreShutDown = false;
+    g_ddIplMissing = false;
     if (!g_vulkan) {
         if (!g_egl.init()) return JNI_FALSE;
         applySurfaceIfChanged();
@@ -1419,6 +1434,9 @@ JNIEXPORT jint JNICALL JNI(waitRumble)(JNIEnv*, jobject, jint wasMask, jint time
     g_rumbleChanged.wait_for(lock, std::chrono::milliseconds(timeoutMs), [&] { return rumbleMask() != (int)wasMask; });
     return (jint)rumbleMask();
 }
+
+// 0 running, 1 the core shut down, 2 it shut down after it could not load the 64DD IPL.
+JNIEXPORT jint JNICALL JNI(coreShutDown)(JNIEnv*, jobject) { return !g_coreShutDown ? 0 : g_ddIplMissing ? 2 : 1; }
 
 JNIEXPORT jint JNICALL JNI(framesRun)(JNIEnv*, jobject) {
     return (jint)g_framesRun.load();

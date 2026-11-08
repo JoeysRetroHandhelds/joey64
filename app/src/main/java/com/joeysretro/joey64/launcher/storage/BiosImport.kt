@@ -85,6 +85,12 @@ object BiosImport {
             ?: if (have.isNotEmpty()) "Set" else null
 
     /** True when a disk can start: an IPL is in bios/ (the core picks it by the disk's region). */
+    /** True when bios/ has what every retail (Japanese) disk starts from: IPL_JPN.n64, or IPL.n64, which the core falls back on. */
+    fun readyForRetail(context: Context): Boolean {
+        val space = DataFolders.current(context).space
+        return listOf("IPL_JPN.n64", "IPL.n64").any { try { space.exists(listOf(BiosSync.DIR, it)) } catch (e: Exception) { false } }
+    }
+
     fun ready(context: Context): Boolean {
         val space = DataFolders.current(context).space
         return BiosSync.IPL_NAMES.any { try { space.exists(listOf(BiosSync.DIR, it)) } catch (e: Exception) { false } }
@@ -135,10 +141,9 @@ object BiosImport {
         val write = toWrite(found.map { it.first }, installed(space))
         for (ipl in write) {
             val bytes = found.first { it.first == ipl }.second
-            val part = listOf(BiosSync.DIR, ipl.file + ".part")
-            space.openWrite(part).use { it.write(bytes) }
-            space.delete(listOf(BiosSync.DIR, ipl.file))
-            if (!space.rename(part, ipl.file)) throw java.io.IOException("can't save ${ipl.file}")
+            // Written, read back and swapped in: a failed rename puts the old IPL back (code audit 2, finding 5).
+            if (!FileCopy.writeChecked(bytes.inputStream(), space, listOf(BiosSync.DIR, ipl.file)))
+                throw java.io.IOException("can't save ${ipl.file}")
             JLog.i(TAG, "${ipl.label} saved as ${BiosSync.DIR}/${ipl.file}")
         }
         return found.map { it.first }.distinct().sortedByDescending { it.rank }

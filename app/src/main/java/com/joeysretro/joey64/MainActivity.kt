@@ -144,6 +144,17 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // Banjo -6.4%, Paper Mario -5.7%). --es env PARALLEL_RDP_SINGLE_THREADED_COMMAND=0 turns it off.
         if ("Mali" in gpuName && android.system.Os.getenv("PARALLEL_RDP_SINGLE_THREADED_COMMAND") == null)
             android.system.Os.setenv("PARALLEL_RDP_SINGLE_THREADED_COMMAND", "1", true)
+        // Lazy waking of parallel-RDP's command worker (core, on unless N64_RDP_RING_LAZY=0) stays on for Adreno only
+        // (Joey 2026-11-07): Portal +4.4% uncapped (portal-gpu2lazy, none below -0.5%), Duo +3.0% (duo-newlazy),
+        // compat 82/82 on both. Other GPUs were not measured with it, so it is off there. --es env wins.
+        if ("Adreno" !in gpuName && android.system.Os.getenv("N64_RDP_RING_LAZY") == null)
+            android.system.Os.setenv("N64_RDP_RING_LAZY", "0", true)
+        // The recompiler's compile thread (core N64_DRC_THREAD, off unless =1) on Mali only (2026-11-08, Joey: "your call"):
+        // new code runs in the interpreter while a worker compiles it. Flip MK64 race start (flip-mkthread4, 3 rounds):
+        // worst frame 88-90 -> 45 ms; speed -0.4% geomean (flip-drcthread4). Adreno has no such hitches (Odin 3 worst
+        // block 1-2 ms) and lost on worst frames (odin3-drcthread4: game 40 8.6 -> 23-31 ms), so it stays off there.
+        if ("Mali" in gpuName && android.system.Os.getenv("N64_DRC_THREAD") == null)
+            android.system.Os.setenv("N64_DRC_THREAD", "1", true)
         // Smoother timing (CountPerOp=1, README item 15) for the games that lag on hardware, strong devices only
         // (Joey 2026-11-06; compat passed on the Odin 3 and Portal, odin3-/portal-smoothc): Adreno 730 and up (Portal,
         // Odin 3, Thor). The host picks the games (kSmootherGames). --es env N64_SMOOTHER=0|1 wins.
@@ -767,34 +778,106 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private fun copyToCache(uri: Uri, name: String?): String? =
         contentResolver.openInputStream(uri)?.use { RomFiles.extract(it, romCache, name) }
 
+    /** What [prepareGame] got ready off the main thread: the ROM, its save name, a 64DD disk's cartridge, Settings › Saves. */
+    private class Prepared(val rom: String, val saveName: String, val ddCart: String?, val savesOpts: com.joeysretro.joey64.saves.SavesOptions)
+    /** [prepareGame] stopped because a 64DD disk's cartridge didn't unpack. */
+    @Volatile private var cartFailed = false
+    /** [prepareGame] is running on [gameIo]. */
+    private var preparing = false
+    /** Ready, waiting for a surface (it went away while the files were copied). */
+    private var prepared: Prepared? = null
+    private var surfaceUp = false
+
     override fun surfaceCreated(holder: SurfaceHolder) {
         if (!mine) return
         NativeBridge.setSurface(holder.surface)
-        if (!started) {
-            val (rom, saveName) = resolveRom() ?: run { JLog.e(TAG, "No ROM. Push one to ${getExternalFilesDir(null)}/test.z64"); return }
-            startRom = rom; startSave = saveName
-            // A 64DD disk: the IPL BIOS comes from the data folder's bios/ (the core reads its copy in files/system).
-            if (RomFiles.isDiskName(rom)) com.joeysretro.joey64.launcher.storage.BiosSync.refresh(this)
-            val ddCart = if (RomFiles.isDiskName(rom)) resolveDdCart() else null
-            NativeBridge.setDdCart(ddCart ?: "")
-            reportGameState(loading = true)
-            applyControls(rom, saveName)
-            applyCheats(if (RomFiles.isDiskName(rom)) ddCart ?: "" else rom, saveName)
-            applyAudio(saveName)
-            // Settings › Saves: a copy of the save RAM before the core can write it (Back up saves).
-            savesOpts = com.joeysretro.joey64.saves.SavesStore(this).read()
-            // A picked data folder: its copy of the save RAM comes into files/saves, where the core reads it.
-            com.joeysretro.joey64.launcher.storage.SrmSync.pull(this, saveName)
-            com.joeysretro.joey64.saves.SaveBackups.maybeBackUp(com.joeysretro.joey64.launcher.storage.DataFolders.current(this).space,
-                saveName, savesOpts.backups, savesOpts.backupsKeep)
-            // RetroAchievements: signs in with the kept account first, so the game is identified as it loads.
-            com.joeysretro.joey64.achievements.RaBridge.init(this)
-            if (NativeBridge.loadGame(rom, saveName)) {
-                NativeBridge.start(); started = true; owner = this; gameLoaded = true
-                startStates(saveName)
-                startSession(rom, saveName)
+        surfaceUp = true
+        if (started) return
+        prepared?.let { launchGame(it); return }
+        if (preparing) return
+        // The file work before a game loads (unpacking the ROM, the 64DD BIOS, a picked data folder's saves, the
+        // save backups: a 64DD disk save is 64.9 MB) runs off the main thread (code audit 2, finding 1).
+        preparing = true
+        reportGameState(loading = true)
+        gameIo.execute {
+            val p = try { prepareGame() } catch (e: Exception) { JLog.e(TAG, "can't get the game ready: $e"); null }
+            runOnUiThread {
+                preparing = false
+                if (destroyed) return@runOnUiThread
+                if (p == null) { reportGameState(loading = false); notStarted(cart = cartFailed); return@runOnUiThread }
+                prepared = p
+                if (surfaceUp) launchGame(p)
             }
+        }
+    }
+
+    /** On [gameIo]: everything before loadGame that reads or writes files. Null: no ROM. */
+    private fun prepareGame(): Prepared? {
+        val (rom, saveName) = resolveRom() ?: run { JLog.e(TAG, "No ROM. Push one to ${getExternalFilesDir(null)}/test.z64"); return null }
+        val disk = RomFiles.isDiskName(rom)
+        // A 64DD disk: the IPL BIOS comes from the data folder's bios/ (the core reads its copy in files/system).
+        if (disk) com.joeysretro.joey64.launcher.storage.BiosSync.refresh(this)
+        val ddCart = if (disk) resolveDdCart() else null
+        // A cartridge was given and didn't unpack: the disk alone would start with no word of it (code audit 2).
+        if (disk && ddCart == null && (intent?.getStringExtra(EXTRA_DD_CART) != null || devString("ddcart") != null)) {
+            JLog.e(TAG, "64DD: the cartridge didn't unpack, not starting the disk alone")
+            cartFailed = true
+            return null
+        }
+        // Settings › Saves: a copy of the save RAM before the core can write it (Back up saves).
+        val opts = com.joeysretro.joey64.saves.SavesStore(this).read()
+        // A picked data folder: its copy of the save RAM comes into files/saves, where the core reads it.
+        com.joeysretro.joey64.launcher.storage.SrmSync.pull(this, saveName)
+        com.joeysretro.joey64.saves.SaveBackups.maybeBackUp(com.joeysretro.joey64.launcher.storage.DataFolders.current(this).space,
+            saveName, opts.backups, opts.backupsKeep)
+        return Prepared(rom, saveName, ddCart, opts)
+    }
+
+    /** On the main thread, with a surface: the rest of the start. */
+    private fun launchGame(p: Prepared) {
+        prepared = null
+        val rom = p.rom; val saveName = p.saveName; val ddCart = p.ddCart
+        startRom = rom; startSave = saveName
+        NativeBridge.setDdCart(ddCart ?: "")
+        applyControls(rom, saveName)
+        applyCheats(if (RomFiles.isDiskName(rom)) ddCart ?: "" else rom, saveName)
+        applyAudio(saveName)
+        savesOpts = p.savesOpts
+        // RetroAchievements: signs in with the kept account first, so the game is identified as it loads.
+        com.joeysretro.joey64.achievements.RaBridge.init(this)
+        if (NativeBridge.loadGame(rom, saveName)) {
+            NativeBridge.start(); started = true; owner = this; gameLoaded = true
+            startStates(saveName)
+            startSession(rom, saveName)
+            fpsHandler.postDelayed(shutdownWatch, SHUTDOWN_POLL_MS)
             reportGameState(loading = false)
+        } else {
+            reportGameState(loading = false)
+            notStarted(cart = false)
+        }
+    }
+
+    /** The game couldn't start (no ROM, a cartridge that didn't unpack, the core refused it): back to what started it, not a black screen. */
+    private fun notStarted(cart: Boolean) {
+        JLog.e(TAG, "the game didn't start, closing the game screen")
+        if (cart) intent?.let { com.joeysretro.joey64.launcher.GameStartFailed.diskNeedsCart(it) }
+        finish()
+    }
+
+    /**
+     * The core shut down (a 64DD disk whose region has no IPL BIOS: code audit 2, finding 2): no frames come, so the game
+     * screen closes instead of staying black, and the library asks for the BIOS again ([GameStartFailed]).
+     */
+    private val shutdownWatch = object : Runnable {
+        override fun run() {
+            if (destroyed || isFinishing) return
+            val why = NativeBridge.coreShutDown()
+            if (why == 0) { fpsHandler.postDelayed(this, SHUTDOWN_POLL_MS); return }
+            val noIpl = why == 2
+            JLog.e(TAG, "the core shut down: the game did not start${if (noIpl) " (no 64DD IPL BIOS for the disk's region)" else ""}, closing the game screen")
+            // Only a missing IPL is asked for; a damaged disk or disk save just goes back.
+            if (noIpl) intent?.let { com.joeysretro.joey64.launcher.GameStartFailed.diskNeedsBios(it) }
+            finish()
         }
     }
 
@@ -1495,7 +1578,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) { if (mine) NativeBridge.surfaceResized() }
-    override fun surfaceDestroyed(holder: SurfaceHolder) { if (mine) NativeBridge.setSurface(null) }
+    override fun surfaceDestroyed(holder: SurfaceHolder) { surfaceUp = false; if (mine) NativeBridge.setSurface(null) }
 
     /**
      * A ROM arrived while a game is loaded in this process (a frontend sending a second game). The core cannot load
@@ -1883,8 +1966,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         raCache?.stop()
         overlay?.destroy()
         if (owner === this) { NativeBridge.stop(); owner = null } else if (owner == null && !switching) NativeBridge.stop()
-        // The save RAM written as the core stopped, into a picked data folder (small: on the main thread).
-        startSave?.let { com.joeysretro.joey64.launcher.storage.SrmSync.push(this, it) }
+        // The save RAM and a 64DD disk save written as the core stopped, into a picked data folder: on [gameIo], after
+        // any start still copying and before the next one (a disk save is 64.9 MB; code audit 2, finding 1).
+        startSave?.let { save -> val app = applicationContext; gameIo.execute { com.joeysretro.joey64.launcher.storage.SrmSync.push(app, save) } }
         // Closed on purpose (Back, or a frontend sending the next game): no recovery state is due.
         if (isFinishing && states != null) { stateHandler.removeCallbacks(recoveryTick); states?.clearRecovery() }
         if (states != null) stateThread.quitSafely()
@@ -1957,6 +2041,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val gameRunning get() = owner != null
         /** A game was loaded in this process; the core cannot load a second one, so a new ROM restarts the process. */
         private var gameLoaded = false
+        private const val SHUTDOWN_POLL_MS = 500L
+        /** Game start and quit file work, one job at a time in order, for every instance (they share cache/current.rom and saves/). */
+        private val gameIo = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "joey64-gameio") }
         /** switchGame -> the next process: the ROM already unpacked, and its save name. */
         const val EXTRA_ROM_PATH = "com.joeysretro.joey64.ROM_PATH"
         const val EXTRA_SAVE_NAME = "com.joeysretro.joey64.SAVE_NAME"

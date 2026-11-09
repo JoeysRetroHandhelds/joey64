@@ -68,13 +68,13 @@ sealed interface PauseScreen {
      * Controller disconnected (approved problem screens 2026-11-08, screen 4): [name]'s controller, [player]'s (0-3), went
      * and the game is paused until it comes back. [builtIn]: this device has built-in controls to play on instead.
      */
-    data class Disconnected(val player: Int, val name: String, val builtIn: Boolean) : PauseScreen
+    data class Disconnected(val player: Int, val name: String, val builtIn: Boolean, /** No built-in controls: Use touch controls (player 1). */ val touch: Boolean = false) : PauseScreen
     /** Not enough space to save (screen 5): [text] says what wasn't saved and how much room there is. OK goes back to the game. */
     data class NoSpace(val text: String) : PauseScreen
 }
 
 /** What the Controller disconnected popup's rows do. */
-enum class DisconnectChoice { BuiltIn, WithoutThem, Quit }
+enum class DisconnectChoice { BuiltIn, Touch, WithoutThem, Quit }
 
 enum class MenuRow { Resume, Save, Load, GameSettings, Controls, Cheats, Achievements }
 
@@ -288,7 +288,7 @@ private fun SlotCell(s: SlotView, off: Boolean, now: Long, initial: Boolean, onF
 /**
  * Controller disconnected (approved problem screens, scratchpad build_problems2.py, "Approve as drawn" 2026-11-08): the
  * game is paused and carries on by itself when the controller comes back (MainActivity closes this then). Use built-in
- * controls when the device has them (touch controls take that row once they're built), Carry on without them for
+ * controls when the device has them, else Use touch controls for player 1 (the touch controls show for now), Carry on without them for
  * players 2-4, Quit to library. B does nothing: the game waits.
  */
 @Composable
@@ -305,6 +305,7 @@ private fun DisconnectedPopup(screen: PauseScreen.Disconnected, actions: PauseAc
             var first = true
             fun firstFocus(): Modifier = if (first) { first = false; Modifier.initialFocus() } else Modifier
             if (screen.builtIn) JoeyOption("Use built-in controls", firstFocus()) { actions.disconnectChoice(DisconnectChoice.BuiltIn) }
+            else if (screen.touch) JoeyOption("Use touch controls", firstFocus()) { actions.disconnectChoice(DisconnectChoice.Touch) }
             if (screen.player > 0) JoeyOption("Carry on without them", firstFocus()) { actions.disconnectChoice(DisconnectChoice.WithoutThem) }
             JoeyOption(actions.quitLabel, firstFocus()) { actions.disconnectChoice(DisconnectChoice.Quit) }
         }

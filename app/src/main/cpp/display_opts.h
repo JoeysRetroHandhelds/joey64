@@ -31,6 +31,7 @@ struct Opts {
     std::atomic<uint32_t> ids[4] = {}, pa[4] = {}, pb[4] = {};
     std::atomic<int> scale{0}, sides{0}, colourBlind{0}, overlay{0};
     std::atomic<int> placeX{0}, placeY{0}, placeW{0};
+    std::atomic<int> portraitTop{-1};     // touch controls in portrait: the picture's top, per mille of the height (-1: centred)
     bool shaderOn() const { for (auto& i : ids) if (i) return true; return false; }
     // sharpBlit: the renderer draws Sharp pixels on its own with its blit (Vulkan's two-step blit, or its
     // colour pass), so Sharp pixels alone needs no Picture pass there.
@@ -131,6 +132,9 @@ inline void fit(int winW, int winH, int imgW, int imgH, int& x, int& y, int& w, 
         }
     }
     x = (winW - w) / 2; y = (winH - h) / 2;
+    // Touch controls in portrait (approved mockup 2026-11-09, screen 6): the game on top, the controls below.
+    int top = o.portraitTop;
+    if (top >= 0 && winH > winW) y = std::min(y, (int)((long long)winH * top / 1000));
 }
 
 } // namespace Display

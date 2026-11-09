@@ -1320,6 +1320,11 @@ JNIEXPORT void JNICALL JNI(setDisplay)(JNIEnv*, jobject, jint aspW, jint aspH, j
     o.aspW = aspW; o.aspH = aspH; o.integer = integer; o.bfi = bfi;
 }
 
+// Touch controls in portrait: the picture's top in per mille of the window's height, -1 centred.
+JNIEXPORT void JNICALL JNI(setPortraitTop)(JNIEnv*, jobject, jint perMille) {
+    Display::opts().portraitTop = perMille;
+}
+
 // Settings › Video › Colour: percent (-50..50) and gamma in tenths; Sharpening: 0 off, 1 CAS, 2 FSR.
 JNIEXPORT void JNICALL JNI(setColour)(JNIEnv*, jobject, jint brightness, jint contrast, jint saturation, jint gamma) {
     auto& o = Display::opts();

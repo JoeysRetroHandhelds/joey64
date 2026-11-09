@@ -52,6 +52,9 @@ object NativeBridge {
     /** Settings › Video: the picture's shape W:H (0:0 = stretch), integer scaling, black frame insertion. Before the surface. */
     external fun setDisplay(aspW: Int, aspH: Int, integer: Boolean, bfi: Boolean)
 
+    /** Touch controls in portrait: the picture's top in per mille of the screen's height (-1: centred, as without them). Any time. */
+    external fun setPortraitTop(perMille: Int)
+
     /** Settings › Video › Colour: brightness, contrast, saturation in percent (-50..50), gamma in tenths (5..20). Any time. */
     external fun setColour(brightness: Int, contrast: Int, saturation: Int, gamma: Int)
 

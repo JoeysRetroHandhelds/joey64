@@ -1300,6 +1300,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             for (p in earlyPops) it.show(p)
             earlyPops.clear()
         }
+        touch = com.joeysretro.joey64.touch.TouchLayer(this, touchHost)
+        applyTouch(fresh = true)
         // RetroAchievements no longer takes the kept sign-in (the password changed on the website): say so
         // once the game is up (approved sign-in mockup g). Signing in again is in Settings › RetroAchievements.
         uiScope.launch {
@@ -1478,6 +1480,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         gameSharkButton(false)
         releaseAll()
         o.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Menu()
+        touch?.setActive(false)
     }
 
     /**
@@ -1499,7 +1502,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             }
             MotionEvent.ACTION_CANCEL -> tapDown = null
         }
-        return if (tapDown != null) true else super.dispatchTouchEvent(ev)
+        if (tapDown != null) return true
+        if (touch?.touchedWhileHidden(ev) == true) return true
+        return super.dispatchTouchEvent(ev)
     }
 
     private fun opensAchievements(t: GameOverlay.Tap) = when (t) {
@@ -1563,6 +1568,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // Resume goes on after the Pause hotkey too (approved hotkeys mockup 2026-11-07).
         if (hotkeyPaused) { sessionMark(); hotkeyPaused = false; overlay?.hide("paused", waiting = true) }
         if (resumed && !quitting) NativeBridge.pause(false)
+        touch?.setActive(touchActive())
     }
 
     /** The picker's cells: each slot's date and its picture, shrunk for a 100 x 75 dp cell. */
@@ -2188,6 +2194,63 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     /** Players whose port is plugged in this session (the core's ports are set as the game loads). */
     private var portsPresent = 1
 
+    // ---- Touch controls (approved mockup 2026-11-09, scratchpad build_touch3.py): Player 1's, in a window over the game ----
+    private var touch: com.joeysretro.joey64.touch.TouchLayer? = null
+    private var touchSettings = com.joeysretro.joey64.touch.TouchSettings()
+    private var touchFfDown = 0L
+    private var touchFfWasOn = false
+    private val touchHost = object : com.joeysretro.joey64.touch.TouchLayer.Host {
+        override fun onTouchInput(bits: Int, stick: Pair<Float, Float>?) {
+            players[0].touchBits = bits; players[0].touchStick = stick
+            push(0)
+        }
+        override fun onTouchAction(c: com.joeysretro.joey64.touch.TouchControl, down: Boolean) {
+            if (quitting) return
+            when (c.kind) {
+                com.joeysretro.joey64.touch.TouchKind.Menu -> if (!down && !menuOpen) openMenu()
+                com.joeysretro.joey64.touch.TouchKind.FastForward -> touchFastForward(down)
+                com.joeysretro.joey64.touch.TouchKind.SaveState -> if (down) hotkey(HotkeyAction.Save)
+                com.joeysretro.joey64.touch.TouchKind.LoadState -> if (down) hotkey(HotkeyAction.Load)
+                com.joeysretro.joey64.touch.TouchKind.Screenshot -> if (down) hotkey(HotkeyAction.Screenshot)
+                com.joeysretro.joey64.touch.TouchKind.Macro -> touchMacro(c, down)
+                else -> {}
+            }
+        }
+        override fun onEmptyTap(downX: Float, downY: Float, upX: Float, upY: Float) {
+            // A tap on an achievement pop-up under the controls opens it, as on the game's own window.
+            val o = overlay ?: return
+            val d = o.tapAt(downX, downY)?.takeIf { opensAchievements(it) } ?: return
+            if (o.tapAt(upX, upY) == d) openAchievementsAt(d)
+        }
+    }
+
+    /** The touch controls for this game (All games, or its own): at the start ([fresh]), or after a change in the pause menu. */
+    private fun applyTouch(fresh: Boolean) {
+        val t = touch ?: return
+        val s = com.joeysretro.joey64.touch.TouchStore(this).forGame(currentSaveName.ifEmpty { null })
+        touchSettings = s
+        if (fresh) t.apply(s, controllerConnected = PadDevices.pads().isNotEmpty()) else t.reapply(s)
+        NativeBridge.setPortraitTop(if (s.show == com.joeysretro.joey64.touch.TouchShow.Never) -1 else PORTRAIT_TOP_PER_MILLE)
+        t.setActive(touchActive())
+    }
+
+    /** The touch controls take touches only while the game plays with nothing over it. */
+    private fun touchActive() = resumed && !menuOpen && !quitting && overlay?.screen == null
+
+    /** Fast-forward on the screen: a tap turns it on or off, a hold is for while held ("Tap to turn on or off, hold for while held"). */
+    private fun touchFastForward(down: Boolean) {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (down) { touchFfWasOn = fastForward; touchFfDown = now; setFastForward(!fastForward); return }
+        if (!touchFfWasOn && now - touchFfDown >= TOUCH_HOLD_MS) setFastForward(false)
+    }
+
+    /** A macro button: one of Player 1's macros by name, played as its own button would (held, a repeating one repeats). */
+    private fun touchMacro(c: com.joeysretro.joey64.touch.TouchControl, down: Boolean) {
+        val m = players[0].setup.macros.firstOrNull { it.name == c.macro }
+        if (m == null) { if (down) JLog.i(TAG, "touch: no macro named ${c.macro} for Player 1"); return }
+        if (down) playMacro(0, m) else if (m.repeat) NativeBridge.stopMacro(0, false)
+    }
+
     /** Reads the controls for [saveName] and sets the core's ports, paks and input options. Before loadGame. */
     private fun applyControls(rom: String, saveName: String) {
         if (!controlsStore.hasAll()) controlsStore.saveAll(PadDevices.firstSet())
@@ -2293,6 +2356,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             // Live: the game is loaded, and setOption writes the option table the emulation thread reads unlocked.
             if (pak != paks[i]) { paks[i] = pak; NativeBridge.setOptionsLive(arrayOf("mupen64plus-pak${i + 1}"), arrayOf(pak.core!!)) }
         }
+        applyTouch(fresh = false)
         JLog.i(TAG, "controls: changed in game, " + controls.players.mapIndexed { i, p -> "P${i + 1} ${deviceLabel(p.device)} (${paks[i].name})" }.joinToString(", "))
     }
     private val paks = Array(4) { Pak.Controller }
@@ -2330,7 +2394,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         players[p].release(); push(p)
         waitingPlayer = p
         if (!menuOpen) openMenu()
-        overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Disconnected(p, name, PadDevices.builtIn() != null)
+        val builtIn = PadDevices.builtIn() != null
+        overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Disconnected(p, name, builtIn,
+            touch = !builtIn && p == 0 && touch != null && touchSettings.show != com.joeysretro.joey64.touch.TouchShow.Never)
     }
 
     /** The player whose own controller [dev] is (Controls' Controller row), without giving it to a free player. */
@@ -2379,6 +2445,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
                 players[p].release(); players[p].setup = PadDevices.autoSetup(own.first(), DeviceChoice.BuiltIn, keep = controls.players[p])
                 onBuiltIn += p
                 JLog.i(TAG, "controls: player ${p + 1} on the built-in controls until their controller is back")
+            }
+            com.joeysretro.joey64.launcher.ingame.DisconnectChoice.Touch -> {
+                touch?.showNow()
+                JLog.i(TAG, "controls: player 1 on the touch controls until their controller is back")
             }
             com.joeysretro.joey64.launcher.ingame.DisconnectChoice.WithoutThem -> {
                 leftOut += p
@@ -2475,15 +2545,19 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (event.action != KeyEvent.ACTION_DOWN) return false
         val m = com.joeysretro.joey64.controls.Macro.forKey(players[p].setup.macros, code, withHotkey) ?: return false
         if (event.repeatCount == 0) {
-            val steps = m.steps
-            NativeBridge.playMacro(p, IntArray(steps.size) { steps[it].mask() },
-                IntArray(steps.size) { PlayerInput.toRetroStick(steps[it].stickXY().first) },
-                IntArray(steps.size) { PlayerInput.toRetroStick(steps[it].stickXY().second) },
-                IntArray(steps.size) { steps[it].frames }, m.repeat)
+            playMacro(p, m)
             macroKeys[code] = p to m
-            JLog.i(TAG, "macro: P${p + 1} ${m.name}, ${steps.size} steps${if (m.repeat) ", repeating" else ""}")
         }
         return true
+    }
+
+    private fun playMacro(p: Int, m: com.joeysretro.joey64.controls.Macro) {
+        val steps = m.steps
+        NativeBridge.playMacro(p, IntArray(steps.size) { steps[it].mask() },
+            IntArray(steps.size) { PlayerInput.toRetroStick(steps[it].stickXY().first) },
+            IntArray(steps.size) { PlayerInput.toRetroStick(steps[it].stickXY().second) },
+            IntArray(steps.size) { steps[it].frames }, m.repeat)
+        JLog.i(TAG, "macro: P${p + 1} ${m.name}, ${steps.size} steps${if (m.repeat) ", repeating" else ""}")
     }
 
     /** A macro's button let go: a repeating one stops after its pass; a Once one plays to its end. */
@@ -2501,6 +2575,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         // The release of a button the Controls remap popup took (it closed on the press).
         if (com.joeysretro.joey64.launcher.controls.PadCapture.swallowRelease(event)) return true
+        if (event.action == KeyEvent.ACTION_DOWN && (KeyEvent.isGamepadButton(event.keyCode) ||
+                event.source and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD)) touch?.controllerUsed()
         val inGame = states != null && overlay != null && mine
         val code = event.keyCode
         val down = event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0
@@ -2553,6 +2629,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (event.source and InputDevice.SOURCE_JOYSTICK != InputDevice.SOURCE_JOYSTICK ||
             event.action != MotionEvent.ACTION_MOVE) return super.dispatchGenericMotionEvent(event)
         val cal = usePad(event.device, event.deviceId)
+        // A stick pushed on purpose (not a resting stick's jitter) hides When no controller's touch controls.
+        if (touch != null && listOf(MotionEvent.AXIS_X, MotionEvent.AXIS_Y, MotionEvent.AXIS_Z, MotionEvent.AXIS_RZ, MotionEvent.AXIS_HAT_X,
+                MotionEvent.AXIS_HAT_Y, MotionEvent.AXIS_LTRIGGER, MotionEvent.AXIS_RTRIGGER).any { kotlin.math.abs(event.getAxisValue(it)) > 0.5f })
+            touch?.controllerUsed()
         if (hotkeyHeld) hotkeyHat(event)
         if (inputLat) noteInputLat(if (event.historySize > 0) event.getHistoricalEventTime(0) else event.eventTime, false, event.historySize)
         val p = playerFor(event.device, event.deviceId)
@@ -2624,6 +2704,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         reportGameState(loading = false, playing = false)
         stats?.stop()
         resumed = false
+        touch?.setActive(false)
         hotkeyHeld = false
         fastForwardRelease()
         slowMotionRelease()
@@ -2641,6 +2722,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (started) { reportGameState(loading = false); requestAudioFocus() }
         session?.tick(false, NativeBridge.framesRun(), NativeBridge.framesDrawn(), android.os.SystemClock.elapsedRealtime())
         resumed = true
+        touch?.setActive(touchActive())
         stats?.start()
         setRumbling(NativeBridge.rumble())
         if (!rumbleWatcher.isAlive) rumbleWatcher.start()
@@ -2674,6 +2756,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         stats?.destroy()
         raPopups?.stop()
         raCache?.stop()
+        touch?.destroy()
         overlay?.destroy()
         if (owner === this) { NativeBridge.stop(); owner = null } else if (owner == null && !switching) NativeBridge.stop()
         // The save RAM and a 64DD disk save written as the core stopped, into a picked data folder: on [gameIo], after
@@ -2808,6 +2891,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         private const val GAMESHARK_PRESS_MS = 1_000L
         /** The hotkey's shortest hold: a few frames, so a quick tap reaches the game. */
         private const val GAMESHARK_MIN_MS = 200L
+        /** Touch controls in portrait: the picture's top, 115 px of a 2400 px phone (approved mockup screen 6). */
+        private const val PORTRAIT_TOP_PER_MILLE = 48
+        /** A touch fast-forward held this long is "while held"; shorter is a tap. */
+        private const val TOUCH_HOLD_MS = 400L
         private const val UPSCALE_KEY = "mupen64plus-parallel-rdp-upscaling"
         /** parallel-RDP's Resolution steps for the Upscale hotkeys (the Duo stops at 2x, [capUpscaling]). */
         private val UPSCALES = listOf("1x", "2x", "4x", "8x")

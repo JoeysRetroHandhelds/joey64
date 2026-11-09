@@ -103,6 +103,11 @@ fun JoeyDialog(
     sidePanel: Boolean = false,
     /** A line on the right of the hint row (the screenshot viewer's game, date and "1 of 8"). */
     hintEnd: String? = null,
+    /**
+     * The whole window is the content's, with nothing of the popup's own: no dim, blur, card or hint row
+     * (the touch controls' layout editor, approved mockup 2026-11-09 screen 3, draws its own over the game).
+     */
+    bare: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val backRegistry = remember { DialogBackRegistry() }
@@ -139,7 +144,7 @@ fun JoeyDialog(
                 WindowCompat.setDecorFitsSystemWindows(window, false)
                 window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
                 window.setDimAmount(0f)
-                if (!sidePanel && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && window.windowManager.isCrossWindowBlurEnabled) {
+                if (!sidePanel && !bare && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && window.windowManager.isCrossWindowBlurEnabled) {
                     window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
                     window.attributes = window.attributes.apply { blurBehindRadius = blurPx }
                 }
@@ -192,17 +197,18 @@ fun JoeyDialog(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .then(if (sidePanel) Modifier else Modifier.background(c.scrim))
-                    .pointerInput(Unit) { detectTapGestures { tapOutside() } }
+                    .then(if (sidePanel || bare) Modifier else Modifier.background(c.scrim))
+                    .then(if (bare) Modifier else Modifier.pointerInput(Unit) { detectTapGestures { tapOutside() } })
                     .then(if (atTop) Modifier.padding(top = 44.dp) else Modifier)
                     // A card never touches the screen's edges: on a narrow screen it's the screen's width less these.
-                    .then(if (fullScreen || sidePanel) Modifier else Modifier.padding(horizontal = 16.dp, vertical = 8.dp)),
+                    .then(if (fullScreen || sidePanel || bare) Modifier else Modifier.padding(horizontal = 16.dp, vertical = 8.dp)),
                 contentAlignment = if (sidePanel) Alignment.CenterEnd else if (atTop) Alignment.TopCenter else Alignment.Center,
             ) {
                 val shape = RoundedCornerShape(s.popupCorner)
                 Box(
                     modifier = Modifier
-                        .then(if (fullScreen) Modifier.fillMaxSize().background(c.page)
+                        .then(if (bare) Modifier.fillMaxSize()
+                        else if (fullScreen) Modifier.fillMaxSize().background(c.page)
                         else if (sidePanel) Modifier.fillMaxHeight().widthIn(max = width).fillMaxWidth().background(c.surface)
                             .border(1.dp, c.border).padding(horizontal = 8.dp, vertical = 10.dp)
                         else Modifier
@@ -212,8 +218,8 @@ fun JoeyDialog(
                             .background(c.surface, shape)
                             .border(1.dp, c.border, shape))
                         // Taps on the card mustn't count as outside (the options take their own first).
-                        .pointerInput(Unit) { detectTapGestures { } }
-                        .then(if (fullScreen || sidePanel) Modifier else Modifier.padding(horizontal = 10.dp, vertical = 12.dp))
+                        .then(if (bare) Modifier else Modifier.pointerInput(Unit) { detectTapGestures { } })
+                        .then(if (fullScreen || sidePanel || bare) Modifier else Modifier.padding(horizontal = 10.dp, vertical = 12.dp))
                         .focusRequester(body)
                         // Compose turns a Back key it sees into a focus move out of the group
                         // (FocusDirection.Exit). In a popup that must be answered nothing closes,
@@ -257,7 +263,7 @@ fun JoeyDialog(
                     }
                 }
             }
-            HintRow(hints, end = hintEnd)
+            if (!bare) HintRow(hints, end = hintEnd)
         }
         } }
         // Nothing marked: enter the popup at its first item. After the content, so a marked item

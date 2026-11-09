@@ -25,6 +25,11 @@ class PlayerInput(setup: PlayerSetup) {
     private var latchedOn = 0
     private var lastRaw = 0
 
+    /** Touch controls (Player 1's): the RetroPad bits held on screen, ORed into the buttons, so Tap to hold works on them too. */
+    var touchBits = 0
+    /** The on-screen stick while a finger is on it (1 = full tilt): it takes over the stick. */
+    var touchStick: Pair<Float, Float>? = null
+
     /** Key code to the RetroPad bits it presses (one key may press more than one N64 button). */
     private fun keyBitsFor(s: PlayerSetup): Map<Int, Int> {
         val m = HashMap<Int, Int>()
@@ -51,7 +56,7 @@ class PlayerInput(setup: PlayerSetup) {
     }
 
     /** Lets go of everything (the pause menu opened, focus lost), buttons held by a tap too. */
-    fun release() { held.clear(); hatKeys = 0; triggerKeys = 0; axes.fill(0f); latchedOn = 0; lastRaw = 0 }
+    fun release() { held.clear(); hatKeys = 0; triggerKeys = 0; axes.fill(0f); latchedOn = 0; lastRaw = 0; touchBits = 0; touchStick = null }
 
     /** Lets go of the buttons Tap to hold keeps held (a save state, quitting); buttons pressed now stay pressed. */
     fun releaseLatches() { latchedOn = 0 }
@@ -88,7 +93,7 @@ class PlayerInput(setup: PlayerSetup) {
     }
 
     private fun rawButtons(): Int {
-        var mask = 0
+        var mask = touchBits
         val dpadOnStick = setup.stick.usesDPad
         for ((b, input) in setup.buttons) {
             val on = when (input) {
@@ -105,7 +110,7 @@ class PlayerInput(setup: PlayerSetup) {
      * The N64 stick, 1 = a real N64 stick's full tilt (80) each way, up to [StickFeel.MAX], after the dead
      * zone and Stick feel (calibration is applied to the axes before). The D-pad gives full tilt.
      */
-    fun stick(): Pair<Float, Float> = when (setup.stick) {
+    fun stick(): Pair<Float, Float> = touchStick ?: when (setup.stick) {
         StickSource.LeftStick -> setup.feel.apply(axes[0], axes[1], setup.deadZone)
         StickSource.RightStick -> setup.feel.apply(axes[2], axes[3], setup.deadZone)
         StickSource.DPad -> dpad()

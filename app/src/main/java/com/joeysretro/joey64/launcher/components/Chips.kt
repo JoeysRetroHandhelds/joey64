@@ -76,12 +76,15 @@ fun InfoChip(text: String, @DrawableRes icon: Int?, on: Boolean = false) {
  * line under it. Chips beside the title get the room the title leaves, a long game name ending in "...".
  */
 @Composable
-fun PageHeader(title: String, chips: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {}) {
+fun PageHeader(title: String, sub: String? = null, chips: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {}) {
     val c = JoeyTheme.colors
     val below = com.joeysretro.joey64.launcher.layout.LocalScreenLayout.current.widthDp < 520f
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(title, style = JoeyTheme.type.pageTitle, color = c.text, maxLines = 1, softWrap = false,
-            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(end = 12.dp))
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(end = if (sub == null) 12.dp else 8.dp))
+        // A page inside a page: "Controls › Touch controls" (approved touch controls mockup 2026-11-09, screen 8).
+        if (sub != null) Text(sub, style = JoeyTheme.type.heading, color = c.textDim, maxLines = 1, softWrap = false,
+            modifier = Modifier.padding(end = 12.dp))
         if (!below) androidx.compose.foundation.layout.Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
             Row(verticalAlignment = Alignment.CenterVertically, content = chips)
         }

@@ -48,9 +48,12 @@ data class GameSummary(val changes: List<GameChange>) {
  * in Video, Audio and Controls, Reset to All games, Copy to another game. Pure over the three
  * stores, so it's tested on the JVM. Cheats, saves and states are never touched.
  */
-class GameSettingsModel(private val video: VideoStore, private val emu: EmuStore, private val audio: AudioStore, private val controls: ControlsStore) {
-    constructor(context: Context) : this(VideoStore(context), EmuStore(context), AudioStore(context), ControlsStore(context))
-    constructor(dir: File) : this(VideoStore(File(dir, "video")), EmuStore(File(dir, "emulation"), File(dir, "video")), AudioStore(File(dir, "audio")), ControlsStore(File(dir, "controls")))
+class GameSettingsModel(private val video: VideoStore, private val emu: EmuStore, private val audio: AudioStore, private val controls: ControlsStore,
+                        /** Touch controls are part of Controls (approved touch controls mockup 2026-11-09). */
+                        private val touch: com.joeysretro.joey64.touch.TouchStore) {
+    constructor(context: Context) : this(VideoStore(context), EmuStore(context), AudioStore(context), ControlsStore(context), com.joeysretro.joey64.touch.TouchStore(context))
+    constructor(dir: File) : this(VideoStore(File(dir, "video")), EmuStore(File(dir, "emulation"), File(dir, "video")), AudioStore(File(dir, "audio")),
+        ControlsStore(File(dir, "controls")), com.joeysretro.joey64.touch.TouchStore(File(File(dir, "controls"), "touch")))
 
     fun summary(saveName: String): GameSummary =
         GameSummary(videoChanges(saveName) + emuChanges(saveName) + audioChanges(saveName) + controlsChanges(saveName))
@@ -65,7 +68,7 @@ class GameSettingsModel(private val video: VideoStore, private val emu: EmuStore
 
     /** Reset to All games: the game's own Video, Emulation, Audio and Controls files go. */
     fun reset(saveName: String) {
-        video.removeGame(saveName); emu.removeGame(saveName); audio.removeGame(saveName); controls.removeGame(saveName)
+        video.removeGame(saveName); emu.removeGame(saveName); audio.removeGame(saveName); controls.removeGame(saveName); touch.removeGame(saveName)
     }
 
     /** Copy to another game: each part in [parts] replaces [to]'s (no mixing); a part [from] has none of clears [to]'s. */
@@ -75,6 +78,7 @@ class GameSettingsModel(private val video: VideoStore, private val emu: EmuStore
         if (GamePart.Emulation in parts) emu.saveGame(to, emu.game(from).orEmpty())
         if (GamePart.Audio in parts) audio.saveGame(to, audio.game(from).orEmpty())
         if (GamePart.Controls in parts) controls.game(from)?.let { controls.saveGame(to, it) } ?: controls.removeGame(to)
+        if (GamePart.Controls in parts) touch.game(from)?.let { touch.saveGame(to, it) } ?: touch.removeGame(to)
     }
 
     // ---- what changed ----
@@ -129,9 +133,10 @@ class GameSettingsModel(private val video: VideoStore, private val emu: EmuStore
     }
 
     private fun controlsChanges(save: String): List<GameChange> {
-        val g = controls.game(save) ?: return emptyList()
-        val all = controls.all()
         val out = ArrayList<GameChange>()
+        touch.game(save)?.let { t -> out += touchChanges(t, touch.all()) }
+        val g = controls.game(save) ?: return out
+        val all = controls.all()
         for (p in 0..3) {
             val mine = g.players[p].copy(device = all.players[p].device)
             val base = all.players[p]
@@ -139,6 +144,29 @@ class GameSettingsModel(private val video: VideoStore, private val emu: EmuStore
             for (r in rows) out += GameChange(GamePart.Controls, "Player ${p + 1} · " + rowName(r), rowValue(mine, r), rowValue(base, r), "p$p")
         }
         return out
+    }
+
+    private fun touchChanges(t: com.joeysretro.joey64.touch.TouchSettings, all: com.joeysretro.joey64.touch.TouchSettings): List<GameChange> {
+        val ch = t.changedFrom(all)
+        fun v(s: com.joeysretro.joey64.touch.TouchSettings, row: String) = when (row) {
+            com.joeysretro.joey64.touch.TouchSettings.ROW_SHOW -> s.show.label
+            com.joeysretro.joey64.touch.TouchSettings.ROW_OPACITY -> "${s.opacity}%"
+            com.joeysretro.joey64.touch.TouchSettings.ROW_HAPTICS -> if (s.haptics) "On" else "Off"
+            com.joeysretro.joey64.touch.TouchSettings.ROW_HIDE -> com.joeysretro.joey64.touch.TouchSettings.hideLabel(s.hideAfter)
+            com.joeysretro.joey64.touch.TouchSettings.ROW_STICK -> s.stick.label
+            com.joeysretro.joey64.touch.TouchSettings.ROW_SENS -> "${s.sensitivity}%"
+            com.joeysretro.joey64.touch.TouchSettings.ROW_DEAD -> "${s.deadZone}%"
+            com.joeysretro.joey64.touch.TouchSettings.ROW_FULL -> "${s.fullAt}%"
+            com.joeysretro.joey64.touch.TouchSettings.ROW_SLIDE -> if (s.slide) "On" else "Off"
+            else -> if (s === t) "Its own" else "All games'"
+        }
+        val names = listOf(com.joeysretro.joey64.touch.TouchSettings.ROW_SHOW to "Show touch controls", com.joeysretro.joey64.touch.TouchSettings.ROW_OPACITY to "Opacity",
+            com.joeysretro.joey64.touch.TouchSettings.ROW_HAPTICS to "Haptics", com.joeysretro.joey64.touch.TouchSettings.ROW_HIDE to "Hide when not touched",
+            com.joeysretro.joey64.touch.TouchSettings.ROW_LANDSCAPE to "Landscape layout", com.joeysretro.joey64.touch.TouchSettings.ROW_PORTRAIT to "Portrait layout",
+            com.joeysretro.joey64.touch.TouchSettings.ROW_STICK to "Stick", com.joeysretro.joey64.touch.TouchSettings.ROW_SENS to "Sensitivity",
+            com.joeysretro.joey64.touch.TouchSettings.ROW_DEAD to "Dead zone", com.joeysretro.joey64.touch.TouchSettings.ROW_FULL to "Full speed at",
+            com.joeysretro.joey64.touch.TouchSettings.ROW_SLIDE to "Slide between buttons")
+        return names.filter { it.first in ch }.map { (row, name) -> GameChange(GamePart.Controls, "Touch controls · $name", v(t, row), v(all, row), "p0") }
     }
 
     private fun rowName(r: String) = when (r) {

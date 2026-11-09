@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- GameLauncher unpacks zipped ROMs here and hands them to the game screen; the updater hands
-     downloaded APKs to Android's installer from updates/. -->
+     downloaded APKs to Android's installer from updates/; a game's Screenshots page shares from screenshots/. -->
 <paths>
     <cache-path name="launch" path="launch/" />
     <cache-path name="updates" path="updates/" />
+    <files-path name="screenshots" path="screenshots/" />
 </paths>

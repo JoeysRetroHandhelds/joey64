@@ -101,6 +101,8 @@ fun JoeyDialog(
      * no dim and no blur, so changes show on the game as they're made; [width] wide, the window's height.
      */
     sidePanel: Boolean = false,
+    /** A line on the right of the hint row (the screenshot viewer's game, date and "1 of 8"). */
+    hintEnd: String? = null,
     content: @Composable () -> Unit,
 ) {
     val backRegistry = remember { DialogBackRegistry() }
@@ -255,7 +257,7 @@ fun JoeyDialog(
                     }
                 }
             }
-            HintRow(hints)
+            HintRow(hints, end = hintEnd)
         }
         } }
         // Nothing marked: enter the popup at its first item. After the content, so a marked item

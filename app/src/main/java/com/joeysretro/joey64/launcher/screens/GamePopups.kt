@@ -4,6 +4,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -83,6 +84,8 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
     val signedIn = com.joeysretro.joey64.achievements.RaBridge.account.collectAsState().value != null
     // Game settings' value (approved mockup 2026-11-07): "3 changed" or "Same as All games".
     val gameSettings by produceState<String?>(null, game.id) { value = model.gameSettingsLabel(game) }
+    // Saves' and Screenshots' values (approved mockup 2026-11-08, screen 1): "3 states", "8".
+    val counts by produceState<LibraryModel.SavesCounts?>(null, game.id) { value = model.savesCounts(game) }
     JoeyDialog(
         onDismiss = { onPopup(null) },
         hints = when (popup) {
@@ -96,7 +99,8 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
         val landing = LocalFocusLanding.current
         LaunchedEffect(popup) { landing?.arm() }
         if (popup == GamePopup.Collections) AddToCollectionBody(game, model) { naming = true }
-        else Column {
+        // Scrolls: with Saves and Screenshots the list is taller than a 1080p handheld's popup room (Thor, 2026-11-08).
+        else Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())) {
             PopupTitle(game.title)
             when (popup) {
                 GamePopup.Options -> {
@@ -106,6 +110,13 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
                     com.joeysretro.joey64.launcher.components.PopupDivider()
                     JoeyOption("Cheats", value = "›") { onPopup(null); model.openCheats(game) }
                     if (signedIn) JoeyOption("Achievements", value = "›") { onPopup(null); model.openAchievements(game) }
+                    // Saves always opens (on the empty save when there's none); Screenshots is grey with none.
+                    counts?.let { n ->
+                        JoeyOption("Saves", value = "${n.statesLabel}  ›") { onPopup(null); model.openSaves(game) }
+                        JoeyOption("Screenshots", value = if (n.screenshots > 0) "${n.screenshots}  ›" else "None", enabled = n.screenshots > 0) {
+                            if (n.screenshots > 0) { onPopup(null); model.openScreenshots(game) }
+                        }
+                    }
                     com.joeysretro.joey64.launcher.components.PopupDivider()
                     JoeyOption("Add to collection", value = "›") { onPopup(GamePopup.Collections) }
                     // Settings › Library (approved mockup 2026-11-08, screen 8): the game leaves the library,

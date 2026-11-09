@@ -148,6 +148,12 @@ class GameStates(
         return false
     }
 
+    /** Deletes [slot]'s state and picture (the Saves page); true when it's gone. */
+    fun deleteSlot(slot: Int): Boolean {
+        removeSlot(slot)
+        return !exists(slot)
+    }
+
     private fun removeSlot(slot: Int) {
         space.delete(path(StateSlots.fileName(saveName, slot)))
         space.delete(path(StateSlots.thumbnailName(saveName, slot)))

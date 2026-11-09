@@ -91,6 +91,12 @@ object SrmSync {
             ?.forEach { pushFile(folder.space, workDir(context), it.name, st) }
     }
 
+    /** [name]'s working copy went (the Saves page restored or deleted it): nothing about it is in step any more. */
+    fun forgetFile(context: Context, name: String) {
+        val k = key(name)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(k).remove("$k|size").remove("$k|mod").commit()
+    }
+
     /** The folder changed: nothing is in step with the new one yet. */
     fun forget(context: Context) { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().commit() }
 

@@ -198,13 +198,15 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             val cheatsFor by model.cheatsFor.collectAsStateWithLifecycle()
             val gameSettingsFor by model.gameSettingsFor.collectAsStateWithLifecycle()
             val achievementsFor by model.achievementsFor.collectAsStateWithLifecycle()
+            val savesFor by model.savesFor.collectAsStateWithLifecycle()
+            val screenshotsFor by model.screenshotsFor.collectAsStateWithLifecycle()
             val raAccount by com.joeysretro.joey64.achievements.RaBridge.account.collectAsStateWithLifecycle()
             // Signed out with the Achievements page up: back to the library.
             LaunchedEffect(raAccount == null) { if (raAccount == null && place == RailPlace.Achievements) place = RailPlace.Library }
             // Signed in: the Has achievements filter's list, fetched again when a day old.
             LaunchedEffect(raAccount != null) { if (raAccount != null) model.refreshSetList() }
             // Cheats opens over the library or Search results (a game's options), and B goes back there; going anywhere on the rail closes it.
-            LaunchedEffect(place) { model.closeCheats(); model.closeAchievements(); model.closeGameSettings() }
+            LaunchedEffect(place) { model.closeCheats(); model.closeAchievements(); model.closeGameSettings(); model.closeSaves(); model.closeScreenshots() }
             if (home) UpdateChecks(updates)
             // The rail on the left, or a bar along the bottom in portrait.
             com.joeysretro.joey64.launcher.components.RailLayout(Modifier.weight(1f).fillMaxWidth(), rail = { horizontal ->
@@ -239,6 +241,13 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                                 gameSettingsFor != null -> androidx.compose.runtime.key(gameSettingsFor) {
                                     com.joeysretro.joey64.launcher.screens.GameSettingsScreen(gameSettingsFor!!, onHints = { settingsHints = it }) { model.closeGameSettings() }
                                 }
+                                savesFor != null -> androidx.compose.runtime.key(savesFor) {
+                                    com.joeysretro.joey64.launcher.screens.SavesScreen(savesFor!!, onHints = { settingsHints = it },
+                                        onPlay = { which -> model.play(savesFor!!.game, which) { intent -> context.startActivity(intent) } }) { model.closeSaves() }
+                                }
+                                screenshotsFor != null -> androidx.compose.runtime.key(screenshotsFor) {
+                                    com.joeysretro.joey64.launcher.screens.ScreenshotsScreen(screenshotsFor!!, onHints = { settingsHints = it }) { model.closeScreenshots() }
+                                }
                                 cheatsFor != null -> androidx.compose.runtime.key(cheatsFor) {
                                     com.joeysretro.joey64.launcher.screens.CheatsScreen(cheatsFor!!, onHints = { settingsHints = it }) { model.closeCheats() }
                                 }
@@ -264,7 +273,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                 importAgain -> listOf(Hint("A", "Select"), Hint("B", "Back"))
                 onRail -> listOf(Hint("A", "Open"))
                 place == RailPlace.Settings || place == RailPlace.Controls || place == RailPlace.Search || place == RailPlace.Achievements ||
-                    cheatsFor != null || achievementsFor != null || gameSettingsFor != null -> settingsHints
+                    cheatsFor != null || achievementsFor != null || gameSettingsFor != null || savesFor != null || screenshotsFor != null -> settingsHints
                 else -> listOf(Hint("A", "Play"), Hint("Start", "Options"), Hint("Y", "Search"))
             })
             if (home) updates.prompt.collectAsStateWithLifecycle().value?.let { UpdatePopup(it, updates) }

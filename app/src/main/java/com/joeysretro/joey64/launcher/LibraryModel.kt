@@ -569,6 +569,41 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
 
     fun closeGameSettings() { _gameSettingsFor.value = null }
 
+    private val _savesFor = MutableStateFlow<com.joeysretro.joey64.launcher.screens.SavesGame?>(null)
+    /** The game whose Saves page is open in the library's place (a game's options › Saves, approved mockup 2026-11-08), or null. */
+    val savesFor: StateFlow<com.joeysretro.joey64.launcher.screens.SavesGame?> = _savesFor
+    private val _screenshotsFor = MutableStateFlow<com.joeysretro.joey64.launcher.screens.SavesGame?>(null)
+    /** The game whose Screenshots page is open in the library's place (a game's options › Screenshots), or null. */
+    val screenshotsFor: StateFlow<com.joeysretro.joey64.launcher.screens.SavesGame?> = _screenshotsFor
+
+    private fun openWithSaveName(game: LibraryGame, what: String, to: MutableStateFlow<com.joeysretro.joey64.launcher.screens.SavesGame?>) {
+        viewModelScope.launch {
+            // The files are named after the game's save.
+            val saveName = withContext(Dispatchers.IO) { launcher.saveNameFor(game) } ?: run {
+                JLog.e(TAG, "$what: no readable file for ${game.title}"); return@launch
+            }
+            to.value = com.joeysretro.joey64.launcher.screens.SavesGame(game, saveName)
+        }
+    }
+
+    fun openSaves(game: LibraryGame) = openWithSaveName(game, "saves", _savesFor)
+    fun closeSaves() { _savesFor.value = null }
+    fun openScreenshots(game: LibraryGame) = openWithSaveName(game, "screenshots", _screenshotsFor)
+    fun closeScreenshots() { _screenshotsFor.value = null }
+
+    /** The options' Saves and Screenshots values: the game's states ("3 states") and its screenshots; null when it has no readable file. */
+    data class SavesCounts(val states: Int, val screenshots: Int) {
+        val statesLabel get() = when (states) { 0 -> "No states"; 1 -> "1 state"; else -> "$states states" }
+    }
+
+    suspend fun savesCounts(game: LibraryGame): SavesCounts? = withContext(Dispatchers.IO) {
+        val app = getApplication<Application>()
+        launcher.saveNameFor(game)?.let { name ->
+            SavesCounts(com.joeysretro.joey64.saves.SaveManager(app, name).states().size,
+                com.joeysretro.joey64.saves.GameScreenshots(app, name).list().size)
+        }
+    }
+
     /** The options' Game settings value: "3 changed" or "Same as All games"; null when the game has no readable file. */
     suspend fun gameSettingsLabel(game: LibraryGame): String? = withContext(Dispatchers.IO) {
         launcher.saveNameFor(game)?.let { com.joeysretro.joey64.launcher.gamesettings.GameSettingsModel(getApplication<Application>()).summary(it).label }

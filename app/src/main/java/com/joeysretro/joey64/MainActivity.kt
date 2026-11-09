@@ -1296,7 +1296,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             null -> {}
             STATE_AUTO -> stateHandler.post { startLoadFailed = !st.load(StateSlots.AUTO) }
             STATE_RECOVERY -> stateHandler.post { startLoadFailed = !st.loadRecovery() }
-            else -> JLog.e(TAG, "states: unknown state to load: $which")
+            // The Saves page's Play from here: "slot:<n>", StateSlots' number.
+            else -> which.removePrefix(STATE_SLOT).toIntOrNull()?.takeIf { which.startsWith(STATE_SLOT) }
+                ?.let { n -> stateHandler.post { startLoadFailed = !st.load(n) } }
+                ?: JLog.e(TAG, "states: unknown state to load: $which")
         }
         // A picked data folder gets the save RAM the core wrote, every 30 s when it changed (and on exit).
         stateHandler.postDelayed(srmTick, SRM_PUSH_MS)
@@ -2602,6 +2605,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         const val EXTRA_DD_CART = "com.joeysretro.joey64.DD_CART"
         const val STATE_AUTO = "auto"
         const val STATE_RECOVERY = "recovery"
+        /** "slot:<n>": the state in StateSlots' slot n (the Saves page's Play from here). */
+        const val STATE_SLOT = "slot:"
         private const val SRM_PUSH_MS = 30_000L
         /** "Every few minutes" (approved 2026-11-05). */
         /** The pause menu's "Press GameShark button": how long it holds it (approved 2026-11-07: a second). */

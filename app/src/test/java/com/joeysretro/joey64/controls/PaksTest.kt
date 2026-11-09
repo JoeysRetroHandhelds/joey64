@@ -76,6 +76,10 @@ class PaksTest {
         assertFalse(GameBoyFiles.namedLike("Pokemon - Gold97.srm", "Pokemon - Gold"))
     }
 
+    @Test fun gameBoySaveCopyLivesWithTheSaves() {
+        assertEquals("Pokemon Stadium 2 (USA).gb.sav", GameBoyFiles.saveFileName("Pokemon Stadium 2 (USA)"))
+    }
+
     @Test fun defaultSaveIsTheSameNameSavFirst() {
         val srm = GameBoyFiles.Found("u1", "Pokémon Gold (USA).srm")
         val sav = GameBoyFiles.Found("u2", "pokémon gold (usa).sav")

@@ -166,14 +166,20 @@ object GameBoyFiles {
         }
     } catch (e: Exception) { JLog.e(TAG, "can't copy the Game Boy game $name: $e"); null }
 
+    /** The Game Boy save copy's name in `saves/` for a play of [saveName]. */
+    fun saveFileName(saveName: String) = "$saveName.gb.sav"
+
     /**
-     * Joey64's own copy of the Game Boy save for a play of [saveName] (the N64 game): files/transferpak/<saveName>.sav.
-     * The picked save ([save], a document URI) is copied in when it isn't the one copied last ([SOURCE] beside it says
-     * which); none picked keeps whatever copy there is, or the core starts a new one. Returns the copy's path.
+     * Joey64's own copy of the Game Boy save for a play of [saveName] (the N64 game): files/saves/<saveName>.gb.sav, with
+     * the save RAM, so it goes with the data folder (SrmSync), its moves and backups. The picked save ([save], a document
+     * URI) is copied in when it isn't the one copied last (files/transferpak/<saveName>.source says which); none picked
+     * keeps whatever copy there is, or the core starts a new one. Returns the copy's path.
      */
     fun saveCopy(context: Context, saveName: String, save: String?): File {
         val dir = File(context.filesDir, "transferpak").apply { mkdirs() }
-        val copy = File(dir, "$saveName.sav")
+        val copy = File(File(context.filesDir, "saves").apply { mkdirs() }, saveFileName(saveName))
+        // Built 2026-11-08 with the copy in files/transferpak/<saveName>.sav: moved once.
+        File(dir, "$saveName.sav").let { old -> if (old.exists() && !copy.exists() && !old.renameTo(copy)) { old.copyTo(copy); old.delete() } }
         val source = File(dir, "$saveName.source")
         val from = save ?: "new"
         if (source.takeIf { it.exists() }?.readText() != from) {

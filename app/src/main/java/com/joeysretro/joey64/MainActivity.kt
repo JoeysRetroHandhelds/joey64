@@ -1184,7 +1184,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     /**
      * Transfer Pak (approved paks mockup 2026-11-08, scratchpad build_paks2.py): the first player whose pak is the
      * Transfer Pak, with a Game Boy game picked, gives the play its Game Boy game (copied, unzipped, to cache/tpak/) and
-     * save (Joey64's own copy, files/transferpak/<save name>.sav; GameBoyFiles.saveCopy). The core takes one Game Boy
+     * save (Joey64's own copy, saves/<save name>.gb.sav, synced with the data folder like the save RAM; GameBoyFiles.saveCopy). The core takes one Game Boy
      * game per play, so other players with a Transfer Pak get the same one (README work order (44)). Null: none.
      */
     private fun transferPak(saveName: String): Pair<String, String>? {

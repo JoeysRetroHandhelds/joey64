@@ -72,4 +72,10 @@ private:
     int libraInW_ = 0, libraInH_ = 0, libraOutW_ = 0, libraOutH_ = 0;
     bool drawLibra(int srcW, int srcH, bool bottomLeftOrigin, int winW, int winH, int x, int y, int dstW, int dstH);
     void destroyLibra();
+    // Crop edges (display_opts.h): the kept part of the core's picture is blitted into cropFbo_, which then stands in
+    // for the core's framebuffer for the rest of the present (swapCrop swaps them, and back after).
+    GLuint cropTex_ = 0, cropFbo_ = 0;
+    int cropW_ = 0, cropH_ = 0;
+    bool ensureCrop(int w, int h);
+    void swapCrop();
 };

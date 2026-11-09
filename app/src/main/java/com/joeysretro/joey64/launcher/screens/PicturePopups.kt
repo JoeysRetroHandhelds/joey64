@@ -184,7 +184,7 @@ internal fun PicturePopups(page: PicPage, ctx: PictureCtx, onPage: (PicPage?) ->
  * there was another game's); else the newest screenshot, or the built-in picture.
  */
 @Composable
-private fun producePictureSource(context: Context) = produceState<LookPreview.Img?>(null) {
+internal fun producePictureSource(context: Context) = produceState<LookPreview.Img?>(null) {
     value = withContext(Dispatchers.IO) {
         val img = (if (com.joeysretro.joey64.MainActivity.gameRunning) try {
             com.joeysretro.joey64.NativeBridge.captureFrame(1000)?.let { cap ->
@@ -207,7 +207,7 @@ private fun producePictureSource(context: Context) = produceState<LookPreview.Im
     }
 }
 
-private fun LookPreview.Img.bitmap(): ImageBitmap = Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888).asImageBitmap()
+internal fun LookPreview.Img.bitmap(): ImageBitmap = Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888).asImageBitmap()
 
 private fun Bitmap.img(): LookPreview.Img { val p = IntArray(width * height); getPixels(p, 0, width, 0, 0, width, height); return LookPreview.Img(p, width, height) }
 

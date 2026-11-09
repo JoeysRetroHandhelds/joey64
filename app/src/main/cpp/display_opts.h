@@ -31,7 +31,10 @@ struct Opts {
     std::atomic<uint32_t> ids[4] = {}, pa[4] = {}, pb[4] = {};
     std::atomic<int> scale{0}, sides{0}, colourBlind{0}, overlay{0};
     std::atomic<int> placeX{0}, placeY{0}, placeW{0};
-    std::atomic<int> portraitTop{-1};     // touch controls in portrait: the picture's top, per mille of the height (-1: centred)
+    std::atomic<int> portraitTop{-1};
+    // Crop edges (approved mockup 2026-11-09): lines of the N64's 240 cut off every edge, the same share of the
+    // width and the height, so the picture keeps its shape (0 = off).
+    std::atomic<int> crop{0};     // touch controls in portrait: the picture's top, per mille of the height (-1: centred)
     bool shaderOn() const { for (auto& i : ids) if (i) return true; return false; }
     // sharpBlit: the renderer draws Sharp pixels on its own with its blit (Vulkan's two-step blit, or its
     // colour pass), so Sharp pixels alone needs no Picture pass there.
@@ -44,6 +47,18 @@ struct Opts {
 };
 
 inline Opts& opts() { static Opts o; return o; }
+
+// Crop edges: how many of a w x h picture's pixels go off each side (cx) and off the top and the bottom (cy).
+// Nothing when it would leave less than half the picture.
+inline bool cropOf(int w, int h, int& cx, int& cy) {
+    int n = opts().crop;
+    cx = cy = 0;
+    if (n <= 0 || w <= 0 || h <= 0) return false;
+    cx = (int)std::lround(w * n / 240.0);
+    cy = (int)std::lround(h * n / 240.0);
+    if (cx * 4 >= w || cy * 4 >= h) { cx = cy = 0; return false; }
+    return cx > 0 || cy > 0;
+}
 
 // The sides and overlay images (RGBA8, top row first), handed over from the UI thread; gen counts
 // changes so each renderer uploads a new one once.

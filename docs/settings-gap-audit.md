@@ -36,7 +36,7 @@ Video, audio and emulation have no user settings. They're automatic, or dev swit
 | Internal resolution / upscale | all | High | new (default native, upscale is the user's choice per memory) |
 | Integer scaling | RA, PPSSPP, ARMSX2, Azahar, FZ (angrylion) | High | new |
 | Shaders (CRT, LCD, sharp) and bezels | RA, ARMSX2, PPSSPP, Dolphin, FZ | High | built 2026-11-08 (Video › Look, in-game Picture panel) |
-| Overscan crop | RA, Dolphin, FZ (parallel-RDP) | High | planned (wanted) |
+| Overscan crop | RA, Dolphin, FZ (parallel-RDP) | High | built 2026-11-09 (Video › Crop edges) |
 | parallel-RDP VI options: VI anti-aliasing, divot filter, dedither, gamma dither, bilinear, SSAA downsample, native texture LOD, native TEX_RECT, deinterlace | FZ, RA core options | High | new |
 | Widescreen hack / patches | Dolphin, ARMSX2, FZ (GLideN64) | High | partly: widescreen cheats get their own spot |
 | Renderer choice (parallel-RDP / GLideN64) | FZ, RA | Med | new (dev only; GLideN64 is the fallback) |

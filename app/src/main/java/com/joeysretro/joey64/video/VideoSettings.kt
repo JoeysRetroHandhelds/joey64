@@ -14,6 +14,8 @@ import java.io.File
 enum class VideoKey(val key: String, val default: String) {
     Resolution("resolution", "1"),
     Aspect("aspect", "auto"),
+    /** Crop edges (approved mockup 2026-11-09): lines of the N64's 240 off every edge, "0" off (display_opts.h cropOf). */
+    Crop("crop", "0"),
     Integer("integer", "off"),
     Orientation("orientation", "landscape"),
     Cutout("cutout", "off"),
@@ -114,6 +116,14 @@ object VideoChoices {
     val deinterlace = listOf(VideoChoice("bob", "Bob", "Smooth, a little flicker"), VideoChoice("weave", "Weave", "Sharp, combing on movement"))
     /** All games' Widescreen and 60 fps (a game's own popup lists its versions instead). */
     val extrasAll = listOf(VideoChoice("off", "Off", "Only games you turn it on for"), VideoChoice("auto", "When a game has one"))
+    /** Crop edges' named amounts; any other even amount up to 32 is Exact. */
+    val crop = listOf(
+        VideoChoice("0", "Off", "The whole picture, border and all"),
+        VideoChoice("4", "Thin", "4 lines of 240 off each edge"),
+        VideoChoice("8", "Normal", "8 lines: most games' black border"),
+        VideoChoice("12", "Wide", "12 lines"),
+        VideoChoice("16", "Widest", "16 lines"))
+    val CROP_STEPS: List<Int> = (0..32 step 2).toList()
     val supersample = listOf(
         VideoChoice("off", "Off"), VideoChoice("1/2", "2x"), VideoChoice("1/4", "4x"), VideoChoice("1/8", "8x"))
 
@@ -128,12 +138,14 @@ object VideoChoices {
         VideoKey.Deinterlace -> deinterlace
         VideoKey.Supersample -> supersample
         VideoKey.Widescreen, VideoKey.Fps -> extrasAll
+        VideoKey.Crop -> crop
         else -> onOff
     }
 
     fun label(key: VideoKey, value: String): String = of(key).firstOrNull { it.value == value }?.label
         // A game's own Widescreen / 60 fps: the version's cheat name, as its popup names it.
-        ?: if (key == VideoKey.Widescreen || key == VideoKey.Fps) GameExtras.fpsLabel(value) else value
+        ?: if (key == VideoKey.Widescreen || key == VideoKey.Fps) GameExtras.fpsLabel(value)
+        else if (key == VideoKey.Crop) "Exact, $value lines" else value
 }
 
 /** Video settings with every key filled in: All games over the defaults, then a game's own keys. */

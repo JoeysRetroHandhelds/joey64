@@ -87,4 +87,16 @@ class VideoSettingsTest {
         val o = org.json.JSONObject("""{"version":1,"resolution":"4","nope":"x"}""")
         assertEquals(mapOf(VideoKey.Resolution to "4"), VideoSettings.fromJson(o))
     }
+
+    @Test fun cropEdges() {
+        // Off by default; named amounts, any other even amount up to 32 is Exact.
+        assertEquals(0, VideoSettings.DEFAULTS.int(VideoKey.Crop))
+        assertEquals("Off", VideoChoices.label(VideoKey.Crop, "0"))
+        assertEquals("Normal", VideoChoices.label(VideoKey.Crop, "8"))
+        assertEquals("Exact, 10 lines", VideoChoices.label(VideoKey.Crop, "10"))
+        assertEquals(listOf(0, 2, 4), VideoChoices.CROP_STEPS.take(3))
+        assertEquals(32, VideoChoices.CROP_STEPS.last())
+        // It changes while the game runs, so it isn't a start-only row.
+        assertFalse(VideoKey.Crop in VideoKey.AT_START)
+    }
 }

@@ -91,6 +91,20 @@ void EglContext::present(int srcW, int srcH, bool bottomLeftOrigin) {
     eglQuerySurface(display_, window_, EGL_WIDTH, &winW);
     eglQuerySurface(display_, window_, EGL_HEIGHT, &winH);
 
+    // Crop edges (Settings › Video): the kept part becomes the picture for everything below, the core's own
+    // framebuffer swapped back in when this returns. Paused, showAgain draws it again with a new amount at once.
+    int cx = 0, cy = 0;
+    bool crop = fbo_ && srcW <= fboW_ && srcH <= fboH_ && Display::cropOf(srcW, srcH, cx, cy) &&
+                ensureCrop(srcW - 2 * cx, srcH - 2 * cy);
+    if (crop) {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo_);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, cropFbo_);
+        glBlitFramebuffer(cx, cy, srcW - cx, srcH - cy, 0, 0, srcW - 2 * cx, srcH - 2 * cy, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        srcW -= 2 * cx; srcH -= 2 * cy;
+        swapCrop();
+    }
+    struct Back { EglContext* e; bool on; ~Back() { if (on) e->swapCrop(); } } back{this, crop};
+
     // Settings › Video: the shape and integer scaling (display_opts.h), as the Vulkan path.
     int x, y, dstW, dstH;
     Display::fit(winW, winH, srcW, srcH, x, y, dstW, dstH);
@@ -369,6 +383,20 @@ bool EglContext::ensurePic(int w, int h) {
     return true;
 }
 
+bool EglContext::ensureCrop(int w, int h) {
+    if (cropFbo_ && w == cropW_ && h == cropH_) return true;
+    freeTarget(cropTex_, cropFbo_);
+    cropW_ = cropH_ = 0;
+    if (!makeTarget(cropTex_, cropFbo_, w, h, GL_LINEAR)) { freeTarget(cropTex_, cropFbo_); return false; }
+    cropW_ = w; cropH_ = h;
+    return true;
+}
+
+void EglContext::swapCrop() {
+    std::swap(fbo_, cropFbo_); std::swap(color_, cropTex_);
+    std::swap(fboW_, cropW_); std::swap(fboH_, cropH_);
+}
+
 // A new sides or overlay image from the UI thread (display_opts.h), uploaded once.
 void EglContext::uploadLookImage(GLuint& tex, uint32_t& seen, bool sides) {
     Display::Image& src = sides ? Display::sidesImage() : Display::overlayImage();
@@ -530,6 +558,8 @@ void EglContext::destroy() {
     destroyPost(); // the context is still current here
     destroyLook();
     destroyLibra();
+    freeTarget(cropTex_, cropFbo_);
+    cropW_ = cropH_ = 0;
     postFailed_ = false;
     lookFailed_ = false;
     eglMakeCurrent(display_, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);

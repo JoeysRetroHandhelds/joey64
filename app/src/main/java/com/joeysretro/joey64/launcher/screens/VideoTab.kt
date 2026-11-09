@@ -63,7 +63,7 @@ import kotlin.math.pow
 
 /**
  * Settings › Video (approved mockup, 2026-11-07: scratchpad build_video.py). Left, Picture:
- * Resolution, Aspect ratio, Widescreen, 60 fps (approved version A, 2026-11-08: build_enh.py), Integer scaling,
+ * Resolution, Aspect ratio, Crop edges (approved mockup 2026-11-09, CropPopups.kt), Widescreen, 60 fps (approved version A, 2026-11-08: build_enh.py), Integer scaling,
  * Screen orientation, Fill the camera cutout. Right,
  * Look: Colour (popup with a preview), Sharpening, Shader, Sides of the picture, Overlay (approved Picture mockup
  * 2026-11-08, PicturePopups.kt), Black frame insertion; Advanced: one row that
@@ -75,7 +75,7 @@ import kotlin.math.pow
 fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean)?) -> Unit, modifier: Modifier = Modifier,
              /** Game settings' changed row to open at: a row id ("res", "col"), "adv:<row>" or "filters:<row>". */
              start: String? = null,
-             /** In game: Shader, Sides and Overlay open the Picture panel over the game ("sh", "sd", "ov") instead of their popups. */
+             /** In game: Shader, Sides and Overlay open the Picture panel over the game ("sh", "sd", "ov"), Crop edges its own ("crop"), instead of their popups. */
              onPicturePanel: ((String) -> Unit)? = null) {
     val context = LocalContext.current
     val store = remember { VideoStore(context) }
@@ -146,7 +146,7 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
     }
 
     val rowKeys: Map<String, List<VideoKey>> = mapOf(
-        "res" to listOf(VideoKey.Resolution), "asp" to listOf(VideoKey.Aspect), "int" to listOf(VideoKey.Integer),
+        "res" to listOf(VideoKey.Resolution), "asp" to listOf(VideoKey.Aspect), "crop" to listOf(VideoKey.Crop), "int" to listOf(VideoKey.Integer),
         "ori" to listOf(VideoKey.Orientation), "cut" to listOf(VideoKey.Cutout), "col" to COLOUR_ROW_KEYS,
         "sh" to SHADER_KEYS, "sd" to SIDES_KEYS, "ov" to OVERLAY_KEYS,
         "ws" to listOf(VideoKey.Widescreen), "fps" to listOf(VideoKey.Fps),
@@ -169,6 +169,10 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
                     dot = dot(k), onFocused = { if (it) focused = id }) { popup = VPopup.Choice(k) }
             row("res", "Resolution", VideoKey.Resolution)
             row("asp", "Aspect ratio", VideoKey.Aspect)
+            JoeyRow("Crop edges", Modifier.initialFocus(startRow == "crop"), value = VideoChoices.label(VideoKey.Crop, v[VideoKey.Crop]), sideways = true,
+                dot = dot(VideoKey.Crop), onFocused = { if (it) focused = "crop" }) {
+                if (onPicturePanel != null) onPicturePanel("crop") else popup = VPopup.Crop
+            }
             for ((id, k) in listOf("ws" to ExtraKind.Widescreen, "fps" to ExtraKind.Fps)) {
                 val key = if (k == ExtraKind.Widescreen) VideoKey.Widescreen else VideoKey.Fps
                 val (value, enabled) = extraValue(k)
@@ -223,6 +227,7 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
     when (val p = popup) {
         null -> {}
         is VPopup.Choice -> ChoicePopup(p.key, v[p.key], onDismiss = { popup = p.back }) { set(p.key, it); popup = p.back }
+        VPopup.Crop -> CropPopup(v.int(VideoKey.Crop), target ?: "All games", onDismiss = { popup = null }) { set(VideoKey.Crop, it.toString()) }
         VPopup.Colour -> ColourPopup(context, v, onDismiss = { popup = null }, onSet = { k, n -> set(k, n) },
             onReset = { set(COLOUR_ROW_KEYS.associateWith { it.default }) })
         is VPopup.Picture -> PicturePopups(p.page, picCtx) { next -> popup = next?.let { VPopup.Picture(it) } }
@@ -263,6 +268,7 @@ private val ADVANCED_KEYS = listOf(VideoKey.Renderer, VideoKey.Driver, VideoKey.
 private sealed class VPopup {
     data class Choice(val key: VideoKey, val back: VPopup? = null) : VPopup()
     object Colour : VPopup()
+    object Crop : VPopup()
     object Sharpen : VPopup()
     data class Advanced(val row: String) : VPopup()
     data class Filters(val row: String) : VPopup()
@@ -277,6 +283,7 @@ internal fun sharpenValue(v: VideoSettings) = if (v[VideoKey.Sharpen] == "off") 
 private fun describe(row: String, v: VideoSettings): Pair<String, String> = when (row) {
     "res" -> "Resolution" to "Native draws the game at the N64's own size, the most accurate and the fastest. Higher is sharper but slower. Applies when the game next starts."
     "asp" -> "Aspect ratio" to "The shape of the picture. Auto is 4:3, and 16:9 when Widescreen is on."
+    "crop" -> "Crop edges" to "Cuts off the black border many games draw around the picture. The picture keeps its shape and grows to fill the space."
     "int" -> "Integer scaling" to "Scales by whole numbers only, so every pixel is the same size. Leaves a border."
     "ori" -> "Screen orientation" to "Which way the game is shown. Landscape on handhelds."
     "cut" -> "Fill the camera cutout" to "Draws the picture behind the camera hole, for Stretch to the screen."
@@ -295,6 +302,7 @@ private fun allGamesNote(row: String, all: VideoSettings): String = when (row) {
     "ws" -> "All games uses ${VideoChoices.label(VideoKey.Widescreen, all[VideoKey.Widescreen])}."
     "fps" -> "All games uses ${VideoChoices.label(VideoKey.Fps, all[VideoKey.Fps])}."
     "asp" -> "All games uses ${VideoChoices.label(VideoKey.Aspect, all[VideoKey.Aspect])}."
+    "crop" -> "All games uses ${VideoChoices.label(VideoKey.Crop, all[VideoKey.Crop])}."
     "int" -> "All games uses ${VideoChoices.label(VideoKey.Integer, all[VideoKey.Integer])}."
     "ori" -> "All games uses ${VideoChoices.label(VideoKey.Orientation, all[VideoKey.Orientation])}."
     "cut" -> "All games uses ${VideoChoices.label(VideoKey.Cutout, all[VideoKey.Cutout])}."

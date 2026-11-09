@@ -40,7 +40,7 @@ Tests: 245 unit tests pass. The branch is 9 commits ahead of main and 9 behind (
 - Texture packs (GLideN64 only today; parallel-RDP step B queued).
 - Picture panel: shaders and bezels.
 
-**Wanted, need a mockup first:** turbo, undo save/load, rewind, slow motion (frame advance: built 2026-11-07, a hotkey), overscan crop, Android TV, HDR, the Library settings tab, controls extras (latch, profiles, macros), 64DD, run-ahead, app language, ROM patches, shortcuts, cheat search, input display, clip recording. (Expansion Pak off per game: built 2026-11-08 in Settings › Emulation; slow motion and rewind go in Controls › Hotkeys, Joey 2026-11-08.)
+**Wanted, need a mockup first:** turbo, undo save/load, rewind, slow motion (frame advance: built 2026-11-07, a hotkey), overscan crop, Android TV, HDR, the Library settings tab, controls extras (latch, profiles, macros), 64DD, run-ahead, app language, ROM patches, shortcuts, cheat search, input display, clip recording. (Expansion Pak off per game: built 2026-11-08 in Settings › Emulation; slow motion and rewind go in Controls › Hotkeys, Joey 2026-11-08; overscan crop: built 2026-11-09, Video › Crop edges.)
 
 **Checks the plan asks for that haven't run:**
 - Every phase on the Flip, Portal, Odin 3 and Duo: only the Thor since 2026-11-06 (the device queues, then Thor-only testing).

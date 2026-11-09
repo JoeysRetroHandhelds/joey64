@@ -1320,6 +1320,11 @@ JNIEXPORT void JNICALL JNI(setDisplay)(JNIEnv*, jobject, jint aspW, jint aspH, j
     o.aspW = aspW; o.aspH = aspH; o.integer = integer; o.bfi = bfi;
 }
 
+// Settings › Video › Crop edges: lines of the N64's 240 off every edge, 0 off (display_opts.h cropOf).
+JNIEXPORT void JNICALL JNI(setCrop)(JNIEnv*, jobject, jint lines) {
+    Display::opts().crop = std::max(0, std::min(64, (int)lines));
+}
+
 // Touch controls in portrait: the picture's top in per mille of the window's height, -1 centred.
 JNIEXPORT void JNICALL JNI(setPortraitTop)(JNIEnv*, jobject, jint perMille) {
     Display::opts().portraitTop = perMille;

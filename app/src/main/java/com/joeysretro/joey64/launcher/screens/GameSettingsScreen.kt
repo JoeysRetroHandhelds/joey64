@@ -80,7 +80,8 @@ fun InGameGameSettings(game: GameRef, onPictureChanged: () -> Unit = {}, onClose
     var panel by remember { mutableStateOf<String?>(null) }
     var back by remember { mutableStateOf<String?>(null) }
     panel?.let { row ->
-        PicturePanel(game.saveName, row, onPictureChanged) { back = row; panel = null }
+        if (row == "crop") CropPanel(game.saveName) { back = row; panel = null }
+        else PicturePanel(game.saveName, row, onPictureChanged) { back = row; panel = null }
         return
     }
     JoeyDialog(

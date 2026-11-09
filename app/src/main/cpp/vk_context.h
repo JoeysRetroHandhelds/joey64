@@ -187,6 +187,14 @@ private:
     uint32_t libraW_ = 0, libraH_ = 0;
     bool ensureLibraImage(uint32_t w, uint32_t h);
     void destroyLibraImage();
+    // Crop edges: the kept part of the core's picture, copied out each present; everything after reads it.
+    VkImage cropImage_ = VK_NULL_HANDLE;
+    VkDeviceMemory cropMem_ = VK_NULL_HANDLE;
+    VkImageView cropView_ = VK_NULL_HANDLE;
+    uint32_t cropW_ = 0, cropH_ = 0;
+    VkFormat cropFormat_ = VK_FORMAT_UNDEFINED;
+    bool ensureCropImage(uint32_t w, uint32_t h, VkFormat format);
+    void destroyCropImage();
 
     // State handed over by the core for the next video_refresh.
     retro_vulkan_image image_{};

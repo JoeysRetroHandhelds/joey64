@@ -1,6 +1,6 @@
 {
   "about": "Joey64 per-game database: what each game needs, what is wrong with it and where, and what was fixed. Seed for the M3 profile DB. Rules: gamedb/README.md. Update this file in the same commit as any change to a game's status (new problem found, fixed, regressed, setting added or dropped).",
-  "updated": "2026-11-08",
+  "updated": "2026-11-09",
   "games": [
     {
       "id": "NPF", "title": "Pokemon Snap",
@@ -135,8 +135,7 @@
       "settings": [
         {"what": "smoother timing, CountPerOp=1 (counter factor 1), on Adreno 730 and up (Portal, Odin 3, Thor) only", "where": "libretro_host.cpp kSmootherGames, MainActivity N64_SMOOTHER", "why": "Odin 3 21.4 -> 28.6 fps; compat with it passed on the Odin 3 and Portal (odin3-/portal-smoothc), Joey 2026-11-06. Hacks with this ID get it too"}
       ],
-      "issues": [{"status": "open", "devices": "Flip (Mali-G52, system driver)", "renderer": "parallel-RDP", "what": "intro shows noise after the Dolby screen: a specialized parallel-RDP shader draws it wrong; PARALLEL_RDP_UBERSHADER=1 draws it right but runs 130 -> 27 fps uncapped, too slow to use", "evidence": "README open bugs (a), flip-conk28..31"}],
-      "notes": ["100-140 ms boot frames on the Flip", "RSP chunk cache made it 10.9% slower (dropped)", "Europe ROM (07) has no bench state; use the USA ROM (81)"]
+      "notes": ["100-140 ms boot frames on the Flip", "RSP chunk cache made it 10.9% slower (dropped)", "Europe ROM (07) has no bench state; use the USA ROM (81)", "the intro has black gaps between scenes (gamma-dither values 0-1, black to the eye): compat shots at 20/45 s land on them on the Flip at full speed; not a bug (README open bugs (a), settled 2026-11-09, flip-conkq1/q3 time series)"]
     },
     {
       "id": "NDO", "title": "Donkey Kong 64",

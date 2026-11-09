@@ -176,7 +176,7 @@
     {
       "id": "NSM", "crc": "A97AA1A91B749C63", "title": "SM64 Elise (hack)",
       "issues": [
-        {"status": "open", "devices": "all", "what": "freezes on its title half faded in: CPU runs (61 fps) but no more display lists. Emulation, not drawing; check FZ, then timing / save type / RSP-RDP status", "evidence": "every compat run since 2026-11-03"}
+        {"status": "fixed", "devices": "all", "what": "froze on its title part-way through the fade-in (same on parallel-RDP, GLideN64, HLE/LLE RSP, LLE audio, interpreter, CountPerOp 3): the counter timing. Fixed by CountPerOp 1 in the core ini (MD5 193C195A5C5B28ACD0D7346F050DEEA5; core aa9ca58 / sp-dynarec b27858f, core e33d0279 = app-spfix3)", "evidence": "duo-elise1..7 2026-11-09: title fades in fully and file select appears with default settings on app-spfix3"}
       ]
     },
     {

@@ -56,12 +56,11 @@ fun AppearanceTab(onHints: (List<Hint>) -> Unit, modifier: Modifier = Modifier) 
         TwoColumns(Modifier.weight(1f), left = {
             SectionLabel("Theme")
             JoeyRow("Theme", value = s.theme.label, sideways = true,
-                modifier = Modifier.initialFocus().focusProperties { up = FocusRequester.Cancel },
+                modifier = Modifier.initialFocus(),
                 onFocused = { if (it) focused = "theme" }) { picker = "theme" }
         }) {
             SectionLabel("During play")
-            JoeyRow("Pop-ups", value = s.popupTheme.label, sideways = true,
-                modifier = Modifier.focusProperties { up = FocusRequester.Cancel },
+            JoeyRow("Pop-ups", value = s.popupTheme.label, sideways = true,
                 onFocused = { if (it) focused = "pop" }) { picker = "pop" }
         }
         Spacer(Modifier.height(6.dp))

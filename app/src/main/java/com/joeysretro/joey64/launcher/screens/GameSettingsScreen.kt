@@ -125,7 +125,9 @@ private fun GameSettingsContent(game: GameRef, inGame: Boolean, sink: ControlsSi
     val inner = remember(view) { ControlsSink() }
     var tabControl by remember { mutableStateOf<((Control) -> Boolean)?>(null) }
     val landing = LocalFocusLanding.current
-    LaunchedEffect(view) { landing?.arm() }
+    // Each view lands focus on its first row, except a tab opened from the tab row, which keeps focus there.
+    var tabsFocused by remember { mutableStateOf(false) }
+    LaunchedEffect(view) { if (!(view is GsView.Tabs && tabsFocused)) landing?.arm() }
 
     sink.onControl = { ctl ->
         when (val v = view) {
@@ -161,7 +163,7 @@ private fun GameSettingsContent(game: GameRef, inGame: Boolean, sink: ControlsSi
                 onReset = { popup = GsPopup.Reset }, onCopy = { popup = GsPopup.Copy })
             GamePopupsFor(game, summary, model, popup, onPopup = { popup = it }, onChanged = { version++ })
         }
-        is GsView.Tabs -> GameTabs(game, v, onHints, { tabControl = it }, onPicturePanel) { view = GsView.Tabs(it, null) }
+        is GsView.Tabs -> GameTabs(game, v, onHints, { tabControl = it }, onPicturePanel, { tabsFocused = it }) { view = GsView.Tabs(it, null) }
         is GsView.Controls -> Column(Modifier.fillMaxSize()) {
             GameControlsPage(game.saveName, game.title, v.player, inner, onHints)
         }
@@ -174,14 +176,19 @@ private val TAB_PARTS = listOf(GamePart.Video, GamePart.Emulation, GamePart.Audi
 /** Settings' Video, Emulation and Audio tabs, set to the game: no other tabs, the game's name in the header. */
 @Composable
 private fun GameTabs(game: GameRef, v: GsView.Tabs, onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean)?) -> Unit,
-                     onPicturePanel: ((String) -> Unit)?, onTab: (GamePart) -> Unit) {
+                     onPicturePanel: ((String) -> Unit)?, onTabsFocused: (Boolean) -> Unit, onTab: (GamePart) -> Unit) {
     val c = JoeyTheme.colors
     val s = JoeyTheme.spacing
     val parts = TAB_PARTS
     Column(Modifier.fillMaxSize().padding(horizontal = s.margin).padding(top = 14.dp, bottom = 8.dp)) {
         com.joeysretro.joey64.launcher.components.PageHeader("Settings") { InfoChip(game.title, R.drawable.ic_sliders, on = true) }
-        SettingsTabs(parts.map { it.label }, parts.indexOf(v.part)) { onTab(parts[it]) }
+        // The tab row has focus: its own hints; the tab's come back when focus goes down (Joey 2026-11-09, D-pad tabs).
+        var onTabs by remember { mutableStateOf(false) }
+        var pageHints by remember { mutableStateOf(listOf(Hint("B", "Back"))) }
+        LaunchedEffect(onTabs, pageHints) { onHints(if (onTabs) listOf(Hint("A", "Open"), Hint("L/R", "Tab"), Hint("B", "Back")) else pageHints) }
+        SettingsTabs(parts.map { it.label }, parts.indexOf(v.part), onFocused = { onTabs = it; onTabsFocused(it) }) { onTab(parts[it]) }
         key(v) {
+            val onHints: (List<Hint>) -> Unit = { pageHints = it }
             when (v.part) {
                 GamePart.Emulation -> EmulationTab(game.saveName, onHints, onControl, Modifier.weight(1f),
                     start = v.start?.let { r -> com.joeysretro.joey64.emulation.EmuKey.entries.firstOrNull { it.name == r } })

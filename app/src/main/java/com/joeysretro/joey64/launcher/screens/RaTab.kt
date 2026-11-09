@@ -266,11 +266,10 @@ private fun SignedIn(account: RaBridge.Account, onHints: (List<Hint>) -> Unit, m
     }
 
     @Composable
-    fun Toggle(key: String, label: String, on: Boolean, first: Boolean = false, top: Boolean = first, change: (RaOptions, Boolean) -> RaOptions) =
+    fun Toggle(key: String, label: String, on: Boolean, first: Boolean = false, change: (RaOptions, Boolean) -> RaOptions) =
         JoeyRow(label, value = if (on) "On" else "Off", sideways = true,
-            // Up from a column's top row stays put (it found the other column's top row).
-            modifier = (if (first) Modifier.initialFocus() else Modifier)
-                .then(if (top) Modifier.focusProperties { up = FocusRequester.Cancel } else Modifier),
+            // Up from a column's top row goes to the tab row (Joey 2026-11-09, D-pad tabs; it was kept from the other column's).
+            modifier = if (first) Modifier.initialFocus() else Modifier,
             onFocused = { if (it) focused = key }) { set { change(it, !on) } }
 
     Column(modifier.fillMaxSize()) {
@@ -295,7 +294,7 @@ private fun SignedIn(account: RaBridge.Account, onHints: (List<Hint>) -> Unit, m
                 Toggle("rp", "Rich presence", o.richPresence) { x, v -> x.copy(richPresence = v) }
         }) {
                 SectionLabel("Pop-ups")
-                Toggle("pun", "Unlocks", o.popUnlocks, top = !com.joeysretro.joey64.launcher.layout.LocalScreenLayout.current.singleColumnSettings) { x, v -> x.copy(popUnlocks = v) }
+                Toggle("pun", "Unlocks", o.popUnlocks) { x, v -> x.copy(popUnlocks = v) }
                 Toggle("ppr", "Progress", o.popProgress) { x, v -> x.copy(popProgress = v) }
                 Toggle("pch", "Challenge badges", o.popChallenges) { x, v -> x.copy(popChallenges = v) }
                 JoeyRow("Leaderboards", sideways = true, value = "Needs Hardcore", enabled = false, lock = true, onFocused = { if (it) focused = "lb" })

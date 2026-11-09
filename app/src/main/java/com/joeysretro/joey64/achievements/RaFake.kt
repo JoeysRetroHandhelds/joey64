@@ -32,9 +32,15 @@ internal object RaFake {
         .put(ach(6, "Pole Position", "Win any race in first place", 5, unlockedAgo = 86_400, rarity = 64.0, section = RaAchievement.UNLOCKED))
         .put(ach(7, "Mirror Master", "Win every cup in mirror mode", 25, unlockedAgo = 30L * 86_400, rarity = 6.8, section = RaAchievement.UNLOCKED))
         .put(ach(8, "Shortcut Scholar", "Use every shortcut on one track", 10, unlockedAgo = 8L * 86_400, rarity = 15.0, hard = true, section = RaAchievement.UNLOCKED))
+        .also { a -> for (i in 0 until a.length()) a.getJSONObject(i).put("set", if (a.getJSONObject(i).getInt("id") in setOf(1, 3)) 2001 else 1001) }
+
+    /** Mario Kart 64's made-up sets, so the set tabs (approved subsets mockup 2026-11-08) show without signing in. */
+    private fun mk64Sets() = JSONArray()
+        .put(JSONObject().put("id", 1001).put("title", "Mario Kart 64").put("achievements", 6).put("unlocked", 3).put("points", 125).put("pointsUnlocked", 40))
+        .put(JSONObject().put("id", 2001).put("title", "Mario Kart 64 [Subset - Time Trials]").put("achievements", 2).put("unlocked", 0).put("points", 35).put("pointsUnlocked", 0))
 
     fun cache(): Map<Long, Pair<String, String>> = linkedMapOf(
-        -1L to (game(1001, "Mario Kart 64", 8, 3, 160, 40, beaten = true).toString() to mk64().toString()),
+        -1L to (game(1001, "Mario Kart 64", 8, 3, 160, 40, beaten = true).put("sets", mk64Sets()).toString() to mk64().toString()),
         -2L to (game(1002, "Super Mario 64", 79, 31, 650, 310, beaten = false).toString() to "[]"),
         -3L to (game(1003, "Kirby 64: The Crystal Shards", 36, 36, 400, 400, beaten = true).toString() to "[]"),
         -4L to (game(1004, "GoldenEye 007", 52, 0, 400, 0, beaten = false).toString() to "[]"),

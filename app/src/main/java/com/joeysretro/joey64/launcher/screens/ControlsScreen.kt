@@ -41,6 +41,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.joeysretro.joey64.launcher.components.tabScroll
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalContext
@@ -299,6 +300,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
         if (touchOpen) { onHints(touchPageHints(focused, target != null, backLabel)); return@LaunchedEffect }
         onHints((when {
             focused == "chipTouch" -> listOf(Hint("A", "Open"), Hint("L/R", "Player"), Hint("B", backLabel))
+            focused == "tabs" -> listOf(Hint("A", "Open"), Hint("L/R", "Player"), Hint("B", backLabel))
             hotkeysOpen -> listOf(Hint("A", if (focused == "hkFastForward" || focused == "hkQuit") "Open" else "Change"), Hint("X", "Clear"),
                 Hint("Y", "Reset to default"), Hint("B", "Back"))
             focused.startsWith("chip") -> listOf(Hint("A", "Select"), Hint("L/R", "Player"), Hint("B", backLabel))
@@ -347,8 +349,10 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             }
             com.joeysretro.joey64.launcher.components.PageHeader("Controls") { headerChips() }
             // Scrolls sideways on a narrow screen rather than wrapping "Player 4".
-            Row(Modifier.padding(top = 6.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                for (i in 0..3) TabChip("Player ${i + 1}", i == player)
+            // A focus stop too (Joey 2026-11-09): Up from the chips, ◀ ▶, A picks the player.
+            com.joeysretro.joey64.launcher.components.TabRow(4, player, Modifier.padding(top = 6.dp).tabScroll(rememberScrollState()),
+                onFocused = { if (it) focused = "tabs" }, onPick = { i -> if (i != player) { player = i; open = emptySet() } }) { i, m ->
+                TabChip("Player ${i + 1}", i == player, m)
             }
             Row(Modifier.padding(top = 6.dp, bottom = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 PageChip("Auto map", R.drawable.ic_wand, onFocused = { if (it) focused = "chipAuto" }) { if (!off) popup = Popup.AutoConfirm }

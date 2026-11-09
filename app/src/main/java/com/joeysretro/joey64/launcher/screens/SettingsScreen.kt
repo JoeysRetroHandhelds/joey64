@@ -40,6 +40,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.layout.onSizeChanged
+import com.joeysretro.joey64.launcher.components.tabScroll
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
@@ -105,8 +109,13 @@ fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher
     // Bumped by a reset: the tab is built again and reads its settings anew.
     var resetGen by remember { mutableIntStateOf(0) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
-    // Each tab lands focus on its first row as it opens.
-    LaunchedEffect(tab) { landing?.arm() }
+    // The tab row has focus: its own hints. The tab's hints are kept for when focus goes back down.
+    var onTabs by remember { mutableStateOf(false) }
+    var pageHints by remember { mutableStateOf(listOf(Hint("B", "Back"))) }
+    LaunchedEffect(onTabs, pageHints) { onHints(if (onTabs) listOf(Hint("A", "Open"), Hint("L/R", "Tab"), Hint("B", "Back")) else pageHints) }
+    val setHints: (List<Hint>) -> Unit = { pageHints = it }
+    // Each tab lands focus on its first row as it opens (L1 / R1); one opened from the tab row keeps focus there.
+    LaunchedEffect(tab) { if (!onTabs) landing?.arm() }
     // A reset builds the tab again: focus lands on its first row, not the rail.
     LaunchedEffect(resetGen) { if (resetGen > 0) landing?.arm() }
     DisposableEffect(Unit) {
@@ -126,9 +135,10 @@ fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher
         com.joeysretro.joey64.launcher.components.PageHeader("Settings") {
             if (perGame) PageChip((targetTitle ?: "All games") + "  ›", R.drawable.ic_sliders, on = target != null) { gamesPopup = 1 }
         }
-        SettingsTabs(SettingsTab.entries.map { it.label }, tab.ordinal) { tab = SettingsTab.entries[it] }
+        SettingsTabs(SettingsTab.entries.map { it.label }, tab.ordinal, onFocused = { onTabs = it }) { tab = SettingsTab.entries[it] }
         key(tab, target, resetGen) {
             if (!perGame && tab != SettingsTab.OnScreen) tabControl = null
+            val onHints = setHints
             val hints: (List<Hint>) -> Unit = { onHints(if (resettable) withResetHint(it) else it) }
             when (tab) {
                 SettingsTab.Appearance -> AppearanceTab(hints, Modifier.weight(1f))
@@ -220,7 +230,10 @@ fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher
 /** The tabs Start resets (approved mockup B): the ones with settings of their own. */
 private val RESETTABLE = setOf(SettingsTab.Appearance, SettingsTab.Video, SettingsTab.Emulation, SettingsTab.Audio, SettingsTab.OnScreen, SettingsTab.Saves)
 
-/** Settings' tab row (L1 / R1 move along it; a tap picks one), also Game settings' Video and Audio. */
+/**
+ * Settings' tab row, also Game settings' Video, Emulation and Audio and a game's achievement sets: L1 / R1 move along
+ * it, a tap picks one, and the D-pad reaches it ([TabRow]: Up from the page, ◀ ▶, A opens). [onFocused]: a tab has focus.
+ */
 @Composable
 internal fun SettingsTabs(
     labels: List<String>, on: Int,
@@ -228,19 +241,31 @@ internal fun SettingsTabs(
     counts: List<Int?> = emptyList(),
     /** Tabs with a dot after the label (a set with an active challenge). */
     dots: Set<Int> = emptySet(),
+    onFocused: ((Boolean) -> Unit)? = null,
     onTap: (Int) -> Unit,
 ) {
     val c = JoeyTheme.colors
     // More tabs than the width holds (eight since Library): the row scrolls, keeping the one in use
     // in view, and a label never wraps or shrinks.
     val bring = remember(labels.size) { List(labels.size) { androidx.compose.foundation.relocation.BringIntoViewRequester() } }
-    LaunchedEffect(on) { bring.getOrNull(on)?.bringIntoView() }
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 6.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        labels.forEachIndexed { i, label ->
+    // A tab comes into view with 8 dp to spare each side, so its focus outline shows at the row's ends.
+    val sizes = remember(labels.size) { IntArray(labels.size) }
+    val spare = with(androidx.compose.ui.platform.LocalDensity.current) { 8.dp.toPx() }
+    suspend fun show(i: Int) {
+        val w = sizes.getOrNull(i) ?: return
+        bring[i].bringIntoView(androidx.compose.ui.geometry.Rect(-spare, 0f, w + spare, 1f))
+    }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(on) { if (on in labels.indices) show(on) }
+    com.joeysretro.joey64.launcher.components.TabRow(labels.size, on,
+        Modifier.fillMaxWidth().tabScroll(rememberScrollState()).padding(top = 6.dp, bottom = 8.dp), onFocused, onTap) { i, m ->
+            val label = labels[i]
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier
                 .bringIntoViewRequester(bring[i])
+                .onSizeChanged { sizes[i] = it.width }
+                .onFocusChanged { if (it.isFocused) scope.launch { show(i) } }
+                .then(m)
                 .then(if (i == on) Modifier.background(c.chip, RoundedCornerShape(6.dp)) else Modifier)
-                .pointerInput(i) { detectTapGestures { onTap(i) } }
                 .padding(horizontal = 12.dp, vertical = 4.dp)) {
                 val count = counts.getOrNull(i)
                 val text = if (count == null) androidx.compose.ui.text.AnnotatedString(label) else androidx.compose.ui.text.buildAnnotatedString {
@@ -252,7 +277,6 @@ internal fun SettingsTabs(
                 Text(text, style = JoeyTheme.type.tab, color = if (i == on) c.text else c.textSecondary, maxLines = 1, softWrap = false)
                 if (i in dots) Box(Modifier.padding(start = 6.dp).size(7.dp).background(c.tagChallenge, androidx.compose.foundation.shape.CircleShape))
             }
-        }
     }
 }
 

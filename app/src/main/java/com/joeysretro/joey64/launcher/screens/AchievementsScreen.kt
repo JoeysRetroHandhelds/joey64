@@ -239,9 +239,12 @@ private fun GameAchievementsContent(
     var tabChanged by remember { mutableStateOf(0) }
     tabs?.onStep = { delta -> if (tabbed) { setPicked = (setIdx + delta + sets.size) % sets.size; tabChanged++ } }
     // A new tab: focus lands on its first row, as when the page opens.
-    LaunchedEffect(tabChanged) { if (tabChanged > 0) landing?.arm() }
-    LaunchedEffect(onChip, tabbed) {
-        onHints(listOfNotNull(if (onChip) Hint("A", "Show") else null, if (tabbed) Hint("L/R", tabHint) else null, Hint("B", "Back")))
+    // The set tabs have focus (Joey 2026-11-09, D-pad tabs): a set opened there keeps focus on the row.
+    var onTabs by remember { mutableStateOf(false) }
+    LaunchedEffect(tabChanged) { if (tabChanged > 0 && !onTabs) landing?.arm() }
+    LaunchedEffect(onChip, tabbed, onTabs) {
+        onHints(listOfNotNull(if (onChip) Hint("A", "Show") else if (onTabs) Hint("A", "Open") else null,
+            if (tabbed) Hint("L/R", tabHint) else null, Hint("B", "Back")))
     }
     val d = data ?: return
     val g = d.game
@@ -262,6 +265,7 @@ private fun GameAchievementsContent(
         if (tabbed) SettingsTabs(sets.mapIndexed { i, s -> RaLists.setLabel(i, s) }, setIdx, counts = sets.map { it.achievements },
             // In game, a dot on a set with an active challenge, so it isn't missed on another tab.
             dots = if (!live) emptySet() else sets.indices.filter { i -> d.list.any { it.set == sets[i].id && it.section == RaAchievement.ACTIVE_CHALLENGE } }.toSet(),
+            onFocused = { onTabs = it },
         ) { setPicked = it; tabChanged++ }
         if (g == null) Empty(if (live) "This game has no RetroAchievements set, or it wasn't found." else "Play this game once, and its achievements show here.", holdFocus = true)
         else if (!live && d.list.any { !it.isUnlocked && it.progress.isNotEmpty() })

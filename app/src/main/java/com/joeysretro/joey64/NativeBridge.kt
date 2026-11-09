@@ -52,6 +52,23 @@ object NativeBridge {
     /** Settings › Video › Sharpening: 0 off, 1 CAS, 2 FSR; strength in percent. Any time. */
     external fun setSharpen(mode: Int, strength: Int)
 
+    /**
+     * Settings › Video's Shader, Sides of the picture, Overlay and Colour's colour-blind help (look.glsl):
+     * [ids] up to four shaders in order (0 none, 1 sharp pixels, 2 smooth, 3 CRT light, 4 CRT heavy,
+     * 5 LCD grid, 6 NTSC composite), [params] 8 settings (0..255) per shader; scale 0 Auto, 1 the game's
+     * size, 2 2x, 3 3x, 4 the screen's; sides 0 none, 1 blurred game, 2 Joey64 frame, 3 your image;
+     * colourBlind 0 off, 1 red-, 2 green-, 3 blue-weak; overlay opacity in percent (0 off); place in
+     * tenths of a percent of the window (placeW 0 = centred). Any time.
+     */
+    external fun setLook(ids: IntArray, params: IntArray, scale: Int, sides: Int, colourBlind: Int, overlay: Int,
+                         placeX: Int, placeY: Int, placeW: Int)
+
+    /** Paused: draws the last picture again with the display settings as they are now (the in-game Picture panel). */
+    external fun showAgain()
+
+    /** The sides (slot 0) or overlay (slot 1) image as RGBA8, top row first; null clears it. Any time. */
+    external fun setLookImage(slot: Int, rgba: ByteArray?, w: Int, h: Int)
+
     external fun setSurface(surface: Surface?)
     /** The surface set by setSurface changed size (e.g. once the system bars are hidden). */
     external fun surfaceResized()

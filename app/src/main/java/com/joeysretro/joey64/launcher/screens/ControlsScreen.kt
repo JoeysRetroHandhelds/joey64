@@ -586,7 +586,7 @@ private fun HotkeysPage(editor: ControlsEditor, version: Int, focused: String, o
             SectionLabel("Sound")
             for (a in listOf(HotkeyAction.VolumeUp, HotkeyAction.VolumeDown, HotkeyAction.Mute)) row(a)
             SectionLabel("Picture")
-            for (a in listOf(HotkeyAction.UpscaleUp, HotkeyAction.UpscaleDown)) row(a)
+            for (a in listOf(HotkeyAction.UpscaleUp, HotkeyAction.UpscaleDown, HotkeyAction.NextShader, HotkeyAction.ShaderToggle)) row(a)
     }) {
             SectionLabel("Game")
             for (a in listOf(HotkeyAction.PauseMenu, HotkeyAction.Pause, HotkeyAction.FrameAdvance, HotkeyAction.FastForward, HotkeyAction.SlowMotion, HotkeyAction.Rewind, HotkeyAction.Turbo, HotkeyAction.Screenshot, HotkeyAction.Stats,
@@ -621,6 +621,8 @@ private fun hotkeyDescription(a: HotkeyAction): String? = when (a) {
     HotkeyAction.UndoLoad -> "Goes back to where you were just before the last load state, if it was the wrong slot."
     HotkeyAction.UndoSave -> "Puts back the slot the last save state wrote over, with its picture and date."
     HotkeyAction.Turbo -> "Turns turbo off for this play, and on again. Which buttons repeat is set in Controls › Turbo."
+    HotkeyAction.NextShader -> "Steps through the shaders and your presets for this play. Settings › Video keeps its own."
+    HotkeyAction.ShaderToggle -> "Turns the shader off for this play, and on again. Settings › Video keeps its own."
     else -> null
 }
 
@@ -646,6 +648,8 @@ private fun hotkeyPopupLine(a: HotkeyAction): String = when (a) {
     HotkeyAction.UndoLoad -> "Back to just before the last load state."
     HotkeyAction.UndoSave -> "Puts back the slot the last save wrote over."
     HotkeyAction.Turbo -> "Turbo off for this play, and on again."
+    HotkeyAction.NextShader -> "The next shader, for this play only."
+    HotkeyAction.ShaderToggle -> "The shader off, and on again, for this play only."
     HotkeyAction.FastForward, HotkeyAction.SlowMotion, HotkeyAction.Rewind, HotkeyAction.Quit -> ""
 }
 

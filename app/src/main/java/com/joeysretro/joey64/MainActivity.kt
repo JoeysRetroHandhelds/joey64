@@ -147,8 +147,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         statsRenderer = if (renderer == "parallel") "parallel-RDP " + capUpscaling("mupen64plus-parallel-rdp-upscaling",
             vApply.coreOptions["mupen64plus-parallel-rdp-upscaling"] ?: "1x") else "GLideN64 " + (vApply.coreOptions["mupen64plus-EnableNativeResFactor"] ?: "1") + "x"
         if (renderer == "parallel") playUpscale = capUpscaling(UPSCALE_KEY, vApply.coreOptions[UPSCALE_KEY] ?: "1x")
-        if (vApply.sharpScale) NativeBridge.setSharp(true)
         applyVideoDisplay()
+        applyPicture()
         devSharp = devFlag("sharp2") || devFlag("sharp")
         // Sharp display (opt-in; the native look stays the default): the VI's anti-aliasing and bilinear
         // blur off, and a sharp-bilinear final scale. Dev: --ez sharp true, until the settings screen exists.
@@ -661,6 +661,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val before = video
         video = next
         applyVideoDisplay()
+        applyPicture()
         applyWindowVideo()
         if (!devSharp) {
             val was = com.joeysretro.joey64.video.VideoApply.of(before, parallel)
@@ -670,7 +671,6 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
                 NativeBridge.setOptionsLive(changed.keys.toTypedArray(), changed.map { (k, v) -> capUpscaling(k, v) }.toTypedArray())
                 JLog.i(TAG, "game settings: core options now ${changed}")
             }
-            if (now.sharpScale != was.sharpScale) NativeBridge.setSharp(now.sharpScale)
         }
         val a = applyAudioNow(saveName)
         val start = audioAtStart ?: a
@@ -772,6 +772,81 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     /** The host's display state from [video]: shape, integer scaling, black frames, colour, sharpening. */
+    // ---- Settings › Video's Picture rows (approved mockup 2026-11-08; video/Picture.kt) ----------------
+    /** Next shader's pick, for this play only (a Shader value); null: Settings › Video's. */
+    private var playShader: String? = null
+    /** Shader on/off: the shader off for this play. */
+    private var shaderOff = false
+    private val lookImageKeys = arrayOfNulls<String>(2)
+
+    /** The screen's height in landscape, for Auto (Sharp pixels when it isn't a whole number of times 240). */
+    private fun screenSize(): Pair<Int, Int> {
+        val (w, h) = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) windowManager.maximumWindowMetrics.bounds.let { it.width() to it.height() }
+            else android.graphics.Point().also { @Suppress("DEPRECATION") windowManager.defaultDisplay.getRealSize(it) }.let { it.x to it.y }
+        return maxOf(w, h) to minOf(w, h)
+    }
+
+    /** What Auto gives here: the resolution this play draws at (Upscale hotkeys included). */
+    internal fun autoSharp(v: com.joeysretro.joey64.video.VideoSettings): Boolean {
+        val res = if (parallel) playUpscale?.removeSuffix("x")?.toIntOrNull() ?: v.int(com.joeysretro.joey64.video.VideoKey.Resolution)
+            else v.int(com.joeysretro.joey64.video.VideoKey.Resolution)
+        return com.joeysretro.joey64.video.Picture.autoSharp(res, screenSize().second)
+    }
+
+    /**
+     * Hands the host Shader, Sides of the picture, Overlay and colour-blind help: [v] (the in-game Picture
+     * panel's live pick) or the game's settings with this play's Next shader / Shader on/off.
+     */
+    internal fun applyPicture(v: com.joeysretro.joey64.video.VideoSettings? = null) {
+        val s = v ?: playShader?.let { com.joeysretro.joey64.video.VideoSettings(video.values + (com.joeysretro.joey64.video.VideoKey.Shader to it)) } ?: video
+        val store = com.joeysretro.joey64.video.PictureStore(this)
+        val setup = if (shaderOff && v == null) com.joeysretro.joey64.video.ShaderSetup(emptyList())
+            else com.joeysretro.joey64.video.Picture.setup(s, store::preset, autoSharp(s))
+        val n = com.joeysretro.joey64.video.Picture.native(s, setup)
+        NativeBridge.setLook(n.ids, n.params, n.scale, n.sides, n.colourBlind, n.overlay, n.placeX, n.placeY, n.placeW)
+        handLookImage(0, n.sidesImage, store)
+        handLookImage(1, n.overlayImage, store)
+        NativeBridge.showAgain() // paused (the in-game Picture panel): the change shows now
+        JLog.i(TAG, "picture: shader ${setup.label}, scale ${setup.scale}, sides ${n.sides}, overlay ${n.overlay}%, colour-blind ${n.colourBlind}")
+    }
+
+    /** A sides (0) or overlay (1) image to the host, read on [gameIo] when it changed. */
+    private fun handLookImage(slot: Int, what: String?, store: com.joeysretro.joey64.video.PictureStore) {
+        val f = what?.takeIf { it != com.joeysretro.joey64.video.Picture.FRAME }?.let { File(store.imagesDir, it) }
+        val key = when { what == null -> null; f == null -> "frame"; else -> "${f.name}:${f.lastModified()}:${f.length()}" }
+        if (key == lookImageKeys[slot]) return
+        lookImageKeys[slot] = key
+        if (key == null) { NativeBridge.setLookImage(slot, null, 0, 0); return }
+        val (sw, sh) = screenSize()
+        gameIo.execute {
+            val img = if (f == null) com.joeysretro.joey64.video.PictureImages.rgba(
+                com.joeysretro.joey64.video.PictureImages.frame(this, 960, (960L * sh / maxOf(1, sw)).toInt().coerceAtLeast(1)))
+                else com.joeysretro.joey64.video.PictureImages.load(f)
+            NativeBridge.setLookImage(slot, img?.bytes, img?.w ?: 0, img?.h ?: 0)
+            NativeBridge.showAgain()
+        }
+    }
+
+    /** Next shader (hotkey): Auto, None, the built-ins, then the presets, for this play. */
+    private fun nextShader() {
+        val list = com.joeysretro.joey64.video.Picture.cycle(com.joeysretro.joey64.video.PictureStore(this).presets().map { it.name })
+        val cur = playShader ?: video[com.joeysretro.joey64.video.VideoKey.Shader]
+        val i = (list.indexOf(cur) + 1).mod(list.size)
+        playShader = list[i]
+        shaderOff = false
+        applyPicture()
+        JLog.i(TAG, "next shader hotkey: ${list[i]} for this play")
+        pop("shader", InGamePopup.Kind.Shader, "Next shader", com.joeysretro.joey64.video.Picture.valueLabel(list[i]), "${i + 1} of ${list.size} · for this play")
+    }
+
+    /** Shader on/off (hotkey): no shader for this play, and back. */
+    private fun toggleShader() {
+        shaderOff = !shaderOff
+        applyPicture()
+        val name = com.joeysretro.joey64.video.Picture.valueLabel(playShader ?: video[com.joeysretro.joey64.video.VideoKey.Shader])
+        pop("shader", InGamePopup.Kind.Shader, "Shader on/off", if (shaderOff) "Shader off" else name, "For this play")
+    }
+
     private fun applyVideoDisplay() {
         val v = video
         val (aw, ah) = com.joeysretro.joey64.video.VideoApply.aspect(v, extrasOn.shape)
@@ -941,7 +1016,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (!mine) return
         NativeBridge.setSurface(holder.surface)
         surfaceUp = true
-        if (started) return
+        // Paused (the pause menu, or back from a picker it opened): draw the held frame on the new surface,
+        // or the game stays black behind the menu until Resume (Thor 2026-11-08). Running, the next frame does.
+        if (started) { NativeBridge.showAgain(); return }
         prepared?.let { launchGame(it); return }
         if (preparing) return
         // The file work before a game loads (unpacking the ROM, the 64DD BIOS, a picked data folder's saves, the
@@ -1354,6 +1431,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             val st = states ?: return
             overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.GameSettings(st.saveName)
         }
+        override fun pictureChanged() {
+            // The in-game Picture panel: its pick replaces this play's Next shader / Shader on/off.
+            val name = states?.saveName ?: return
+            playShader = null; shaderOff = false
+            applyPicture(com.joeysretro.joey64.video.VideoStore(this@MainActivity).forGame(name))
+        }
         override fun closeGameSettings() {
             states?.let { applyGameSettings(it.saveName) }
             reloadControls()
@@ -1485,6 +1568,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             HotkeyAction.UndoLoad -> hotkeyUndoLoad()
             HotkeyAction.UndoSave -> hotkeyUndoSave()
             HotkeyAction.Turbo -> toggleTurbo()
+            HotkeyAction.NextShader -> nextShader()
+            HotkeyAction.ShaderToggle -> toggleShader()
         }
     }
 
@@ -1580,6 +1665,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val next = UPSCALES[i]
         playUpscale = next
         NativeBridge.setOptionsLive(arrayOf(UPSCALE_KEY), arrayOf(next))
+        applyPicture() // Auto follows the resolution
         statsRenderer = "parallel-RDP $next"
         stats?.renderer = statsRenderer
         val kept = com.joeysretro.joey64.video.VideoChoices.label(com.joeysretro.joey64.video.VideoKey.Resolution,
@@ -1777,7 +1863,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             InGamePopup.Kind.Undo -> !onScreen.popStates && name != NOTHING_TO_UNDO
             InGamePopup.Kind.Screenshot -> !onScreen.popScreenshots
             InGamePopup.Kind.Reset -> !onScreen.popReset
-            InGamePopup.Kind.Volume, InGamePopup.Kind.Mute, InGamePopup.Kind.Resolution -> !onScreen.popHotkeys
+            InGamePopup.Kind.Volume, InGamePopup.Kind.Mute, InGamePopup.Kind.Resolution, InGamePopup.Kind.Shader -> !onScreen.popHotkeys
             InGamePopup.Kind.Turbo, InGamePopup.Kind.TurboOff -> !onScreen.popHotkeys && name != "No turbo buttons"
             else -> false
         }
@@ -1834,7 +1920,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         }
     }
 
-    override fun surfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) { if (mine) NativeBridge.surfaceResized() }
+    override fun surfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) {
+        if (!mine) return
+        NativeBridge.surfaceResized()
+        if (started) NativeBridge.showAgain()
+    }
     override fun surfaceDestroyed(holder: SurfaceHolder) { surfaceUp = false; if (mine) NativeBridge.setSurface(null) }
 
     /**
@@ -2232,6 +2322,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val req = focusRequest ?: return
         (getSystemService(AUDIO_SERVICE) as android.media.AudioManager).abandonAudioFocusRequest(req)
         focusRequest = null
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        // A picker opened from the pause menu (GameOverlay.results).
+        if (overlay?.results?.dispatchResult(requestCode, resultCode, data) != true) super.onActivityResult(requestCode, resultCode, data)
     }
 
     override fun onPause() {

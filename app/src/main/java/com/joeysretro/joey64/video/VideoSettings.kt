@@ -23,6 +23,21 @@ enum class VideoKey(val key: String, val default: String) {
     Gamma("gamma", "10"),
     Sharpen("sharpen", "off"),
     SharpenStrength("sharpen_strength", "50"),
+    /** Picture rows (approved mockup 2026-11-08; video/Picture.kt): auto, none, a stack "ntsc+crt_heavy", or "preset:<name>". */
+    Shader("shader", "auto"),
+    /** Each adjusted shader's settings, "crt_heavy=60,0,1,20,10;lcd=50,30". */
+    ShaderParams("shader_params", ""),
+    ShaderScale("shader_scale", "auto"),
+    Sides("sides", "none"),
+    /** The picked sides image's file in files/video/images/. */
+    SidesImage("sides_image", ""),
+    /** Place the game in that image: "left,top,width" in tenths of a percent; empty = centred. */
+    SidesPlace("sides_place", ""),
+    Overlay("overlay", "off"),
+    OverlayImage("overlay_image", ""),
+    OverlayOpacity("overlay_opacity", "30"),
+    /** Colour's colour-blind help: off, red, green, blue (weak). */
+    ColourBlind("colour_blind", "off"),
     Bfi("bfi", "off"),
     Renderer("renderer", "auto"),
     Driver("driver", "auto"),
@@ -156,7 +171,6 @@ data class VideoSettings(val values: Map<VideoKey, String>) {
 data class VideoApply(
     val coreOptions: Map<String, String>,
     val env: Map<String, String>,
-    val sharpScale: Boolean,
 ) {
     companion object {
         fun of(v: VideoSettings, parallel: Boolean): VideoApply {
@@ -178,7 +192,9 @@ data class VideoApply(
             }
             val env = LinkedHashMap<String, String>()
             when (v[VideoKey.Pacing]) { "steady" -> env["N64_SWAP_INTERVAL"] = "1"; "timed" -> env["N64_SWAP_INTERVAL"] = "2" }
-            return VideoApply(opts, env, sharpScale = parallel && !v.on(VideoKey.ViBilinear))
+            // Look's Sharp preset no longer turns on the sharp-pixels drawing (Picture mockup's Q1, 2026-11-08):
+            // that is Shader's Sharp pixels now (Auto gives it at Native on most screens).
+            return VideoApply(opts, env)
         }
 
         /** The picture's shape as W:H (0:0 = stretch to the screen); Auto takes the widescreen code's [widescreen] shape. */

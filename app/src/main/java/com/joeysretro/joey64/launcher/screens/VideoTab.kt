@@ -65,7 +65,8 @@ import kotlin.math.pow
  * Settings › Video (approved mockup, 2026-11-07: scratchpad build_video.py). Left, Picture:
  * Resolution, Aspect ratio, Widescreen, 60 fps (approved version A, 2026-11-08: build_enh.py), Integer scaling,
  * Screen orientation, Fill the camera cutout. Right,
- * Look: Colour (popup with a preview), Sharpening, Black frame insertion; Advanced: one row that
+ * Look: Colour (popup with a preview), Sharpening, Shader, Sides of the picture, Overlay (approved Picture mockup
+ * 2026-11-08, PicturePopups.kt), Black frame insertion; Advanced: one row that
  * opens Renderer, driver, pacing (with N64 video filters inside; Thermal fallback moved to Emulation 2026-11-08). For All games or one game
  * ([target], the chip in Settings' header): a game keeps only the rows changed for it, each with
  * the yellow dot, and Y puts the focused row back to All games.
@@ -73,7 +74,9 @@ import kotlin.math.pow
 @Composable
 fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean)?) -> Unit, modifier: Modifier = Modifier,
              /** Game settings' changed row to open at: a row id ("res", "col"), "adv:<row>" or "filters:<row>". */
-             start: String? = null) {
+             start: String? = null,
+             /** In game: Shader, Sides and Overlay open the Picture panel over the game ("sh", "sd", "ov") instead of their popups. */
+             onPicturePanel: ((String) -> Unit)? = null) {
     val context = LocalContext.current
     val store = remember { VideoStore(context) }
     var version by remember { mutableIntStateOf(0) }
@@ -107,6 +110,15 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
     }
     fun dot(vararg keys: VideoKey) = target != null && keys.any { it in own }
 
+    // Picture rows: presets and what Auto gives on this screen at this resolution.
+    val pictures = remember { com.joeysretro.joey64.video.PictureStore(context) }
+    var presetsVersion by remember { mutableIntStateOf(0) }
+    val presets = remember(presetsVersion) { pictures.presets() }
+    val screenH = remember { context.resources.displayMetrics.let { minOf(it.widthPixels, it.heightPixels) } }
+    val autoSharp = com.joeysretro.joey64.video.Picture.autoSharp(v.int(VideoKey.Resolution), screenH)
+    val widescreenOn = target != null && v[VideoKey.Widescreen] != "off"
+    val picCtx = PictureCtx(v, target, autoSharp, widescreenOn, pictures, presets, set = { set(it) }, presetsChanged = { presetsVersion++ })
+
     // Widescreen and 60 fps: a game's versions from its cheat lists (downloaded now if they aren't kept); All games
     // shows how many games have them. Null while loading.
     val extras by androidx.compose.runtime.produceState<GameExtras?>(null, target) {
@@ -135,7 +147,8 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
 
     val rowKeys: Map<String, List<VideoKey>> = mapOf(
         "res" to listOf(VideoKey.Resolution), "asp" to listOf(VideoKey.Aspect), "int" to listOf(VideoKey.Integer),
-        "ori" to listOf(VideoKey.Orientation), "cut" to listOf(VideoKey.Cutout), "col" to COLOUR_KEYS,
+        "ori" to listOf(VideoKey.Orientation), "cut" to listOf(VideoKey.Cutout), "col" to COLOUR_ROW_KEYS,
+        "sh" to SHADER_KEYS, "sd" to SIDES_KEYS, "ov" to OVERLAY_KEYS,
         "ws" to listOf(VideoKey.Widescreen), "fps" to listOf(VideoKey.Fps),
         "shp" to listOf(VideoKey.Sharpen, VideoKey.SharpenStrength), "bfi" to listOf(VideoKey.Bfi), "adv" to ADVANCED_KEYS)
 
@@ -167,11 +180,23 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
             row("cut", "Fill the camera cutout", VideoKey.Cutout)
         }) {
             SectionLabel("Look")
-            val colourDefault = COLOUR_KEYS.all { v[it] == it.default }
-            JoeyRow("Colour", Modifier.initialFocus(startRow == "col"), value = (if (colourDefault) "Default" else "Changed") + "  ›", sideways = true, dot = dot(*COLOUR_KEYS.toTypedArray()),
+            val colourDefault = COLOUR_ROW_KEYS.all { v[it] == it.default }
+            JoeyRow("Colour", Modifier.initialFocus(startRow == "col"), value = (if (colourDefault) "Default" else "Changed") + "  ›", sideways = true, dot = dot(*COLOUR_ROW_KEYS.toTypedArray()),
                 onFocused = { if (it) focused = "col" }) { popup = VPopup.Colour }
             JoeyRow("Sharpening", Modifier.initialFocus(startRow == "shp"), value = sharpenValue(v), sideways = true, dot = dot(VideoKey.Sharpen, VideoKey.SharpenStrength),
                 onFocused = { if (it) focused = "shp" }) { popup = VPopup.Sharpen }
+            JoeyRow("Shader", Modifier.initialFocus(startRow == "sh"), value = com.joeysretro.joey64.video.Picture.rowLabel(v) + "  ›", sideways = true,
+                dot = dot(*SHADER_KEYS.toTypedArray()), onFocused = { if (it) focused = "sh" }) {
+                if (onPicturePanel != null) onPicturePanel("sh") else popup = VPopup.Picture(PicPage.Shader)
+            }
+            JoeyRow("Sides of the picture", Modifier.initialFocus(startRow == "sd"), value = com.joeysretro.joey64.video.Picture.sidesLabel(v, widescreenOn) + "  ›",
+                sideways = true, dot = dot(*SIDES_KEYS.toTypedArray()), onFocused = { if (it) focused = "sd" }) {
+                if (onPicturePanel != null) onPicturePanel("sd") else popup = VPopup.Picture(PicPage.Sides)
+            }
+            JoeyRow("Overlay", Modifier.initialFocus(startRow == "ov"), value = com.joeysretro.joey64.video.Picture.overlayLabel(v) + "  ›", sideways = true,
+                dot = dot(*OVERLAY_KEYS.toTypedArray()), onFocused = { if (it) focused = "ov" }) {
+                if (onPicturePanel != null) onPicturePanel("ov") else popup = VPopup.Picture(PicPage.Overlay)
+            }
             JoeyRow("Black frame insertion", Modifier.initialFocus(startRow == "bfi"), value = VideoChoices.label(VideoKey.Bfi, v[VideoKey.Bfi]), sideways = true, dot = dot(VideoKey.Bfi), experimental = true,
                 onFocused = { if (it) focused = "bfi" }) { popup = VPopup.Choice(VideoKey.Bfi) }
             SectionLabel("Advanced")
@@ -191,8 +216,9 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
     when (val p = popup) {
         null -> {}
         is VPopup.Choice -> ChoicePopup(p.key, v[p.key], onDismiss = { popup = p.back }) { set(p.key, it); popup = p.back }
-        VPopup.Colour -> ColourPopup(context, v, onDismiss = { popup = null }, onSet = { k, n -> set(k, n.toString()) },
-            onReset = { set(COLOUR_KEYS.associateWith { it.default }) })
+        VPopup.Colour -> ColourPopup(context, v, onDismiss = { popup = null }, onSet = { k, n -> set(k, n) },
+            onReset = { set(COLOUR_ROW_KEYS.associateWith { it.default }) })
+        is VPopup.Picture -> PicturePopups(p.page, picCtx) { next -> popup = next?.let { VPopup.Picture(it) } }
         VPopup.Sharpen -> SharpenPopup(v, onDismiss = { popup = null }, onSet = { k, s -> set(k, s) })
         is VPopup.Advanced -> AdvancedPopup(context, v, p.row, onDismiss = { popup = null },
             onOpen = { k, row -> popup = VPopup.Choice(k, VPopup.Advanced(row)) },
@@ -219,6 +245,11 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
 }
 
 private val COLOUR_KEYS = listOf(VideoKey.Brightness, VideoKey.Contrast, VideoKey.Saturation, VideoKey.Gamma)
+/** The Colour row: the four values and Colour-blind help. */
+private val COLOUR_ROW_KEYS = COLOUR_KEYS + VideoKey.ColourBlind
+private val SHADER_KEYS = listOf(VideoKey.Shader, VideoKey.ShaderParams, VideoKey.ShaderScale)
+private val SIDES_KEYS = listOf(VideoKey.Sides, VideoKey.SidesImage, VideoKey.SidesPlace)
+private val OVERLAY_KEYS = listOf(VideoKey.Overlay, VideoKey.OverlayImage, VideoKey.OverlayOpacity)
 private val ADVANCED_KEYS = listOf(VideoKey.Renderer, VideoKey.Driver, VideoKey.Pacing) + VideoKey.LOOK_KEYS +
     listOf(VideoKey.Deinterlace, VideoKey.Supersample, VideoKey.NativeTexLod, VideoKey.NativeTexRect)
 
@@ -230,6 +261,7 @@ private sealed class VPopup {
     data class Filters(val row: String) : VPopup()
     data class Extra(val kind: ExtraKind) : VPopup()
     object Look : VPopup()
+    data class Picture(val page: PicPage) : VPopup()
 }
 
 internal fun sharpenValue(v: VideoSettings) = if (v[VideoKey.Sharpen] == "off") "Off"
@@ -241,8 +273,11 @@ private fun describe(row: String, v: VideoSettings): Pair<String, String> = when
     "int" -> "Integer scaling" to "Scales by whole numbers only, so every pixel is the same size. Leaves a border."
     "ori" -> "Screen orientation" to "Which way the game is shown. Landscape on handhelds."
     "cut" -> "Fill the camera cutout" to "Draws the picture behind the camera hole, for Stretch to the screen."
-    "col" -> "Colour" to "Brightness, contrast, saturation and gamma."
+    "col" -> "Colour" to "Brightness, contrast, saturation, gamma and colour-blind help."
     "shp" -> "Sharpening" to "Makes edges crisper after scaling."
+    "sh" -> "Shader" to "How the picture is drawn on your screen: sharp pixels, a TV's scanlines, a handheld's LCD grid."
+    "sd" -> "Sides of the picture" to "What fills the screen beside the picture: the game blurred, the Joey64 frame or your own image."
+    "ov" -> "Overlay" to "An image drawn over the game and its shader, such as a screen-glass or grid PNG."
     "bfi" -> "Black frame insertion" to "Experimental. On 120 Hz screens, a black frame between pictures: less motion blur, a darker picture and a little more lag. Does nothing on 60 Hz screens."
     else -> "Renderer, driver, pacing" to "For when something looks or runs wrong. Auto is right for most people."
 }
@@ -257,6 +292,9 @@ private fun allGamesNote(row: String, all: VideoSettings): String = when (row) {
     "cut" -> "All games uses ${VideoChoices.label(VideoKey.Cutout, all[VideoKey.Cutout])}."
     "shp" -> "All games uses ${sharpenValue(all)}."
     "bfi" -> "All games uses ${VideoChoices.label(VideoKey.Bfi, all[VideoKey.Bfi])}."
+    "sh" -> "All games uses ${com.joeysretro.joey64.video.Picture.rowLabel(all)}."
+    "sd" -> "All games uses ${com.joeysretro.joey64.video.Picture.sidesLabel(all, false)}."
+    "ov" -> "All games uses ${com.joeysretro.joey64.video.Picture.overlayLabel(all)}."
     else -> "Y puts it back to All games."
 }
 
@@ -357,14 +395,16 @@ internal fun StepRow(label: String, value: String, steps: List<Int>, current: In
 
 /** Colour (mockup 3): the four values with Left / Right, the picture beside them showing the result. X resets all four. */
 @Composable
-private fun ColourPopup(context: Context, v: VideoSettings, onDismiss: () -> Unit, onSet: (VideoKey, Int) -> Unit, onReset: () -> Unit) {
+private fun ColourPopup(context: Context, v: VideoSettings, onDismiss: () -> Unit, onSet: (VideoKey, String) -> Unit, onReset: () -> Unit) {
     var row by remember { mutableStateOf(VideoKey.Brightness) }
     val source by produceSource(context)
     var preview by remember { mutableStateOf<ImageBitmap?>(null) }
     val b = v.int(VideoKey.Brightness); val c = v.int(VideoKey.Contrast); val s = v.int(VideoKey.Saturation); val g = v.int(VideoKey.Gamma)
-    LaunchedEffect(source, b, c, s, g) {
+    val cbChoices = com.joeysretro.joey64.video.Picture.COLOUR_BLIND
+    val cb = cbChoices.indexOfFirst { it.value == v[VideoKey.ColourBlind] }.coerceAtLeast(0)
+    LaunchedEffect(source, b, c, s, g, cb) {
         val src = source ?: return@LaunchedEffect
-        preview = withContext(Dispatchers.Default) { colourPreview(src, b, c, s, g) }
+        preview = withContext(Dispatchers.Default) { colourPreview(src, b, c, s, g, cb) }
     }
     JoeyDialog(onDismiss = onDismiss, width = 520.dp,
         hints = listOf(Hint("◀▶", "Change"), Hint("X", "Reset"), Hint("B", "Done")),
@@ -381,13 +421,18 @@ private fun ColourPopup(context: Context, v: VideoSettings, onDismiss: () -> Uni
                     for ((i, k) in COLOUR_KEYS.withIndex()) {
                         val n = v.int(k)
                         StepRow(title2(k), VideoSettings.colourLabel(k, n), VideoSettings.COLOUR_STEPS.getValue(k).toList(), n,
-                            focused = row == k, first = i == 0, onFocused = { if (it) row = k }) { onSet(k, it) }
+                            focused = row == k, first = i == 0, onFocused = { if (it) row = k }) { onSet(k, it.toString()) }
                     }
+                    com.joeysretro.joey64.launcher.components.PopupDivider()
+                    StepRow("Colour-blind help", cbChoices[cb].label, cbChoices.indices.toList(), cb, focused = row == VideoKey.ColourBlind, first = false,
+                        onFocused = { if (it) row = VideoKey.ColourBlind }) { onSet(VideoKey.ColourBlind, cbChoices[it].value) }
                 }
             }
             Spacer(Modifier.height(6.dp))
             DescriptionLine(title2(row), when (row) {
                 VideoKey.Gamma -> "Above 1.0 lifts the dark parts, below darkens them."
+                VideoKey.ColourBlind -> if (cb == 0) "Off, Red-weak, Green-weak, Blue-weak. Moves apart the colours a red-, green- or blue-weak eye mixes up."
+                    else "Moves apart the colours a ${cbChoices[cb].label.lowercase()} eye mixes up, so they read differently."
                 VideoKey.Saturation -> "How strong the colours are."
                 VideoKey.Contrast -> "The gap between light and dark."
                 else -> "Lighter or darker overall."
@@ -396,7 +441,8 @@ private fun ColourPopup(context: Context, v: VideoSettings, onDismiss: () -> Uni
     }
 }
 
-private fun title2(k: VideoKey) = when (k) { VideoKey.Brightness -> "Brightness"; VideoKey.Contrast -> "Contrast"; VideoKey.Saturation -> "Saturation"; else -> "Gamma" }
+private fun title2(k: VideoKey) = when (k) { VideoKey.Brightness -> "Brightness"; VideoKey.Contrast -> "Contrast"; VideoKey.Saturation -> "Saturation"
+    VideoKey.ColourBlind -> "Colour-blind help"; else -> "Gamma" }
 
 /** The newest screenshot (files/screenshots), small; null when there's none. */
 @Composable
@@ -421,7 +467,7 @@ internal fun colourMap(x: Float, b: Int, c: Int, gTenths: Int): Float {
     return y.pow(10f / gTenths)
 }
 
-private fun colourPreview(src: Bitmap, b: Int, c: Int, s: Int, g: Int): ImageBitmap {
+private fun colourPreview(src: Bitmap, b: Int, c: Int, s: Int, g: Int, cb: Int = 0): ImageBitmap {
     val w = src.width; val h = src.height
     val px = IntArray(w * h); src.getPixels(px, 0, w, 0, 0, w, h)
     val lut = FloatArray(256) { colourMap(it / 255f, b, c, g) }
@@ -431,6 +477,7 @@ private fun colourPreview(src: Bitmap, b: Int, c: Int, s: Int, g: Int): ImageBit
         var r = lut[(p shr 16) and 0xFF]; var gg = lut[(p shr 8) and 0xFF]; var bl = lut[p and 0xFF]
         val l = 0.2126f * r + 0.7152f * gg + 0.0722f * bl
         r = (l + (r - l) * sat).coerceIn(0f, 1f); gg = (l + (gg - l) * sat).coerceIn(0f, 1f); bl = (l + (bl - l) * sat).coerceIn(0f, 1f)
+        if (cb != 0) { val o = com.joeysretro.joey64.video.LookPreview.colourBlind(r, gg, bl, cb); r = o[0]; gg = o[1]; bl = o[2] }
         px[i] = (0xFF shl 24) or ((r * 255).toInt() shl 16) or ((gg * 255).toInt() shl 8) or (bl * 255).toInt()
     }
     return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888).asImageBitmap()

@@ -79,6 +79,8 @@ interface PauseActions {
     fun openGameSettings()
     /** Back from Game settings to the menu; what can change in game does now, the rest on Restart now or the next start. */
     fun closeGameSettings()
+    /** The in-game Picture panel changed Shader, Sides or Overlay: the paused picture is drawn again with it. */
+    fun pictureChanged() {}
     /** The menu's Game settings value: "3 changed" or "Same as All games". */
     val gameSettingsLabel: String get() = ""
     fun restartNow()
@@ -117,7 +119,7 @@ interface PauseActions {
 @Composable
 fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Long, actions: PauseActions) {
     if (screen is PauseScreen.GameSettings) {
-        com.joeysretro.joey64.launcher.screens.InGameGameSettings(com.joeysretro.joey64.launcher.gamesettings.GameRef(screen.saveName, title)) { actions.closeGameSettings() }
+        com.joeysretro.joey64.launcher.screens.InGameGameSettings(com.joeysretro.joey64.launcher.gamesettings.GameRef(screen.saveName, title), onPictureChanged = { actions.pictureChanged() }) { actions.closeGameSettings() }
         return
     }
     if (screen is PauseScreen.Controls) {

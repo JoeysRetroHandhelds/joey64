@@ -26,6 +26,9 @@ public:
     void record(VkCommandBuffer cmd, uint32_t frame, VkImageView src, VkImageLayout srcLayout,
                 uint32_t srcW, uint32_t srcH, uint32_t outW, uint32_t outH, uint32_t sharpK, VkImage* out);
     void destroy();
+    // The picture record() made (sampled by the Picture pass, vk_look.h, after the caller moves it to
+    // SHADER_READ_ONLY_OPTIMAL).
+    VkImageView outView() const { return outView_; }
 
 private:
     bool ensurePipelines();

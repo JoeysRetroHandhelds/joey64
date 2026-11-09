@@ -10,6 +10,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -95,6 +96,11 @@ fun JoeyDialog(
     atTop: Boolean = false,
     /** Centred, and near the top while the keyboard is up (Sign in to RetroAchievements). */
     riseWithKeyboard: Boolean = false,
+    /**
+     * A panel down the right side over the running picture (the in-game Picture panel, approved 2026-11-05):
+     * no dim and no blur, so changes show on the game as they're made; [width] wide, the window's height.
+     */
+    sidePanel: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val backRegistry = remember { DialogBackRegistry() }
@@ -131,7 +137,7 @@ fun JoeyDialog(
                 WindowCompat.setDecorFitsSystemWindows(window, false)
                 window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
                 window.setDimAmount(0f)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && window.windowManager.isCrossWindowBlurEnabled) {
+                if (!sidePanel && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && window.windowManager.isCrossWindowBlurEnabled) {
                     window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
                     window.attributes = window.attributes.apply { blurBehindRadius = blurPx }
                 }
@@ -184,17 +190,20 @@ fun JoeyDialog(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .background(c.scrim)
+                    .then(if (sidePanel) Modifier else Modifier.background(c.scrim))
                     .pointerInput(Unit) { detectTapGestures { tapOutside() } }
                     .then(if (atTop) Modifier.padding(top = 44.dp) else Modifier)
                     // A card never touches the screen's edges: on a narrow screen it's the screen's width less these.
-                    .then(if (fullScreen) Modifier else Modifier.padding(horizontal = 16.dp, vertical = 8.dp)),
-                contentAlignment = if (atTop) Alignment.TopCenter else Alignment.Center,
+                    .then(if (fullScreen || sidePanel) Modifier else Modifier.padding(horizontal = 16.dp, vertical = 8.dp)),
+                contentAlignment = if (sidePanel) Alignment.CenterEnd else if (atTop) Alignment.TopCenter else Alignment.Center,
             ) {
                 val shape = RoundedCornerShape(s.popupCorner)
                 Box(
                     modifier = Modifier
-                        .then(if (fullScreen) Modifier.fillMaxSize().background(c.page) else Modifier
+                        .then(if (fullScreen) Modifier.fillMaxSize().background(c.page)
+                        else if (sidePanel) Modifier.fillMaxHeight().widthIn(max = width).fillMaxWidth().background(c.surface)
+                            .border(1.dp, c.border).padding(horizontal = 8.dp, vertical = 10.dp)
+                        else Modifier
                             .widthIn(max = width)
                             .fillMaxWidth()
                             .then(if (c.isDark) Modifier else Modifier.shadow(18.dp, shape))
@@ -202,7 +211,7 @@ fun JoeyDialog(
                             .border(1.dp, c.border, shape))
                         // Taps on the card mustn't count as outside (the options take their own first).
                         .pointerInput(Unit) { detectTapGestures { } }
-                        .then(if (fullScreen) Modifier else Modifier.padding(horizontal = 10.dp, vertical = 12.dp))
+                        .then(if (fullScreen || sidePanel) Modifier else Modifier.padding(horizontal = 10.dp, vertical = 12.dp))
                         .focusRequester(body)
                         // Compose turns a Back key it sees into a focus move out of the group
                         // (FocusDirection.Exit). In a popup that must be answered nothing closes,

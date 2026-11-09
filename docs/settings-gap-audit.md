@@ -35,7 +35,7 @@ Video, audio and emulation have no user settings. They're automatic, or dev swit
 | Aspect ratio (4:3, 16:9 stretch, full screen) | all | High | new (dev switch `N64_ASPECT` only) |
 | Internal resolution / upscale | all | High | new (default native, upscale is the user's choice per memory) |
 | Integer scaling | RA, PPSSPP, ARMSX2, Azahar, FZ (angrylion) | High | new |
-| Shaders (CRT, LCD, sharp) and bezels | RA, ARMSX2, PPSSPP, Dolphin, FZ | High | planned (Game settings › Picture) |
+| Shaders (CRT, LCD, sharp) and bezels | RA, ARMSX2, PPSSPP, Dolphin, FZ | High | built 2026-11-08 (Video › Look, in-game Picture panel) |
 | Overscan crop | RA, Dolphin, FZ (parallel-RDP) | High | planned (wanted) |
 | parallel-RDP VI options: VI anti-aliasing, divot filter, dedither, gamma dither, bilinear, SSAA downsample, native texture LOD, native TEX_RECT, deinterlace | FZ, RA core options | High | new |
 | Widescreen hack / patches | Dolphin, ARMSX2, FZ (GLideN64) | High | partly: widescreen cheats get their own spot |
@@ -120,7 +120,7 @@ These are actions other apps can bind that Joey64 can't.
 | Volume up / down, mute | RA | Med | new |
 | Open achievements | ARMSX2 | Med | new (pause menu has it) |
 | Upscale up / down | ARMSX2 | Low | new |
-| Next shader / shader on-off | RA | Low | new (with Picture) |
+| Next shader / shader on-off | RA | Low | built 2026-11-08 |
 | Turbo on/off | RA | Low | planned (turbo) |
 | Single-button hotkeys (no hotkey button) | ARMSX2, RA, FZ | Med | new (only Pause menu works alone) |
 
@@ -341,7 +341,7 @@ Each needs a mockup from Joey first.
   - Separate leaderboard pop-up places
 - **Already there:** the game-start summary.
 
-**10. Shaders and overlays** (added after Joey asked; beyond the approved Picture panel).
+**10. Shaders and overlays** (added after Joey asked; beyond the approved Picture panel). **Built 2026-11-08** except Your own RetroArch preset, which waits for librashader (download permission, then a test on both renderers).
 - **Keep:**
   - Your own RetroArch .slangp presets: check a runtime such as librashader for both renderers
   - Shader settings as live sliders

@@ -13,6 +13,7 @@
 #include "libretro.h"
 #include "libretro_vulkan.h"
 #include "vk_post.h"
+#include "vk_look.h"
 
 // Vulkan frontend for libretro cores that render with RETRO_HW_CONTEXT_VULKAN (parallel-RDP).
 // Owns the instance, surface and swapchain; the device comes from the core's negotiation
@@ -42,6 +43,8 @@ public:
     bool beginFrame(bool show = true);
     void endFrame();
     void videoRefresh(const void* data, unsigned w, unsigned h); // from retro_video_refresh
+    // Paused: shows the last picture again (the in-game Picture panel changed how it is drawn).
+    void showAgain();
     // Fast-forward: present without vsync. Applied (swapchain rebuilt) at the next beginFrame.
     void setUnthrottled(bool on) { wantUnthrottled_ = on; }
     // The game's frame rate (60, or 50 for PAL), for the swap interval on fast screens.
@@ -172,6 +175,8 @@ private:
     void destroySharpImage();
     // Settings › Video's colour and sharpening (vk_post.h), only while one of them is changed.
     VkPost post_;
+    // Settings › Video's Shader, Sides of the picture, Overlay and colour-blind help (vk_look.h).
+    VkLook look_;
 
     // State handed over by the core for the next video_refresh.
     retro_vulkan_image image_{};

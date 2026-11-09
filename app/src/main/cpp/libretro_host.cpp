@@ -741,6 +741,8 @@ std::mutex g_stateMutex;
 std::condition_variable g_stateCv;
 StateRequest* g_stateReq = nullptr;
 std::atomic<bool> g_statePending{false};
+// Paused: draw the last picture again (NativeBridge.showAgain, the in-game Picture panel).
+std::atomic<bool> g_showAgain{false};
 // mupen64plus-next can't serialize before its emulation has started, so a request waits for the first
 // frame. 1 frame (Joey 2026-11-06, was 30 like the dev N64_STATE load, which keeps 30): the Thor's
 // 14-game test loaded all 56 Continues either way, done ~400 ms sooner. Dev env N64_STATE_READY=<frames>.
@@ -974,13 +976,21 @@ void runLoop() {
             std::unique_lock<std::mutex> lk(g_pauseMutex);
             for (;;) {
                 // Wakes once a second while paused so rc_client can keep the session alive (pings, retries).
-                if (!g_pauseCv.wait_for(lk, std::chrono::seconds(1), [] { return !g_paused || !g_running || g_statePending || g_stepFrames > 0; })) {
+                if (!g_pauseCv.wait_for(lk, std::chrono::seconds(1), [] { return !g_paused || !g_running || g_statePending || g_stepFrames > 0 || g_showAgain; })) {
                     lk.unlock(); Cheevos::idle(); lk.lock();
                     continue;
                 }
                 if (!g_paused || !g_running) break;
                 // Frame advance: one frame while staying paused (its sound is dropped, see audio_batch).
                 if (g_stepFrames > 0) { --g_stepFrames; break; }
+                if (g_showAgain.exchange(false)) {
+                    lk.unlock();
+                    applySurfaceIfChanged();
+                    if (g_vulkan) g_vk.showAgain();
+                    else if (g_egl.hasWindow() && g_lastW && g_lastH) g_egl.present((int)g_lastW, (int)g_lastH, g_hw.bottom_left_origin);
+                    lk.lock();
+                    continue;
+                }
                 // Paused with a state request (the pause menu): served without running a frame.
                 lk.unlock();
                 serveStateRequest(g_framesRun >= (uint32_t)stateReadyFrames(), true);
@@ -1309,6 +1319,36 @@ JNIEXPORT void JNICALL JNI(setSharpen)(JNIEnv*, jobject, jint mode, jint strengt
     o.sharpen = mode; o.strength = strength;
 }
 
+// Settings › Video's Picture rows (display_opts.h, look.glsl): ids = up to four shaders in order (0 none),
+// params = 8 settings (0..255) per shader, then Shader scale, Sides, colour-blind help, the overlay's
+// opacity (0 = off) and Place the game (tenths of a percent; w 0 = centred). Any time.
+JNIEXPORT void JNICALL JNI(setLook)(JNIEnv* env, jobject, jintArray ids, jintArray params, jint scale, jint sides,
+                                    jint colourBlind, jint overlay, jint placeX, jint placeY, jint placeW) {
+    auto& o = Display::opts();
+    jint id[4] = {}, pr[32] = {};
+    if (ids) env->GetIntArrayRegion(ids, 0, std::min<jsize>(4, env->GetArrayLength(ids)), id);
+    if (params) env->GetIntArrayRegion(params, 0, std::min<jsize>(32, env->GetArrayLength(params)), pr);
+    for (int i = 0; i < 4; ++i) {
+        uint32_t a = 0, b = 0;
+        for (int k = 0; k < 4; ++k) {
+            a |= (uint32_t)(std::clamp(pr[i * 8 + k], 0, 255)) << (8 * k);
+            b |= (uint32_t)(std::clamp(pr[i * 8 + 4 + k], 0, 255)) << (8 * k);
+        }
+        o.pa[i] = a; o.pb[i] = b; o.ids[i] = (uint32_t)std::max(0, id[i]);
+    }
+    o.scale = scale; o.sides = sides; o.colourBlind = colourBlind; o.overlay = std::clamp(overlay, 0, 100);
+    o.placeX = placeX; o.placeY = placeY; o.placeW = placeW;
+}
+
+// The sides (slot 0) or overlay (slot 1) image: RGBA8, top row first; null clears it. Any time.
+JNIEXPORT void JNICALL JNI(setLookImage)(JNIEnv* env, jobject, jint slot, jbyteArray rgba, jint w, jint h) {
+    Display::Image& img = slot == 0 ? Display::sidesImage() : Display::overlayImage();
+    if (!rgba || w <= 0 || h <= 0 || env->GetArrayLength(rgba) < (jsize)w * h * 4) { img.set(nullptr, 0, 0); return; }
+    jbyte* p = env->GetByteArrayElements(rgba, nullptr);
+    img.set(reinterpret_cast<const uint8_t*>(p), w, h);
+    env->ReleaseByteArrayElements(rgba, p, JNI_ABORT);
+}
+
 // Sharp display (sharp-bilinear final scale); MainActivity also turns the VI blur filters off.
 JNIEXPORT void JNICALL JNI(setSharp)(JNIEnv*, jobject, jboolean on) {
     g_vk.setSharp(on);
@@ -1452,6 +1492,13 @@ JNIEXPORT void JNICALL JNI(start)(JNIEnv*, jobject) {
     if (g_running) return;
     g_running = true;
     g_thread = std::thread(runLoop);
+}
+
+// Paused: draws the last picture again with the display settings as they are now. Does nothing if running.
+JNIEXPORT void JNICALL JNI(showAgain)(JNIEnv*, jobject) {
+    if (!g_paused) return;
+    { std::lock_guard<std::mutex> pl(g_pauseMutex); g_showAgain = true; }
+    g_pauseCv.notify_all();
 }
 
 // Frame advance: while paused, the game runs one more frame and stays paused. Does nothing if not paused.

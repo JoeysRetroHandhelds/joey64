@@ -23,7 +23,6 @@ class VideoSettingsTest {
         assertEquals("disable", a.coreOptions["mupen64plus-parallel-rdp-downscaling"])
         assertEquals("Bob", a.coreOptions["mupen64plus-parallel-rdp-deinterlace-method"])
         assertTrue(a.env.isEmpty())
-        assertFalse(a.sharpScale)
         assertEquals(4 to 3, VideoApply.aspect(v, widescreen = null))
     }
 
@@ -43,7 +42,6 @@ class VideoSettingsTest {
         assertEquals("False", a.coreOptions["mupen64plus-parallel-rdp-vi-aa"])
         assertEquals("False", a.coreOptions["mupen64plus-parallel-rdp-vi-bilinear"])
         assertEquals("True", a.coreOptions["mupen64plus-parallel-rdp-dither-filter"])
-        assertTrue(a.sharpScale)
         val sharper = VideoSettings(VideoSettings.LOOKS.getValue("sharper"))
         assertEquals("False", VideoApply.of(sharper, true).coreOptions["mupen64plus-parallel-rdp-dither-filter"])
         assertEquals("custom", VideoSettings(mapOf(VideoKey.Divot to "off")).look)
@@ -52,7 +50,6 @@ class VideoSettingsTest {
     @Test fun glidenGetsItsResolutionFactorOnly() {
         val a = VideoApply.of(VideoSettings(mapOf(VideoKey.Resolution to "2")), parallel = false)
         assertEquals(mapOf("mupen64plus-EnableNativeResFactor" to "2"), a.coreOptions)
-        assertFalse(a.sharpScale)
     }
 
     @Test fun pacingGoesToTheEnvironment() {

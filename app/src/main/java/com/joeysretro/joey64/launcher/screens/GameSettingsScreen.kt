@@ -73,9 +73,16 @@ fun GameSettingsScreen(game: GameRef, onHints: (List<Hint>) -> Unit, onClose: ()
 
 /** Game settings over the paused game (mockup screen 9): the same page without the rail. B on the page goes back to the pause menu. */
 @Composable
-fun InGameGameSettings(game: GameRef, onClose: () -> Unit) {
+fun InGameGameSettings(game: GameRef, onPictureChanged: () -> Unit = {}, onClose: () -> Unit) {
     val sink = remember { ControlsSink() }
     var hints by remember { mutableStateOf(emptyList<Hint>()) }
+    // Video's Shader, Sides or Overlay row: the Picture panel over the game instead of this page; back on its row.
+    var panel by remember { mutableStateOf<String?>(null) }
+    var back by remember { mutableStateOf<String?>(null) }
+    panel?.let { row ->
+        PicturePanel(game.saveName, row, onPictureChanged) { back = row; panel = null }
+        return
+    }
     JoeyDialog(
         onDismiss = onClose,
         hints = hints,
@@ -83,7 +90,8 @@ fun InGameGameSettings(game: GameRef, onClose: () -> Unit) {
         interceptBack = { sink.onBack() },
         onPadButton = { code -> com.joeysretro.joey64.launcher.controls.Controls.intentFor(code)?.let { sink.onControl(it) } },
     ) {
-        GameSettingsContent(game, inGame = true, sink = sink, onHints = { hints = it })
+        GameSettingsContent(game, inGame = true, sink = sink, onHints = { hints = it },
+            startView = back?.let { GsView.Tabs(GamePart.Video, it) } ?: GsView.Page, onPicturePanel = { panel = it })
     }
 }
 
@@ -105,10 +113,11 @@ private sealed interface GsPopup {
 private fun shortTitle(t: String) = t.substringBefore(" (").ifBlank { t }
 
 @Composable
-private fun GameSettingsContent(game: GameRef, inGame: Boolean, sink: ControlsSink, onHints: (List<Hint>) -> Unit) {
+private fun GameSettingsContent(game: GameRef, inGame: Boolean, sink: ControlsSink, onHints: (List<Hint>) -> Unit,
+                                startView: GsView = GsView.Page, onPicturePanel: ((String) -> Unit)? = null) {
     val context = LocalContext.current
     val model = remember { GameSettingsModel(context) }
-    var view by remember { mutableStateOf<GsView>(GsView.Page) }
+    var view by remember { mutableStateOf(startView) }
     var popup by remember { mutableStateOf<GsPopup?>(null) }
     var version by remember { mutableIntStateOf(0) }
     // The page's row with focus, kept so B from a part lands back on it: "Video", "Audio", "Controls", "reset", "copy", "ch<i>".
@@ -152,7 +161,7 @@ private fun GameSettingsContent(game: GameRef, inGame: Boolean, sink: ControlsSi
                 onReset = { popup = GsPopup.Reset }, onCopy = { popup = GsPopup.Copy })
             GamePopupsFor(game, summary, model, popup, onPopup = { popup = it }, onChanged = { version++ })
         }
-        is GsView.Tabs -> GameTabs(game, v, onHints, { tabControl = it }) { view = GsView.Tabs(it, null) }
+        is GsView.Tabs -> GameTabs(game, v, onHints, { tabControl = it }, onPicturePanel) { view = GsView.Tabs(it, null) }
         is GsView.Controls -> Column(Modifier.fillMaxSize()) {
             GameControlsPage(game.saveName, game.title, v.player, inner, onHints)
         }
@@ -164,7 +173,8 @@ private val TAB_PARTS = listOf(GamePart.Video, GamePart.Emulation, GamePart.Audi
 
 /** Settings' Video, Emulation and Audio tabs, set to the game: no other tabs, the game's name in the header. */
 @Composable
-private fun GameTabs(game: GameRef, v: GsView.Tabs, onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean)?) -> Unit, onTab: (GamePart) -> Unit) {
+private fun GameTabs(game: GameRef, v: GsView.Tabs, onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean)?) -> Unit,
+                     onPicturePanel: ((String) -> Unit)?, onTab: (GamePart) -> Unit) {
     val c = JoeyTheme.colors
     val s = JoeyTheme.spacing
     val parts = TAB_PARTS
@@ -177,7 +187,7 @@ private fun GameTabs(game: GameRef, v: GsView.Tabs, onHints: (List<Hint>) -> Uni
                     start = v.start?.let { r -> com.joeysretro.joey64.emulation.EmuKey.entries.firstOrNull { it.name == r } })
                 GamePart.Audio -> AudioTab(game.saveName, onHints, onControl, Modifier.weight(1f),
                     start = v.start?.let { r -> AudioKey.entries.firstOrNull { it.name == r } })
-                else -> VideoTab(game.saveName, onHints, onControl, Modifier.weight(1f), start = v.start)
+                else -> VideoTab(game.saveName, onHints, onControl, Modifier.weight(1f), start = v.start, onPicturePanel = onPicturePanel)
             }
         }
     }

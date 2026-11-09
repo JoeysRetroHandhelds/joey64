@@ -280,6 +280,11 @@ bool VkContext::init(const retro_hw_render_context_negotiation_interface_vulkan*
         std::lock_guard<std::mutex> lk(queueMutex_);
         vkQueueWaitIdle(queue_);
     });
+    static_assert(kSyncFrames == VkLook::kFrames, "picture pass sets per frame");
+    look_.setDevice(device_, memProps, vkGetDeviceProcAddr, [this] {
+        std::lock_guard<std::mutex> lk(queueMutex_);
+        vkQueueWaitIdle(queue_);
+    });
     const char* dupes = getenv("N64_SKIP_DUPES");
     skipDupes_ = !(dupes && *dupes == '0');
     // Black frame insertion presents every refresh (a frame, then black), so repeats can't be skipped.
@@ -543,6 +548,13 @@ void VkContext::paceFrame() {
     frameStartNs_ = -1; // set once the image is acquired: work excludes swapchain waits
 }
 
+void VkContext::showAgain() {
+    if (!hasWindow() || !haveImage_ || !beginFrame(true)) return;
+    repaint_ = true;
+    present(false);
+    endFrame();
+}
+
 void VkContext::endFrame() {
     bool begun = acquired_;
     if (acquired_ && !presented_) present(false); // an acquired image must be presented
@@ -612,10 +624,15 @@ void VkContext::present(bool newImage) {
         // image at the shown size, which is copied in; else the plain blit (no extra cost).
         bool post = Display::opts().postOn() && image_.image_view && dstW > 0 && dstH > 0 &&
                     post_.prepare((uint32_t)dstW, (uint32_t)dstH);
+        // Shader, sides, overlay or colour-blind help: the Picture pass (vk_look.cpp) draws the whole
+        // window from the picture (or the colour pass's result), which is then copied in.
+        bool look = Display::opts().lookOn(true) && image_.image_view && dstW > 0 && dstH > 0 &&
+                    look_.prepare((uint32_t)winW, (uint32_t)winH);
+        bool sampled = post || look;
         VkImageLayout blitLayout = layout == VK_IMAGE_LAYOUT_GENERAL ? VK_IMAGE_LAYOUT_GENERAL
-                                 : post ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        VkAccessFlags readAccess = post ? VK_ACCESS_SHADER_READ_BIT : VK_ACCESS_TRANSFER_READ_BIT;
-        VkPipelineStageFlags readStage = post ? VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT : VK_PIPELINE_STAGE_TRANSFER_BIT;
+                                 : sampled ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        VkAccessFlags readAccess = sampled ? VK_ACCESS_SHADER_READ_BIT : VK_ACCESS_TRANSFER_READ_BIT;
+        VkPipelineStageFlags readStage = sampled ? VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT : VK_PIPELINE_STAGE_TRANSFER_BIT;
         imageBarrier(cmd, src, range, layout, blitLayout,
                      VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT,
                      readAccess, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, readStage, fromFam, toFam);
@@ -628,9 +645,34 @@ void VkContext::present(bool newImage) {
         // Sharp display: nearest to the first whole multiple at least the screen size, then a linear step
         // down (under 2:1, so the 2x2 blit filter sees every pixel). Rounding down instead left OoT's
         // 640x480 at 1x on the Flip's 752-line screen, a plain linear 1.57x stretch.
-        uint32_t kx = sharp_ ? std::max(1, (dstW + (int32_t)imageW_ - 1) / (int32_t)imageW_) : 1;
-        uint32_t ky = sharp_ ? std::max(1, (dstH + (int32_t)imageH_ - 1) / (int32_t)imageH_) : 1;
-        if (post) {
+        // Sharp pixels: the dev switch (setSharp) or Settings › Video › Shader (look.glsl's id 1).
+        bool sharp = sharp_ || Display::opts().has(1);
+        uint32_t kx = sharp ? std::max(1, (dstW + (int32_t)imageW_ - 1) / (int32_t)imageW_) : 1;
+        uint32_t ky = sharp ? std::max(1, (dstH + (int32_t)imageH_ - 1) / (int32_t)imageH_) : 1;
+        VkImageBlit whole{}; // the Picture pass's window, copied as it is
+        whole.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        whole.srcOffsets[1] = {winW, winH, 1};
+        whole.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        whole.dstOffsets[1] = {winW, winH, 1};
+        if (post && look) {
+            VkImage out = VK_NULL_HANDLE, win = VK_NULL_HANDLE;
+            post_.record(cmd, sync_, image_.image_view, blitLayout, imageW_, imageH_, (uint32_t)dstW, (uint32_t)dstH,
+                         std::max(kx, ky), &out);
+            VkImageSubresourceRange one{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            imageBarrier(cmd, out, one, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                         VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+            Display::LookPush lp = Display::lookPush(winW, winH, dstW, dstH, (int)imageH_, x, y, dstW, dstH, 1.0f);
+            look_.record(cmd, sync_, post_.outView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, lp, &win);
+            vkCmdBlitImage(cmd, win, VK_IMAGE_LAYOUT_GENERAL, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &whole,
+                           VK_FILTER_NEAREST);
+        } else if (look) {
+            VkImage win = VK_NULL_HANDLE;
+            Display::LookPush lp = Display::lookPush(winW, winH, (int)imageW_, (int)imageH_, (int)imageH_, x, y, dstW, dstH, 1.0f);
+            look_.record(cmd, sync_, image_.image_view, blitLayout, lp, &win);
+            vkCmdBlitImage(cmd, win, VK_IMAGE_LAYOUT_GENERAL, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &whole,
+                           VK_FILTER_NEAREST);
+        } else if (post) {
             VkImage out = VK_NULL_HANDLE;
             post_.record(cmd, sync_, image_.image_view, blitLayout, imageW_, imageH_, (uint32_t)dstW, (uint32_t)dstH,
                          std::max(kx, ky), &out);
@@ -824,6 +866,7 @@ void VkContext::destroy() {
     if (!instance_) return;
     if (device_) vkDeviceWaitIdle(device_);
     post_.destroy();
+    look_.destroy();
     destroySharpImage();
     destroySwapchain();
     if (surface_) vkDestroySurfaceKHR(instance_, surface_, nullptr);

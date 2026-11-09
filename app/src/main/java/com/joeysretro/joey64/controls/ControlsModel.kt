@@ -212,6 +212,10 @@ enum class HotkeyAction(val label: String, /** null: not set until the user pick
     /** Resolution one step up or down for this play only, parallel-RDP only. */
     UpscaleUp("Upscale up", null),
     UpscaleDown("Upscale down", null),
+    /** Steps through the shaders and presets for this play (approved Picture mockup 2026-11-08). Not set by default. */
+    NextShader("Next shader", null),
+    /** The shader off for this play, and on again. Not set by default. */
+    ShaderToggle("Shader on/off", null),
     PauseMenu("Pause menu", KeyEvent.KEYCODE_BACK, aloneByDefault = true),
     /** Stops the game with no menu until pressed again. */
     Pause("Pause", null),

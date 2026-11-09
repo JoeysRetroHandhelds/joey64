@@ -12,6 +12,7 @@ add_library(joey64host SHARED
     joeylog.cpp
     vk_context.cpp
     vk_post.cpp
+    vk_look.cpp
     rewind_test.cpp
     rewind.cpp
     achievements.cpp)

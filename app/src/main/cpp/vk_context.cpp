@@ -130,13 +130,15 @@ std::string VkContext::probe(bool custom) {
                 if (ext8 || core8) f16.pNext = &f8;
                 getFeatures2(gpu, &f2);
                 bool s8 = f8.storageBuffer8BitAccess;
-                s16 = f16.storageBuffer16BitAccess && s8 && ext8 ? 1 : 0;
+                // The core asks for a Vulkan 1.2 instance since core vk12 (31663e8), so Granite also takes 8-bit storage
+                // as a 1.2 core feature (PurpleVK on the Adreno 650 has it only that way, tester report 2026-11-08 19:32).
+                s16 = f16.storageBuffer16BitAccess && s8 && (ext8 || core8) ? 1 : 0;
                 LOGI("vulkan probe (%s): instance %u.%u, device %u.%u; storage buffers 16-bit %d, 8-bit %d, "
                      "VK_KHR_8bit_storage %s%s", custom ? "custom" : "system",
                      VK_VERSION_MAJOR(app.apiVersion), VK_VERSION_MINOR(app.apiVersion),
                      VK_VERSION_MAJOR(props.apiVersion), VK_VERSION_MINOR(props.apiVersion),
                      f16.storageBuffer16BitAccess ? 1 : 0, s8 ? 1 : 0, ext8 ? "listed" : "not listed",
-                     s8 && !ext8 ? " (8-bit storage only as Vulkan 1.2 core: the core would need a 1.2 instance)" : "");
+                     s8 && !ext8 ? " (8-bit storage only as Vulkan 1.2 core: needs the core's 1.2 instance)" : "");
             }
             // The driver's own name and version (Vulkan 1.2), for Settings › On screen's stats.
             std::string driver;

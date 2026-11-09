@@ -31,6 +31,25 @@ class GpuRulesTest {
         assertTrue(GpuRules.beforeDriver("Retroid Pocket 5").isEmpty())
     }
 
+    @Test fun odin3StockDriverAt8x() {
+        val f = GpuRules.family(adreno, "Adreno (TM) 830", "Adreno830v2")
+        // 8x: system driver, and parallel-RDP on it
+        assertEquals(GpuRules.Driver.SYSTEM, GpuRules.autoDriver(f, 8).value)
+        assertEquals("parallel", GpuRules.autoRenderer(true, true, false, f, upscale = 8).value)
+        // below 8x: Turnip as before; stock driver below 8x keeps GLideN64
+        assertEquals(GpuRules.Driver.TURNIP, GpuRules.autoDriver(f, 4).value)
+        assertEquals("gliden64", GpuRules.autoRenderer(true, true, false, f, upscale = 4).value)
+        // Turnip (custom driver) on Adreno tops out at 4x; stock stays 8x
+        assertEquals(4, GpuRules.upscaleTop(f, customDriver = true).value)
+        assertEquals(8, GpuRules.upscaleTop(f).value)
+        // a7xx at 8x keeps Turnip (it caps to 4x anyway)
+        val t = GpuRules.family(adreno, "Adreno (TM) 740", null)
+        assertEquals(GpuRules.Driver.TURNIP, GpuRules.autoDriver(t, 8).value)
+        assertEquals("gliden64", GpuRules.autoRenderer(true, true, false, t, upscale = 8).value)
+        // Duo stays 2x with Turnip; Mali untouched
+        assertEquals(2, GpuRules.upscaleTop(GpuRules.family(adreno, "Turnip Adreno (TM) 722", null), customDriver = true).value)
+    }
+
     @Test fun duo722() {
         val f = GpuRules.family(adreno, "Turnip Adreno (TM) 722", null)
         assertEquals(GpuRules.Driver.FAUX123, GpuRules.autoDriver(GpuRules.family(adreno, "Adreno (TM) 722", null)).value)

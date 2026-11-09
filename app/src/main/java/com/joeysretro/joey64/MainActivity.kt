@@ -67,6 +67,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
      */
     private val devBuild get() = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
     private fun devString(name: String): String? = if (devBuild) intent?.getStringExtra(name) else null
+
+    /** The parallel-RDP Resolution this start asks for (dev `--es opts` upscaling, else Settings › Video), for Auto's driver. */
+    private fun wantedUpscale(): Int =
+        devString("opts")?.split(',')?.map { it.split('=', limit = 2) }?.firstOrNull { it.size == 2 && it[0].trim() == UPSCALE_KEY }
+            ?.get(1)?.trim()?.removeSuffix("x")?.toIntOrNull()
+            ?: video.int(com.joeysretro.joey64.video.VideoKey.Resolution)
     private fun devFlag(name: String): Boolean = devBuild && intent?.getBooleanExtra(name, false) == true
 
     /** A save name as a file name only: a "/" or ".." in one handed over put the save outside saves/. */
@@ -463,7 +469,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val system = parseGpu(NativeBridge.probeVulkan(false))
         val kgsl = kgslModel()
         val systemFamily = GpuRules.family(system?.vendor ?: 0, system?.name.orEmpty(), kgsl)
-        val auto = GpuRules.autoDriver(systemFamily)
+        val upscale = wantedUpscale()
+        val auto = GpuRules.autoDriver(systemFamily, upscale)
         val videoDriver = when (video[com.joeysretro.joey64.video.VideoKey.Driver]) {
             "system" -> "system"
             "bundled" -> if (auto.value == GpuRules.Driver.FAUX123) "faux123" else "turnip"
@@ -497,10 +504,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         gpuName = gpu?.name ?: ""
         gpuFamily = GpuRules.family(gpu?.vendor ?: 0, gpuName, kgsl)
         storageRangeMb = gpu?.storageRangeMb ?: 0
+        customDriverInUse = custom != null
         statsDriver = statsDriverName(lib?.takeIf { custom != null }, dev != null, gpu?.driver.orEmpty())
         val cpuinfo = try { File("/proc/cpuinfo").readText() } catch (e: Exception) { null }
         val rendererPick = GpuRules.autoRenderer(gpu != null && gpu.vulkan11, gpu != null && gpu.storage16 == 1, custom != null, gpuFamily,
-            GpuRules.littleCoresOnly(cpuinfo))
+            GpuRules.littleCoresOnly(cpuinfo), upscale)
         // The trial's level 1 is the system driver (its renderer by the rule above); level 2, or level 1 when Auto was
         // already the system driver, is GLideN64 as well.
         val trialGl = trialPick != null && (level >= 2 || (level == 1 && auto.value == GpuRules.Driver.SYSTEM))
@@ -542,6 +550,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private var gpuName = ""
     private var gpuFamily = GpuRules.Family(GpuRules.Vendor.OTHER, 0, "")
     private var storageRangeMb = 0
+    private var customDriverInUse = false
     /** Auto's start-up trial on this GPU; null when the driver or renderer was picked. */
     private var trial: GpuTrial? = null
 
@@ -811,7 +820,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val f = value.removeSuffix("x").toIntOrNull() ?: return value
         // Dev: --ez nocap true lifts the caps, to try other drivers
         if (devFlag("nocap")) return value
-        var top = GpuRules.upscaleTop(gpuFamily).value
+        var top = GpuRules.upscaleTop(gpuFamily, customDriverInUse).value
         if (storageRangeMb > 0) while (top > 1 && 8 * top * top > storageRangeMb) top /= 2
         if (f <= top) return value
         JLog.w(TAG, "parallel-RDP upscaling $value capped at ${top}x on $gpuName (storage buffer range $storageRangeMb MB)")

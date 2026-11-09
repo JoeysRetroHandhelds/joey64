@@ -43,13 +43,17 @@ object GpuRules {
     /** A choice and the rule that made it, for the log (item 38 e: a tester's report shows which rule picked). */
     data class Pick<T>(val value: T, val rule: String)
 
-    /** Auto's driver for the system GPU's family. */
-    fun autoDriver(f: Family): Pick<Driver> = when {
+    /** Auto's driver for the system GPU's family; [upscale] is the parallel-RDP Resolution the game starts at. */
+    fun autoDriver(f: Family, upscale: Int = 1): Pick<Driver> = when {
         // faux123's Turnip (Duo fixes) draws Mario Party 2's text boxes without the stray lines the general build
         // leaves, and passed the 82-game compat run (2026-11-04)
         f.vendor == Vendor.ADRENO && f.model == 722 -> Pick(Driver.FAUX123, "Adreno 722: Turnip faux123")
         // The stock Adreno 740 driver (676.53) fails to compile a parallel-RDP shader; Turnip runs it. Turnip Gen8's
         // device table knows every Adreno 6xx-8xx part (README item 38, offline coverage).
+        // 8x on Adreno 8xx (Odin 3, Adreno 830; Joey 2026-11-09, "Stock driver at 8x"): Turnip draws nothing with a 256 or
+        // 512 MB upscaled RDRAM buffer although it reports 2047 MB (odin3-t8-*); Qualcomm's driver draws 8x (up8-odin3-sysdrv,
+        // odin3-8xsysprdp-compat). Only a8xx: a6xx/a7xx report 128 MB, so 8x is capped to 4x there on any driver.
+        f.vendor == Vendor.ADRENO && f.model in 800..899 && upscale >= 8 -> Pick(Driver.SYSTEM, "Adreno 8xx at 8x: system driver (Turnip draws nothing past 4x)")
         f.vendor == Vendor.ADRENO && f.model in 600..899 -> Pick(Driver.TURNIP, "Adreno 6xx-8xx: bundled Turnip")
         f.vendor == Vendor.ADRENO -> Pick(Driver.SYSTEM, "Adreno outside 6xx-8xx: system driver")
         // Mali-G52 runs parallel-RDP at full speed on the system driver; malisx2 measured ~14% slower there.
@@ -62,10 +66,12 @@ object GpuRules {
      * core crashes: Adreno 610), and a driver known to run it: a custom one, or stock Mali. Else GLideN64.
      */
     fun autoRenderer(vulkan11: Boolean, storage16: Boolean, customDriver: Boolean, f: Family,
-                     littleCoresOnly: Boolean = false): Pick<String> = when {
+                     littleCoresOnly: Boolean = false, upscale: Int = 1): Pick<String> = when {
         !vulkan11 -> Pick("gliden64", "no Vulkan 1.1: GLideN64")
         !storage16 -> Pick("gliden64", "no 16-bit storage buffers: GLideN64")
         customDriver -> Pick("parallel", "custom driver: parallel-RDP")
+        // The stock driver autoDriver picks for 8x on Adreno 8xx runs parallel-RDP (Odin 3, Adreno 830).
+        f.vendor == Vendor.ADRENO && f.model in 800..899 && upscale >= 8 -> Pick("parallel", "stock Adreno 8xx at 8x: parallel-RDP")
         // RK3566 (4x Cortex-A55, 1-core Mali-G52; Joey 2026-11-09, "Yes, add the rule"): parallel-RDP held full speed in
         // no game, the Mali driver's own CPU side took 39% of the CPU; GLideN64 SM64 84 vs 44 fps uncapped, OoT 65 vs 57.
         // The Flip (A75 big cores) keeps parallel-RDP.
@@ -144,8 +150,13 @@ object GpuRules {
      * parallel-RDP's highest upscale before the storage buffer range: 4x on the Adreno 722 drops most geometry on both
      * Turnip builds tried (and runs at 40-55 fps), 2x is right; elsewhere 8x.
      */
-    fun upscaleTop(f: Family): Pick<Int> =
-        if (f.vendor == Vendor.ADRENO && f.model == 722) Pick(2, "Adreno 722: 2x") else Pick(8, "8x")
+    fun upscaleTop(f: Family, customDriver: Boolean = false): Pick<Int> = when {
+        f.vendor == Vendor.ADRENO && f.model == 722 -> Pick(2, "Adreno 722: 2x")
+        // Turnip on Adreno draws nothing past a 128 MB upscaled RDRAM buffer, whatever it reports (Adreno 830: 2047 MB,
+        // black at 8x, odin3-t8-*), so 4x there; Auto takes the system driver for 8x on a8xx.
+        f.vendor == Vendor.ADRENO && customDriver -> Pick(4, "Turnip on Adreno: 4x")
+        else -> Pick(8, "8x")
+    }
 }
 
 /**

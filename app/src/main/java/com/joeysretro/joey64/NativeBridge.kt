@@ -125,6 +125,8 @@ object NativeBridge {
      * 2 it couldn't load the 64DD IPL BIOS (none for the disk's region).
      */
     external fun coreShutDown(): Int
+    /** Bytes of save RAM the last write couldn't put on disk (a full disk, or another write error); 0 once one is written. */
+    external fun saveRamFailed(): Long
     /** New frames presented since start (wraps): what the game drew, without repeats. */
     external fun framesDrawn(): Int
     /** The game's native frame rate (NTSC ~60, PAL 50), for the speed percentage. */

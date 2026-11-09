@@ -685,6 +685,9 @@ std::string gpuClockText() {
 // name (the dev path) and saves from before names use the ROM's content hash instead.
 std::string g_savePath, g_saveFallbackPath;
 std::vector<uint8_t> g_lastSave;
+// The size of the save RAM the last write couldn't put on disk, 0 once one is written (MainActivity polls it: Not enough
+// space to save, approved problem screens 2026-11-08). A failed write is tried again at the next check, as before.
+std::atomic<int64_t> g_saveFailedBytes{0};
 
 void loadSave() {
     auto* mem = static_cast<uint8_t*>(core.get_memory_data(RETRO_MEMORY_SAVE_RAM));
@@ -710,12 +713,13 @@ void flushSave() {
     if (g_lastSave.size() == size && !memcmp(g_lastSave.data(), mem, size)) return;
     std::string tmp = g_savePath + ".tmp";
     FILE* f = fopen(tmp.c_str(), "wb");
-    if (!f) { LOGE("save: cannot write %s", tmp.c_str()); return; }
+    if (!f) { LOGE("save: cannot write %s", tmp.c_str()); g_saveFailedBytes = (int64_t)size; return; }
     bool ok = fwrite(mem, 1, size, f) == size;
     ok = (fflush(f) == 0) && ok;
     ok = (fsync(fileno(f)) == 0) && ok;
     fclose(f);
-    if (!ok || rename(tmp.c_str(), g_savePath.c_str()) != 0) { LOGE("save: write failed"); return; }
+    if (!ok || rename(tmp.c_str(), g_savePath.c_str()) != 0) { LOGE("save: write failed"); remove(tmp.c_str()); g_saveFailedBytes = (int64_t)size; return; }
+    g_saveFailedBytes = 0;
     g_lastSave.assign(mem, mem + size);
     LOGI("save: wrote %zu bytes", size);
 }
@@ -1731,6 +1735,7 @@ JNIEXPORT jint JNICALL JNI(waitRumble)(JNIEnv*, jobject, jint wasMask, jint time
 
 // 0 running, 1 the core shut down, 2 it shut down after it could not load the 64DD IPL.
 JNIEXPORT jint JNICALL JNI(coreShutDown)(JNIEnv*, jobject) { return !g_coreShutDown ? 0 : g_ddIplMissing ? 2 : 1; }
+JNIEXPORT jlong JNICALL JNI(saveRamFailed)(JNIEnv*, jobject) { return (jlong)g_saveFailedBytes.load(); }
 
 JNIEXPORT jint JNICALL JNI(framesRun)(JNIEnv*, jobject) {
     return (jint)g_framesRun.load();

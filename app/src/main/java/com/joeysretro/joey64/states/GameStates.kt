@@ -75,8 +75,13 @@ class GameStates(
         return UndoneSave(u.slot, u.savedAt)
     }
 
+    /** How many bytes the last save or screenshot that couldn't be written needed (Not enough space to save); 0 after one that was. */
+    @Volatile var failedNeed = 0L
+        private set
+
     /** Saves the game as it is now into [slot]. False if the core's state couldn't be taken or written. */
     fun save(slot: Int): Boolean {
+        failedNeed = 0
         val t0 = SystemClock.elapsedRealtime()
         // What the slot held before, for Undo save state (a slot's own quit save rotation isn't kept).
         val before = if (StateSlots.isAuto(slot)) null else try {
@@ -90,6 +95,7 @@ class GameStates(
         val t1 = SystemClock.elapsedRealtime()
         return try {
             val file = StateFormat.wrap(data, achv)
+            failedNeed = file.size.toLong() + (png?.size ?: 0)
             writeWhole(StateSlots.fileName(saveName, slot), file)
             // The picture beside it, as RetroArch names it. The old one (RetroArch's, or ours) shows the
             // moment before, so it goes even when there's no new one.
@@ -103,6 +109,7 @@ class GameStates(
                 if (png == null) JLog.e(TAG, "slot $slot: no picture from the core")
             }
             if (before != null) undoSave = before
+            failedNeed = 0
             JLog.i(TAG, "saved ${StateSlots.fileName(saveName, slot)}: ${data.size} bytes, ${file.size} written, picture ${png?.size ?: 0}; " +
                 "taking it ${t1 - t0} ms, packing and writing ${SystemClock.elapsedRealtime() - t1} ms")
             true
@@ -196,13 +203,16 @@ class GameStates(
      * The file name, or null if the core had no picture or it couldn't be written.
      */
     fun screenshot(): String? {
+        failedNeed = 0
         val png = FramePicture.capturePng() ?: return null.also { JLog.e(TAG, "screenshot: no picture from the core") }
         val stamp = java.text.SimpleDateFormat("yyMMdd-HHmmss", java.util.Locale.US).format(java.util.Date())
         var name = "$saveName-$stamp.png"
         var n = 1
         while (space.exists(listOf(DataKind.Screenshots.dir, name))) name = "$saveName-$stamp-${n++}.png"
         return try {
+            failedNeed = png.size.toLong()
             space.openWrite(listOf(DataKind.Screenshots.dir, name)).use { it.write(png) }
+            failedNeed = 0
             JLog.i(TAG, "screenshot $name (${png.size} bytes)")
             name
         } catch (e: IOException) {

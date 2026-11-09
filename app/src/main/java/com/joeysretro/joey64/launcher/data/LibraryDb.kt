@@ -454,6 +454,16 @@ class LibraryDb private constructor(context: Context) :
             if (c.moveToFirst()) c.getInt(0) else 0
         }
 
+    /** Games whose every file is in one of [trees]: greyed while those folders can't be reached (approved problem screens 2026-11-08). */
+    fun gamesOnlyInAny(trees: Set<String>): Set<Long> {
+        if (trees.isEmpty()) return emptySet()
+        val marks = trees.joinToString(",") { "?" }
+        return readableDatabase.rawQuery("SELECT game_id FROM files WHERE game_id IS NOT NULL GROUP BY game_id" +
+            " HAVING SUM(CASE WHEN tree_uri IN ($marks) THEN 0 ELSE 1 END) = 0", trees.toTypedArray()).use { c ->
+            buildSet { while (c.moveToNext()) add(c.getLong(0)) }
+        }
+    }
+
     /** A ROM folder taken off the list: its files go, its games stay (play time, favourites). */
     fun forgetFolder(treeUri: String) {
         writableDatabase.delete("files", "tree_uri = ?", arrayOf(treeUri))

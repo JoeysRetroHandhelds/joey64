@@ -6,6 +6,7 @@ import com.joeysretro.joey64.JLog
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
+import androidx.core.net.toUri
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -209,6 +210,9 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                 } else if (failed.need == GameStartFailed.Need.Bios) {
                     JLog.i(TAG, "${game.title} didn't start (no IPL for its region): asking for the 64DD BIOS")
                     _needsBios.value = NeedsBios(game, failed.intent, failedStart = true)
+                } else if (failed.need == GameStartFailed.Need.Rom) {
+                    _startFailed.value = withContext(Dispatchers.IO) { startFailedOf(game, failed) }
+                    JLog.i(TAG, "${game.title} didn't start (${failed.why?.name}): saying so" + if (_startFailed.value?.damaged == true) ", the file looks damaged" else "")
                 }
             }
         }
@@ -369,6 +373,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
      * quit save starts from the beginning (Never), goes on from it (Always) or asks ([askContinue]).
      */
     fun playAsked(game: LibraryGame, start: (Intent) -> Unit) {
+        if (game.id in _greyed.value) { askAboutFolderOf(game); return }
         if (starting) return
         viewModelScope.launch {
             val app = getApplication<Application>()
@@ -704,6 +709,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
 
     /** Gets [game] ready and hands [start] its intent. One at a time: a second press while a zip unpacks does nothing. */
     fun play(game: LibraryGame, loadState: String? = null, start: (Intent) -> Unit) {
+        if (game.id in _greyed.value) { askAboutFolderOf(game); return }
         if (starting) return
         starting = true
         viewModelScope.launch {
@@ -718,6 +724,133 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
             } finally {
                 starting = false
             }
+        }
+    }
+
+    // ---- Problem screens (approved 2026-11-08, scratchpad build_problems2.py / problems2_mock.png) ----------------
+
+    /**
+     * Screens 1-2, "<game> won't start" and its Details: [damaged] when the file has a No-Intro name but not that copy's
+     * MD5; [folders] the folders it's in ("ROMs", "n64") on [place] ("SD card").
+     */
+    data class StartFailed(
+        val game: LibraryGame, val damaged: Boolean, val file: String, val place: String?, val folders: List<String>,
+        val size: Long?, val why: GameStartFailed.Why,
+    )
+
+    private val _startFailed = MutableStateFlow<StartFailed?>(null)
+    val startFailed: StateFlow<StartFailed?> = _startFailed
+    fun startFailedSeen() { _startFailed.value = null }
+
+    private fun startFailedOf(game: LibraryGame, failed: GameStartFailed.Failed): StartFailed {
+        val app = getApplication<Application>()
+        val src = failed.intent.getStringExtra(com.joeysretro.joey64.MainActivity.EXTRA_SOURCE_URI)
+        val row = db.filesOf(game.id).let { files -> files.firstOrNull { it.uri == src } ?: files.firstOrNull() }
+        val name = failed.intent.getStringExtra(com.joeysretro.joey64.MainActivity.EXTRA_SOURCE_NAME) ?: row?.name ?: game.title
+        val table = com.joeysretro.joey64.launcher.boxart.BoxArtTable.get(app)
+        val folders = try { (src ?: row?.uri)?.let { com.joeysretro.joey64.launcher.library.StartProblems.foldersOf(android.provider.DocumentsContract.getDocumentId(it.toUri())) } } catch (e: Exception) { null }
+        val place = try { row?.treeUri?.let { FolderNames.of(app, it.toUri()).place } } catch (e: Exception) { null }
+        return StartFailed(game,
+            damaged = com.joeysretro.joey64.launcher.library.StartProblems.looksDamaged(game.md5, name, table.keys, table.values.toHashSet()),
+            file = name, place = place, folders = folders.orEmpty(), size = db.details(game.id)?.romSize,
+            why = failed.why ?: GameStartFailed.Why.Refused)
+    }
+
+    /** Screen 3: a ROM folder that can't be reached ([path]: "SD card › ROMs › n64"). */
+    data class LostFolder(val tree: String, val path: String)
+
+    private val _lostFolder = MutableStateFlow<LostFolder?>(null)
+    /** The Can't reach your ROMs folder popup, or null. */
+    val lostFolder: StateFlow<LostFolder?> = _lostFolder
+    private val _greyed = MutableStateFlow<Set<Long>>(emptySet())
+    /** Games whose every file is in a folder that can't be reached: greyed in the grid, A asks about their folder. */
+    val greyed: StateFlow<Set<Long>> = _greyed
+    /** Asked once when the library opens (this model lives as long as the launcher); A on a greyed game asks again. */
+    private var lostAsked = false
+
+    private fun lostOf(tree: String): LostFolder {
+        val app = getApplication<Application>()
+        val path = try { FolderNames.of(app, tree.toUri()).let { (listOf(it.place) + it.folders).joinToString(" › ") } } catch (e: Exception) { "your ROMs folder" }
+        return LostFolder(tree, path)
+    }
+
+    /** Which folders can be read now; greys the games only in the others, and asks about the first once. */
+    fun checkFolders(folders: List<Uri>) {
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            val lost = withContext(Dispatchers.IO) { folders.filter { !RomFolders.readableNow(app, it) }.map { it.toString() }.toSet() } +
+                (debugLost?.takeIf { d -> folders.any { it.toString() == d } }?.let { setOf(it) } ?: emptySet())
+            _greyed.value = if (lost.isEmpty()) emptySet() else withContext(Dispatchers.IO) { db.gamesOnlyInAny(lost) }
+            if (lost.isEmpty()) { _lostFolder.value = null; return@launch }
+            JLog.w(TAG, "${lost.size} ROM folder(s) can't be reached, ${_greyed.value.size} games greyed")
+            if (!lostAsked) { lostAsked = true; _lostFolder.value = lostOf(lost.first()) }
+        }
+    }
+
+    /** Debug builds (SHOW --es what lost-folder): the first ROM folder counts as one that can't be reached. */
+    private var debugLost: String? = null
+    private var debugFolders: List<Uri> = emptyList()
+
+    fun debugLostFolder(on: Boolean) {
+        viewModelScope.launch {
+            val folders = settings.settings.first().romFolders.sorted().map { it.toUri() }
+            debugLost = if (on) folders.firstOrNull()?.toString() else null
+            if (on) lostAsked = false
+            checkFolders(folders)
+        }
+    }
+
+    /** A on a greyed game: asks about its folder again. */
+    private fun askAboutFolderOf(game: LibraryGame) {
+        viewModelScope.launch {
+            val tree = withContext(Dispatchers.IO) { db.filesOf(game.id).firstOrNull()?.treeUri } ?: return@launch
+            _lostFolder.value = lostOf(tree)
+        }
+    }
+
+    fun lostNotNow() { _lostFolder.value = null }
+
+    /** Try again: reads the folder again when it's back (its games come back); else the popup stays. */
+    fun lostTryAgain(folders: List<Uri>) {
+        val ask = _lostFolder.value ?: return
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            if (ask.tree == debugLost) debugLost = null
+            if (!withContext(Dispatchers.IO) { RomFolders.readableNow(app, ask.tree.toUri()) }) {
+                JLog.i(TAG, "ROM folder still can't be reached: ${ask.path}"); return@launch
+            }
+            JLog.i(TAG, "ROM folder back: ${ask.path}")
+            _lostFolder.value = null
+            checkFolders(folders)
+            scan?.cancel()
+            refresh(folders)
+        }
+    }
+
+    /**
+     * Choose the folder again: the same folder gets its permission back and is read again; another folder with N64 games
+     * takes the lost one's place in the list (its games' rows stay and find their files again). A pick without games, or
+     * no pick, leaves the popup up.
+     */
+    fun lostChosen(uri: Uri, folders: List<Uri>) {
+        val ask = _lostFolder.value ?: return
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            if (uri.toString() == ask.tree) {
+                try { RomFolders.keep(app, uri, write = false) } catch (e: SecurityException) { JLog.w(TAG, "can't keep $uri: $e") }
+                lostTryAgain(folders)
+                return@launch
+            }
+            val look = try { look(uri) } catch (e: Exception) { JLog.e(TAG, "can't look in $uri: $e"); null }
+            if (look == null || look.roms == 0) { JLog.i(TAG, "Choose the folder again: no N64 games in $uri"); return@launch }
+            RomFolders.keep(app, uri, write = false)
+            settings.addRomFolder(uri.toString())
+            settings.removeRomFolder(ask.tree)
+            withContext(Dispatchers.IO) { db.forgetFolder(ask.tree) }
+            try { RomFolders.release(app, ask.tree.toUri()) } catch (e: Exception) { JLog.w(TAG, "can't release ${ask.tree}: $e") }
+            JLog.i(TAG, "ROM folder ${ask.path} replaced by a picked one with ${look.roms} games")
+            _lostFolder.value = null
+            _greyed.value = emptySet()
         }
     }
 

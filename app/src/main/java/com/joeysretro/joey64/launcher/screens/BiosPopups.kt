@@ -38,7 +38,7 @@ internal const val NO_BIOS = "No 64DD BIOS in that folder"
  * The picker's result no longer arms the screen's landing either: that moved focus to the game behind the popup.
  */
 @Composable
-private fun LandAgain() {
+internal fun LandAgain() {
     val landing = LocalFocusLanding.current
     val inputMode = LocalInputModeManager.current
     LaunchedEffect(Unit) {

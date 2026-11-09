@@ -1138,7 +1138,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             runOnUiThread {
                 preparing = false
                 if (destroyed) return@runOnUiThread
-                if (p == null) { reportGameState(loading = false); notStarted(cart = cartFailed); return@runOnUiThread }
+                if (p == null) { reportGameState(loading = false); notStarted(cart = cartFailed, why = com.joeysretro.joey64.launcher.GameStartFailed.Why.Unreadable); return@runOnUiThread }
                 prepared = p
                 if (surfaceUp) launchGame(p)
             }
@@ -1199,18 +1199,22 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             startStates(saveName)
             startSession(rom, saveName)
             fpsHandler.postDelayed(shutdownWatch, SHUTDOWN_POLL_MS)
+            fpsHandler.postDelayed(saveRamWatch, SAVE_RAM_POLL_MS)
+            getSystemService(android.hardware.input.InputManager::class.java)?.registerInputDeviceListener(padListener, fpsHandler)
             reportGameState(loading = false)
         } else {
             trial?.cancel()
             reportGameState(loading = false)
-            notStarted(cart = false)
+            notStarted(cart = false, why = com.joeysretro.joey64.launcher.GameStartFailed.Why.Refused)
         }
     }
 
     /** The game couldn't start (no ROM, a cartridge that didn't unpack, the core refused it): back to what started it, not a black screen. */
-    private fun notStarted(cart: Boolean) {
-        JLog.e(TAG, "the game didn't start, closing the game screen")
+    private fun notStarted(cart: Boolean, why: com.joeysretro.joey64.launcher.GameStartFailed.Why) {
+        JLog.e(TAG, "the game didn't start (${why.name}), closing the game screen")
         if (cart) intent?.let { com.joeysretro.joey64.launcher.GameStartFailed.diskNeedsCart(it) }
+        // Started from the library (it passes the MD5): it says "<game> won't start" (approved problem screens 2026-11-08).
+        else intent?.takeIf { it.hasExtra(EXTRA_MD5) }?.let { com.joeysretro.joey64.launcher.GameStartFailed.romFailed(it, why) }
         finish()
     }
 
@@ -1229,6 +1233,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             trial?.cancel()
             // Only a missing IPL is asked for; a damaged disk or disk save just goes back.
             if (noIpl) intent?.let { com.joeysretro.joey64.launcher.GameStartFailed.diskNeedsBios(it) }
+            else intent?.takeIf { it.hasExtra(EXTRA_MD5) }?.let { com.joeysretro.joey64.launcher.GameStartFailed.romFailed(it, com.joeysretro.joey64.launcher.GameStartFailed.Why.Stopped) }
             finish()
         }
     }
@@ -1612,6 +1617,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             overlay?.screen = null
             quitToLibrary()
         }
+        override fun disconnectChoice(choice: com.joeysretro.joey64.launcher.ingame.DisconnectChoice) = disconnected(choice)
+        override fun closeNoSpace() { closeMenu() }
         override val quitLabel: String get() = hotkeys.quitTo.menuRow
         override fun pick(save: Boolean, slot: Int) {
             val st = states ?: return
@@ -1952,7 +1959,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             val name = st.screenshot()
             runOnUiThread {
                 if (name != null) pop("screenshot", InGamePopup.Kind.Screenshot, "Screenshot", "Saved", "In the screenshots folder")
-                else pop("screenshot", InGamePopup.Kind.Problem, "Screenshot", "Not saved", "The log has the details")
+                else if (!noSpace(com.joeysretro.joey64.saves.NoSpace.What.Screenshot, st.failedNeed)) pop("screenshot", InGamePopup.Kind.Problem, "Screenshot", "Not saved", "The log has the details")
             }
         }
     }
@@ -1989,6 +1996,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private val earlyPops = ArrayList<InGamePopup>()
 
     private fun popSaved(slot: Int, ok: Boolean) {
+        if (!ok && noSpace(com.joeysretro.joey64.saves.NoSpace.What.State, states?.failedNeed ?: 0, slotName(slot))) return
         if (ok) pop("state", InGamePopup.Kind.Saved, "Save state", "${slotName(slot)} saved", overlay?.title ?: "")
         else pop("state", InGamePopup.Kind.Problem, "Save state", "${slotName(slot)} wasn't saved", "The log has the details")
     }
@@ -2197,6 +2205,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (p < 0 && PadDevices.isBuiltIn(dev)) p = controls.players.indexOfFirst { it.device == DeviceChoice.BuiltIn }
         if (p < 0) p = claimFreePlayer(dev)
         playerOfDevice[id] = p
+        if (!PadDevices.isBuiltIn(dev)) padNames[id] = dev.name
         if (p >= 0) JLog.i(TAG, "controls: ${dev.name} (" + "%04x:%04x".format(dev.vendorId, dev.productId) + ") is player ${p + 1}")
         return p
     }
@@ -2256,6 +2265,131 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
     private val paks = Array(4) { Pak.Controller }
     private var lastRom: String? = null
+
+    // ---- Controller disconnected (approved problem screens, scratchpad build_problems2.py, 2026-11-08, screen 4) ------
+    // A controller a player was playing on goes (its battery, out of range, unplugged): the game pauses with a popup and
+    // carries on by itself when it comes back. Built-in controls never "go". Use built-in controls puts the device's own
+    // controls on that player for now (Auto mapped, nothing saved); Carry on without them (players 2-4) unplugs their port
+    // for now. Either way the player's own controller, when it comes back, has them again.
+    /** External controllers' names by device id, as they last sent input (the device is gone by the time it's removed). */
+    private val padNames = HashMap<Int, String>()
+    /** The player the game waits for (Controller disconnected is up), or -1. */
+    private var waitingPlayer = -1
+    /** Players on the built-in controls for now (Use built-in controls) and players left out for now (Carry on without them). */
+    private val onBuiltIn = HashSet<Int>()
+    private val leftOut = HashSet<Int>()
+    /** Of [leftOut], the players whose port this unplugged (only those are plugged back in). */
+    private val unplugged = HashSet<Int>()
+
+    private val padListener = object : android.hardware.input.InputManager.InputDeviceListener {
+        override fun onInputDeviceAdded(id: Int) { padBack(id) }
+        override fun onInputDeviceRemoved(id: Int) { padGone(id) }
+        override fun onInputDeviceChanged(id: Int) {}
+    }
+
+    private fun padGone(id: Int) {
+        val p = playerOfDevice.remove(id) ?: return
+        val name = padNames.remove(id) ?: return
+        if (p < 0 || playerOfDevice.values.any { it == p }) { JLog.i(TAG, "controls: $name went, player ${p + 1} still has a controller"); return }
+        if (!gameLoaded || quitting || destroyed || overlay == null || p in leftOut) {
+            JLog.i(TAG, "controls: $name went (player ${p + 1}), no game to pause (loaded $gameLoaded, overlay ${overlay != null})"); return
+        }
+        JLog.i(TAG, "controls: $name (player ${p + 1}) disconnected, the game waits for it")
+        players[p].release(); push(p)
+        waitingPlayer = p
+        if (!menuOpen) openMenu()
+        overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Disconnected(p, name, PadDevices.builtIn() != null)
+    }
+
+    /** The player whose own controller [dev] is (Controls' Controller row), without giving it to a free player. */
+    private fun ownerOf(dev: InputDevice): Int {
+        val p = controls.players.indexOfFirst { it.device is DeviceChoice.Pad && PadDevices.matches(it.device, dev) }
+        if (p >= 0) return p
+        // A phone: a controller plays as the built-in player (claimFreePlayer).
+        val b = controls.players.indexOfFirst { it.device == DeviceChoice.BuiltIn }
+        return if (b >= 0 && PadDevices.builtIn() == null && (b == waitingPlayer || b in onBuiltIn || b in leftOut)) b else -1
+    }
+
+    private fun padBack(id: Int) {
+        val dev = InputDevice.getDevice(id) ?: return
+        if (!PadDevices.isPad(dev) || PadDevices.isBuiltIn(dev)) return
+        val p = ownerOf(dev)
+        if (p < 0 || (p != waitingPlayer && p !in onBuiltIn && p !in leftOut)) return
+        JLog.i(TAG, "controls: ${dev.name} is back, player ${p + 1} plays on it again")
+        playerOfDevice[id] = p; padNames[id] = dev.name
+        playerBack(p, id)
+    }
+
+    /** [p]'s own controller ([id]; null from the debug broadcast) is back: they play on it again. */
+    private fun playerBack(p: Int, id: Int?) {
+        if (onBuiltIn.remove(p)) {
+            // The built-in controls go back to whoever they belong to.
+            playerOfDevice.entries.removeAll { (d, q) -> q == p && d != id }
+            players[p].release(); players[p].setup = controls.players[p]; push(p)
+        }
+        leftOut.remove(p)
+        if (unplugged.remove(p) && portsPresent and (1 shl p) == 0) { portsPresent = portsPresent or (1 shl p); NativeBridge.setPortsPresent(portsPresent) }
+        if (p == waitingPlayer) {
+            waitingPlayer = -1
+            if (overlay?.screen is com.joeysretro.joey64.launcher.ingame.PauseScreen.Disconnected) closeMenu()
+        }
+    }
+
+    private fun disconnected(choice: com.joeysretro.joey64.launcher.ingame.DisconnectChoice) {
+        val p = waitingPlayer
+        if (choice == com.joeysretro.joey64.launcher.ingame.DisconnectChoice.Quit) { waitingPlayer = -1; pauseActions.quit(); return }
+        if (p < 0) { closeMenu(); return }
+        when (choice) {
+            com.joeysretro.joey64.launcher.ingame.DisconnectChoice.BuiltIn -> {
+                val own = PadDevices.pads().filter { PadDevices.isBuiltIn(it) }
+                if (own.isEmpty()) return
+                for (d in own) playerOfDevice[d.id] = p
+                players[p].release(); players[p].setup = PadDevices.autoSetup(own.first(), DeviceChoice.BuiltIn, keep = controls.players[p])
+                onBuiltIn += p
+                JLog.i(TAG, "controls: player ${p + 1} on the built-in controls until their controller is back")
+            }
+            com.joeysretro.joey64.launcher.ingame.DisconnectChoice.WithoutThem -> {
+                leftOut += p
+                players[p].release(); push(p)
+                if (portsPresent and (1 shl p) != 0) { unplugged += p; portsPresent = portsPresent and (1 shl p).inv(); NativeBridge.setPortsPresent(portsPresent) }
+                JLog.i(TAG, "controls: carrying on without player ${p + 1} until their controller is back")
+            }
+            else -> {}
+        }
+        waitingPlayer = -1
+        closeMenu()
+    }
+
+    // ---- Not enough space to save (approved problem screens, screen 5) ------------------------------------------
+    /**
+     * A state, a screenshot or the game's own save that couldn't be written ([need] bytes) on a full disk: the popup over
+     * the paused game says so. False (nothing shown) when there's room, so the failure was something else.
+     */
+    private fun noSpace(what: com.joeysretro.joey64.saves.NoSpace.What, need: Long, slot: String? = null, devFree: Long? = null): Boolean {
+        if (need <= 0 || overlay == null || quitting || destroyed) return false
+        // The game's own save is written to Joey64's own files first (a picked data folder gets a copy).
+        val tree = if (what == com.joeysretro.joey64.saves.NoSpace.What.GameSave) null
+            else com.joeysretro.joey64.launcher.storage.DataFolders.current(this).treeUri
+        val place = com.joeysretro.joey64.saves.NoSpace.placeOf(this, tree)
+        val free = devFree ?: place.free
+        if (free == null || !com.joeysretro.joey64.saves.NoSpace.isFull(free, need)) return false
+        JLog.e(TAG, "not enough space: ${what.name} needs $need bytes, ${place.name} has $free free")
+        if (!menuOpen) openMenu()
+        overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.NoSpace(com.joeysretro.joey64.saves.NoSpace.text(what, slot, place.name, free, need))
+        return true
+    }
+
+    /** The game's own save couldn't be written: says so once, until a write works again. */
+    private var saveRamWarned = false
+    private val saveRamWatch = object : Runnable {
+        override fun run() {
+            if (destroyed) return
+            val failed = NativeBridge.saveRamFailed()
+            if (failed == 0L) saveRamWarned = false
+            else if (!saveRamWarned && !menuOpen) saveRamWarned = noSpace(com.joeysretro.joey64.saves.NoSpace.What.GameSave, failed)
+            fpsHandler.postDelayed(this, SAVE_RAM_POLL_MS)
+        }
+    }
 
     /** Switches the rumble and stick calibration to the pad that sent the last input. */
     private fun usePad(dev: InputDevice?, id: Int): Controllers.StickCal {
@@ -2496,10 +2630,13 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     override fun onDestroy() {
         if (isFinishing) { fpsHandler.removeCallbacks(sessionTick); session?.finish(); session = null }
+        fpsHandler.removeCallbacks(saveRamWatch)
+        getSystemService(android.hardware.input.InputManager::class.java)?.unregisterInputDeviceListener(padListener)
         uiScope.cancel()
         debugStick?.let { unregisterReceiver(it) }
         debugDump?.let { unregisterReceiver(it) }
         debugLogs?.let { unregisterReceiver(it) }
+        debugProblem?.let { unregisterReceiver(it) }
         debugRaEvent?.let { unregisterReceiver(it) }
         destroyed = true
         stats?.destroy()
@@ -2525,6 +2662,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private var debugStick: BroadcastReceiver? = null
     private var debugDump: BroadcastReceiver? = null
     private var debugLogs: BroadcastReceiver? = null
+    private var debugProblem: BroadcastReceiver? = null
     private var debugRaEvent: BroadcastReceiver? = null
 
     private fun registerDebugStick() {
@@ -2535,6 +2673,28 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
                 val stick = i.getIntExtra("stick", 0)
                 NativeBridge.setAnalog(0, stick, i.getIntExtra("x", 0), i.getIntExtra("y", 0))
                 handler.postDelayed({ NativeBridge.setAnalog(0, stick, 0, 0) }, i.getIntExtra("ms", 150).toLong())
+            }
+        }
+        // Approved problem screens (2026-11-08), checks without pulling a controller or filling the disk:
+        // adb shell am broadcast -a com.joeysretro.joey64.PROBLEM --es what disconnect [--ei player 1] [--es name "8BitDo Pro 2"]
+        //   (the player's controller went), back (it came back), nospace | nospace-shot | nospace-save (a full disk: 1 MB free).
+        debugProblem = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, i: Intent) {
+                JLog.i(TAG, "debug PROBLEM: ${i.getStringExtra("what")}")
+                val mb = 1024L * 1024
+                when (i.getStringExtra("what")) {
+                    "disconnect" -> {
+                        val p = i.getIntExtra("player", 0).coerceIn(0, 3)
+                        // As if this were the player's only controller (on the Thor, player 1 also has the built-in one).
+                        playerOfDevice.entries.removeAll { it.value == p }
+                        playerOfDevice[-99] = p; padNames[-99] = i.getStringExtra("name") ?: "8BitDo Pro 2"
+                        padGone(-99)
+                    }
+                    "back" -> if (waitingPlayer >= 0) playerBack(waitingPlayer, null) else (onBuiltIn + leftOut).firstOrNull()?.let { playerBack(it, null) }
+                    "nospace" -> noSpace(com.joeysretro.joey64.saves.NoSpace.What.State, 4 * mb, slotName(currentSlot()), devFree = mb)
+                    "nospace-shot" -> noSpace(com.joeysretro.joey64.saves.NoSpace.What.Screenshot, 900 * 1024L, devFree = mb / 2)
+                    "nospace-save" -> noSpace(com.joeysretro.joey64.saves.NoSpace.What.GameSave, 290 * 1024L, devFree = 100 * 1024L)
+                }
             }
         }
         // adb shell am broadcast -a com.joeysretro.joey64.DUMP --es name snap1  -> files/dumps/snap1.bin
@@ -2565,7 +2725,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             }
         }
         for ((receiver, action) in listOf(debugStick to "com.joeysretro.joey64.STICK", debugDump to "com.joeysretro.joey64.DUMP",
-                debugLogs to "com.joeysretro.joey64.LOGS", debugRaEvent to "com.joeysretro.joey64.RA_EVENT")) {
+                debugLogs to "com.joeysretro.joey64.LOGS", debugRaEvent to "com.joeysretro.joey64.RA_EVENT",
+                debugProblem to "com.joeysretro.joey64.PROBLEM")) {
             val filter = IntentFilter(action)
             if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
             else registerReceiver(receiver, filter)
@@ -2586,6 +2747,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         /** A game was loaded in this process; the core cannot load a second one, so a new ROM restarts the process. */
         private var gameLoaded = false
         private const val SHUTDOWN_POLL_MS = 500L
+        /** How often the game screen checks whether the game's own save was written (Not enough space to save). */
+        private const val SAVE_RAM_POLL_MS = 3_000L
         /** Game start and quit file work, one job at a time in order, for every instance (they share cache/current.rom and saves/). */
         private val gameIo = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "joey64-gameio") }
         /** switchGame -> the next process: the ROM already unpacked, and its save name. */

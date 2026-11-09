@@ -137,6 +137,8 @@ class LauncherActivity : ComponentActivity() {
             // boxart-reset: every downloaded or not-found cover is looked up again now (custom and
             // hidden ones stay), for checking the box-art source; the old files are overwritten as found.
             // size: the launcher laid out at another screen's size, `--es size 512x384` (dp; off goes back).
+            // lost-folder: the first ROM folder counts as one that can't be reached (its games greyed, the popup asks
+            // again); Try again or lost-folder-off brings it back.
             // reports-ask: the reports question over the library; reports-send: a report now, even if one
             // went today (to files/dev_reports_base when it exists, e.g. a local wrangler dev through adb reverse).
             val show = object : android.content.BroadcastReceiver() {
@@ -146,6 +148,7 @@ class LauncherActivity : ComponentActivity() {
                     else if (what == "boxart-reset") model.debugResetArt()
                     else if (what == "reports-ask") model.debugAskReports()
                     else if (what == "reports-send") model.debugSendReports()
+                    else if (what == "lost-folder" || what == "lost-folder-off") model.debugLostFolder(what == "lost-folder")
                     else if (what.startsWith("update")) updates.debugShow(what) else model.debugSetupPage(what.takeIf { it == "first-run" || it == "data" || it == "import" })
                 }
             }
@@ -184,6 +187,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             if (folders.isNotEmpty()) {
                 LifecycleResumeEffect(folders) {
                     model.resumed()
+                    model.checkFolders(folders)
                     model.autoRefresh(folders)
                     onPauseOrDispose { }
                 }

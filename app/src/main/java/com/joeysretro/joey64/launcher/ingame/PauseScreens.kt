@@ -64,7 +64,17 @@ sealed interface PauseScreen {
     data class Restart(val subtitle: String) : PauseScreen
     /** RetroAchievements' sign-in, from a tap on the Sign-in expired pop-up; closes back to the game. */
     data object SignIn : PauseScreen
+    /**
+     * Controller disconnected (approved problem screens 2026-11-08, screen 4): [name]'s controller, [player]'s (0-3), went
+     * and the game is paused until it comes back. [builtIn]: this device has built-in controls to play on instead.
+     */
+    data class Disconnected(val player: Int, val name: String, val builtIn: Boolean) : PauseScreen
+    /** Not enough space to save (screen 5): [text] says what wasn't saved and how much room there is. OK goes back to the game. */
+    data class NoSpace(val text: String) : PauseScreen
 }
+
+/** What the Controller disconnected popup's rows do. */
+enum class DisconnectChoice { BuiltIn, WithoutThem, Quit }
 
 enum class MenuRow { Resume, Save, Load, GameSettings, Controls, Cheats, Achievements }
 
@@ -95,6 +105,10 @@ interface PauseActions {
     fun closeAchievements()
     /** The sign-in popup closed (signed in, or B): back to the game. */
     fun closeSignIn()
+    /** A row of the Controller disconnected popup. */
+    fun disconnectChoice(choice: DisconnectChoice) {}
+    /** Not enough space to save: OK or B, back to the game. */
+    fun closeNoSpace() {}
     /** Cheats' "Press GameShark button": back to the game with the button held for a second. */
     fun pressGameShark()
     fun reset()
@@ -140,6 +154,16 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
             backLabel = if (screen.toGame) "Back to the game" else "Back to pause menu") { actions.closeAchievements() }
         return
     }
+    if (screen is PauseScreen.Disconnected) { DisconnectedPopup(screen, actions); return }
+    if (screen is PauseScreen.NoSpace) {
+        JoeyDialog(onDismiss = { actions.closeNoSpace() }, hints = listOf(Hint("A", "OK"), Hint("B", "Back to game")), width = 470.dp) {
+            Column {
+                PopupTitle(com.joeysretro.joey64.saves.NoSpace.TITLE, screen.text)
+                JoeyOption("OK", Modifier.initialFocus()) { actions.closeNoSpace() }
+            }
+        }
+        return
+    }
     val picker = screen as? PauseScreen.Picker
     val restart = screen as? PauseScreen.Restart
     val hints = when {
@@ -182,7 +206,8 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
                     detail = "Saves to the auto slot, then starts again from there") { actions.restartNow() }
                 com.joeysretro.joey64.launcher.components.JoeyRow("Later", detail = "Keep playing as it is") { actions.restartLater() }
             }
-            is PauseScreen.Controls, is PauseScreen.Cheats, is PauseScreen.Achievements, is PauseScreen.GameSettings, PauseScreen.SignIn -> {}
+            is PauseScreen.Controls, is PauseScreen.Cheats, is PauseScreen.Achievements, is PauseScreen.GameSettings, PauseScreen.SignIn,
+            is PauseScreen.Disconnected, is PauseScreen.NoSpace -> {}
         }
     }
 }
@@ -256,6 +281,32 @@ private fun SlotCell(s: SlotView, off: Boolean, now: Long, initial: Boolean, onF
                 // A state with no picture beside it (one RetroArch saved without): its date in place of "Empty".
                 Text(s.savedAt?.let { SlotDates.label(it, now) } ?: "Empty", style = JoeyTheme.type.label, color = c.textDim)
             }
+        }
+    }
+}
+
+/**
+ * Controller disconnected (approved problem screens, scratchpad build_problems2.py, "Approve as drawn" 2026-11-08): the
+ * game is paused and carries on by itself when the controller comes back (MainActivity closes this then). Use built-in
+ * controls when the device has them (touch controls take that row once they're built), Carry on without them for
+ * players 2-4, Quit to library. B does nothing: the game waits.
+ */
+@Composable
+private fun DisconnectedPopup(screen: PauseScreen.Disconnected, actions: PauseActions) {
+    JoeyDialog(onDismiss = {}, hints = listOf(Hint("A", "Select")), width = 470.dp) {
+        Column {
+            val text = androidx.compose.ui.text.buildAnnotatedString {
+                pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = JoeyTheme.colors.text))
+                append(screen.name); pop()
+                append(" (Player ${screen.player + 1}) disconnected, so the game is paused. It carries on by itself when the controller comes back.")
+            }
+            PopupTitle("Controller disconnected")
+            com.joeysretro.joey64.launcher.components.PromptText(text)
+            var first = true
+            fun firstFocus(): Modifier = if (first) { first = false; Modifier.initialFocus() } else Modifier
+            if (screen.builtIn) JoeyOption("Use built-in controls", firstFocus()) { actions.disconnectChoice(DisconnectChoice.BuiltIn) }
+            if (screen.player > 0) JoeyOption("Carry on without them", firstFocus()) { actions.disconnectChoice(DisconnectChoice.WithoutThem) }
+            JoeyOption(actions.quitLabel, firstFocus()) { actions.disconnectChoice(DisconnectChoice.Quit) }
         }
     }
 }

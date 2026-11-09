@@ -250,6 +250,7 @@ One line per idea from emulator-review.md. An idea leaves "Not tested" only with
     - [ ] OoT run-ahead off, bundled core vs new: 415-520 fps between rounds; repeat rounds (queued: scratchpad ra_chain5.sh).
     - [x] GoldenEye's RA1 uncapped run that ended at 370 fps with 0.06 ms extra frames (rach1): not reproduced on c328ab4 (134 fps, extra frame 1.7 ms in every window, results/ra/rach4/A).
     - [ ] Restore the Thor's Joey64 data from scratchpad results/crop/backup.tar (927 entries, whole folders) after the run-ahead queue; Joey said restore later (2026-11-09).
+    - [ ] Run-ahead's own cost (proposed 2026-11-09, waits for Joey's go; Thor SM64 per frame: take state 1.7 ms, put back 1.8 ms, against ~2 ms a frame of emulation): (a) skip the 8 MB TLB tables in take/put back when unchanged since the last state (a changed flag; not Conker); (b) copy-on-write states: write-protect RDRAM at take, copy a page on its first write (smart sync's fault machinery), put back only the written pages; (c) skip RSP audio tasks in rolled-back frames; (d) less GPU work for the hidden real frame (matters at 4x).
     - [ ] Results still running on the Thor (2026-11-09): lag probes off/RA1/RA2 + GLideN64 with poll->display, capped 1x/2x/4x, run-ahead off bundled vs new for the quick set, uncapped 4x off vs RA1 (ra_chain4/5/6).
 - [ ] T10. Idle-loop skipping: waits for all runs (Joey), as item 8
 

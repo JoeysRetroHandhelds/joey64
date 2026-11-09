@@ -48,6 +48,22 @@ class GpuRulesTest {
         assertEquals(8, GpuRules.upscaleTop(f).value)
     }
 
+    @Test fun rk3566LittleCoresGetGliden() {
+        // the RK3566 report (2026-11-09): four Cortex-A55s, so stock Mali goes to GLideN64
+        val rk = (0..3).joinToString("\n\n") { "processor\t: $it\nCPU implementer\t: 0x41\nCPU part\t: 0xd05\n" } + "\nHardware\t: Rockchip RK3566"
+        val f = GpuRules.family(arm, "Mali-G52", null)
+        assertTrue(GpuRules.littleCoresOnly(rk))
+        assertEquals("gliden64", GpuRules.autoRenderer(true, true, false, f, GpuRules.littleCoresOnly(rk)).value)
+        // a dev driver stays the user's choice
+        assertEquals("parallel", GpuRules.autoRenderer(true, true, true, f, true).value)
+        // the Flip (T618: 6x A55 + 2x A75) keeps parallel-RDP; unreadable cpuinfo changes nothing
+        val flip = (0..5).joinToString("\n") { "CPU part\t: 0xd05" } + "\n" + (6..7).joinToString("\n") { "CPU part\t: 0xd0a" }
+        assertEquals(false, GpuRules.littleCoresOnly(flip))
+        assertEquals(false, GpuRules.littleCoresOnly(null))
+        assertEquals(false, GpuRules.littleCoresOnly(""))
+        assertEquals("parallel", GpuRules.autoRenderer(true, true, false, f, GpuRules.littleCoresOnly(flip)).value)
+    }
+
     @Test fun newFamilies() {
         // a marketing name gets its model, so Turnip
         assertEquals(613, GpuRules.family(adreno, "Adreno (TM) A12", null).model)

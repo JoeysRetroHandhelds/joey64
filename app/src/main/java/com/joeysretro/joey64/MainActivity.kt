@@ -498,7 +498,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         gpuFamily = GpuRules.family(gpu?.vendor ?: 0, gpuName, kgsl)
         storageRangeMb = gpu?.storageRangeMb ?: 0
         statsDriver = statsDriverName(lib?.takeIf { custom != null }, dev != null, gpu?.driver.orEmpty())
-        val rendererPick = GpuRules.autoRenderer(gpu != null && gpu.vulkan11, gpu != null && gpu.storage16 == 1, custom != null, gpuFamily)
+        val cpuinfo = try { File("/proc/cpuinfo").readText() } catch (e: Exception) { null }
+        val rendererPick = GpuRules.autoRenderer(gpu != null && gpu.vulkan11, gpu != null && gpu.storage16 == 1, custom != null, gpuFamily,
+            GpuRules.littleCoresOnly(cpuinfo))
         // The trial's level 1 is the system driver (its renderer by the rule above); level 2, or level 1 when Auto was
         // already the system driver, is GLideN64 as well.
         val trialGl = trialPick != null && (level >= 2 || (level == 1 && auto.value == GpuRules.Driver.SYSTEM))

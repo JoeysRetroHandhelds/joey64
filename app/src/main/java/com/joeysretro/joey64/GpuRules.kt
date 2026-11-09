@@ -61,12 +61,26 @@ object GpuRules {
      * Auto's renderer: parallel-RDP needs Vulkan 1.1 with 16-bit storage buffers (without them it fails to start and the
      * core crashes: Adreno 610), and a driver known to run it: a custom one, or stock Mali. Else GLideN64.
      */
-    fun autoRenderer(vulkan11: Boolean, storage16: Boolean, customDriver: Boolean, f: Family): Pick<String> = when {
+    fun autoRenderer(vulkan11: Boolean, storage16: Boolean, customDriver: Boolean, f: Family,
+                     littleCoresOnly: Boolean = false): Pick<String> = when {
         !vulkan11 -> Pick("gliden64", "no Vulkan 1.1: GLideN64")
         !storage16 -> Pick("gliden64", "no 16-bit storage buffers: GLideN64")
         customDriver -> Pick("parallel", "custom driver: parallel-RDP")
+        // RK3566 (4x Cortex-A55, 1-core Mali-G52; Joey 2026-11-09, "Yes, add the rule"): parallel-RDP held full speed in
+        // no game, the Mali driver's own CPU side took 39% of the CPU; GLideN64 SM64 84 vs 44 fps uncapped, OoT 65 vs 57.
+        // The Flip (A75 big cores) keeps parallel-RDP.
+        f.vendor == Vendor.MALI && littleCoresOnly -> Pick("gliden64", "stock Mali, only little CPU cores (A53/A55): GLideN64")
         f.vendor == Vendor.MALI -> Pick("parallel", "stock Mali: parallel-RDP")
         else -> Pick("gliden64", "stock driver not known to run parallel-RDP: GLideN64")
+    }
+
+    /** Arm's little cores by /proc/cpuinfo "CPU part": Cortex-A32, A35, A53, A55. */
+    private val LITTLE_PARTS = setOf(0xd01, 0xd04, 0xd03, 0xd05)
+
+    /** True when /proc/cpuinfo lists cores and every one is a little core (an RK3566's four A55s); false when unreadable. */
+    fun littleCoresOnly(cpuinfo: String?): Boolean {
+        val parts = Regex("""CPU part\s*:\s*0x([0-9a-fA-F]+)""").findAll(cpuinfo.orEmpty()).map { it.groupValues[1].toInt(16) }.toList()
+        return parts.isNotEmpty() && parts.all { it in LITTLE_PARTS }
     }
 
     /** An environment variable (core or host switch) or a core option this GPU gets by default; --es env/opts still win. */

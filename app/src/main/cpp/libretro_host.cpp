@@ -143,6 +143,20 @@ std::atomic<int> g_rewindBackFrames{0};
 // Stats windows in which audio underruns don't grow the latency target: rewind (no sound) and slow motion
 // (resampled) empty the ring, so the window after them starts from nothing (Thor: 8 underruns, target 20 -> 30 ms).
 std::atomic<int> g_audioRefillWindows{0};
+// Run-ahead (dev switch N64_RUNAHEAD=<frames> 1-4, measuring its cost first: Joey 2026-11-09, "strong devices only,
+// measure the cost first"). Each frame: the real frame runs with its sound but not shown, its state is taken, the
+// next frames run with the same buttons (the last one shown, no sound), and the state goes back. The game then
+// answers a press that many frames sooner. g_raReplay: the extra frames read the buttons the real frame sampled
+// (no new sample, so taps, turbo and macros count only real frames); g_raMute drops their sound; g_raHide: the
+// real frame's picture isn't shown.
+bool g_raReplay = false, g_raMute = false, g_raHide = false;
+// A frame of this run-ahead step that wasn't shown drew a new picture. If the shown one is then a repeat of it
+// (repeat frames are skipped), that picture is the one to show: else games that draw 20-30 a second froze
+// (Pokemon Snap showed nothing new, Mario Kart 64 7 frames a second; Thor 2026-11-09).
+bool g_raFresh = false;
+// Dev lag probe (N64_LAG_PROBE=<frame>[/0]): presses N64 A for 20 frames from that many frames after N64_STATE
+// loads (/0: no press, the baseline) and logs a hash of each shown frame around it, to count frames to a response.
+int g_probeMask = 0;
 // Benchmark (dev env N64_BENCH=1): no speed cap, vsync off, audio dropped, settings unchanged and every frame
 // presented, so the counter shows how fast the game could run: the headroom a full-speed game has.
 bool g_bench = false;
@@ -471,6 +485,13 @@ bool environment(unsigned cmd, void* data) {
 }
 
 void video_refresh(const void* data, unsigned w, unsigned h, size_t) {
+    if (g_raHide) { // run-ahead: submitted, not shown
+        if (data) { g_raFresh = true; g_lastW = w; g_lastH = h; }
+        if (g_vulkan) g_vk.videoRefresh(data, w, h);
+        return;
+    }
+    if (!data && g_raFresh) data = RETRO_HW_FRAME_BUFFER_VALID; // the hidden frame's new picture
+    g_raFresh = false;
     if (g_vulkan) {
         if (!data) ++g_statDupes;
         else { g_lastW = w; g_lastH = h; ++g_statPresents; noteDrawn(); }
@@ -489,7 +510,7 @@ void video_refresh(const void* data, unsigned w, unsigned h, size_t) {
 
 void audio_sample(int16_t l, int16_t r) {
     if (g_bench || g_paused) return; // paused: a frame advance step, whose sound would pile up in the paused stream
-    if (g_rewindActive) return; // going back: no sound
+    if (g_rewindActive || g_raMute) return; // going back, or run-ahead's extra frames: no sound
     int16_t s[2] = {l, r};
     if (double sl = g_slowNow.load(); sl > 0) { if (int m = g_ffSound.load()) g_audio.writeFast(s, 1, sl, m == 1 ? 0.25f : 1.0f); return; }
     if (g_fastForward) { if (int m = g_ffSound.load()) g_audio.writeFast(s, 1, g_ffSpeedNow.load(), m == 1 ? 0.25f : 1.0f); return; }
@@ -498,7 +519,7 @@ void audio_sample(int16_t l, int16_t r) {
 size_t g_frameAudio = 0; // audio frames the core gave during this retro_run (N64_FRAME_TRACE)
 size_t audio_batch(const int16_t* d, size_t frames) {
     if (g_bench || g_paused) return frames; // paused: a frame advance step (the stream is paused, nothing drains)
-    if (g_rewindActive) return frames; // going back: no sound
+    if (g_rewindActive || g_raMute) return frames; // going back, or run-ahead's extra frames: no sound
     // A blocking write would throttle fast-forward: its sound (if any) goes through writeFast; slow motion's too.
     if (double sl = g_slowNow.load(); sl > 0) { if (int m = g_ffSound.load()) g_audio.writeFast(d, frames, sl, m == 1 ? 0.25f : 1.0f); }
     else if (g_fastForward) { if (int m = g_ffSound.load()) g_audio.writeFast(d, frames, g_ffSpeedNow.load(), m == 1 ? 0.25f : 1.0f); }
@@ -543,6 +564,7 @@ bool g_lateInput = true;
 bool g_pollPending = false;
 void sampleButtons();
 void input_poll() {
+    if (g_raReplay) return; // run-ahead's extra frames keep the real frame's buttons
     if (g_lateInput) { g_pollPending = true; return; }
     sampleButtons();
 }
@@ -554,7 +576,7 @@ void sampleButtons() {
             if (taps & (1 << i)) g_tapHold[p][i] = kMinPressPolls;
             if (g_tapHold[p][i] > 0) { --g_tapHold[p][i]; held |= 1 << i; }
         }
-        g_polledButtons[p] = g_buttons[p].load() | held;
+        g_polledButtons[p] = g_buttons[p].load() | held | (p == 0 ? g_probeMask : 0);
         // Turbo: pressed for the first half of each beat, let go for the second (10 a second: 3 polls each).
         const int t = g_turboOn.load() ? g_turboMask[p].load() : 0;
         if (t & g_polledButtons[p]) {
@@ -593,7 +615,7 @@ void sampleButtons() {
 int16_t input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
     if (port >= (unsigned)kPorts) return 0;
     if (device == RETRO_DEVICE_JOYPAD) {
-        if (g_pollPending) { g_pollPending = false; sampleButtons(); }
+        if (g_pollPending && !g_raReplay) { g_pollPending = false; sampleButtons(); }
         int mask = g_polledButtons[port];
         if (id == RETRO_DEVICE_ID_JOYPAD_MASK) return (int16_t)mask;
         return (mask >> id) & 1;
@@ -973,6 +995,14 @@ void runLoop() {
     const char* statePath = getenv("N64_STATE");
     int stateWait = statePath && *statePath ? 30 : -1;
     g_bench = getenv("N64_BENCH") && atoi(getenv("N64_BENCH")) == 1;
+    const int runAhead = getenv("N64_RUNAHEAD") ? std::clamp(atoi(getenv("N64_RUNAHEAD")), 0, 4) : 0;
+    if (runAhead) LOGI("run-ahead: %d frame%s", runAhead, runAhead > 1 ? "s" : "");
+    std::vector<uint8_t> raState;
+    double raSaveMs = 0, raLoadMs = 0, raExtraMs = 0; int raFrames = 0;
+    const char* probeEnv = getenv("N64_LAG_PROBE");
+    const int probeAt = probeEnv && *probeEnv ? atoi(probeEnv) : -1;
+    const bool probePress = !(probeEnv && strchr(probeEnv, '/')); // "<frame>/0": no press (env values can't hold a comma)
+    int probeFrame = -1; // real frames since N64_STATE loaded
     auto ffNext = std::chrono::steady_clock::now(), ffLastShown = ffNext, capNext = ffNext, rewindNext = ffNext;
     int rewindTick = 0;
     bool rewindStepped = false;
@@ -1110,33 +1140,89 @@ void runLoop() {
             if (capNext > now) std::this_thread::sleep_until(capNext);
             else if (now - capNext > std::chrono::milliseconds(50)) capNext = now; // behind: don't sprint
         }
-        if (g_vulkan) {
-            auto t0 = std::chrono::steady_clock::now();
-            if (!g_vk.beginFrame(show)) continue;   // swapchain recreated, try again
-            auto t1 = std::chrono::steady_clock::now();
-            core.run();
-            auto t3 = std::chrono::steady_clock::now();
-            g_vk.endFrame();
-            g_statWaitMs += std::chrono::duration<double, std::milli>(t1 - t0).count();
-            auto t2 = std::chrono::steady_clock::now();
-            g_statRunMs += std::chrono::duration<double, std::milli>(t2 - t1).count();
-            double frameMs = std::chrono::duration<double, std::milli>(t2 - t0).count();
-            noteFrameTime(frameMs);
-            // Dev: N64_HITCH_LOG=1 logs every frame over 33 ms split into acquire (beginFrame), emulation
-            // (retro_run, which includes parallel-RDP's scanout) and present (endFrame), to find what a hitch is.
-            static const bool hitchLog = getenv("N64_HITCH_LOG") && *getenv("N64_HITCH_LOG") == '1';
-            if (hitchLog && frameMs > 33.0)
-                LOGI("hitch: %.1f ms frame: acquire %.1f, emulation %.1f, present %.1f ms (frame %u)", frameMs,
-                     std::chrono::duration<double, std::milli>(t1 - t0).count(),
-                     std::chrono::duration<double, std::milli>(t3 - t1).count(),
-                     std::chrono::duration<double, std::milli>(t2 - t3).count(), g_framesRun.load());
-        } else {
+        // One retro_run, shown or not; the frame's time (acquire + run + present), or < 0 when the swapchain was rebuilt.
+        auto runOne = [&](bool showIt) -> double {
+            if (g_vulkan) {
+                auto t0 = std::chrono::steady_clock::now();
+                if (!g_vk.beginFrame(showIt)) return -1;   // swapchain recreated, try again
+                auto t1 = std::chrono::steady_clock::now();
+                core.run();
+                auto t3 = std::chrono::steady_clock::now();
+                g_vk.endFrame();
+                g_statWaitMs += std::chrono::duration<double, std::milli>(t1 - t0).count();
+                auto t2 = std::chrono::steady_clock::now();
+                g_statRunMs += std::chrono::duration<double, std::milli>(t2 - t1).count();
+                double frameMs = std::chrono::duration<double, std::milli>(t2 - t0).count();
+                // Dev: N64_HITCH_LOG=1 logs every frame over 33 ms split into acquire (beginFrame), emulation
+                // (retro_run, which includes parallel-RDP's scanout) and present (endFrame), to find what a hitch is.
+                static const bool hitchLog = getenv("N64_HITCH_LOG") && *getenv("N64_HITCH_LOG") == '1';
+                if (hitchLog && frameMs > 33.0)
+                    LOGI("hitch: %.1f ms frame: acquire %.1f, emulation %.1f, present %.1f ms (frame %u)", frameMs,
+                         std::chrono::duration<double, std::milli>(t1 - t0).count(),
+                         std::chrono::duration<double, std::milli>(t3 - t1).count(),
+                         std::chrono::duration<double, std::milli>(t2 - t3).count(), g_framesRun.load());
+                return frameMs;
+            }
             auto t0 = std::chrono::steady_clock::now();
             glBindFramebuffer(GL_FRAMEBUFFER, g_egl.fbo());
             core.run(); // includes the swap, so the vsync wait lands here
             double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
             g_statRunMs += ms;
+            return ms;
+        };
+        // Run-ahead: not while fast-forwarding, rewinding, stepping paused, before the core can take a state, or in the
+        // frames before N64_STATE loads.
+        const bool ahead = runAhead > 0 && !ff && !rewinding && !g_paused && stateWait <= 0 &&
+                           g_framesRun >= (uint32_t)stateReadyFrames();
+        if (probeAt >= 0 && probeFrame >= 0) g_probeMask = probePress && probeFrame >= probeAt && probeFrame < probeAt + 20 ? 1 : 0;
+        if (!ahead) {
+            double ms = runOne(show);
+            if (ms < 0) continue;
             noteFrameTime(ms);
+        } else {
+            using clk = std::chrono::steady_clock;
+            g_raHide = true;
+            double ms = runOne(false); // the real frame: its sound plays, its picture is replaced below
+            g_raHide = false;
+            if (ms < 0) continue;
+            auto s0 = clk::now();
+            size_t n = core.serialize_size();
+            raState.resize(n);
+            bool saved = n > 0 && core.serialize(raState.data(), n);
+            auto s1 = clk::now();
+            raSaveMs += std::chrono::duration<double, std::milli>(s1 - s0).count();
+            g_raReplay = g_raMute = true;
+            double extra = 0;
+            for (int k = 1; k <= runAhead; ++k) {
+                g_raHide = k < runAhead;
+                double m = runOne(k == runAhead);
+                if (m > 0) extra += m;
+            }
+            g_raReplay = g_raMute = g_raHide = g_raFresh = false;
+            auto l0 = clk::now();
+            if (saved) core.unserialize(raState.data(), raState.size());
+            auto l1 = clk::now();
+            raLoadMs += std::chrono::duration<double, std::milli>(l1 - l0).count();
+            raExtraMs += extra;
+            ++raFrames;
+            noteFrameTime(ms + extra + std::chrono::duration<double, std::milli>(s1 - s0).count() +
+                          std::chrono::duration<double, std::milli>(l1 - l0).count());
+            if (!saved) LOGE("run-ahead: the state couldn't be taken");
+            if (raFrames >= 300) {
+                LOGI("run-ahead: per frame: take state %.2f ms, extra frames %.2f ms, put back %.2f ms",
+                     raSaveMs / raFrames, raExtraMs / raFrames, raLoadMs / raFrames);
+                raSaveMs = raLoadMs = raExtraMs = 0; raFrames = 0;
+            }
+        }
+        if (probeAt >= 0 && probeFrame >= 0) {
+            if (probeFrame >= probeAt - 3 && probeFrame <= probeAt + 20) {
+                std::vector<uint8_t> px; unsigned pw = g_lastW, ph = g_lastH;
+                bool ok = g_vulkan ? g_vk.capture(px, pw, ph) : g_egl.capture((int)g_lastW, (int)g_lastH, g_hw.bottom_left_origin, px);
+                uint64_t h = 1469598103934665603ull;
+                for (size_t i = 0; ok && i < px.size(); i++) h = (h ^ px[i]) * 1099511628211ull;
+                LOGI("lagprobe %d %s %016llx", probeFrame - probeAt, g_probeMask ? "A" : "-", (unsigned long long)h);
+            }
+            ++probeFrame;
         }
         if (Cheevos::waitingForRam())
             Cheevos::ramReady(static_cast<uint8_t*>(core.get_memory_data(RETRO_MEMORY_SYSTEM_RAM)), core.get_memory_size(RETRO_MEMORY_SYSTEM_RAM));
@@ -1155,6 +1241,7 @@ void runLoop() {
             }
             bool ok = !s.empty() && core.unserialize(s.data(), s.size());
             LOGI("state %s: %s (%zu bytes)", statePath, ok ? "loaded" : "FAILED", s.size());
+            if (probeAt >= 0) probeFrame = 0;
         }
         // Dev (env N64_HASH_RAM=<n>): logs a hash of RDRAM every n frames after the state loads, to check that two
         // builds emulate the same thing (benchmark runs are deterministic from a state).

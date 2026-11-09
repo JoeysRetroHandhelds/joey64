@@ -188,11 +188,12 @@ data class Profile(
             setup = o.optJSONObject("setup")?.let { PlayerSetup.fromJson(it, fallback) } ?: fallback,
         )
 
-        /** [player] with [profile]'s buttons, stick, Stick feel, dead zone, tap to hold and macros; the controller and pak stay. */
+        /** [player] with [profile]'s buttons, stick, Stick feel, dead zone, tap to hold, turbo, macros and rumble; the controller and pak stay. */
         fun applyTo(player: PlayerSetup, profile: Profile): PlayerSetup = player.copy(
             buttons = profile.setup.buttons, stick = profile.setup.stick, deadZone = profile.setup.deadZone,
             feel = profile.setup.feel, latch = profile.setup.latch, macros = profile.setup.macros,
             turbo = profile.setup.turbo, turboSpeed = profile.setup.turboSpeed,
+            rumbleOn = profile.setup.rumbleOn, rumbleStrength = profile.setup.rumbleStrength,
         )
     }
 }

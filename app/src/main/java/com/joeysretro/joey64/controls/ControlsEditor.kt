@@ -79,7 +79,9 @@ class ControlsEditor(
         val next = when (row) {
             "Stick" -> cur.copy(stick = base.stick)
             "DeadZone" -> cur.copy(deadZone = base.deadZone)
-            "Pak" -> cur.copy(pak = base.pak)
+            "Pak" -> cur.copy(pak = base.pak, gbGame = base.gbGame, gbSave = base.gbSave)
+            "RumbleOn" -> cur.copy(rumbleOn = base.rumbleOn)
+            "RumbleStrength" -> cur.copy(rumbleStrength = base.rumbleStrength)
             "Tap" -> cur.copy(latch = base.latch)
             "Macros" -> cur.copy(macros = base.macros)
             "Turbo" -> cur.copy(turbo = base.turbo, turboSpeed = base.turboSpeed)

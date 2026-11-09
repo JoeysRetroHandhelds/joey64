@@ -264,7 +264,20 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         return v?.takeIf { it.hasVibrator() }
     }
 
+    private fun systemVibrator(): Vibrator? {
+        val sys = if (Build.VERSION.SDK_INT >= 31)
+            (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
+            else @Suppress("DEPRECATION") getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        return sys.takeIf { it.hasVibrator() }
+    }
+
     private fun vibratorFor(p: Int): Vibrator? {
+        // Controls › Rumble on (approved paks mockup 2026-11-08): Off shakes nothing; This device shakes the device for any controller.
+        when (controls.players.getOrNull(p)?.rumbleOn) {
+            com.joeysretro.joey64.controls.RumbleOn.Off -> return null
+            com.joeysretro.joey64.controls.RumbleOn.Device -> return systemVibrator()
+            else -> {}
+        }
         // The pads playing as p, the one last used first; then a connected pad that is p's controller but hasn't been pressed yet.
         val ids = playerOfDevice.filterValues { it == p }.keys.sortedByDescending { it == padDeviceId }
         for (id in ids) padVibrator(InputDevice.getDevice(id))?.let { return it }
@@ -275,10 +288,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         }
         val builtInPlayer = controls.players.indexOfFirst { it.device == DeviceChoice.BuiltIn }
         if (p != builtInPlayer && !(p == 0 && builtInPlayer < 0)) return null
-        val sys = if (Build.VERSION.SDK_INT >= 31)
-            (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
-            else @Suppress("DEPRECATION") getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        return sys.takeIf { it.hasVibrator() }
+        return systemVibrator()
     }
 
     private fun setRumbling(mask: Int) {
@@ -288,8 +298,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             if (on) {
                 rumbleVibrators[p] = vibratorFor(p)
                 JLog.i(TAG, "rumble player ${p + 1} on: ${rumbleVibrators[p] ?: "no vibrator"}")
-                // Long one-shot, cancelled when the game switches the motor off.
-                rumbleVibrators[p]?.vibrate(VibrationEffect.createOneShot(10_000, VibrationEffect.DEFAULT_AMPLITUDE))
+                // Long one-shot, cancelled when the game switches the motor off. Rumble strength sets the amplitude on a
+                // motor that has amplitude control (the others shake at full: the row says "Full only").
+                val v = rumbleVibrators[p]
+                val pct = controls.players.getOrNull(p)?.rumbleStrength ?: 100
+                val amp = if (v != null && v.hasAmplitudeControl() && pct < 100) (255 * pct / 100).coerceIn(1, 255) else VibrationEffect.DEFAULT_AMPLITUDE
+                v?.vibrate(VibrationEffect.createOneShot(10_000, amp))
             } else {
                 rumbleVibrators[p]?.cancel()
                 rumbleVibrators[p] = null
@@ -1111,7 +1125,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     /** What [prepareGame] got ready off the main thread: the ROM, its save name, a 64DD disk's cartridge, Settings › Saves. */
     private class Prepared(val rom: String, val saveName: String, val ddCart: String?, val savesOpts: com.joeysretro.joey64.saves.SavesOptions,
-                           val extras: com.joeysretro.joey64.video.ExtrasOn)
+                           val extras: com.joeysretro.joey64.video.ExtrasOn, val tpak: Pair<String, String>? = null)
     /** [prepareGame] stopped because a 64DD disk's cartridge didn't unpack. */
     @Volatile private var cartFailed = false
     /** [prepareGame] is running on [gameIo]. */
@@ -1164,7 +1178,24 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         com.joeysretro.joey64.launcher.storage.SrmSync.pull(this, saveName)
         com.joeysretro.joey64.saves.SaveBackups.maybeBackUp(com.joeysretro.joey64.launcher.storage.DataFolders.current(this).space,
             saveName, opts.backups, opts.backupsKeep)
-        return Prepared(rom, saveName, ddCart, opts, gameExtras(if (disk) ddCart ?: "" else rom))
+        return Prepared(rom, saveName, ddCart, opts, gameExtras(if (disk) ddCart ?: "" else rom), if (disk) null else transferPak(saveName))
+    }
+
+    /**
+     * Transfer Pak (approved paks mockup 2026-11-08, scratchpad build_paks2.py): the first player whose pak is the
+     * Transfer Pak, with a Game Boy game picked, gives the play its Game Boy game (copied, unzipped, to cache/tpak/) and
+     * save (Joey64's own copy, files/transferpak/<save name>.sav; GameBoyFiles.saveCopy). The core takes one Game Boy
+     * game per play, so other players with a Transfer Pak get the same one (README work order (44)). Null: none.
+     */
+    private fun transferPak(saveName: String): Pair<String, String>? {
+        if (saveName.isEmpty()) return null
+        val set = try { controlsStore.forGame(saveName) } catch (e: Exception) { return null }
+        val p = set.players.firstOrNull { it.device != DeviceChoice.None && it.pak == Pak.Transfer && it.gbGame != null } ?: return null
+        val game = p.gbGame!!
+        val rom = com.joeysretro.joey64.controls.GameBoyFiles.copyGame(this, game.uri, game.name, File(cacheDir, "tpak")) ?: return null
+        val ram = com.joeysretro.joey64.controls.GameBoyFiles.saveCopy(this, saveName, p.gbSave?.uri)
+        JLog.i(TAG, "Transfer Pak: ${com.joeysretro.joey64.controls.GameBoyFiles.describe(game.name, p.gbSave?.name)}, playing ${ram.name}")
+        return rom.absolutePath to ram.absolutePath
     }
 
     /** On the main thread, with a surface: the rest of the start. */
@@ -1173,6 +1204,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val rom = p.rom; val saveName = p.saveName; val ddCart = p.ddCart
         startRom = rom; startSave = saveName
         NativeBridge.setDdCart(ddCart ?: "")
+        NativeBridge.setTransferPak(p.tpak?.first ?: "", p.tpak?.second ?: "")
         applyControls(rom, saveName)
         extrasOn = p.extras // before applyCheats, which hands the core their codes
         applyCheats(if (RomFiles.isDiskName(rom)) ddCart ?: "" else rom, saveName)

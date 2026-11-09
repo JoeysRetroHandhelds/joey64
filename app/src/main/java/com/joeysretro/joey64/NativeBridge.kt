@@ -27,6 +27,12 @@ object NativeBridge {
      */
     external fun setDdCart(path: String)
 
+    /**
+     * Before loadGame: the Transfer Pak's Game Boy game and save (files the core opens itself), "" for none. The core
+     * starts a cartridge with them through its Transfer Pak subsystem (one Game Boy game for every port with a Transfer Pak).
+     */
+    external fun setTransferPak(gbRom: String, gbSave: String)
+
     /** Before loadGame: true = Vulkan (parallel-RDP/RSP), false = GLES3 (GLideN64). */
     external fun setRenderer(vulkan: Boolean)
 

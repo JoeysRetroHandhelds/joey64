@@ -75,10 +75,19 @@ enum class StickSource(val label: String, val detail: String? = null, val usesDP
 
 /**
  * The pak in the back of the controller (approved paks mockup). [Auto] picks per game from the
- * core's game list (PakDb). Transfer Pak needs the Game Boy game picked: later (plan, Phase 4).
+ * core's game list (PakDb). [Transfer] is set for one game only and reads the Game Boy game picked for it
+ * (PlayerSetup.gbGame; approved paks mockup 2026-11-08, scratchpad build_paks2.py).
  */
 enum class Pak(val label: String, val core: String?) {
-    Auto("Auto", null), Controller("Controller Pak", "memory"), Rumble("Rumble Pak", "rumble"), None("None", "none")
+    Auto("Auto", null), Controller("Controller Pak", "memory"), Rumble("Rumble Pak", "rumble"),
+    Transfer("Transfer Pak", "transfer"), None("None", "none")
+}
+
+/** Where a player's Rumble Pak shakes (approved paks mockup 2026-11-08, screen 3). */
+enum class RumbleOn(val label: String, val detail: String) {
+    Controller("Controller", "Its own motor. Built-in controls shake this device"),
+    Device("This device", "The handheld shakes, whichever controller you hold"),
+    Off("Off", "No shaking. The game still sees a Rumble Pak"),
 }
 
 /** Which controller a player plays with. */
@@ -108,6 +117,12 @@ data class PlayerSetup(
     /** Turbo (approved mockup 2026-11-08): these repeat while held, [turboSpeed] presses a second. */
     val turbo: Set<N64Button> = emptySet(),
     val turboSpeed: Int = DEFAULT_TURBO_SPEED,
+    /** Rumble on and Rumble strength (approved paks mockup 2026-11-08): where it shakes, 10-100%. */
+    val rumbleOn: RumbleOn = RumbleOn.Controller,
+    val rumbleStrength: Int = 100,
+    /** The Transfer Pak's Game Boy game and save (a game's own only); a null save starts a new one. */
+    val gbGame: com.joeysretro.joey64.controls.GameBoyFiles.Found? = null,
+    val gbSave: com.joeysretro.joey64.controls.GameBoyFiles.Found? = null,
 ) {
     fun with(b: N64Button, input: PadInput?) = copy(buttons = buttons + (b to input))
 
@@ -116,7 +131,9 @@ data class PlayerSetup(
         for (b in N64Button.entries) if (buttons[b] != other.buttons[b]) add(b.name)
         if (stick != other.stick) add("Stick")
         if (deadZone != other.deadZone) add("DeadZone")
-        if (pak != other.pak) add("Pak")
+        if (pak != other.pak || gbGame != other.gbGame || gbSave != other.gbSave) add("Pak")
+        if (rumbleOn != other.rumbleOn) add("RumbleOn")
+        if (rumbleStrength != other.rumbleStrength) add("RumbleStrength")
         addAll(feel.differences(other.feel))
         if (latch != other.latch) add("Tap")
         if (macros != other.macros) add("Macros")
@@ -138,10 +155,20 @@ data class PlayerSetup(
         put("macros", JSONArray().apply { macros.forEach { put(it.toJson()) } })
         put("turbo", JSONArray().apply { N64Button.entries.filter { it in turbo }.forEach { put(it.name) } })
         put("turboSpeed", turboSpeed)
+        put("rumbleOn", rumbleOn.name)
+        put("rumbleStrength", rumbleStrength)
+        gbGame?.let { put("gbGame", JSONObject().put("uri", it.uri).put("name", it.name)) }
+        gbSave?.let { put("gbSave", JSONObject().put("uri", it.uri).put("name", it.name)) }
     }
 
     companion object {
         const val DEFAULT_DEAD_ZONE = 10
+        /** Rumble strength's steps (◀ ▶ like Dead zone). */
+        val RUMBLE_STRENGTHS = (10..100 step 10).toList()
+
+        private fun found(o: JSONObject?) = o?.optString("uri")?.takeIf { it.isNotEmpty() }?.let {
+            com.joeysretro.joey64.controls.GameBoyFiles.Found(it, o.optString("name"))
+        }
 
         fun fromJson(o: JSONObject, fallback: PlayerSetup): PlayerSetup {
             val d = o.optJSONObject("device")
@@ -172,6 +199,10 @@ data class PlayerSetup(
                     (0 until a.length()).mapNotNull { i -> TURBO_BUTTONS.firstOrNull { it.name == a.optString(i) } }.toSet()
                 } ?: fallback.turbo,
                 turboSpeed = o.optInt("turboSpeed", fallback.turboSpeed).takeIf { it in TURBO_SPEEDS } ?: fallback.turboSpeed,
+                rumbleOn = RumbleOn.entries.firstOrNull { it.name == o.optString("rumbleOn") } ?: fallback.rumbleOn,
+                rumbleStrength = o.optInt("rumbleStrength", fallback.rumbleStrength).takeIf { it in RUMBLE_STRENGTHS } ?: fallback.rumbleStrength,
+                gbGame = if (o.has("gbGame")) found(o.optJSONObject("gbGame")) else fallback.gbGame,
+                gbSave = if (o.has("gbSave")) found(o.optJSONObject("gbSave")) else fallback.gbSave,
             )
         }
     }

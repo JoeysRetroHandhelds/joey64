@@ -60,6 +60,8 @@ import com.joeysretro.joey64.controls.N64Button
 import com.joeysretro.joey64.controls.PadDevices
 import com.joeysretro.joey64.controls.PadInput
 import com.joeysretro.joey64.controls.Pak
+import com.joeysretro.joey64.controls.GameBoyFiles
+import com.joeysretro.joey64.controls.RumbleOn
 import com.joeysretro.joey64.controls.PakDb
 import com.joeysretro.joey64.controls.PlayerSetup
 import com.joeysretro.joey64.controls.QuitTo
@@ -169,6 +171,11 @@ private sealed interface Popup {
     data class StickFeel(val row: String = com.joeysretro.joey64.controls.StickFeel.RANGE) : Popup
     data class FeelChoice(val row: String) : Popup
     data object PakChoice : Popup
+    /** Approved paks mockup 2026-11-08 (scratchpad build_paks2.py): Rumble on, the Transfer Pak setup and its lists. */
+    data object RumbleOnChoice : Popup
+    data class TransferSetup(val row: String = "game") : Popup
+    data object GbGame : Popup
+    data object GbSave : Popup
     data object Games : Popup
     data object PickGame : Popup
     data object Diagram : Popup
@@ -193,6 +200,7 @@ private const val DPAD = "DPad"
 private val DPAD_KEYS = setOf(KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT)
 private const val CGROUP = "C"
 private val DEAD_ZONES = listOf(0, 5, 10, 15, 20, 25, 30)
+private val STRENGTHS = PlayerSetup.RUMBLE_STRENGTHS
 
 @Composable
 private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, sink: ControlsSink, onHints: (List<Hint>) -> Unit, startPlayer: Int = 0) {
@@ -259,9 +267,12 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             hotkeysOpen -> listOf(Hint("A", if (focused == "hkFastForward" || focused == "hkQuit") "Open" else "Change"), Hint("X", "Clear"),
                 Hint("Y", "Reset to default"), Hint("B", "Back"))
             focused.startsWith("chip") -> listOf(Hint("A", "Select"), Hint("L/R", "Player"), Hint("B", backLabel))
-            focused == "DeadZone" -> listOf(Hint("◀▶", "Adjust"), Hint("Y", if (target == null) "Reset to default" else "Use All games"),
+            focused == "DeadZone" || (focused == "RumbleStrength" && !off) -> listOf(Hint("◀▶", "Adjust"), Hint("Y", if (target == null) "Reset to default" else "Use All games"),
                 Hint("L/R", "Player"), Hint("B", backLabel))
             focused == "Controller" -> listOf(Hint("A", "Change"), Hint("L/R", "Player"), Hint("B", backLabel))
+            // Pak and Rumble on: nothing for X to clear (approved paks mockup screen 1's hints).
+            (focused == "Pak" || focused == "RumbleOn") && !off -> listOf(Hint("A", "Change"),
+                Hint("Y", if (target == null) "Reset to default" else "Use All games"), Hint("L/R", "Player"), Hint("B", backLabel))
             focused == "StickFeel" && !off -> listOf(Hint("A", "Open"), Hint("Y", if (target == null) "Reset to default" else "Use All games"),
                 Hint("L/R", "Player"), Hint("B", backLabel))
             off -> listOf(Hint("L/R", "Player"), Hint("B", backLabel))
@@ -340,9 +351,27 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
                     dot = changed.any { it.startsWith("Feel.") },
                     onFocused = { if (it) focused = "StickFeel" }) { popup = Popup.StickFeel() }
                 SectionLabel("Pak")
-                JoeyRow("Pak", value = pakValue(setup.pak, autoPak) + "  ›", enabled = !off, sideways = true,
+                JoeyRow("Pak", value = pakValue(setup.pak, autoPak, setup) + "  ›", enabled = !off, sideways = true,
                     dot = "Pak" in changed,
                     onFocused = { if (it) focused = "Pak" }) { popup = Popup.PakChoice }
+                // Greyed when the pak can't be a Rumble Pak (approved paks mockup 2026-11-08, screens 1 and 4a).
+                val rumble = !off && when (setup.pak) { Pak.Rumble -> true; Pak.Auto -> autoPak == null || autoPak == Pak.Rumble; else -> false }
+                JoeyRow("Rumble on", value = setup.rumbleOn.label + "  ›", enabled = rumble, sideways = true,
+                    dot = "RumbleOn" in changed,
+                    onFocused = { if (it) focused = "RumbleOn" }) { if (rumble) popup = Popup.RumbleOnChoice }
+                val strengthWorks = remember(setup.device, setup.rumbleOn, pads) { rumbleStrengthWorks(context, dev, setup) }
+                JoeyRow("Rumble strength", Modifier.onPreviewKeyEvent { e ->
+                    val n = e.nativeKeyEvent
+                    val step = when (n.keyCode) { KeyEvent.KEYCODE_DPAD_LEFT -> -1; KeyEvent.KEYCODE_DPAD_RIGHT -> 1; else -> 0 }
+                    if (step == 0) return@onPreviewKeyEvent false
+                    if (rumble && strengthWorks && n.action == KeyEvent.ACTION_DOWN) {
+                        val i = (STRENGTHS.indexOfFirst { it >= setup.rumbleStrength }.takeIf { it >= 0 } ?: STRENGTHS.lastIndex) + step
+                        edit { editor.set(player, setup.copy(rumbleStrength = STRENGTHS[i.coerceIn(0, STRENGTHS.lastIndex)])) }
+                    }
+                    true
+                }, value = if (strengthWorks) "◀ ${setup.rumbleStrength}% ▶" else "Full only", enabled = rumble, sideways = true,
+                    dot = "RumbleStrength" in changed,
+                    onFocused = { if (it) focused = "RumbleStrength" })
                 SectionLabel("Extras")
                 JoeyRow("Tap to hold", value = com.joeysretro.joey64.controls.latchLabel(setup.latch) + "  ›", enabled = !off, sideways = true,
                     dot = "Tap" in changed, onFocused = { if (it) focused = "Tap" }) { popup = Popup.Tap }
@@ -440,8 +469,28 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             }
         }
         Popup.PakChoice -> ChoicePopup("Player ${player + 1} pak", "What's in the back of the controller.",
-            Pak.entries.map { Choice(pakValue(it, autoPak), pakDetail(it), it == setup.pak) }, close) { i ->
-            edit { editor.set(player, setup.copy(pak = Pak.entries[i])) }; close()
+            Pak.entries.map {
+                // Transfer Pak is set for one game: each game needs its own Game Boy game (screen 2).
+                val oneGame = it == Pak.Transfer && target == null
+                Choice(pakValue(it, autoPak), if (oneGame) "For one game: pick it in the chip" else pakDetail(it), it == setup.pak,
+                    enabled = !oneGame)
+            }, close) { i ->
+            val pak = Pak.entries[i]
+            edit { editor.set(player, setup.copy(pak = pak)) }
+            // Transfer Pak opens its setup (screen 4), also when it was already the pak.
+            popup = if (pak == Pak.Transfer) Popup.TransferSetup() else null
+        }
+        Popup.RumbleOnChoice -> ChoicePopup("Player ${player + 1} rumble", "Where the Rumble Pak's shaking goes.",
+            RumbleOn.entries.map { Choice(it.label, it.detail, it == setup.rumbleOn) }, close) { i ->
+            edit { editor.set(player, setup.copy(rumbleOn = RumbleOn.entries[i])) }; close()
+        }
+        is Popup.TransferSetup -> TransferSetupPopup(targetTitle ?: target ?: "", setup, p.row, close,
+            onGame = { popup = Popup.GbGame }, onSave = { popup = Popup.GbSave })
+        Popup.GbGame -> GameBoyListPopup(games = true, setup = setup, onDismiss = { popup = Popup.TransferSetup("game") }) { game, save ->
+            edit { editor.set(player, setup.copy(gbGame = game, gbSave = save)) }; popup = Popup.TransferSetup("game")
+        }
+        Popup.GbSave -> GameBoyListPopup(games = false, setup = setup, onDismiss = { popup = Popup.TransferSetup("save") }) { save, _ ->
+            edit { editor.set(player, setup.copy(gbSave = save)) }; popup = Popup.TransferSetup("save")
         }
         Popup.Games -> GamesForPopup("Controls for", "A game's own controls are used instead of All games when it starts.", target,
             gamesWithOwn = { editor.gamesWithOwn() }, changeCount = { editor.changeCount(it) }, removeLabel = "Remove the game's controls",
@@ -504,12 +553,33 @@ private fun deviceName(d: DeviceChoice) = when (d) {
     is DeviceChoice.Pad -> d.name
 }
 
-private fun pakValue(p: Pak, auto: Pak?) = if (p == Pak.Auto && auto != null) "Auto · ${auto.label}" else p.label
+private fun pakValue(p: Pak, auto: Pak?, setup: PlayerSetup? = null) = when {
+    p == Pak.Auto && auto != null -> "Auto · ${auto.label}"
+    // "Transfer Pak · Pokémon Gold (USA)" on the page (approved paks mockup screen 4a).
+    p == Pak.Transfer && setup != null -> "Transfer Pak · " + (setup.gbGame?.let { GameBoyFiles.title(it.name) } ?: "No game")
+    else -> p.label
+}
+
+/**
+ * Whether Rumble strength can do anything for [setup]'s motor: Android sets the strength only on motors with amplitude
+ * control; the others shake at full (the row says "Full only").
+ */
+private fun rumbleStrengthWorks(context: android.content.Context, dev: android.view.InputDevice?, setup: PlayerSetup): Boolean {
+    val pad = if (setup.rumbleOn == RumbleOn.Device || dev == null || setup.device == DeviceChoice.BuiltIn) null
+        else (if (android.os.Build.VERSION.SDK_INT >= 31) dev.vibratorManager.defaultVibrator else @Suppress("DEPRECATION") dev.vibrator)
+            .takeIf { it.hasVibrator() }
+    val sys = if (android.os.Build.VERSION.SDK_INT >= 31)
+        (context.getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE) as android.os.VibratorManager).defaultVibrator
+        else @Suppress("DEPRECATION") context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as android.os.Vibrator
+    val v = pad ?: sys.takeIf { it.hasVibrator() } ?: return true
+    return v.hasAmplitudeControl()
+}
 
 private fun pakDetail(p: Pak) = when (p) {
     Pak.Auto -> "The Rumble Pak for games that use one, else the Controller Pak"
     Pak.Controller -> "For games that save to the pak"
     Pak.Rumble -> "Vibrates the controller, or this device"
+    Pak.Transfer -> "Reads a Game Boy game, for the Pokémon Stadium games"
     Pak.None -> "Nothing in the back of the controller"
 }
 
@@ -851,7 +921,8 @@ private fun QuitGamePopup(editor: ControlsEditor, version: Int, startRow: String
 
 // ---- popups ----
 
-internal data class Choice(val label: String, val detail: String?, val on: Boolean, val value: String? = null, val experimental: Boolean = false)
+internal data class Choice(val label: String, val detail: String?, val on: Boolean, val value: String? = null, val experimental: Boolean = false,
+                            /** False: greyed, A does nothing (Transfer Pak on All games). */ val enabled: Boolean = true)
 
 @Composable
 private fun Tick() {
@@ -865,7 +936,7 @@ internal fun ChoicePopup(title: String, subtitle: String?, choices: List<Choice>
             PopupTitle(title, subtitle)
             choices.forEachIndexed { i, ch ->
                 JoeyRow(ch.label, Modifier.initialFocus(ch.on), value = ch.value, detail = ch.detail, experimental = ch.experimental,
-                    trailing = if (ch.on) { _ -> Tick() } else null) { onPick(i) }
+                    enabled = ch.enabled, trailing = if (ch.on) { _ -> Tick() } else null) { if (ch.enabled) onPick(i) }
             }
         }
     }

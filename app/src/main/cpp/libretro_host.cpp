@@ -74,6 +74,8 @@ struct Core {
 
 std::string g_systemDir, g_saveDir;
 std::string g_ddCart; // a 64DD disk's cartridge (NativeBridge.setDdCart), "" = the disk alone
+bool g_coreInited = false; // retro_init ran and retro_deinit hasn't (loadCore, the emulation thread's end)
+std::string g_tpakRom, g_tpakSave; // the Transfer Pak's Game Boy game and save (NativeBridge.setTransferPak), "" = none
 
 // A 64DD disk image by its extension (MainActivity unpacks disks under their own name for this).
 static bool isDiskPath(const char* p) {
@@ -1195,6 +1197,7 @@ void runLoop() {
     if (g_hw.context_destroy) g_hw.context_destroy();
     core.unload_game();
     core.deinit();
+    g_coreInited = false;
     g_audio.close();
     if (g_vulkan) g_vk.destroy();
     else g_egl.destroy();
@@ -1283,7 +1286,11 @@ JNIEXPORT jboolean JNICALL JNI(loadCore)(JNIEnv* env, jobject, jstring path, jst
     core.set_audio_sample_batch(audio_batch);
     core.set_input_poll(input_poll);
     core.set_input_state(input_state);
+    // A game screen whose start failed before the game ran (no ROM, loadGame refused) never reached the emulation
+    // thread's deinit: the core was still up, and the next screen's init failed (CoreStartup err=2, Thor 2026-11-08).
+    if (g_coreInited) { LOGI("core: still up from a start that failed, shutting it down first"); core.deinit(); }
     core.init();
+    g_coreInited = true;
     return JNI_TRUE;
 }
 
@@ -1466,6 +1473,11 @@ JNIEXPORT void JNICALL JNI(setDdCart)(JNIEnv* env, jobject, jstring path) {
     env->ReleaseStringUTFChars(path, s);
 }
 
+JNIEXPORT void JNICALL JNI(setTransferPak)(JNIEnv* env, jobject, jstring rom, jstring save) {
+    const char* r = env->GetStringUTFChars(rom, nullptr); g_tpakRom = r; env->ReleaseStringUTFChars(rom, r);
+    const char* s = env->GetStringUTFChars(save, nullptr); g_tpakSave = s; env->ReleaseStringUTFChars(save, s);
+}
+
 JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstring saveName) {
     g_loadStart = std::chrono::steady_clock::now();
     g_coreShutDown = false;
@@ -1536,6 +1548,13 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
         else if (!core.load_game_special) { LOGE("64DD: the core has no retro_load_game_special"); ok = false; }
         else if (!g_ddCart.empty() && buf.empty()) ok = false; // can't read the cartridge (logged above)
         else ok = core.load_game_special(1 /* RETRO_GAME_TYPE_DD */, dd, g_ddCart.empty() ? 1 : 2);
+    } else if (!g_tpakRom.empty() && core.load_game_special && !buf.empty()) {
+        // The Transfer Pak: the core's subsystem takes the Game Boy save, the Game Boy game and the cartridge, and
+        // reads the cartridge from its path itself; ports whose pak option is "transfer" get the Game Boy game.
+        retro_game_info tp[3] = { { g_tpakSave.c_str(), nullptr, 0, nullptr }, { g_tpakRom.c_str(), nullptr, 0, nullptr },
+                                  { p, nullptr, 0, nullptr } };
+        LOGI("Transfer Pak: Game Boy game %s, save %s", g_tpakRom.c_str(), g_tpakSave.c_str());
+        ok = core.load_game_special(2 /* RETRO_GAME_TYPE_TRANSFERPAK */, tp, 3);
     } else {
         ok = !buf.empty() && core.load_game(&info);
     }

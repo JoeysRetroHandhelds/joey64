@@ -2189,7 +2189,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // adb shell am broadcast -a com.joeysretro.joey64.DUMP --es name snap1  -> files/dumps/snap1.bin
         debugDump = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, i: Intent) {
-                val dir = File(getExternalFilesDir(null), "dumps").apply { mkdirs() }
+                // Internal storage: adb and run-as can't read the external files folder on the Flip.
+                val dir = File(filesDir, "dumps").apply { mkdirs() }
                 NativeBridge.dumpRam(File(dir, "${i.getStringExtra("name") ?: "ram"}.bin").absolutePath)
             }
         }

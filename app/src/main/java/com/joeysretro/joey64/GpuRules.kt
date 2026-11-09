@@ -74,6 +74,20 @@ object GpuRules {
         else -> Pick("gliden64", "stock driver not known to run parallel-RDP: GLideN64")
     }
 
+    /**
+     * Games Auto starts on GLideN64 (which brings the HLE RSP) where the GPU rule above gave parallel-RDP, by ROM MD5
+     * (the library's md5, RetroAchievements' N64 hash). Settings › Video › Renderer and --es renderer still win.
+     */
+    private val GLIDEN_GAMES = mapOf(
+        // SM64 Last Impact (hack), README bug queue (k), Joey 2026-11-09 "GLideN64 for it": with any LLE RSP (parallel
+        // RSP, cxd4) and with parallel-n64's HLE geometry the file-select pad and sign are cut, on every driver;
+        // GLideN64's HLE draws them whole, as M64Plus FZ does.
+        "70059d4d7ba7ac0f0741b44aec8b44dc" to "SM64 Last Impact: GLideN64 + HLE draws its file select whole",
+    )
+
+    /** Auto's per-game renderer, or null when the game has none. */
+    fun gameRenderer(md5: String?): Pick<String>? = md5?.lowercase()?.let { GLIDEN_GAMES[it] }?.let { Pick("gliden64", it) }
+
     /** Arm's little cores by /proc/cpuinfo "CPU part": Cortex-A32, A35, A53, A55. */
     private val LITTLE_PARTS = setOf(0xd01, 0xd04, 0xd03, 0xd05)
 

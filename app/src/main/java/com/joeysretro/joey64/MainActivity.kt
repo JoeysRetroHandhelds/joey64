@@ -504,18 +504,23 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // The trial's level 1 is the system driver (its renderer by the rule above); level 2, or level 1 when Auto was
         // already the system driver, is GLideN64 as well.
         val trialGl = trialPick != null && (level >= 2 || (level == 1 && auto.value == GpuRules.Driver.SYSTEM))
-        val parallel = rendererPick.value == "parallel" && !trialGl
+        val parallelForGpu = rendererPick.value == "parallel" && !trialGl
+        // A game Auto runs on GLideN64 (GpuRules.gameRenderer: SM64 Last Impact); the GPU's own pick still goes to
+        // Settings' "Auto · ..." below.
+        val gamePick = if (parallelForGpu) GpuRules.gameRenderer(earlyMd5()) else null
+        val parallel = parallelForGpu && gamePick == null
         if (gpu != null && gpu.vulkan11 && gpu.storage16 != 1) JLog.w(TAG, "GPU ${gpu.name}: no 16-bit storage buffers, parallel-RDP can't run")
         JLog.i(TAG, "GPU: ${gpu ?: "no Vulkan"}, driver ${if (custom != null) lib!!.relativeTo(gpuDriverDir).path else "system"}, " +
             "default renderer ${if (parallel) "parallel" else "gliden64"}")
         // Which rule picked what (README item 38 e: a tester's log says it).
         JLog.i(TAG, "GPU rules: family $systemFamily; Auto driver: ${auto.rule}; Auto renderer: ${rendererPick.rule}; " +
-            "trial: ${trialPick?.what ?: "off (driver or renderer not left on Auto)"}${if (trialGl) ", so GLideN64" else ""}")
+            "trial: ${trialPick?.what ?: "off (driver or renderer not left on Auto)"}${if (trialGl) ", so GLideN64" else ""}" +
+            (gamePick?.let { "; this game: ${it.rule}" } ?: ""))
         // What Auto picks here, for Settings › Video's "Auto · ..." (the launcher can't probe Vulkan itself):
         // the renderer by GPU, and the driver that ran when nothing but Auto chose it (a dev driver in
         // files/drivers counts: it is what Auto uses then).
         val prefs = getSharedPreferences("device", MODE_PRIVATE).edit()
-        prefs.putString("auto_renderer", if (parallel) "parallel" else "gliden64")
+        prefs.putString("auto_renderer", if (parallelForGpu) "parallel" else "gliden64")
         if (devString("driver") == null && videoDriver == null) prefs.putString("driver", when {
             custom == null -> "system"
             dev != null -> "custom"
@@ -771,6 +776,18 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         i.getStringExtra(EXTRA_SAVE_NAME)?.takeIf { it.isNotEmpty() }?.let { return cleanSaveName(it) }
         val file = i.getStringExtra(EXTRA_SOURCE_NAME) ?: (if (devBuild) i.getStringExtra("rom") else null) ?: i.data?.let { displayName(it) } ?: return null
         return saveName(file)
+    }
+
+    /**
+     * The game's MD5 before the ROM is loaded, for Auto's per-game renderer ([GpuRules.gameRenderer]): the launcher's
+     * EXTRA_MD5, else a handed-over or dev (`--es rom`) ROM hashed here; null when not known.
+     */
+    private fun earlyMd5(): String? {
+        intent?.getStringExtra(EXTRA_MD5)?.takeIf { it.isNotEmpty() }?.let { return it }
+        val path = handedRom()?.first
+            ?: devString("rom")?.let { n -> listOfNotNull(getExternalFilesDir(null), filesDir).map { File(it, "roms/$n") }.firstOrNull { it.exists() }?.path }
+            ?: return null
+        return romMd5(path)
     }
 
     /** The host's display state from [video]: shape, integer scaling, black frames, colour, sharpening. */

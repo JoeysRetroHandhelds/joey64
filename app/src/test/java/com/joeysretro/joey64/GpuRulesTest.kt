@@ -64,6 +64,14 @@ class GpuRulesTest {
         assertEquals("parallel", GpuRules.autoRenderer(true, true, false, f, GpuRules.littleCoresOnly(flip)).value)
     }
 
+    @Test fun lastImpactGetsGliden() {
+        // SM64 Last Impact by its MD5 (either case); plain SM64 and an unknown game have no per-game renderer
+        assertEquals("gliden64", GpuRules.gameRenderer("70059d4d7ba7ac0f0741b44aec8b44dc")?.value)
+        assertEquals("gliden64", GpuRules.gameRenderer("70059D4D7BA7AC0F0741B44AEC8B44DC")?.value)
+        assertEquals(null, GpuRules.gameRenderer("20b854b239203baf6c961b850a4a51a2"))
+        assertEquals(null, GpuRules.gameRenderer(null))
+    }
+
     @Test fun newFamilies() {
         // a marketing name gets its model, so Turnip
         assertEquals(613, GpuRules.family(adreno, "Adreno (TM) A12", null).model)

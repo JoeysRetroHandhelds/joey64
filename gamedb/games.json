@@ -161,7 +161,7 @@
         {"what": "PI DMA keeps bit 0 of the cart address (all ROMs not in the database)", "where": "core 22aa47a", "why": "ERET crash at boot in every libretro build; upstream PR libretro #675"}
       ],
       "issues": [
-        {"status": "open", "devices": "all", "what": "file-select screen: thin purple/yellow line across the platform, 'FILE 1' half drawn, floor bulging; may be how the hack looks: compare with M64Plus FZ / a console video", "evidence": "every compat run since 2026-11-03; Duo 2026-11-09 (duo-li-prdp, duo-li-gl, duo-li-gllle): the cut comes with the LLE RSP (parallel-RDP, or GLideN64 on the parallel RSP), GLideN64 with HLE draws the pad and sign whole (as FZ does). Per-game GLideN64 waits for Joey"}
+        {"status": "open", "devices": "all", "what": "file-select screen: far half of the platform and part of the SELECT A FILE sign hidden under the floor/board (near-equal depths); every LLE setup draws it so, only HLE draws it whole: likely how the hack looks on a console", "evidence": "every compat run since 2026-11-03; Duo 2026-11-09 (duo-li-prdp, duo-li-gl, duo-li-gllle): the cut comes with the LLE RSP (parallel-RDP, or GLideN64 on the parallel RSP), GLideN64 with HLE draws the pad and sign whole (as FZ does); 2026-11-09 Odin 3/Duo: parallel-RDP on the Qualcomm stock driver (duo-lis-sysprdp), ubershader / no small types / no subgroup (odin3-lis-*) and the cxd4 RSP (duo-lis-cxd4, odin3-lis-cxd4) all cut; the earlier 'stock driver whole' runs were GLideN64 + HLE (Auto's pick), so not a driver or parallel-RDP fault. Per-game GLideN64 + HLE waits for Joey"}
       ]
     },
     {

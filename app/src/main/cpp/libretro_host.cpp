@@ -1312,13 +1312,10 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
     else g_rdpSync = idIn(kSyncRdpGames);
     g_optionOverrides["mupen64plus-parallel-rdp-synchronous"] = g_rdpSync ? "True" : "False";
     g_optionsDirty = true;
-    // CPU core: the dynamic recompiler, except games it crashes. Sin and Punishment (the English patch):
-    // jumps to a bogus address right after boot; fine on the cached interpreter. --es opts wins.
-    static const char* const kInterpreterGames[] = {"NGU"};
+    // CPU core: the dynamic recompiler for every game (Sin and Punishment's English patch, the last game on the cached
+    // interpreter, runs on it since core 19eff8c compiles code in cartridge ROM). --es opts wins.
     if (!g_optionOverrides.count("mupen64plus-cpucore"))
-        g_optionOverrides["mupen64plus-cpucore"] =
-            std::any_of(std::begin(kInterpreterGames), std::end(kInterpreterGames),
-                        [&](const char* g) { return id.compare(0, 3, g) == 0; }) ? "cached_interpreter" : "dynamic_recompiler";
+        g_optionOverrides["mupen64plus-cpucore"] = "dynamic_recompiler";
     // Smoother timing: CountPerOp=1 (Project64's counter factor 1) for games that ran below their frame rate on
     // hardware, where MainActivity sets N64_SMOOTHER=1 (strong devices). Odin 3 (odin3-smooth): GoldenEye 49.7 -> 59.9,
     // Conker 21.4 -> 28.6, Mario Kart 64 26.5 -> 28.1, Yoshi's Story 28.6 -> 30.0 fps. --es opts wins.

@@ -86,11 +86,12 @@ object ExpansionPak {
 }
 
 /**
- * What Auto picks, for the popups' "Auto gives ..." line. The host decides it (libretro_host.cpp
- * kInterpreterGames and kSmootherGames); these copies are checked against it by EmuSettingsTest.
+ * What Auto picks, for the popups' "Auto gives ..." line. The host decides it (libretro_host.cpp: the recompiler
+ * for every game, and kSmootherGames); these copies are checked against it by EmuSettingsTest. No game needs the
+ * interpreter since Sin and Punishment runs on the recompiler (core 19eff8c), so the list is empty.
  */
 object EmuAuto {
-    val INTERPRETER_GAMES = setOf("NGU")
+    val INTERPRETER_GAMES = emptySet<String>()
     val SMOOTHER_GAMES = setOf("NGE", "NFU", "NKT", "NYS")
 
     fun cpuCore(gameCode: String?): String = if (gameCode?.take(3) in INTERPRETER_GAMES) "interpreter" else "recompiler"

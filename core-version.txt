@@ -1,7 +1,7 @@
 # The core bundled in app/src/main/jniLibs (written by devtools/bundle-core.sh; the .so itself is not committed)
 repo: JoeysRetroHandhelds/joey64-core
-branch: state-return
-commit: 92e7fbaa03f5ca541f73321e5bf776e219282d27 2026-11-08 13:39:45 -0600 Save states: go back to the frontend right after a save or load job
-uncommitted: new_dynarec.c (line ending only, no change with whitespace ignored)
-built: 2026-11-08 13:39
-md5: 16298e1dca8d89c8268aa560ae26618b
+branch: sp-dynarec
+commit: b27858f61e63106fef479e81722cc2196b18ceb7 2026-11-09 02:21:09 -0600 Elise (SM64 hack): CountPerOp 1 in the ini; at 2 or 3 its title stops part-way through the fa
+uncommitted: none
+built: 2026-11-09 02:22
+md5: e33d0279843fc2691a56f0d600788826

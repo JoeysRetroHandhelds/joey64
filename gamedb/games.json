@@ -68,10 +68,10 @@
     {
       "id": "NGU", "title": "Sin and Punishment (English patch)",
       "settings": [
-        {"what": "cached interpreter instead of the dynarec", "where": "libretro_host.cpp kInterpreterGames", "why": "new_dynarec jumps to a bogus address right after boot since upstream's 3.0 core update"}
+        {"what": "runs on the recompiler (the cached interpreter setting dropped 2026-11-09)", "where": "core 19eff8c new_dynarec", "why": "its English patch runs a hook at the end of its 32 MB ROM; the recompiler now compiles code in cartridge ROM instead of exiting"}
       ],
       "issues": [
-        {"status": "open", "devices": "all", "what": "find the dynarec commit that broke it, fix, report upstream (then drop the interpreter setting)", "evidence": "README Sin and Punishment item"}
+        {"status": "fixed", "devices": "all", "what": "new_dynarec jumped to a bogus address right after boot (code in cartridge ROM); fixed in core 19eff8c, spfix2/spfix3 compat 82/82 on all four devices; an upstream report only on Joey's go", "evidence": "README Sin and Punishment item"}
       ]
     },
     {

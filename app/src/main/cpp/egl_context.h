@@ -4,6 +4,7 @@
 #include <android/native_window.h>
 #include <cstdint>
 #include <vector>
+#include "libra.h"
 
 // Owns the EGL display/context and an offscreen FBO the core renders into.
 // Each frame the FBO is blitted to the window surface (handles scaling/letterbox).
@@ -63,4 +64,11 @@ private:
     void drawLook(GLuint picTex, const float* picUv, int imgW, int imgH, int coreH, int winW, int winH,
                   int x, int y, int w, int h);
     void destroyLook();
+    // Dev test N64_SLANGP (libra.h): the picture copied upright into libraIn (its own size), the preset
+    // draws libraOut at the shown size, which is blitted in. Replaces colour and the Picture pass while on.
+    LibraGl libra_;
+    GLuint libraInTex_ = 0, libraInFbo_ = 0, libraOutTex_ = 0, libraOutFbo_ = 0;
+    int libraInW_ = 0, libraInH_ = 0, libraOutW_ = 0, libraOutH_ = 0;
+    bool drawLibra(int srcW, int srcH, bool bottomLeftOrigin, int x, int y, int dstW, int dstH);
+    void destroyLibra();
 };

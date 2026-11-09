@@ -14,6 +14,7 @@
 #include "libretro_vulkan.h"
 #include "vk_post.h"
 #include "vk_look.h"
+#include "libra.h"
 
 // Vulkan frontend for libretro cores that render with RETRO_HW_CONTEXT_VULKAN (parallel-RDP).
 // Owns the instance, surface and swapchain; the device comes from the core's negotiation
@@ -177,6 +178,14 @@ private:
     VkPost post_;
     // Settings › Video's Shader, Sides of the picture, Overlay and colour-blind help (vk_look.h).
     VkLook look_;
+    // Dev test N64_SLANGP: a RetroArch preset through librashader (libra.h), drawn into libraImage_ at
+    // the picture's shown size, then blitted in. Replaces the colour and Picture passes while on.
+    LibraVk libra_;
+    VkImage libraImage_ = VK_NULL_HANDLE;
+    VkDeviceMemory libraMem_ = VK_NULL_HANDLE;
+    uint32_t libraW_ = 0, libraH_ = 0;
+    bool ensureLibraImage(uint32_t w, uint32_t h);
+    void destroyLibraImage();
 
     // State handed over by the core for the next video_refresh.
     retro_vulkan_image image_{};

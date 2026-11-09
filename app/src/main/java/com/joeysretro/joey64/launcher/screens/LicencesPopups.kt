@@ -105,6 +105,11 @@ val OSS_ENTRIES = listOf(
         listOf("libadrenotools.txt"), "loads the driver"),
     OssEntry("App", "FidelityFX CAS, FSR 1", "MIT", "MIT", "github.com/GPUOpen-Effects",
         listOf("amd-fidelityfx.txt"), "Sharpening"),
+    // Its own .so, built from v0.12.1 (CLAUDE.md, "librashader"); the notice lists every Rust crate built into it.
+    OssEntry("App", "librashader", "MPL 2.0", "Mozilla Public License 2.0", "github.com/SnowflakePowered/librashader",
+        listOf("librashader.txt", "mpl-2.0.txt", "apache-2.0.txt"), "RetroArch presets"),
+    OssEntry("App", "libc++ (LLVM)", "Apache 2.0", "Apache 2.0 with LLVM Exceptions", "libcxx.llvm.org",
+        listOf("llvm-libcxx.txt", "apache-2.0.txt"), "for librashader"),
     OssEntry("App", "Rubik font", "OFL 1.1", "SIL Open Font License 1.1", "github.com/googlefonts/rubik",
         listOf("rubik-ofl.txt")),
     OssEntry("App", "Tabler Icons", "MIT", "MIT", "tabler.io/icons",

@@ -176,6 +176,8 @@ private sealed interface Popup {
     data class TransferSetup(val row: String = "game") : Popup
     data object GbGame : Popup
     data object GbSave : Popup
+    /** Game Boy folders (approved Game Boy folder mockup 2026-11-08); B goes back to the list it came from. */
+    data class GbFolders(val games: Boolean) : Popup
     data object Games : Popup
     data object PickGame : Popup
     data object Diagram : Popup
@@ -486,12 +488,15 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
         }
         is Popup.TransferSetup -> TransferSetupPopup(targetTitle ?: target ?: "", setup, p.row, close,
             onGame = { popup = Popup.GbGame }, onSave = { popup = Popup.GbSave })
-        Popup.GbGame -> GameBoyListPopup(games = true, setup = setup, onDismiss = { popup = Popup.TransferSetup("game") }) { game, save ->
+        Popup.GbGame -> GameBoyListPopup(games = true, setup = setup, onDismiss = { popup = Popup.TransferSetup("game") },
+            onFolders = { popup = Popup.GbFolders(true) }) { game, save ->
             edit { editor.set(player, setup.copy(gbGame = game, gbSave = save)) }; popup = Popup.TransferSetup("game")
         }
-        Popup.GbSave -> GameBoyListPopup(games = false, setup = setup, onDismiss = { popup = Popup.TransferSetup("save") }) { save, _ ->
+        Popup.GbSave -> GameBoyListPopup(games = false, setup = setup, onDismiss = { popup = Popup.TransferSetup("save") },
+            onFolders = { popup = Popup.GbFolders(false) }, onDefaultSave = { save -> edit { editor.set(player, setup.copy(gbSave = save)) } }) { save, _ ->
             edit { editor.set(player, setup.copy(gbSave = save)) }; popup = Popup.TransferSetup("save")
         }
+        is Popup.GbFolders -> GameBoyFoldersPopup { popup = if (p.games) Popup.GbGame else Popup.GbSave }
         Popup.Games -> GamesForPopup("Controls for", "A game's own controls are used instead of All games when it starts.", target,
             gamesWithOwn = { editor.gamesWithOwn() }, changeCount = { editor.changeCount(it) }, removeLabel = "Remove the game's controls",
             onDismiss = close, onPick = { save, title -> target = save; targetTitle = title; close() },

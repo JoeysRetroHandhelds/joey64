@@ -693,7 +693,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                 } else {
                     if (!listed) {
                         db.forgetFolder(tree)
-                        if (tree != com.joeysretro.joey64.launcher.storage.DataFolders.treeUri(app)) try { RomFolders.release(app, folder) } catch (e: Exception) {}
+                        if (tree != com.joeysretro.joey64.launcher.storage.DataFolders.treeUri(app) && tree !in settings.settings.first().gbFolders) try { RomFolders.release(app, folder) } catch (e: Exception) {}
                     }
                     null
                 }

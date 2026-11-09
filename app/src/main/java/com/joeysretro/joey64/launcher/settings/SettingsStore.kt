@@ -27,6 +27,8 @@ data class LauncherSettings(
     val popupTheme: PopupTheme = PopupTheme.Dark,
     /** Tree URIs of the picked ROM folders. */
     val romFolders: Set<String> = emptySet(),
+    /** Tree URIs of the Game Boy folders, read only (Transfer Pak; approved Game Boy folder mockup 2026-11-08). */
+    val gbFolders: Set<String> = emptySet(),
     /** Tree URI of the picked data folder; null = Joey64's own storage. */
     val dataFolder: String? = null,
     /** Decision 3: both on by default (Joey, 2026-11-05). */
@@ -65,6 +67,7 @@ class SettingsStore(context: Context) {
             theme = p[THEME]?.let { name -> ThemeChoice.entries.firstOrNull { it.name == name } } ?: ThemeChoice.Dark,
             popupTheme = p[POPUP_THEME]?.let { name -> PopupTheme.entries.firstOrNull { it.name == name } } ?: PopupTheme.Dark,
             romFolders = p[ROM_FOLDERS] ?: emptySet(),
+            gbFolders = p[GB_FOLDERS] ?: emptySet(),
             dataFolder = p[DATA_FOLDER],
             downloadBoxArt = p[BOX_ART] ?: true,
             downloadCheats = p[CHEATS] ?: true,
@@ -88,6 +91,8 @@ class SettingsStore(context: Context) {
     suspend fun setPopupTheme(choice: PopupTheme) = store.edit { it[POPUP_THEME] = choice.name }
     suspend fun addRomFolder(treeUri: String) = store.edit { it[ROM_FOLDERS] = (it[ROM_FOLDERS] ?: emptySet()) + treeUri }
     suspend fun removeRomFolder(treeUri: String) = store.edit { it[ROM_FOLDERS] = (it[ROM_FOLDERS] ?: emptySet()) - treeUri }
+    suspend fun addGbFolder(treeUri: String) = store.edit { it[GB_FOLDERS] = (it[GB_FOLDERS] ?: emptySet()) + treeUri }
+    suspend fun removeGbFolder(treeUri: String) = store.edit { it[GB_FOLDERS] = (it[GB_FOLDERS] ?: emptySet()) - treeUri }
     suspend fun setDataFolder(treeUri: String?) = store.edit { if (treeUri == null) it.remove(DATA_FOLDER) else it[DATA_FOLDER] = treeUri }
     suspend fun setDownloadBoxArt(on: Boolean) = store.edit { it[BOX_ART] = on }
     suspend fun setDownloadCheats(on: Boolean) = store.edit { it[CHEATS] = on }
@@ -109,6 +114,7 @@ class SettingsStore(context: Context) {
         val THEME = stringPreferencesKey("theme")
         val POPUP_THEME = stringPreferencesKey("popup_theme")
         val ROM_FOLDERS = stringSetPreferencesKey("rom_folders")
+        val GB_FOLDERS = stringSetPreferencesKey("gb_folders")
         val DATA_FOLDER = stringPreferencesKey("data_folder")
         val BOX_ART = booleanPreferencesKey("download_box_art")
         val CHEATS = booleanPreferencesKey("download_cheats")

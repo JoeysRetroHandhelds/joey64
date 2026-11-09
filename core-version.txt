@@ -1,7 +1,7 @@
 # The core bundled in app/src/main/jniLibs (written by devtools/bundle-core.sh; the .so itself is not committed)
 repo: JoeysRetroHandhelds/joey64-core
-branch: state-return
-commit: 92e7fbaa03f5ca541f73321e5bf776e219282d27 2026-11-08 13:39:45 -0600 Save states: go back to the frontend right after a save or load job
-uncommitted: new_dynarec.c (line ending only, no change with whitespace ignored)
-built: 2026-11-08 13:39
-md5: 16298e1dca8d89c8268aa560ae26618b
+branch: tpak-ports
+commit: dbe17c2e012d1e337206c9f4e598f6eedbe61438 2026-11-09 16:18:48 -0600 Transfer Pak: each port its own Game Boy game and save (N64_TPAK_ROM_<n> / N64_TPAK_RAM_<n>, 
+uncommitted: none
+built: 2026-11-09 16:18
+md5: 5ea912f7f37fcc60eec7151e7d4689ff

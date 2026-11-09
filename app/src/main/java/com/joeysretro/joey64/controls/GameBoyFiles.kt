@@ -166,8 +166,10 @@ object GameBoyFiles {
         }
     } catch (e: Exception) { JLog.e(TAG, "can't copy the Game Boy game $name: $e"); null }
 
-    /** The Game Boy save copy's name in `saves/` for a play of [saveName]. */
-    fun saveFileName(saveName: String) = "$saveName.gb.sav"
+    /** The Game Boy save copy's name in `saves/` for [player] (1-4) in a play of [saveName]; player 1 keeps the name
+     *  it had when only one Game Boy game went in (README work order (44)). */
+    fun saveFileName(saveName: String, player: Int = 1) = "${tag(saveName, player)}.gb.sav"
+    private fun tag(saveName: String, player: Int) = if (player <= 1) saveName else "$saveName.p$player"
 
     /**
      * Joey64's own copy of the Game Boy save for a play of [saveName] (the N64 game): files/saves/<saveName>.gb.sav, with
@@ -175,20 +177,21 @@ object GameBoyFiles {
      * URI) is copied in when it isn't the one copied last (files/transferpak/<saveName>.source says which); none picked
      * keeps whatever copy there is, or the core starts a new one. Returns the copy's path.
      */
-    fun saveCopy(context: Context, saveName: String, save: String?): File {
+    fun saveCopy(context: Context, saveName: String, save: String?, player: Int = 1): File {
         val dir = File(context.filesDir, "transferpak").apply { mkdirs() }
-        val copy = File(File(context.filesDir, "saves").apply { mkdirs() }, saveFileName(saveName))
+        val copy = File(File(context.filesDir, "saves").apply { mkdirs() }, saveFileName(saveName, player))
         // Built 2026-11-08 with the copy in files/transferpak/<saveName>.sav: moved once.
-        File(dir, "$saveName.sav").let { old -> if (old.exists() && !copy.exists() && !old.renameTo(copy)) { old.copyTo(copy); old.delete() } }
-        val source = File(dir, "$saveName.source")
+        if (player <= 1) File(dir, "$saveName.sav").let { old -> if (old.exists() && !copy.exists() && !old.renameTo(copy)) { old.copyTo(copy); old.delete() } }
+        val t = tag(saveName, player)
+        val source = File(dir, "$t.source")
         val from = save ?: "new"
         if (source.takeIf { it.exists() }?.readText() != from) {
             // The copy played until now isn't lost: it stays as <saveName>.prev.sav (one back).
-            if (copy.exists()) copy.copyTo(File(dir, "$saveName.prev.sav"), true)
+            if (copy.exists()) copy.copyTo(File(dir, "$t.prev.sav"), true)
             if (save == null) copy.delete()
             else try {
                 context.contentResolver.openInputStream(Uri.parse(save))?.use { s ->
-                    val tmp = File(dir, "$saveName.sav.tmp")
+                    val tmp = File(dir, "$t.sav.tmp")
                     tmp.outputStream().use { s.copyTo(it) }
                     if (!tmp.renameTo(copy)) { tmp.copyTo(copy, true); tmp.delete() }
                 }

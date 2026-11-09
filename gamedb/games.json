@@ -85,6 +85,7 @@
       ],
       "notes": [
         "input delay steady 18-24 ms (Smash 16-18); an earlier 54-83 ms was an averaging artifact",
+        "widescreen: its own Options › Video › Ratio 16:9 (saved per agent file) plus the app's 16:9 picture (N64_ASPECT=16:9 until Aspect ratio Auto knows it) is right on parallel-RDP: Portal 2026-11-09, Carrington Institute, proportions correct and wider view, 60 emu fps; no widescreen code needed (README item 33 group a)",
         "Flip slow frames are a first-run dynarec compile burst (2009 blocks / 273 ms in one window), like MK64",
         "100-140 ms boot frames on the Flip"
       ]

@@ -98,6 +98,9 @@ fun SavesScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onPlay: (String) ->
     var version by remember { mutableIntStateOf(0) }
     var popup by remember { mutableStateOf<SvPopup?>(null) }
     var focused by remember { mutableStateOf("bu") }
+    // Back up now's pop-up (approved mockup 2026-11-08, build_backupmsg.py): (made a new one, the time it names); 3 s like Profiles loaded.
+    var backedUp by remember { mutableStateOf<Pair<Boolean, Long>?>(null) }
+    LaunchedEffect(backedUp) { if (backedUp != null) { kotlinx.coroutines.delay(3_000L); backedUp = null } }
     val landing = LocalFocusLanding.current
     // Back from a game played from here: its states and save changed.
     LifecycleResumeEffect(Unit) { version++; onPauseOrDispose { } }
@@ -119,6 +122,7 @@ fun SavesScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onPlay: (String) ->
     val now = System.currentTimeMillis()
     val d = data
     val name = shortName(g.game.title)
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().padding(horizontal = s.margin).padding(top = 14.dp, bottom = 8.dp)) {
         PageHeader("Saves") { InfoChip(g.game.title, R.drawable.ic_device_floppy) }
         Spacer(Modifier.height(12.dp))
@@ -131,7 +135,15 @@ fun SavesScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onPlay: (String) ->
         TwoColumns(Modifier.weight(1f), left = {
             SectionLabel("In-game save")
             JoeyRow("Back up now", Modifier.initialFocus(at == "bu"), enabled = hasSave,
-                onFocused = { if (it) focused = "bu" }) { if (hasSave) work { manager.backUpNow() } }
+                onFocused = { if (it) focused = "bu" }) {
+                if (hasSave) scope.launch {
+                    val made = withContext(Dispatchers.IO) { manager.backUpNow().isNotEmpty() }
+                    // Nothing new: the save matches its newest backup, whose time the pop-up names.
+                    val at = if (made) System.currentTimeMillis() else withContext(Dispatchers.IO) { manager.backups().firstOrNull()?.at } ?: System.currentTimeMillis()
+                    backedUp = made to at
+                    changed()
+                }
+            }
             JoeyRow("Restore a backup", Modifier.initialFocus(at == "rs"), value = if (hasBackups) "${d.backups.size}  ›" else null, enabled = hasBackups,
                 onFocused = { if (it) focused = "rs" }) { if (hasBackups) popup = SvPopup.Restore }
             JoeyRow("Delete save", Modifier.initialFocus(at == "del"), enabled = hasSave,
@@ -192,6 +204,12 @@ fun SavesScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onPlay: (String) ->
             }
         }
         DescriptionLine(title, text)
+    }
+    backedUp?.let { (made, at) ->
+        com.joeysretro.joey64.launcher.components.JoeyToast(R.drawable.ic_circle_check, "Saves", if (made) "Backed up" else "Already backed up",
+            if (made) "$name · ${SlotDates.withTime(at, now)}" else "Same as the backup from ${SlotDates.withTime(at, now)}",
+            Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 16.dp), iconTint = if (made) null else c.textDim)
+    }
     }
 
     val hints = listOf(Hint("A", "Select"), Hint("B", "Close"))

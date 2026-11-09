@@ -176,8 +176,11 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
                     enabled = enabled, sideways = true, dot = dot(key), experimental = true, onFocused = { if (it) focused = id }) { popup = VPopup.Extra(k) }
             }
             row("int", "Integer scaling", VideoKey.Integer)
-            row("ori", "Screen orientation", VideoKey.Orientation)
-            row("cut", "Fill the camera cutout", VideoKey.Cutout)
+            // A TV is always landscape and has no camera hole (Android TV mockup 2026-11-09, screen 7).
+            if (!remember { com.joeysretro.joey64.launcher.layout.Tv.isTv(context) }) {
+                row("ori", "Screen orientation", VideoKey.Orientation)
+                row("cut", "Fill the camera cutout", VideoKey.Cutout)
+            }
         }) {
             SectionLabel("Look")
             val colourDefault = COLOUR_ROW_KEYS.all { v[it] == it.default }

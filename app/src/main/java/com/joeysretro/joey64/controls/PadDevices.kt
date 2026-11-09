@@ -56,9 +56,14 @@ object PadDevices {
         return if (keep == null) s else s.copy(stick = keep.stick, deadZone = keep.deadZone, pak = keep.pak, feel = keep.feel)
     }
 
-    /** The first-run set: player 1 on this device's own pad, mapped for its face buttons (the Odin 3 has Nintendo labels). */
-    fun firstSet(): ControlsSet {
+    /**
+     * The first-run set: player 1 on this device's own pad, mapped for its face buttons (the Odin 3 has Nintendo labels).
+     * A TV has none, so player 1 starts with None and the first controller that connects is theirs (Android TV mockup
+     * 2026-11-09, screen 7).
+     */
+    fun firstSet(tv: Boolean = false): ControlsSet {
         val d = ControlsSet.defaults()
+        if (tv && builtIn() == null) return d.with(0, AutoMap.byPosition(DeviceChoice.None, AutoMap.FaceCodes.POSITION))
         return d.with(0, autoSetup(builtIn(), DeviceChoice.BuiltIn))
     }
 }

@@ -124,12 +124,20 @@ object ControlBus {
  *  - Everything else (the D-pad, a remote's centre and Back) passes through to the focus system.
  *  - A pad button that isn't mapped is logged once, so a new device names itself.
  */
-class KeyNormaliser(private val superDispatch: (KeyEvent) -> Boolean) {
+class KeyNormaliser(private val tv: () -> Boolean = { false }, private val superDispatch: (KeyEvent) -> Boolean) {
     private var centerDownTime = -1L
     private val loggedUnknownKeys = mutableSetOf<Int>()
+    private val okHold = com.joeysretro.joey64.launcher.layout.RemoteKeys.OkHold()
 
     fun dispatch(event: KeyEvent): Boolean {
         if (PadCapture.swallowRelease(event)) return true // a remap popup took this button
+        val isTv = tv()
+        com.joeysretro.joey64.launcher.layout.RemoteKeys.note(event, isTv)
+        // A TV remote's OK (approved Android TV mockup 2026-11-09, screen 4): a press on release, Hold OK is Start.
+        if (isTv && okHold.handle(event, click = {
+                superDispatch(com.joeysretro.joey64.launcher.layout.RemoteKeys.synth(KeyEvent.ACTION_DOWN))
+                superDispatch(com.joeysretro.joey64.launcher.layout.RemoteKeys.synth(KeyEvent.ACTION_UP))
+            }, hold = { ControlBus.dispatch(Control.Options) })) return true
         Controls.translate(event.keyCode)?.let { keyCode ->
             if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER) {
                 if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) centerDownTime = event.downTime

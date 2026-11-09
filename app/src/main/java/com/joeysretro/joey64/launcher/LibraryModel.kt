@@ -662,7 +662,32 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         if (code != null) {
             JLog.i(TAG, "${game.title} needs the $code cartridge, which isn't in the library: asking for it")
             _needsCart.value = NeedsCart(game, code, intent.getStringExtra(com.joeysretro.joey64.MainActivity.EXTRA_LOAD_STATE))
+        } else startNow(game, intent, start)
+    }
+
+    /** A game ready to go: started, unless it's a TV with no controller connected (then [needsController] asks for one). */
+    private fun startNow(game: LibraryGame, intent: Intent, start: (Intent) -> Unit) {
+        val app = getApplication<Application>()
+        if (com.joeysretro.joey64.launcher.layout.Tv.isTv(app) && !com.joeysretro.joey64.launcher.layout.Tv.controllerConnected(app)) {
+            JLog.i(TAG, "${game.title}: a TV with no controller connected, asking for one")
+            _needsController.value = NeedsController(game, intent)
         } else { started(game); start(intent) }
+    }
+
+    /** Android TV (approved mockup 2026-11-09, screen 6): Play on a TV with only the remote. */
+    data class NeedsController(val game: LibraryGame, val intent: Intent)
+    private val _needsController = MutableStateFlow<NeedsController?>(null)
+    val needsController: StateFlow<NeedsController?> = _needsController
+
+    /** Not now (or B): nothing starts. */
+    fun controllerCancelled() { _needsController.value = null }
+
+    /** A controller is connected while the question is up: the game starts. */
+    fun controllerConnected(start: (Intent) -> Unit) {
+        val ask = _needsController.value ?: return
+        _needsController.value = null
+        JLog.i(TAG, "${ask.game.title}: a controller connected, starting")
+        started(ask.game); start(ask.intent)
     }
 
     /**
@@ -700,7 +725,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
             }
             _all.value = withContext(Dispatchers.IO) { db.libraryGames() }
             if (intent != null) {
-                _needsCart.value = null; started(ask.game); start(intent)
+                _needsCart.value = null; startNow(ask.game, intent, start)
             } else _needsCart.value = ask.copy(missed = true)
         }
     }

@@ -152,7 +152,7 @@ These are actions other apps can bind that Joey64 can't.
 | Picture-in-picture | Eden | Low | new |
 | Home-screen shortcuts | many | Med | planned later |
 | ROM patches (.ips, .bps) | RA | Med | planned later |
-| Android TV | Dolphin, FZ | Med | planned |
+| Android TV | Dolphin, FZ | Med | built 2026-11-09 (banner A, safe area, remote) |
 | Netplay | FZ, RA, PPSSPP | Med | planned |
 | Cheat search | Project64, DuckStation | Low | planned later |
 

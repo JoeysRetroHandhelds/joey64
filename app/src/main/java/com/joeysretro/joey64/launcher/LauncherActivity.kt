@@ -77,12 +77,19 @@ class LauncherActivity : ComponentActivity() {
         @Volatile var started = false
     }
 
-    private val keys = KeyNormaliser { super.dispatchKeyEvent(it) }
+    private val isTv by lazy { com.joeysretro.joey64.launcher.layout.Tv.isTv(this) }
+    private val keys = KeyNormaliser(tv = { isTv }) { super.dispatchKeyEvent(it) }
     private val model: LibraryModel by viewModels()
     private val importModel: ImportModel by viewModels()
     private val updates: UpdateModel by viewModels()
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean = keys.dispatch(event)
+
+    // A controller's stick moved: its hints again (a TV remote has no stick).
+    override fun dispatchGenericMotionEvent(event: android.view.MotionEvent): Boolean {
+        if (isTv && event.isFromSource(android.view.InputDevice.SOURCE_JOYSTICK)) com.joeysretro.joey64.launcher.layout.RemoteKeys.padMoved()
+        return super.dispatchGenericMotionEvent(event)
+    }
 
     private var raFake: android.content.BroadcastReceiver? = null
     private var debugShow: android.content.BroadcastReceiver? = null
@@ -180,7 +187,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
         LaunchedEffect(Unit) { inputMode.requestInputMode(InputMode.Keyboard) }
 
         // The whole window's shape decides the layout (one column, the bottom bar); debug builds can set another size.
-        com.joeysretro.joey64.launcher.layout.DevFrame { ProvideScreenLayout(Modifier.fillMaxSize()) {
+        com.joeysretro.joey64.launcher.layout.DevFrame { com.joeysretro.joey64.launcher.layout.TvSafeArea(JoeyTheme.colors.page) { ProvideScreenLayout(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().background(JoeyTheme.colors.page)) {
             if (s == null) return@Column
             val folders = s.romFolders.map { it.toUri() }
@@ -281,8 +288,9 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                 else -> listOf(Hint("A", "Play"), Hint("Start", "Options"), Hint("Y", "Search"))
             })
             if (home) updates.prompt.collectAsStateWithLifecycle().value?.let { UpdatePopup(it, updates) }
+            com.joeysretro.joey64.launcher.screens.NeedsControllerPopup(model)
         }
-        } }
+        } } }
     }
 }
 

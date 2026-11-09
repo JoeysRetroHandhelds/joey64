@@ -1300,7 +1300,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             for (p in earlyPops) it.show(p)
             earlyPops.clear()
         }
-        touch = com.joeysretro.joey64.touch.TouchLayer(this, touchHost)
+        // No touchscreen (a TV): no touch controls (Android TV mockup 2026-11-09, screen 7).
+        if (com.joeysretro.joey64.launcher.layout.Tv.hasTouch(this)) touch = com.joeysretro.joey64.touch.TouchLayer(this, touchHost)
         applyTouch(fresh = true)
         // RetroAchievements no longer takes the kept sign-in (the password changed on the website): say so
         // once the game is up (approved sign-in mockup g). Signing in again is in Settings › RetroAchievements.
@@ -2253,7 +2254,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     /** Reads the controls for [saveName] and sets the core's ports, paks and input options. Before loadGame. */
     private fun applyControls(rom: String, saveName: String) {
-        if (!controlsStore.hasAll()) controlsStore.saveAll(PadDevices.firstSet())
+        if (!controlsStore.hasAll()) controlsStore.saveAll(PadDevices.firstSet(com.joeysretro.joey64.launcher.layout.Tv.isTv(this)))
         controls = controlsStore.forGame(saveName.ifEmpty { null })
         hotkeys = controlsStore.hotkeys()
         applyRewind()

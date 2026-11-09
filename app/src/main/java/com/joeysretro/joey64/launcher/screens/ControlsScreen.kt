@@ -216,7 +216,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
     val c = JoeyTheme.colors
     val s = JoeyTheme.spacing
     val store = remember { ControlsStore(context) }
-    LaunchedEffect(Unit) { if (!store.hasAll()) store.saveAll(PadDevices.firstSet()) }
+    LaunchedEffect(Unit) { if (!store.hasAll()) store.saveAll(PadDevices.firstSet(com.joeysretro.joey64.launcher.layout.Tv.isTv(context))) }
     var target by remember { mutableStateOf(game) }
     var targetTitle by remember { mutableStateOf(gameTitle) }
     val editor = remember(target) {
@@ -355,7 +355,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
                 PageChip("View controller", R.drawable.ic_eye, onFocused = { if (it) focused = "chipView" }) { popup = Popup.Diagram }
                 PageChip("Profiles", R.drawable.ic_bookmark, onFocused = { if (it) focused = "chipProfiles" }) { if (!off) popup = Popup.Profiles }
                 // Touch controls are Player 1's (approved mockup 2026-11-09, screen 7).
-                if (player == 0) PageChip("Touch controls", R.drawable.ic_hand_click, modifier = Modifier.initialFocus(focused == "chipTouch"),
+                if (player == 0 && remember { com.joeysretro.joey64.launcher.layout.Tv.hasTouch(context) }) PageChip("Touch controls", R.drawable.ic_hand_click, modifier = Modifier.initialFocus(focused == "chipTouch"),
                     onFocused = { if (it) focused = "chipTouch" }) { touchOpen = true; focused = com.joeysretro.joey64.touch.TouchSettings.ROW_SHOW }
             }
             TwoColumns(Modifier.weight(1f), left = {
@@ -525,9 +525,14 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             // Transfer Pak opens its setup (screen 4), also when it was already the pak.
             popup = if (pak == Pak.Transfer) Popup.TransferSetup() else null
         }
-        Popup.RumbleOnChoice -> ChoicePopup("Player ${player + 1} rumble", "Where the Rumble Pak's shaking goes.",
-            RumbleOn.entries.map { Choice(it.label, it.detail, it == setup.rumbleOn) }, close) { i ->
-            edit { editor.set(player, setup.copy(rumbleOn = RumbleOn.entries[i])) }; close()
+        Popup.RumbleOnChoice -> {
+            // A TV has no motor of its own: no This device (Android TV mockup 2026-11-09, screen 7).
+            val motor = com.joeysretro.joey64.launcher.layout.Tv.hasVibrator(context)
+            val ons = if (motor) RumbleOn.entries else RumbleOn.entries.filter { it != RumbleOn.Device }
+            ChoicePopup("Player ${player + 1} rumble", "Where the Rumble Pak's shaking goes.",
+                ons.map { Choice(it.label, if (!motor && it == RumbleOn.Controller) "Its own motor" else it.detail, it == setup.rumbleOn) }, close) { i ->
+                edit { editor.set(player, setup.copy(rumbleOn = ons[i])) }; close()
+            }
         }
         is Popup.TransferSetup -> TransferSetupPopup(targetTitle ?: target ?: "", setup, p.row, close,
             onGame = { popup = Popup.GbGame }, onSave = { popup = Popup.GbSave })

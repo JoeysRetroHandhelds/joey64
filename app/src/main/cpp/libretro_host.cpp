@@ -154,6 +154,8 @@ bool g_raReplay = false, g_raMute = false, g_raHide = false;
 // (repeat frames are skipped), that picture is the one to show: else games that draw 20-30 a second froze
 // (Pokemon Snap showed nothing new, Mario Kart 64 7 frames a second; Thor 2026-11-09).
 bool g_raFresh = false;
+// g_raState: run-ahead is taking or putting back its state (GET_SAVESTATE_CONTEXT answers RUNAHEAD_SAME_INSTANCE).
+bool g_raState = false;
 // Dev lag probe (N64_LAG_PROBE=<frame>[/0]): presses N64 A for 20 frames from that many frames after N64_STATE
 // loads (/0: no press, the baseline) and logs a hash of each shown frame around it, to count frames to a response.
 int g_probeMask = 0;
@@ -455,6 +457,14 @@ bool environment(unsigned cmd, void* data) {
     }
     case RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE:
         static_cast<retro_rumble_interface*>(data)->set_rumble_state = setRumble; return true;
+    case RETRO_ENVIRONMENT_GET_SAVESTATE_CONTEXT:
+        // run-ahead's state goes back into this same core within the frame (the core may keep part of it itself)
+        if (data) *static_cast<int*>(data) = g_raState ? RETRO_SAVESTATE_CONTEXT_RUNAHEAD_SAME_INSTANCE : RETRO_SAVESTATE_CONTEXT_NORMAL;
+        return true;
+    case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE:
+        // bit 0 video, bit 1 audio, bit 3 (hard disable audio): run-ahead's extra frames, which are rolled back
+        if (data) *static_cast<int*>(data) = (g_raHide ? 0 : 1) | (g_raMute ? 0 : 2) | (g_raReplay ? 8 : 0);
+        return true;
     case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
         *static_cast<bool*>(data) = g_optionsDirty.exchange(false); return true;
     case RETRO_ENVIRONMENT_SET_VARIABLES: {
@@ -998,7 +1008,7 @@ void runLoop() {
     const int runAhead = getenv("N64_RUNAHEAD") ? std::clamp(atoi(getenv("N64_RUNAHEAD")), 0, 4) : 0;
     if (runAhead) LOGI("run-ahead: %d frame%s", runAhead, runAhead > 1 ? "s" : "");
     std::vector<uint8_t> raState;
-    double raSaveMs = 0, raLoadMs = 0, raExtraMs = 0; int raFrames = 0;
+    double raSaveMs = 0, raLoadMs = 0, raExtraMs = 0; int raFrames = 0, raRefused = 0, raSaveRamPutBack = 0; std::vector<uint8_t> raSaveRam;
     const char* probeEnv = getenv("N64_LAG_PROBE");
     const int probeAt = probeEnv && *probeEnv ? atoi(probeEnv) : -1;
     const bool probePress = !(probeEnv && strchr(probeEnv, '/')); // "<frame>/0": no press (env values can't hold a comma)
@@ -1188,30 +1198,57 @@ void runLoop() {
             auto s0 = clk::now();
             size_t n = core.serialize_size();
             raState.resize(n);
+            g_raState = true;
             bool saved = n > 0 && core.serialize(raState.data(), n);
+            g_raState = false;
+            // The cartridge's save memory (EEPROM, SRAM, FlashRAM, Controller Pak) isn't in the core's state: what the
+            // extra frames write there would stay. Kept with the state and put back (a guard: none of the games tested
+            // has written it in an extra frame yet). N64_RA_SAVERAM=0 leaves it out.
+            static const bool keepSaveRam = !(getenv("N64_RA_SAVERAM") && *getenv("N64_RA_SAVERAM") == '0');
+            auto* sram = static_cast<uint8_t*>(core.get_memory_data(RETRO_MEMORY_SAVE_RAM));
+            size_t sramSize = core.get_memory_size(RETRO_MEMORY_SAVE_RAM);
+            if (saved && keepSaveRam && sram && sramSize) raSaveRam.assign(sram, sram + sramSize);
             auto s1 = clk::now();
             raSaveMs += std::chrono::duration<double, std::milli>(s1 - s0).count();
-            g_raReplay = g_raMute = true;
             double extra = 0;
-            for (int k = 1; k <= runAhead; ++k) {
-                g_raHide = k < runAhead;
-                double m = runOne(k == runAhead);
-                if (m > 0) extra += m;
+            if (!saved) {
+                // The core takes no state while an RSP task is still running at the frame's end (it would be lost and
+                // the game would wait for it for good): this frame goes without run-ahead, its own picture shown.
+                ++raRefused;
+                if (g_raFresh) {
+                    if (g_vulkan) g_vk.showAgain();
+                    else if (g_egl.hasWindow() && g_lastW && g_lastH) g_egl.present((int)g_lastW, (int)g_lastH, g_hw.bottom_left_origin);
+                }
+                g_raFresh = false;
+            } else {
+                g_raReplay = g_raMute = true;
+                for (int k = 1; k <= runAhead; ++k) {
+                    g_raHide = k < runAhead;
+                    double m = runOne(k == runAhead);
+                    if (m > 0) extra += m;
+                }
+                g_raReplay = g_raMute = g_raHide = g_raFresh = false;
             }
-            g_raReplay = g_raMute = g_raHide = g_raFresh = false;
             auto l0 = clk::now();
-            if (saved) core.unserialize(raState.data(), raState.size());
+            if (saved) {
+                g_raState = true;
+                core.unserialize(raState.data(), raState.size());
+                g_raState = false;
+                if (keepSaveRam && sram && raSaveRam.size() == sramSize && memcmp(sram, raSaveRam.data(), sramSize) != 0) {
+                    memcpy(sram, raSaveRam.data(), sramSize);
+                    ++raSaveRamPutBack;
+                }
+            }
             auto l1 = clk::now();
             raLoadMs += std::chrono::duration<double, std::milli>(l1 - l0).count();
             raExtraMs += extra;
             ++raFrames;
             noteFrameTime(ms + extra + std::chrono::duration<double, std::milli>(s1 - s0).count() +
                           std::chrono::duration<double, std::milli>(l1 - l0).count());
-            if (!saved) LOGE("run-ahead: the state couldn't be taken");
             if (raFrames >= 300) {
-                LOGI("run-ahead: per frame: take state %.2f ms, extra frames %.2f ms, put back %.2f ms",
-                     raSaveMs / raFrames, raExtraMs / raFrames, raLoadMs / raFrames);
-                raSaveMs = raLoadMs = raExtraMs = 0; raFrames = 0;
+                LOGI("run-ahead: per frame: take state %.2f ms, extra frames %.2f ms, put back %.2f ms; %d of %d frames without (no state), save memory put back %d times",
+                     raSaveMs / raFrames, raExtraMs / raFrames, raLoadMs / raFrames, raRefused, raFrames, raSaveRamPutBack);
+                raSaveMs = raLoadMs = raExtraMs = 0; raFrames = 0; raRefused = 0; raSaveRamPutBack = 0;
             }
         }
         if (probeAt >= 0 && probeFrame >= 0) {

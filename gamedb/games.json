@@ -169,7 +169,7 @@
         {"what": "PI DMA keeps bit 0 of the cart address", "where": "core 22aa47a", "why": "crashed in every libretro build"}
       ],
       "issues": [
-        {"status": "open", "devices": "Duo, Odin 3, Flip", "what": "in the game only Mario, Yoshi and the HUD on black in the compat screenshots; may be a black opening cutscene: check live and against FZ", "evidence": "README Star Road item"},
+        {"status": "open", "devices": "Duo, Odin 3, Flip", "what": "in the game only Mario, Yoshi and the HUD on black (parallel-RDP; menus fine); not an opening cutscene: still black at the end of a 5-shot run", "evidence": "README Star Road item; Odin 3 2026-11-09 odin3-starroad-w (app-spfix2)"},
         {"status": "parked", "renderer": "GLideN64", "what": "black screen (FZ shows it too)", "evidence": "README parked item"}
       ]
     },

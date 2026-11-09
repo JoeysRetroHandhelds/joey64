@@ -160,7 +160,7 @@
         {"what": "PI DMA keeps bit 0 of the cart address (all ROMs not in the database)", "where": "core 22aa47a", "why": "ERET crash at boot in every libretro build; upstream PR libretro #675"}
       ],
       "issues": [
-        {"status": "open", "devices": "all", "what": "file-select screen: thin purple/yellow line across the platform, 'FILE 1' half drawn, floor bulging; may be how the hack looks: compare with M64Plus FZ / a console video", "evidence": "every compat run since 2026-11-03"}
+        {"status": "open", "devices": "all", "what": "file-select screen: thin purple/yellow line across the platform, 'FILE 1' half drawn, floor bulging; may be how the hack looks: compare with M64Plus FZ / a console video", "evidence": "every compat run since 2026-11-03; Duo 2026-11-09 (duo-li-prdp, duo-li-gl, duo-li-gllle): the cut comes with the LLE RSP (parallel-RDP, or GLideN64 on the parallel RSP), GLideN64 with HLE draws the pad and sign whole (as FZ does). Per-game GLideN64 waits for Joey"}
       ]
     },
     {
@@ -298,7 +298,7 @@
     {
       "disk": "Mario Artist - Paint Studio (Japan) (Beta) (1999-02-11)", "title": "Mario Artist: Paint Studio (64DD, 1999 beta)",
       "issues": [
-        {"status": "open", "devices": "all", "what": "with only IPL_JPN.n64 the core shuts down (the game did not start); with the USA and development IPLs in bios/ too it runs 61 emu fps but draws nothing (black at 60 s)", "evidence": "Thor (2026-11-07, app 9263f30 + core dd ddf3103, before the VI event fix in core dd 7a8c4ba, IPL_JPN = Japan v1.2, 30-60 s from the start)"}
+        {"status": "open", "devices": "all", "what": "with only IPL_JPN.n64 the core shuts down (the game did not start); with the USA and development IPLs in bios/ too it runs 61 emu fps but draws nothing (black at 60 s)", "evidence": "Thor (2026-11-07, app 9263f30 + core dd ddf3103, before the VI event fix in core dd 7a8c4ba, IPL_JPN = Japan v1.2, 30-60 s from the start); Duo 2026-11-09 on app-spfix3 (results/duo-ddbeta1): an SDK-format development disk, so it needs IPL_DEV (with IPL_JPN alone the game screen closes as it should); with IPL_DEV it draws 53 frames, parks the disk motor and then nothing (no sound): the core waits on something 64DD-side, not drawing"}
       ]
     },
     {

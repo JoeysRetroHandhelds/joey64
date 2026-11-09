@@ -802,7 +802,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val store = com.joeysretro.joey64.video.PictureStore(this)
         val setup = if (shaderOff && v == null) com.joeysretro.joey64.video.ShaderSetup(emptyList())
             else com.joeysretro.joey64.video.Picture.setup(s, store::preset, autoSharp(s))
-        val n = com.joeysretro.joey64.video.Picture.native(s, setup)
+        lastPictureV = v
+        val n = com.joeysretro.joey64.video.Picture.native(s, setup, raOverlayFor(s))
         NativeBridge.setLook(n.ids, n.params, n.scale, n.sides, n.colourBlind, n.overlay, n.placeX, n.placeY, n.placeW)
         handLookImage(0, n.sidesImage, store)
         handLookImage(1, n.overlayImage, store)
@@ -812,6 +813,63 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     private var slangKey: String? = null
+
+    // ---- Sides › RetroArch overlay (approved mockup 2026-11-08; video/RaOverlay.kt) ----
+    /** What [raUse] was worked out for: the overlay, the orientation, its Place the game. */
+    private var raKey: String? = null
+    private var raUse: com.joeysretro.joey64.video.Picture.RaUse? = null
+    private var raNoneTold = false
+    private var lastPictureV: com.joeysretro.joey64.video.VideoSettings? = null
+
+    /**
+     * The RetroArch overlay this game uses with [s], or null (not that Sides choice, none for this game, or not ready:
+     * its copy, image and hole are worked out on [gameIo] first, then the picture is handed over again).
+     */
+    private fun raOverlayFor(s: com.joeysretro.joey64.video.VideoSettings): com.joeysretro.joey64.video.Picture.RaUse? {
+        val ra = com.joeysretro.joey64.video.RaOverlay
+        if (s[com.joeysretro.joey64.video.VideoKey.Sides] != "retroarch") { raKey = null; raUse = null; return null }
+        val sel = s[com.joeysretro.joey64.video.VideoKey.SidesRa]
+        val store = com.joeysretro.joey64.video.RaOverlayStore(this)
+        val value = when {
+            ra.isOverlay(sel) -> sel
+            ra.isMatch(sel) -> store.matchFor(listOfNotNull(earlySaveName(), intent?.getStringExtra(EXTRA_TITLE)))
+            else -> null
+        }
+        if (value == null) {
+            raKey = null; raUse = null
+            if (ra.isMatch(sel) && !raNoneTold) {
+                raNoneTold = true
+                val other = com.joeysretro.joey64.video.Picture.SIDES_OTHER.firstOrNull { it.value == s[com.joeysretro.joey64.video.VideoKey.SidesRaOther] }?.label ?: "None"
+                pop("sides", InGamePopup.Kind.Sides, "Sides of the picture", "No overlay for this game", "Using $other")
+            }
+            return null
+        }
+        val portrait = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
+        val place = store.place(value)
+        val key = "$value|$portrait|$place"
+        if (key == raKey) return raUse
+        raKey = key; raUse = null
+        val (lw, lh) = screenSize()
+        val (sw, sh) = if (portrait) lh to lw else lw to lh
+        gameIo.execute {
+            val err = store.ensure(value)
+            val img = if (err == null) store.imageFile(value, portrait) else null
+            val spot = place ?: img?.let { store.holeOf(it) }?.let { (hole, iw, ih) -> hole?.let { ra.placeIn(it, iw, ih, sw, sh) } }
+            runOnUiThread {
+                if (destroyed || raKey != key) return@runOnUiThread
+                if (img == null) {
+                    if (err == null) store.fail(value, "its image isn't there")
+                    pop("sides", InGamePopup.Kind.Problem, "Sides of the picture", "${ra.name(value)} didn't load",
+                        "Its image is missing from the folder you picked")
+                    return@runOnUiThread
+                }
+                JLog.i(TAG, "RetroArch overlay ${ra.name(value)}: ${img.name}, game at ${spot ?: "the middle"}")
+                raUse = com.joeysretro.joey64.video.Picture.RaUse(img.path, spot)
+                applyPicture(lastPictureV)
+            }
+        }
+        return null
+    }
 
     /**
      * Your own RetroArch preset (video/Slang.kt) to the host: its copy in files/video/slang/ (made on [gameIo] first
@@ -862,7 +920,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     /** A sides (0) or overlay (1) image to the host, read on [gameIo] when it changed. */
     private fun handLookImage(slot: Int, what: String?, store: com.joeysretro.joey64.video.PictureStore) {
-        val f = what?.takeIf { it != com.joeysretro.joey64.video.Picture.FRAME }?.let { File(store.imagesDir, it) }
+        val f = what?.takeIf { it != com.joeysretro.joey64.video.Picture.FRAME }?.let { if (it.startsWith("/")) File(it) else File(store.imagesDir, it) }
         val key = when { what == null -> null; f == null -> "frame"; else -> "${f.name}:${f.lastModified()}:${f.length()}" }
         if (key == lookImageKeys[slot]) return
         lookImageKeys[slot] = key

@@ -38,6 +38,10 @@ enum class VideoKey(val key: String, val default: String) {
     SidesImage("sides_image", ""),
     /** Place the game in that image: "left,top,width" in tenths of a percent; empty = centred. */
     SidesPlace("sides_place", ""),
+    /** Sides › RetroArch overlay: "raov:<folder>/<path>.cfg", or "match:<folder>" (Match each game; RaOverlay.kt). */
+    SidesRa("sides_ra", ""),
+    /** With Match each game: what a game without its own overlay gets (none, blur, frame). */
+    SidesRaOther("sides_ra_other", "blur"),
     Overlay("overlay", "off"),
     OverlayImage("overlay_image", ""),
     OverlayOpacity("overlay_opacity", "30"),

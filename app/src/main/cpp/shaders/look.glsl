@@ -16,7 +16,8 @@
 //   vec4  L_MISC      N64 lines the shaders draw at, sharp-pixels factor, overlay opacity 0..1, unused
 //   uvec4 L_IDS       up to four shaders, in order (0 = none)
 //   uvec4 L_PA, L_PB  each shader's settings: shader i has bytes 0..3 of L_PA[i] then 0..3 of L_PB[i]
-//   uvec4 L_MODE      sides (0 none, 1 blurred game, 2 Joey64 frame, 3 your image), colour-blind
+//   uvec4 L_MODE      sides (0 none, 1 blurred game, 2 Joey64 frame, 3 your image, 4 a RetroArch
+//                     overlay: the image over the game and around it), colour-blind
 //                     (0 off, 1 red-weak, 2 green-weak, 3 blue-weak), overlay on (1), unused
 
 #define SH_SHARP 1u
@@ -202,6 +203,12 @@ vec3 lookPixel(ivec2 p) {
         float g = ghosting();
         if (g > 0.0) c = mix(c, previousAt(p), g);
     } else c = sides(p);
+    // A RetroArch overlay (approved mockup 2026-11-08): drawn over everything, as RetroArch does, so the game
+    // shows through its see-through hole along with any glass or glare painted there.
+    if (L_MODE.x == 4u) {
+        vec4 b = sidesAt(coverUv((vec2(p) + 0.5) / L_SRC.zw, vec2(sidesSize())));
+        c = mix(c, b.rgb, b.a);
+    }
     if (L_MODE.z != 0u && L_MISC.z > 0.0) {
         vec4 o = overlayAt(coverUv((vec2(p) + 0.5) / L_SRC.zw, vec2(overlaySize())));
         c = mix(c, o.rgb, o.a * L_MISC.z);

@@ -120,6 +120,8 @@ internal sealed class PicPage {
     data class Rename(val name: String) : PicPage()
     data class Delete(val name: String) : PicPage()
     data object Sides : PicPage()
+    /** Sides › RetroArch overlay: the overlays list (RaOverlayPopups.kt). */
+    data object RaOverlays : PicPage()
     data object Place : PicPage()
     data object Overlay : PicPage()
     /** Your own RetroArch preset: the presets list (SlangPopups.kt). */
@@ -169,6 +171,7 @@ internal fun PicturePopups(page: PicPage, ctx: PictureCtx, onPage: (PicPage?) ->
         is PicPage.Delete -> ResetTabPopup("Delete ${page.name}?", "Games that use it go back to Auto.", "Keep it", "Delete",
             { onPage(PicPage.Shader) }) { ctx.store.remove(page.name); ctx.presetsChanged(); onPage(PicPage.Shader) }
         PicPage.Sides -> SidesPopup(ctx, onPage)
+        PicPage.RaOverlays -> RaOverlayPopup(ctx, onPage)
         PicPage.Place -> PlacePopup(ctx) { onPage(PicPage.Sides) }
         PicPage.Overlay -> OverlayPopup(ctx) { onPage(null) }
     }
@@ -208,17 +211,42 @@ private fun LookPreview.Img.bitmap(): ImageBitmap = Bitmap.createBitmap(px, w, h
 
 private fun Bitmap.img(): LookPreview.Img { val p = IntArray(width * height); getPixels(p, 0, width, 0, 0, width, height); return LookPreview.Img(p, width, height) }
 
-/** A picked image from images/ for the preview, small. */
+/** A picked image from images/ (or a full path) for the preview, small. */
 private fun previewImage(store: PictureStore, name: String, w: Int): LookPreview.Img? {
-    val f = File(store.imagesDir, name)
+    val f = if (name.startsWith("/")) File(name) else File(store.imagesDir, name)
     if (!f.isFile) return null
-    val o = BitmapFactory.Options().apply { inPremultiplied = false }
-    return BitmapFactory.decodeFile(f.path, o)?.let { b -> Bitmap.createScaledBitmap(b, w, (w.toLong() * b.height / b.width).toInt().coerceAtLeast(1), true).img() }
+    // Decoded premultiplied: scaling draws through a Canvas, which refuses a non-premultiplied bitmap (a PNG with
+    // see-through parts crashed the launcher, Thor 2026-11-08); getPixels gives the colours back unpremultiplied.
+    return BitmapFactory.decodeFile(f.path)?.let { b -> Bitmap.createScaledBitmap(b, w, (w.toLong() * b.height / b.width).toInt().coerceAtLeast(1), true).img() }
 }
 
-/** What a preview draws: the setup, colour-blind help, sides and overlay. */
+/** What a preview draws: the setup, colour-blind help, sides and overlay; [ra] a RetroArch overlay's value (sides 4). */
 internal data class PreviewSpec(val setup: ShaderSetup, val colourBlind: Int = 0, val sides: Int = 0, val sidesImage: String? = null,
-                                val overlay: String? = null, val opacity: Int = 0, val wide: Boolean = false)
+                                val overlay: String? = null, val opacity: Int = 0, val wide: Boolean = false, val ra: String? = null)
+
+/**
+ * A RetroArch overlay for a [w] x [h] preview: its copied image (copied in first when it isn't yet) and where the game goes
+ * (its Place the game, else the hole found in the image, else the middle).
+ */
+private fun raPreview(context: Context, value: String, w: Int, h: Int): Pair<File, Triple<Int, Int, Int>?>? {
+    val store = com.joeysretro.joey64.video.RaOverlayStore(context)
+    if (store.ensure(value) != null) return null
+    val img = store.imageFile(value, false) ?: return null
+    val place = store.place(value) ?: store.holeOf(img)?.let { (hole, iw, ih) -> hole?.let { com.joeysretro.joey64.video.RaOverlay.placeIn(it, iw, ih, w, h) } }
+    return img to place
+}
+
+/** Sides › RetroArch overlay's overlay for Place the game: the one picked, or with Match each game the game in the chip's. */
+internal fun raPlaceValue(context: Context, ctx: PictureCtx): String? {
+    if (ctx.v[VideoKey.Sides] != "retroarch") return null
+    val sel = ctx.v[VideoKey.SidesRa]
+    return when {
+        com.joeysretro.joey64.video.RaOverlay.isOverlay(sel) -> sel
+        com.joeysretro.joey64.video.RaOverlay.isMatch(sel) && ctx.target != null ->
+            com.joeysretro.joey64.video.RaOverlayStore(context).matchFor(listOf(ctx.target))
+        else -> null
+    }
+}
 
 /** The live preview: 4:3 (or 16:9 with the picture in its middle for the sides), drawn by [LookPreview] off the main thread. */
 @Composable
@@ -243,15 +271,19 @@ internal fun PicturePreview(spec: PreviewSpec, store: PictureStore, label: Strin
             // 480 lines, so 240 scanlines come out even.
             val h = 480
             val w = if (spec.wide) 854 else 640
-            val rw = 640
-            val rx = (w - rw) / 2
+            var rw = 640; var rh = h
+            var rx = (w - rw) / 2; var ry = 0
+            val ra = if (spec.sides == 4) spec.ra?.let { withContext(Dispatchers.IO) { raPreview(context, it, w, h) } } else null
+            ra?.second?.let { (x, y, pw) -> rw = (w * pw / 1000).coerceAtLeast(8); rh = rw * 3 / 4; rx = w * x / 1000; ry = h * y / 1000 }
             val sidesImg = when (spec.sides) {
                 2 -> PictureImages.frame(context, w, h).img()
                 3 -> spec.sidesImage?.let { previewImage(store, it, w) }
+                4 -> ra?.first?.let { previewImage(store, it.path, w) }
                 else -> null
             }
             val ov = spec.overlay?.let { previewImage(store, it, w) }
-            LookPreview.render(src, setup, w, h, rx, 0, rw, h, spec.sides, sidesImg, spec.colourBlind, ov, spec.opacity).bitmap()
+            LookPreview.render(src, setup, w, h, rx, ry, rw, rh, if (spec.sides == 4 && sidesImg == null) 0 else spec.sides, sidesImg,
+                spec.colourBlind, ov, spec.opacity).bitmap()
         }
     }
     val shape = RoundedCornerShape(6.dp)
@@ -584,7 +616,7 @@ private fun rememberImagePicker(ctx: PictureCtx, onPicked: (String) -> Unit) = r
     }
 }
 
-private fun sidesMode(value: String) = when (value) { "blur" -> 1; "frame" -> 2; "image" -> 3; else -> 0 }
+private fun sidesMode(value: String) = when (value) { "blur" -> 1; "frame" -> 2; "image" -> 3; "retroarch" -> 4; else -> 0 }
 
 @Composable
 private fun SidesPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
@@ -594,28 +626,41 @@ private fun SidesPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
     val picker = rememberImagePicker(ctx) { name ->
         ctx.set(mapOf(VideoKey.Sides to "image", VideoKey.SidesImage to name, VideoKey.SidesPlace to ""))
     }
+    val context = LocalContext.current
+    val raSel = if (v[VideoKey.Sides] == "retroarch") v[VideoKey.SidesRa] else ""
+    val raPlace = remember(v) { raPlaceValue(context, ctx) }
     JoeyDialog(onDismiss = { onPage(null) }, hints = listOf(Hint("A", "Pick"), Hint("B", "Done")), width = 760.dp) {
         Column {
             PopupTitle("Sides of the picture", if (Picture.noSides(v, ctx.widescreenOn)) "${ctx.who} · None at this shape: Widescreen or Stretch fills the screen" else ctx.who)
             Row(verticalAlignment = Alignment.Top) {
                 Column(Modifier.weight(1f)) {
                     for (ch in Picture.SIDES) {
-                        val on = v[VideoKey.Sides] == ch.value && (ch.value != "image" || image != null)
+                        val on = v[VideoKey.Sides] == ch.value && (ch.value != "image" || image != null) && (ch.value != "retroarch" || raSel.isNotEmpty())
                         JoeyRow(ch.label, Modifier.initialFocus(v[VideoKey.Sides] == ch.value),
-                            detail = if (ch.value == "image" && image != null) image else ch.detail,
-                            value = if (ch.value == "image") "›" else null, sideways = true,
+                            detail = when {
+                                ch.value == "image" && image != null -> image
+                                ch.value == "retroarch" && raSel.isNotEmpty() -> Picture.raLabel(raSel).removePrefix("RetroArch: ")
+                                else -> ch.detail
+                            },
+                            value = if (ch.value == "image" || ch.value == "retroarch") "›" else null, sideways = true,
                             trailing = if (on) { _ -> PickerTick() } else null, onFocused = { if (it) focused = ch.value }) {
-                            if (ch.value == "image") picker.launch(arrayOf("image/png")) else ctx.set(VideoKey.Sides, ch.value)
+                            when (ch.value) {
+                                "image" -> picker.launch(arrayOf("image/png"))
+                                "retroarch" -> onPage(PicPage.RaOverlays)
+                                else -> ctx.set(VideoKey.Sides, ch.value)
+                            }
                         }
                     }
                     PopupDivider()
-                    val canPlace = v[VideoKey.Sides] == "image" && image != null
-                    JoeyRow("Place the game", detail = "Only with your own image", value = "›", enabled = canPlace, sideways = true,
+                    val canPlace = (v[VideoKey.Sides] == "image" && image != null) || raPlace != null
+                    JoeyRow("Place the game", detail = "Your own image or a RetroArch overlay", value = "›", enabled = canPlace, sideways = true,
                         onFocused = { if (it) focused = "place" }) { if (canPlace) onPage(PicPage.Place) }
                 }
                 Spacer(Modifier.width(12.dp))
-                val mode = if (focused == "place") 3 else sidesMode(focused)
-                PicturePreview(PreviewSpec(ctx.setup, sides = mode, sidesImage = image, wide = true), ctx.store, null, 320.dp, Modifier.padding(top = 4.dp))
+                val raShown = if (focused == "retroarch" || (focused == "place" && v[VideoKey.Sides] == "retroarch")) raPlace else null
+                val mode = if (raShown != null) 4 else if (focused == "place") 3 else if (focused == "retroarch") 0 else sidesMode(focused)
+                PicturePreview(PreviewSpec(ctx.setup, sides = mode, sidesImage = image, wide = true, ra = raShown), ctx.store,
+                    raShown?.let { com.joeysretro.joey64.video.RaOverlay.name(it) }, 320.dp, Modifier.padding(top = 4.dp))
             }
             Spacer(Modifier.height(6.dp))
             when (focused) {
@@ -623,7 +668,10 @@ private fun SidesPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
                 "blur" -> DescriptionLine("Blurred game", "The sides show the game itself, blurred, so the colours carry on to the edges.")
                 "frame" -> DescriptionLine("Joey64 frame", "Navy with faint stripes, and a thin yellow edge beside the game.")
                 "image" -> DescriptionLine("Your own image", "A PNG you pick fills the screen, and the game sits in its middle at its shape, or where Place the game puts it.")
-                else -> DescriptionLine("Place the game", "Where the game sits in your image and how big, so a bezel made for a 4:3 hole fits.")
+                "retroarch" -> DescriptionLine("RetroArch overlay", "A bezel or border from a RetroArch pack, over the game. A picks one from your folder.")
+                else -> DescriptionLine("Place the game", if (v[VideoKey.Sides] == "retroarch" && ctx.target == null && com.joeysretro.joey64.video.RaOverlay.isMatch(v[VideoKey.SidesRa]))
+                    "With Match each game, pick a game in the chip to place it in that game's overlay."
+                    else "Where the game sits in your image and how big, so a bezel made for a 4:3 hole fits.")
             }
         }
     }
@@ -634,34 +682,58 @@ private fun SidesPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
 @Composable
 private fun PlacePopup(ctx: PictureCtx, onDone: () -> Unit) {
     val context = LocalContext.current
+    // A RetroArch overlay: its image, drawn over the game as in game, and where it was found to go; saved with the overlay.
+    val raValue = remember { raPlaceValue(context, ctx) }
+    val raStore = remember { com.joeysretro.joey64.video.RaOverlayStore(context) }
+    val raImage = remember { raValue?.let { raStore.imageFile(it, false) } }
     val image = ctx.v[VideoKey.SidesImage]
     val bg by produceState<ImageBitmap?>(null, image) {
-        value = withContext(Dispatchers.IO) { BitmapFactory.decodeFile(File(ctx.store.imagesDir, image).path)?.asImageBitmap() }
+        value = withContext(Dispatchers.IO) { BitmapFactory.decodeFile((raImage ?: File(ctx.store.imagesDir, image)).path)?.asImageBitmap() }
     }
     val source by producePictureSource(context)
     val game = remember(source) { source?.bitmap() }
     var size by remember { mutableStateOf(androidx.compose.ui.unit.IntSize(1920, 1080)) }
-    val start = Picture.place(ctx.v)
+    val start = if (raValue != null) raStore.place(raValue) else Picture.place(ctx.v)
+    /** Where the hole found in the overlay's image puts the game at this size; null when none was found. */
+    fun found(): Triple<Int, Int, Int>? = raImage?.let { raStore.holeOf(it) }?.let { (hole, iw, ih) ->
+        hole?.let { com.joeysretro.joey64.video.RaOverlay.placeIn(it, iw, ih, size.width.coerceAtLeast(1), size.height.coerceAtLeast(1)) } }
     // Centred and as tall as the screen until moved.
     fun centredW() = (1000L * size.height * 4 / 3 / size.width.coerceAtLeast(1)).toInt().coerceIn(100, 1000)
     var x by remember { mutableIntStateOf(start?.first ?: -1) }
     var y by remember { mutableIntStateOf(start?.second ?: 0) }
     var w by remember { mutableIntStateOf(start?.third ?: -1) }
+    // Until the game is moved, the place follows the area's size (the system bars can still be leaving when it's
+    // first measured, Thor 2026-11-08: the found place came out 5% too high).
+    var moved by remember { mutableStateOf(start != null) }
+    // The area has the screen's own shape, so a place saved here is where the game shows in game (the hint row
+    // takes the bottom; drawn at 1920x1005, the bezel was cut differently from the 1920x1080 game screen).
+    val screenShape = remember {
+        val dm = android.util.DisplayMetrics()
+        @Suppress("DEPRECATION") context.getSystemService(android.view.WindowManager::class.java).defaultDisplay.getRealMetrics(dm)
+        dm.widthPixels.toFloat() / dm.heightPixels.coerceAtLeast(1)
+    }
     fun hOf(wt: Int) = (wt.toLong() * size.width * 3 / 4 / size.height.coerceAtLeast(1)).toInt()
-    fun centre() { if (w < 0) w = centredW(); x = (1000 - w) / 2; y = ((1000 - hOf(w)) / 2).coerceAtLeast(0) }
-    fun save() = ctx.set(VideoKey.SidesPlace, Picture.placeString(x, y, w))
+    fun centre() {
+        found()?.let { (fx, fy, fw) -> x = fx; y = fy; w = fw; return }
+        if (w < 0) w = centredW(); x = (1000 - w) / 2; y = ((1000 - hOf(w)) / 2).coerceAtLeast(0)
+    }
+    fun save() {
+        if (raValue != null) { raStore.setPlace(raValue, Triple(x, y, w)); ctx.set(emptyMap()) }
+        else ctx.set(VideoKey.SidesPlace, Picture.placeString(x, y, w))
+    }
     val focus = remember { FocusRequester() }
     JoeyDialog(onDismiss = onDone, fullScreen = true,
-        hints = listOf(Hint("D-pad", "Move"), Hint("L/R", "Size"), Hint("X", "Centre"), Hint("B", "Done")),
+        hints = listOf(Hint("D-pad", "Move"), Hint("L/R", "Size"), Hint("X", if (raValue != null) "Use what was found" else "Centre"), Hint("B", "Done")),
         onPadButton = { code ->
             when (code) {
-                KeyEvent.KEYCODE_BUTTON_L1 -> { val c = x + w / 2; val m = y + hOf(w) / 2; w = (w - 10).coerceAtLeast(100); x = c - w / 2; y = m - hOf(w) / 2; save() }
-                KeyEvent.KEYCODE_BUTTON_R1 -> { val c = x + w / 2; val m = y + hOf(w) / 2; w = (w + 10).coerceAtMost(1000); x = c - w / 2; y = m - hOf(w) / 2; save() }
-                KeyEvent.KEYCODE_BUTTON_X -> { centre(); save() }
+                KeyEvent.KEYCODE_BUTTON_L1 -> { moved = true; val c = x + w / 2; val m = y + hOf(w) / 2; w = (w - 10).coerceAtLeast(100); x = c - w / 2; y = m - hOf(w) / 2; save() }
+                KeyEvent.KEYCODE_BUTTON_R1 -> { moved = true; val c = x + w / 2; val m = y + hOf(w) / 2; w = (w + 10).coerceAtMost(1000); x = c - w / 2; y = m - hOf(w) / 2; save() }
+                KeyEvent.KEYCODE_BUTTON_X -> if (raValue != null) { moved = false; centre(); raStore.setPlace(raValue, null); ctx.set(emptyMap()) } else { centre(); save() }
             }
         }) {
-        Box(Modifier.fillMaxSize().background(JoeyTheme.colors.page)
-            .onSizeChanged { size = it; if (w < 0) centre() }
+        Box(Modifier.fillMaxSize().background(JoeyTheme.colors.page), contentAlignment = Alignment.Center) {
+        Box(Modifier.aspectRatio(screenShape)
+            .onSizeChanged { size = it; if (w < 0 || !moved) centre() }
             .focusRequester(focus).focusable()
             .onPreviewKeyEvent { e ->
                 val n = e.nativeKeyEvent
@@ -673,10 +745,11 @@ private fun PlacePopup(ctx: PictureCtx, onDone: () -> Unit) {
                     KeyEvent.KEYCODE_DPAD_DOWN -> y += 5
                     else -> return@onPreviewKeyEvent false
                 }
+                moved = true
                 x = x.coerceIn(-w / 2, 1000 - w / 2); y = y.coerceIn(-hOf(w) / 2, 1000 - hOf(w) / 2)
                 save(); true
             }) {
-            bg?.let { Image(it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+            if (raImage == null) bg?.let { Image(it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
             if (w > 0) {
                 val d = LocalDensity.current
                 val left = with(d) { (size.width * x / 1000f).toDp() }
@@ -684,11 +757,20 @@ private fun PlacePopup(ctx: PictureCtx, onDone: () -> Unit) {
                 val bw = with(d) { (size.width * w / 1000f).toDp() }
                 val bh = with(d) { (size.height * hOf(w) / 1000f).toDp() }
                 val gold = JoeyTheme.colors.gold
+                Box(Modifier.offset(left, top).size(bw, bh)) {
+                    game?.let { Image(it, contentDescription = "The game", contentScale = ContentScale.FillBounds, modifier = Modifier.fillMaxSize().padding(2.dp)) }
+                }
+                // A RetroArch overlay goes over the game, as in game.
+                if (raImage != null) bg?.let { Image(it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
                 Box(Modifier.offset(left, top).size(bw, bh).drawBehind {
                     drawRect(gold, style = Stroke(width = 2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f))))
-                }) { game?.let { Image(it, contentDescription = "The game", contentScale = ContentScale.FillBounds, modifier = Modifier.fillMaxSize().padding(2.dp)) } }
-                Text(Picture.placeLabel(x, y, w), style = JoeyTheme.type.note, color = gold, modifier = Modifier.offset(left, top + bh + 8.dp))
+                })
+                val f = if (raValue != null) found() else null
+                val label = (if (raValue != null && f == Triple(x, y, w)) "Found in the image: " else "") + Picture.placeLabel(x, y, w)
+                Text(label, style = JoeyTheme.type.note, color = gold, modifier = Modifier.offset(left, (top - 24.dp).coerceAtLeast(4.dp))
+                    .background(JoeyTheme.colors.page.copy(alpha = 0.85f), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp))
             }
+        }
         }
         LaunchedEffect(Unit) { focus.requestFocus() }
     }
@@ -813,15 +895,22 @@ internal fun PicturePanel(saveName: String, row: String, onChanged: () -> Unit, 
                     trailing = if (on) { _ -> PickerTick() } else null, onFocused = { if (it) focused = e }) { pick(e, ctx) { page = it } }
             }
             SectionLabel("Sides of the picture")
+            val raSel = if (v[VideoKey.Sides] == "retroarch") v[VideoKey.SidesRa] else ""
             for (ch in Picture.SIDES) {
-                val on = v[VideoKey.Sides] == ch.value
-                JoeyRow(ch.label, Modifier.initialFocus(row == "sd" && on), value = if (ch.value == "image") "›" else null, sideways = ch.value == "image",
-                    detail = if (ch.value == "image") image else null,
+                val on = v[VideoKey.Sides] == ch.value && (ch.value != "retroarch" || raSel.isNotEmpty())
+                val more = ch.value == "image" || ch.value == "retroarch"
+                JoeyRow(ch.label, Modifier.initialFocus(row == "sd" && on),
+                    value = when { ch.value == "retroarch" && raSel.isNotEmpty() -> Picture.raLabel(raSel).removePrefix("RetroArch: ") + "  ›"; more -> "›"; else -> null },
+                    sideways = more, detail = if (ch.value == "image") image else null,
                     trailing = if (on) { _ -> PickerTick() } else null, onFocused = { if (it) focused = null }) {
-                    if (ch.value == "image") sidesPicker.launch(arrayOf("image/png")) else ctx.set(VideoKey.Sides, ch.value)
+                    when (ch.value) {
+                        "image" -> sidesPicker.launch(arrayOf("image/png"))
+                        "retroarch" -> page = PicPage.RaOverlays
+                        else -> ctx.set(VideoKey.Sides, ch.value)
+                    }
                 }
             }
-            if (v[VideoKey.Sides] == "image" && image != null)
+            if ((v[VideoKey.Sides] == "image" && image != null) || raPlaceValue(context, ctx) != null)
                 JoeyRow("Place the game", value = "›", sideways = true, onFocused = { if (it) focused = null }) { page = PicPage.Place }
             SectionLabel("Overlay")
             val ovOn = v[VideoKey.Overlay] == "image" && overlay != null

@@ -214,6 +214,12 @@ object LookPreview {
                     V(cb[0], cb[1], cb[2])
                 }
             } else sides(c, px, py)
+            // A RetroArch overlay: over everything, the game through its hole (look.glsl's sides mode 4).
+            if (sides == 4 && sidesImg != null) {
+                val (u, v) = coverUv(c, (px + 0.5f) / winW, (py + 0.5f) / winH, sidesImg.w.toFloat(), sidesImg.h.toFloat())
+                val (b, a) = sample(sidesImg, u, v)
+                col = mix(col, b, a)
+            }
             if (overlay != null && opacity > 0) {
                 val (u, v) = coverUv(c, (px + 0.5f) / winW, (py + 0.5f) / winH, overlay.w.toFloat(), overlay.h.toFloat())
                 val (o, a) = sample(overlay, u, v)

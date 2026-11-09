@@ -175,6 +175,10 @@ vec3 lookPixel(ivec2 p){
         float g = ghosting();
         if(g > 0.0)c = mix(c, previousAt(p), g);
     } else c = sides(p);
+    if(mode . x == 4u){
+        vec4 b = sidesAt(coverUv((vec2(p)+ 0.5)/ src . zw, vec2(sidesSize())));
+        c = mix(c, b . rgb, b . a);
+    }
     if(mode . z != 0u && misc . z > 0.0){
         vec4 o = overlayAt(coverUv((vec2(p)+ 0.5)/ src . zw, vec2(overlaySize())));
         c = mix(c, o . rgb, o . a * misc . z);

@@ -111,8 +111,8 @@ inline void fit(int winW, int winH, int imgW, int imgH, int& x, int& y, int& w, 
     int aw = o.aspW, ah = o.aspH;
     int ew, eh;
     if (envAspect(ew, eh)) { aw = ew; ah = eh; }
-    // Place the game (your own sides image): where the user put it, at the picture's shape.
-    if (o.sides == 3 && o.placeW > 0 && aw > 0 && ah > 0) {
+    // Place the game (your own sides image, or a RetroArch overlay's hole): there, at the picture's shape.
+    if ((o.sides == 3 || o.sides == 4) && o.placeW > 0 && aw > 0 && ah > 0) {
         w = std::max(16, (int)((long long)winW * o.placeW / 1000));
         h = (int)((long long)w * ah / aw);
         x = (int)((long long)winW * o.placeX / 1000);

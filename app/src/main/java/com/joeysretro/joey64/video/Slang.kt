@@ -302,7 +302,7 @@ class SlangStore(private val context: Context) {
 }
 
 /** Reads a picked folder (a document tree) by paths inside it; folder listings are kept while it's used. */
-private class TreeReader(private val context: Context, private val tree: Uri) {
+internal class TreeReader(private val context: Context, private val tree: Uri) {
     private data class Entry(val id: String, val dir: Boolean)
     private val listings = HashMap<String, Map<String, Entry>>()
     private val rootId = DocumentsContract.getTreeDocumentId(tree)

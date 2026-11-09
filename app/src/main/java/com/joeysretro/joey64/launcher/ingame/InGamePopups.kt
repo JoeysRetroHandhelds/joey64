@@ -62,7 +62,9 @@ data class InGamePopup(
         /** The Turbo hotkey and Undo load / save state (approved mockups 2026-11-08). */
         Turbo, TurboOff, Undo,
         /** Next shader and Shader on/off (approved Picture mockup 2026-11-08). */
-        Shader }
+        Shader,
+        /** A RetroArch overlay's word at game start: "No overlay for this game" (approved mockup 2026-11-08). */
+        Sides }
 }
 
 /**
@@ -135,7 +137,7 @@ fun InGamePopupCard(p: InGamePopup) {
         InGamePopup.Kind.Turbo -> R.drawable.ic_bolt
         InGamePopup.Kind.TurboOff -> R.drawable.ic_bolt_off
         InGamePopup.Kind.Undo -> R.drawable.ic_arrow_back_up
-        InGamePopup.Kind.Shader -> R.drawable.ic_device_tv_old
+        InGamePopup.Kind.Shader, InGamePopup.Kind.Sides -> R.drawable.ic_device_tv_old
     }
     JoeyToast(icon, p.label, p.name, p.line, iconTint = when (p.kind) {
         InGamePopup.Kind.Problem, InGamePopup.Kind.ChallengeFailed -> JoeyTheme.colors.error

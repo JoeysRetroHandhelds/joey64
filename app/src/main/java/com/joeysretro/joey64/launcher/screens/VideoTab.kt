@@ -252,7 +252,7 @@ private val COLOUR_KEYS = listOf(VideoKey.Brightness, VideoKey.Contrast, VideoKe
 /** The Colour row: the four values and Colour-blind help. */
 private val COLOUR_ROW_KEYS = COLOUR_KEYS + VideoKey.ColourBlind
 private val SHADER_KEYS = listOf(VideoKey.Shader, VideoKey.ShaderParams, VideoKey.ShaderScale, VideoKey.SlangParams)
-private val SIDES_KEYS = listOf(VideoKey.Sides, VideoKey.SidesImage, VideoKey.SidesPlace)
+private val SIDES_KEYS = listOf(VideoKey.Sides, VideoKey.SidesImage, VideoKey.SidesPlace, VideoKey.SidesRa, VideoKey.SidesRaOther)
 private val OVERLAY_KEYS = listOf(VideoKey.Overlay, VideoKey.OverlayImage, VideoKey.OverlayOpacity)
 private val ADVANCED_KEYS = listOf(VideoKey.Renderer, VideoKey.Driver, VideoKey.Pacing) + VideoKey.LOOK_KEYS +
     listOf(VideoKey.Deinterlace, VideoKey.Supersample, VideoKey.NativeTexLod, VideoKey.NativeTexRect)

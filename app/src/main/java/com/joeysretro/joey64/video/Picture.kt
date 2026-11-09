@@ -87,7 +87,7 @@ data class ShaderPreset(val name: String, val setup: ShaderSetup) {
 /** What the host gets (`NativeBridge.setLook`); [ids] and [params] as it packs them. */
 data class PictureNative(val ids: IntArray, val params: IntArray, val scale: Int, val sides: Int, val colourBlind: Int,
                          val overlay: Int, val placeX: Int, val placeY: Int, val placeW: Int,
-                         /** The sides image to hand over: "frame" (Joey64 frame), a file in images/, or null. */
+                         /** The sides image to hand over: "frame" (Joey64 frame), a file in images/, a full path (a RetroArch overlay), or null. */
                          val sidesImage: String?, val overlayImage: String?) {
     override fun equals(other: Any?) = other is PictureNative && ids.contentEquals(other.ids) && params.contentEquals(other.params) &&
         scale == other.scale && sides == other.sides && colourBlind == other.colourBlind && overlay == other.overlay &&
@@ -99,7 +99,8 @@ object Picture {
     // ---- the stored values ------------------------------------------------------------------
     // Shader: "auto", "none", a stack "ntsc+crt_heavy", "preset:<name>", or "slang:<folder>/<path>" (SlangParams its settings).
     // ShaderParams: every adjusted shader's settings, "crt_heavy=60,0,1,20,10;lcd=50,30".
-    // ShaderScale: auto | game | 2 | 3 | screen. Sides: none | blur | frame | image (SidesImage, SidesPlace "x,y,w").
+    // ShaderScale: auto | game | 2 | 3 | screen. Sides: none | blur | frame | image (SidesImage, SidesPlace "x,y,w")
+    // | retroarch (SidesRa, SidesRaOther; RaOverlay.kt).
     // Overlay: off | image (OverlayImage, OverlayOpacity). ColourBlind: off | red | green | blue.
     const val PRESET = "preset:"
 
@@ -153,7 +154,10 @@ object Picture {
         VideoChoice("2", "2x"), VideoChoice("3", "3x"), VideoChoice("screen", "The screen's"))
     val SIDES = listOf(
         VideoChoice("none", "None"), VideoChoice("blur", "Blurred game", "The game, blurred and dimmed"),
-        VideoChoice("frame", "Joey64 frame", "Navy, faint stripes, a yellow edge"), VideoChoice("image", "Your own image", "A PNG you pick"))
+        VideoChoice("frame", "Joey64 frame", "Navy, faint stripes, a yellow edge"), VideoChoice("image", "Your own image", "A PNG you pick"),
+        VideoChoice("retroarch", "RetroArch overlay", "A bezel or border from a RetroArch pack"))
+    /** Match each game's Games without one. */
+    val SIDES_OTHER = SIDES.filter { it.value == "none" || it.value == "blur" || it.value == "frame" }
     val COLOUR_BLIND = listOf(VideoChoice("off", "Off"), VideoChoice("red", "Red-weak"), VideoChoice("green", "Green-weak"), VideoChoice("blue", "Blue-weak"))
     val OPACITY_STEPS = (0..100 step 10).toList()
 
@@ -168,8 +172,19 @@ object Picture {
         v[VideoKey.Sides] == "none" -> "None"
         noSides(v, widescreenOn) -> "None at this shape"
         v[VideoKey.Sides] == "image" -> v[VideoKey.SidesImage].ifEmpty { "Your own image" }
+        v[VideoKey.Sides] == "retroarch" -> raLabel(v[VideoKey.SidesRa])
         else -> SIDES.firstOrNull { it.value == v[VideoKey.Sides] }?.label ?: "None"
     }
+
+    /** "RetroArch: Retro TV", "RetroArch: each game", or the choice's name before one is picked. */
+    fun raLabel(value: String): String = when {
+        RaOverlay.isOverlay(value) -> "RetroArch: " + RaOverlay.name(value)
+        RaOverlay.isMatch(value) -> "RetroArch: each game"
+        else -> "RetroArch overlay"
+    }
+
+    /** A RetroArch overlay as the game gets it: the copied image's full path, where the game goes in it. */
+    data class RaUse(val image: String, val place: Triple<Int, Int, Int>?)
 
     fun overlayLabel(v: VideoSettings): String =
         if (v[VideoKey.Overlay] == "off" || v[VideoKey.OverlayImage].isEmpty()) "Off" else v[VideoKey.OverlayImage]
@@ -182,8 +197,12 @@ object Picture {
     fun placeString(x: Int, y: Int, w: Int) = "$x,$y,$w"
     fun placeLabel(x: Int, y: Int, w: Int) = "Left ${(x + 5) / 10}% · Top ${(y + 5) / 10}% · Width ${(w + 5) / 10}%"
 
-    /** What the host gets for [v]. [setup] from [setup]; [override] for this play (the hotkeys). */
-    fun native(v: VideoSettings, setup: ShaderSetup): PictureNative {
+    /**
+     * What the host gets for [v]. [setup] from [setup]. [ra]: with Sides on RetroArch overlay, the overlay this game
+     * uses (MainActivity works it out: the copy, the hole), or null for none, which gives SidesRaOther (Match each
+     * game's games without one) or None.
+     */
+    fun native(v: VideoSettings, setup: ShaderSetup, ra: RaUse? = null): PictureNative {
         val ids = IntArray(4)
         val params = IntArray(32)
         for ((i, id) in setup.stack.take(4).withIndex()) {
@@ -192,14 +211,16 @@ object Picture {
             for ((k, p) in setup.paramsOf(id).take(8).withIndex()) params[i * 8 + k] = p.coerceIn(0, 255)
         }
         val scale = when (setup.scale) { "game" -> 1; "2" -> 2; "3" -> 3; "screen" -> 4; else -> 0 }
-        val image = v[VideoKey.SidesImage].takeIf { it.isNotEmpty() }
-        val sides = when (v[VideoKey.Sides]) { "blur" -> 1; "frame" -> 2; "image" -> if (image != null) 3 else 0; else -> 0 }
+        val raOn = v[VideoKey.Sides] == "retroarch"
+        val other = if (raOn && ra == null && RaOverlay.isMatch(v[VideoKey.SidesRa])) v[VideoKey.SidesRaOther] else null
+        val image = if (raOn) ra?.image else v[VideoKey.SidesImage].takeIf { it.isNotEmpty() }
+        val sides = when (other ?: v[VideoKey.Sides]) { "blur" -> 1; "frame" -> 2; "image" -> if (image != null) 3 else 0; "retroarch" -> if (image != null) 4 else 0; else -> 0 }
         val overlayImage = v[VideoKey.OverlayImage].takeIf { it.isNotEmpty() && v[VideoKey.Overlay] == "image" }
         val overlay = if (overlayImage != null) v.int(VideoKey.OverlayOpacity).coerceIn(0, 100) else 0
         val cb = when (v[VideoKey.ColourBlind]) { "red" -> 1; "green" -> 2; "blue" -> 3; else -> 0 }
-        val place = if (sides == 3) place(v) else null
+        val place = when (sides) { 3 -> place(v); 4 -> ra?.place; else -> null }
         return PictureNative(ids, params, scale, sides, cb, overlay, place?.first ?: 0, place?.second ?: 0, place?.third ?: 0,
-            sidesImage = when (sides) { 2 -> FRAME; 3 -> image; else -> null }, overlayImage = if (overlay > 0) overlayImage else null)
+            sidesImage = when (sides) { 2 -> FRAME; 3, 4 -> image; else -> null }, overlayImage = if (overlay > 0) overlayImage else null)
     }
 
     /** The Joey64 frame's sides image (made by [com.joeysretro.joey64.video.PictureImages]). */

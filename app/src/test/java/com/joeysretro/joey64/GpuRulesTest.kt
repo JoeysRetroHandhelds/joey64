@@ -43,7 +43,7 @@ class GpuRulesTest {
         assertEquals(GpuRules.Vendor.MALI, f.vendor)
         assertEquals(GpuRules.Driver.SYSTEM, GpuRules.autoDriver(f).value)
         assertEquals(mapOf("N64_EARLY_ACQUIRE" to "30", "PARALLEL_RDP_SINGLE_THREADED_COMMAND" to "1", "N64_RDP_RING_LAZY" to "0",
-            "N64_DRC_THREAD" to "1"), env(f))
+            "N64_DRC_THREAD" to "1", "N64_DRC_JCACHE" to "0"), env(f))
         assertEquals("parallel", GpuRules.autoRenderer(true, true, false, f).value)
         assertEquals(8, GpuRules.upscaleTop(f).value)
     }
@@ -73,7 +73,7 @@ class GpuRulesTest {
         assertEquals(GpuRules.Driver.SYSTEM, GpuRules.autoDriver(GpuRules.family(adreno, "Adreno (TM) 530", null)).value)
         val other = GpuRules.family(0x1010, "PowerVR B-Series BXM-8-256", null)
         assertEquals(GpuRules.Vendor.OTHER, other.vendor)
-        assertEquals(mapOf("N64_RDP_RING_LAZY" to "0"), env(other))
+        assertEquals(mapOf("N64_RDP_RING_LAZY" to "0", "N64_DRC_JCACHE" to "0"), env(other))
         assertEquals("gliden64", GpuRules.autoRenderer(true, false, true, other).value)
     }
 

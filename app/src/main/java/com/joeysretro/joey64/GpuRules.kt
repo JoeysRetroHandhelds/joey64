@@ -109,6 +109,10 @@ object GpuRules {
         // The recompiler's compile thread on Mali only (2026-11-08, Joey: "your call"): Flip MK64 race start worst
         // frame 88-90 -> 45 ms, speed -0.4% (flip-drcthread4). Adreno lost on worst frames (odin3-drcthread4).
         if (mali) add(Setting("N64_DRC_THREAD", "1", false, "Mali: recompiler compile thread"))
+        // The recompiler's jump cache (core, on unless 0; work order item 13) stays on for Adreno only: Duo +1.6%
+        // uncapped, 82/82 (duo-jc1, duo-jc-compat); Odin 3 flat (odin3-jc). The Flip lost Conker -5.8% and GoldenEye
+        // -9.6% (flip-jc), so not on Mali; other GPUs were not measured with it.
+        if (!adreno) add(Setting("N64_DRC_JCACHE", "0", false, "not Adreno: recompiler jump cache off"))
         // Smoother timing (CountPerOp=1) for the games that lag on hardware, strong devices only (Joey 2026-11-06;
         // compat passed on the Odin 3 and Portal): Adreno 730 and up. The host picks the games (kSmootherGames).
         if (adreno && f.model >= 730) add(Setting("N64_SMOOTHER", "1", false, "Adreno 730+: smoother timing"))

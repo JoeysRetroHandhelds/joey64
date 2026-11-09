@@ -7,6 +7,7 @@
 #include "gpu_counters.h"
 #include "thermal.h"
 #include "display_opts.h"
+#include "libra.h"
 #include "rewind_test.h"
 #include "rewind.h"
 #include <jni.h>
@@ -1347,6 +1348,100 @@ JNIEXPORT void JNICALL JNI(setLookImage)(JNIEnv* env, jobject, jint slot, jbyteA
     jbyte* p = env->GetByteArrayElements(rgba, nullptr);
     img.set(reinterpret_cast<const uint8_t*>(p), w, h);
     env->ReleaseByteArrayElements(rgba, p, JNI_ABORT);
+}
+
+// ---- Your own RetroArch preset (libra.h) ----
+
+namespace {
+std::string jstr(JNIEnv* env, jstring s) {
+    if (!s) return "";
+    const char* c = env->GetStringUTFChars(s, nullptr);
+    std::string r = c ? c : "";
+    if (c) env->ReleaseStringUTFChars(s, c);
+    return r;
+}
+
+std::vector<std::pair<std::string, float>> jparams(JNIEnv* env, jobjectArray names, jfloatArray values) {
+    std::vector<std::pair<std::string, float>> out;
+    if (!names || !values) return out;
+    jsize n = std::min(env->GetArrayLength(names), env->GetArrayLength(values));
+    std::vector<jfloat> v(n);
+    if (n) env->GetFloatArrayRegion(values, 0, n, v.data());
+    for (jsize i = 0; i < n; ++i) {
+        auto s = (jstring)env->GetObjectArrayElement(names, i);
+        out.emplace_back(jstr(env, s), v[i]);
+        env->DeleteLocalRef(s);
+    }
+    return out;
+}
+
+jobjectArray jstrings(JNIEnv* env, const std::vector<std::string>& v) {
+    jobjectArray a = env->NewObjectArray((jsize)v.size(), env->FindClass("java/lang/String"), nullptr);
+    for (size_t i = 0; i < v.size(); ++i) {
+        jstring s = env->NewStringUTF(v[i].c_str());
+        env->SetObjectArrayElement(a, (jsize)i, s);
+        env->DeleteLocalRef(s);
+    }
+    return a;
+}
+} // namespace
+
+// The preset the game draws with (null or "": none) and the settings changed from the preset's own. Any time.
+JNIEXPORT void JNICALL JNI(setSlang)(JNIEnv* env, jobject, jstring path, jobjectArray names, jfloatArray values) {
+    Libra::set(jstr(env, path), jparams(env, names, values));
+}
+
+// How the newest chain went: "ok\n<path>", "error\n<path>\n<message>", or "" before it was tried.
+JNIEXPORT jstring JNICALL JNI(slangStatus)(JNIEnv* env, jobject) {
+    return env->NewStringUTF(Libra::status().c_str());
+}
+
+JNIEXPORT jboolean JNICALL JNI(slangAvailable)(JNIEnv*, jobject) {
+    return Libra::available() ? JNI_TRUE : JNI_FALSE;
+}
+
+// A preset's settings, six strings each (name, description, the preset's value, minimum, maximum, step);
+// on failure {"!", message}.
+JNIEXPORT jobjectArray JNICALL JNI(slangParams)(JNIEnv* env, jobject, jstring path) {
+    std::vector<Libra::ParamInfo> ps;
+    std::string err;
+    std::vector<std::string> out;
+    if (!Libra::params(jstr(env, path).c_str(), ps, err)) return jstrings(env, {"!", err});
+    char buf[64];
+    for (auto& p : ps) {
+        out.push_back(p.name); out.push_back(p.description);
+        for (float f : {p.value, p.minimum, p.maximum, p.step}) { snprintf(buf, sizeof buf, "%g", f); out.push_back(buf); }
+    }
+    return jstrings(env, out);
+}
+
+// The preset drawn on argb (w x h, top row first) at outW x outH, as ARGB; null on failure with err[0] the message.
+JNIEXPORT jintArray JNICALL JNI(slangPreview)(JNIEnv* env, jobject, jstring path, jobjectArray names, jfloatArray values,
+                                              jintArray argb, jint w, jint h, jint outW, jint outH, jobjectArray err) {
+    if (!argb || w <= 0 || h <= 0 || outW <= 0 || outH <= 0 || env->GetArrayLength(argb) < w * h) return nullptr;
+    std::vector<jint> px((size_t)w * h);
+    env->GetIntArrayRegion(argb, 0, w * h, px.data());
+    std::vector<uint8_t> rgba((size_t)w * h * 4);
+    for (size_t i = 0; i < px.size(); ++i) {
+        uint32_t c = (uint32_t)px[i];
+        rgba[i * 4] = (c >> 16) & 255; rgba[i * 4 + 1] = (c >> 8) & 255; rgba[i * 4 + 2] = c & 255; rgba[i * 4 + 3] = 255;
+    }
+    std::vector<uint8_t> out;
+    std::string e;
+    if (!Libra::preview(jstr(env, path).c_str(), jparams(env, names, values), rgba.data(), w, h, outW, outH, out, e)) {
+        if (err && env->GetArrayLength(err) > 0) { jstring s = env->NewStringUTF(e.c_str()); env->SetObjectArrayElement(err, 0, s); env->DeleteLocalRef(s); }
+        return nullptr;
+    }
+    std::vector<jint> res((size_t)outW * outH);
+    for (size_t i = 0; i < res.size(); ++i)
+        res[i] = (jint)(0xFF000000u | ((uint32_t)out[i * 4] << 16) | ((uint32_t)out[i * 4 + 1] << 8) | out[i * 4 + 2]);
+    jintArray a = env->NewIntArray((jsize)res.size());
+    env->SetIntArrayRegion(a, 0, (jsize)res.size(), res.data());
+    return a;
+}
+
+JNIEXPORT void JNICALL JNI(slangPreviewClose)(JNIEnv*, jobject) {
+    Libra::previewClose();
 }
 
 // Sharp display (sharp-bilinear final scale); MainActivity also turns the VI blur filters off.

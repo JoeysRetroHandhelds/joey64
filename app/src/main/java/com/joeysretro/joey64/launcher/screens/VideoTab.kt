@@ -183,9 +183,13 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
             val colourDefault = COLOUR_ROW_KEYS.all { v[it] == it.default }
             JoeyRow("Colour", Modifier.initialFocus(startRow == "col"), value = (if (colourDefault) "Default" else "Changed") + "  ›", sideways = true, dot = dot(*COLOUR_ROW_KEYS.toTypedArray()),
                 onFocused = { if (it) focused = "col" }) { popup = VPopup.Colour }
-            JoeyRow("Sharpening", Modifier.initialFocus(startRow == "shp"), value = sharpenValue(v), sideways = true, dot = dot(VideoKey.Sharpen, VideoKey.SharpenStrength),
+            // Approved RetroArch preset mockup, screen 4: Sharpening is off while a RetroArch preset is used.
+            val slangOn = com.joeysretro.joey64.video.Slang.isSlang(v[VideoKey.Shader])
+            JoeyRow("Sharpening", Modifier.initialFocus(startRow == "shp"), value = if (slangOn) "Off with a RetroArch preset" else sharpenValue(v),
+                enabled = !slangOn, sideways = true, dot = dot(VideoKey.Sharpen, VideoKey.SharpenStrength),
                 onFocused = { if (it) focused = "shp" }) { popup = VPopup.Sharpen }
-            JoeyRow("Shader", Modifier.initialFocus(startRow == "sh"), value = com.joeysretro.joey64.video.Picture.rowLabel(v) + "  ›", sideways = true,
+            val slangFailed = remember(v) { if (slangOn) com.joeysretro.joey64.video.SlangStore(context).failures().keys else emptySet() }
+            JoeyRow("Shader", Modifier.initialFocus(startRow == "sh"), value = com.joeysretro.joey64.video.Picture.rowLabel(v, slangFailed) + "  ›", sideways = true,
                 dot = dot(*SHADER_KEYS.toTypedArray()), onFocused = { if (it) focused = "sh" }) {
                 if (onPicturePanel != null) onPicturePanel("sh") else popup = VPopup.Picture(PicPage.Shader)
             }
@@ -247,7 +251,7 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
 private val COLOUR_KEYS = listOf(VideoKey.Brightness, VideoKey.Contrast, VideoKey.Saturation, VideoKey.Gamma)
 /** The Colour row: the four values and Colour-blind help. */
 private val COLOUR_ROW_KEYS = COLOUR_KEYS + VideoKey.ColourBlind
-private val SHADER_KEYS = listOf(VideoKey.Shader, VideoKey.ShaderParams, VideoKey.ShaderScale)
+private val SHADER_KEYS = listOf(VideoKey.Shader, VideoKey.ShaderParams, VideoKey.ShaderScale, VideoKey.SlangParams)
 private val SIDES_KEYS = listOf(VideoKey.Sides, VideoKey.SidesImage, VideoKey.SidesPlace)
 private val OVERLAY_KEYS = listOf(VideoKey.Overlay, VideoKey.OverlayImage, VideoKey.OverlayOpacity)
 private val ADVANCED_KEYS = listOf(VideoKey.Renderer, VideoKey.Driver, VideoKey.Pacing) + VideoKey.LOOK_KEYS +
@@ -274,7 +278,8 @@ private fun describe(row: String, v: VideoSettings): Pair<String, String> = when
     "ori" -> "Screen orientation" to "Which way the game is shown. Landscape on handhelds."
     "cut" -> "Fill the camera cutout" to "Draws the picture behind the camera hole, for Stretch to the screen."
     "col" -> "Colour" to "Brightness, contrast, saturation, gamma and colour-blind help."
-    "shp" -> "Sharpening" to "Makes edges crisper after scaling."
+    "shp" -> "Sharpening" to (if (com.joeysretro.joey64.video.Slang.isSlang(v[VideoKey.Shader]))
+        "Off while a RetroArch preset is used: it would sharpen before the preset softens the picture." else "Makes edges crisper after scaling.")
     "sh" -> "Shader" to "How the picture is drawn on your screen: sharp pixels, a TV's scanlines, a handheld's LCD grid."
     "sd" -> "Sides of the picture" to "What fills the screen beside the picture: the game blurred, the Joey64 frame or your own image."
     "ov" -> "Overlay" to "An image drawn over the game and its shader, such as a screen-glass or grid PNG."

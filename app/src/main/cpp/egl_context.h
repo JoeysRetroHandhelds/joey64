@@ -64,11 +64,12 @@ private:
     void drawLook(GLuint picTex, const float* picUv, int imgW, int imgH, int coreH, int winW, int winH,
                   int x, int y, int w, int h);
     void destroyLook();
-    // Dev test N64_SLANGP (libra.h): the picture copied upright into libraIn (its own size), the preset
-    // draws libraOut at the shown size, which is blitted in. Replaces colour and the Picture pass while on.
+    // Your own RetroArch preset (libra.h): the picture drawn upright into libraIn at its own size (through
+    // Colour when that's on), the preset draws libraOut at the shown size, which is blitted in or drawn by
+    // the Picture pass (Sides, Overlay).
     LibraGl libra_;
     GLuint libraInTex_ = 0, libraInFbo_ = 0, libraOutTex_ = 0, libraOutFbo_ = 0;
     int libraInW_ = 0, libraInH_ = 0, libraOutW_ = 0, libraOutH_ = 0;
-    bool drawLibra(int srcW, int srcH, bool bottomLeftOrigin, int x, int y, int dstW, int dstH);
+    bool drawLibra(int srcW, int srcH, bool bottomLeftOrigin, int winW, int winH, int x, int y, int dstW, int dstH);
     void destroyLibra();
 };

@@ -102,7 +102,7 @@ void EglContext::present(int srcW, int srcH, bool bottomLeftOrigin) {
     // Colour or sharpening changed: draw through the shaders (the core's GL state is its own again
     // at its next frame, glsm rebinds it); else the plain blit.
     const Display::Opts& o = Display::opts();
-    if (drawLibra(srcW, srcH, bottomLeftOrigin, x, y, dstW, dstH)) {
+    if (drawLibra(srcW, srcH, bottomLeftOrigin, winW, winH, x, y, dstW, dstH)) {
         if (!eglSwapBuffers(display_, window_) && swapFails++ % 600 == 0)
             LOGE("egl: swap failed: 0x%x (%d times)", eglGetError(), swapFails);
         return;
@@ -442,7 +442,7 @@ void EglContext::destroyLook() {
     sidesSeen_ = overlaySeen_ = 0;
 }
 
-bool EglContext::drawLibra(int srcW, int srcH, bool bottomLeftOrigin, int x, int y, int dstW, int dstH) {
+bool EglContext::drawLibra(int srcW, int srcH, bool bottomLeftOrigin, int winW, int winH, int x, int y, int dstW, int dstH) {
     if (dstW <= 0 || dstH <= 0 || srcW <= 0 || srcH <= 0 || !libra_.ready()) return false;
     if (!libraInFbo_ || srcW != libraInW_ || srcH != libraInH_) {
         freeTarget(libraInTex_, libraInFbo_);
@@ -458,13 +458,23 @@ bool EglContext::drawLibra(int srcW, int srcH, bool bottomLeftOrigin, int x, int
         LOGI("librashader: gl picture %dx%d -> %dx%d", srcW, srcH, dstW, dstH);
     }
     glDisable(GL_SCISSOR_TEST);
-    // GL rows (bottom first), upright: the core's frame flipped when it is top-left origin.
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo_);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, libraInFbo_);
-    if (bottomLeftOrigin)
-        glBlitFramebuffer(0, 0, srcW, srcH, 0, 0, srcW, srcH, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-    else
-        glBlitFramebuffer(0, srcH, srcW, 0, 0, 0, srcW, srcH, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    const Display::Opts& o = Display::opts();
+    // GL rows (bottom first), upright: the core's frame flipped when it is top-left origin. Colour (no
+    // Sharpening with a preset) draws it there instead of the copy.
+    if (o.colourOn() && ensurePost()) {
+        uint32_t c[16] = {};
+        float colour[4], extra[4] = {(float)srcW, (float)srcH, 0.0f, 0.0f};
+        extra[3] = Post::colour(colour);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, libraInFbo_);
+        drawPost(0, color_, 0, 0, srcW, srcH, !bottomLeftOrigin, c, colour, extra);
+    } else {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo_);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, libraInFbo_);
+        if (bottomLeftOrigin)
+            glBlitFramebuffer(0, 0, srcW, srcH, 0, 0, srcW, srcH, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        else
+            glBlitFramebuffer(0, srcH, srcW, 0, 0, 0, srcW, srcH, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    }
     glDisable(GL_BLEND); glDisable(GL_DEPTH_TEST); glDisable(GL_STENCIL_TEST); glDisable(GL_CULL_FACE);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     libra_.frame(libraInTex_, srcW, srcH, libraOutTex_, dstW, dstH);
@@ -476,9 +486,15 @@ bool EglContext::drawLibra(int srcW, int srcH, bool bottomLeftOrigin, int x, int
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
     glDisable(GL_SCISSOR_TEST);
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, libraOutFbo_);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-    glBlitFramebuffer(0, 0, dstW, dstH, x, y, x + dstW, y + dstH, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    if (o.lookOn() && ensureLook() && ensureLookTargets(winW, winH)) {
+        // Sides and Overlay around and over the preset's picture (GL rows, upright).
+        const float uv[4] = {1.0f, 1.0f, 1.0f, 0.0f};
+        drawLook(libraOutTex_, uv, dstW, dstH, srcH, winW, winH, x, y, dstW, dstH);
+    } else {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, libraOutFbo_);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        glBlitFramebuffer(0, 0, dstW, dstH, x, y, x + dstW, y + dstH, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    }
     static bool told = false;
     if (GLenum e = glGetError(); e && !told) { told = true; LOGE("librashader: gl error 0x%x after a frame", e); }
     return true;

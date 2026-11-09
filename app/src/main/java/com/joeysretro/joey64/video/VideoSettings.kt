@@ -23,11 +23,16 @@ enum class VideoKey(val key: String, val default: String) {
     Gamma("gamma", "10"),
     Sharpen("sharpen", "off"),
     SharpenStrength("sharpen_strength", "50"),
-    /** Picture rows (approved mockup 2026-11-08; video/Picture.kt): auto, none, a stack "ntsc+crt_heavy", or "preset:<name>". */
+    /**
+     * Picture rows (approved mockup 2026-11-08; video/Picture.kt): auto, none, a stack "ntsc+crt_heavy", "preset:<name>",
+     * or "slang:<folder name>/<path>.slangp" (Your own RetroArch preset, video/Slang.kt).
+     */
     Shader("shader", "auto"),
     /** Each adjusted shader's settings, "crt_heavy=60,0,1,20,10;lcd=50,30". */
     ShaderParams("shader_params", ""),
     ShaderScale("shader_scale", "auto"),
+    /** A RetroArch preset's settings changed from its own, "name=value;name=value" (Slang.paramsOf). */
+    SlangParams("slang_params", ""),
     Sides("sides", "none"),
     /** The picked sides image's file in files/video/images/. */
     SidesImage("sides_image", ""),

@@ -69,6 +69,29 @@ object NativeBridge {
     /** The sides (slot 0) or overlay (slot 1) image as RGBA8, top row first; null clears it. Any time. */
     external fun setLookImage(slot: Int, rgba: ByteArray?, w: Int, h: Int)
 
+    /**
+     * Your own RetroArch preset (video/Slang.kt): the .slangp the game draws with (null: none) and the settings
+     * changed from the preset's own ([names] with [values]). Colour goes before it, Sides and Overlay after;
+     * Sharpening is off. Any time.
+     */
+    external fun setSlang(path: String?, names: Array<String>, values: FloatArray)
+
+    /** How the newest preset loaded: "ok\n<path>", "error\n<path>\n<message>", or "" before it was tried. */
+    external fun slangStatus(): String
+
+    /** False when librashader isn't in this build (its .so is built separately, devtools/build-librashader.sh). */
+    external fun slangAvailable(): Boolean
+
+    /** A preset's settings, six strings each: name, description, the preset's value, minimum, maximum, step. {"!", message} on failure. */
+    external fun slangParams(path: String): Array<String>
+
+    /** The preset drawn on [argb] (w x h) at outW x outH, on a context of its own; null with err[0] the message. */
+    external fun slangPreview(path: String, names: Array<String>, values: FloatArray, argb: IntArray, w: Int, h: Int,
+                              outW: Int, outH: Int, err: Array<String?>): IntArray?
+
+    /** Frees the previews' context (the popups closed). */
+    external fun slangPreviewClose()
+
     external fun setSurface(surface: Surface?)
     /** The surface set by setSurface changed size (e.g. once the system bars are hidden). */
     external fun surfaceResized()

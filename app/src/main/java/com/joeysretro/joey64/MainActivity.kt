@@ -806,8 +806,58 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         NativeBridge.setLook(n.ids, n.params, n.scale, n.sides, n.colourBlind, n.overlay, n.placeX, n.placeY, n.placeW)
         handLookImage(0, n.sidesImage, store)
         handLookImage(1, n.overlayImage, store)
+        applySlang(setup.slang, setup.slangParams)
         NativeBridge.showAgain() // paused (the in-game Picture panel): the change shows now
         JLog.i(TAG, "picture: shader ${setup.label}, scale ${setup.scale}, sides ${n.sides}, overlay ${n.overlay}%, colour-blind ${n.colourBlind}")
+    }
+
+    private var slangKey: String? = null
+
+    /**
+     * Your own RetroArch preset (video/Slang.kt) to the host: its copy in files/video/slang/ (made on [gameIo] first
+     * when there's none), then how it loaded: one that doesn't is recorded (the Shader row says "<name> didn't load")
+     * and a pop-up says so; the game then draws with None.
+     */
+    private fun applySlang(value: String?, params: Map<String, Float>) {
+        val names = params.keys.toTypedArray()
+        val values = FloatArray(names.size) { params.getValue(names[it]) }
+        val key = value?.let { it + "|" + com.joeysretro.joey64.video.Slang.paramsString(params) }
+        if (key == slangKey) return
+        val newPreset = value != slangKey?.substringBefore('|')
+        slangKey = key
+        if (value == null) { NativeBridge.setSlang(null, names, values); return }
+        val slang = com.joeysretro.joey64.video.SlangStore(this)
+        gameIo.execute {
+            val err = slang.ensure(value)
+            val file = slang.localFile(value)
+            runOnUiThread {
+                if (destroyed || slangKey != key) return@runOnUiThread
+                if (err != null) { slangFailed(value, err); return@runOnUiThread }
+                NativeBridge.setSlang(file.path, names, values)
+                NativeBridge.showAgain()
+                if (newPreset) checkSlang(value, file.path, 0)
+            }
+        }
+    }
+
+    /** Polls the host's word on [path] (its chain is made at the next frame drawn) for up to 5 s. */
+    private fun checkSlang(value: String, path: String, tries: Int) {
+        window.decorView.postDelayed({
+            if (destroyed || slangKey?.substringBefore('|') != value) return@postDelayed
+            val st = NativeBridge.slangStatus().split('\n', limit = 3)
+            when {
+                st.size >= 2 && st[1] == path && st[0] == "ok" -> com.joeysretro.joey64.video.SlangStore(this).loaded(value)
+                st.size >= 3 && st[1] == path && st[0] == "error" -> slangFailed(value, st[2])
+                tries < 20 -> checkSlang(value, path, tries + 1)
+            }
+        }, 250)
+    }
+
+    private fun slangFailed(value: String, message: String) {
+        JLog.e(TAG, "RetroArch preset $value didn't load: $message")
+        com.joeysretro.joey64.video.SlangStore(this).fail(value, message)
+        val name = com.joeysretro.joey64.video.Slang.name(value)
+        pop("shader", InGamePopup.Kind.Problem, "Shader", "$name didn't load", com.joeysretro.joey64.video.Slang.plainError(message))
     }
 
     /** A sides (0) or overlay (1) image to the host, read on [gameIo] when it changed. */
@@ -1152,6 +1202,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             it.title = givenTitle ?: saveName
             it.saveSlotName = slotName(currentSlot())
             it.onScreen = onScreen
+            for (p in earlyPops) it.show(p)
+            earlyPops.clear()
         }
         // RetroAchievements no longer takes the kept sign-in (the password changed on the website): say so
         // once the game is up (approved sign-in mockup g). Signing in again is in Settings › RetroAchievements.
@@ -1868,8 +1920,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             else -> false
         }
         if (off) return
-        overlay?.show(InGamePopup(key, kind, label, name, line, bar = bar))
+        val p = InGamePopup(key, kind, label, name, line, bar = bar)
+        // Before the game is up (a RetroArch preset that didn't load at start): shown once the overlay is there.
+        overlay?.show(p) ?: earlyPops.add(p)
     }
+
+    private val earlyPops = ArrayList<InGamePopup>()
 
     private fun popSaved(slot: Int, ok: Boolean) {
         if (ok) pop("state", InGamePopup.Kind.Saved, "Save state", "${slotName(slot)} saved", overlay?.title ?: "")

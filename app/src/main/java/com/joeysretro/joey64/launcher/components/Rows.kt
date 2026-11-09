@@ -63,6 +63,8 @@ fun JoeyRow(
     lock: Boolean = false,
     /** The gold Experimental tag after the label (Joey 2026-11-08): a setting or choice that may misbehave. */
     experimental: Boolean = false,
+    /** The detail line in gold: a warning about the row ("Didn't load", approved RetroArch preset mockup screen 5). */
+    detailWarn: Boolean = false,
     onLongClick: (() -> Unit)? = null,
     onFocused: ((Boolean) -> Unit)? = null,
     leading: (@Composable RowScope.(focused: Boolean) -> Unit)? = null,
@@ -101,7 +103,8 @@ fun JoeyRow(
                 if (experimental) ExperimentalTag()
                 if (dot) Box(Modifier.padding(start = 8.dp).size(6.dp).background(c.gold, androidx.compose.foundation.shape.CircleShape))
             }
-            if (detail != null) Text(detail, style = JoeyTheme.type.small, color = if (!enabled) labelColor else rowTextColor(c, focused, c.textDim),
+            if (detail != null) Text(detail, style = JoeyTheme.type.small,
+                color = if (!enabled) labelColor else if (detailWarn) rowValueColor(c, focused) else rowTextColor(c, focused, c.textDim),
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         if (value != null) {

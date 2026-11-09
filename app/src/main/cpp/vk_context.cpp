@@ -22,7 +22,7 @@ int64_t monoNs() {
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
 }
-#define VK_FUNCS(X) X(vkAcquireNextImageKHR) X(vkAllocateCommandBuffers) X(vkBeginCommandBuffer) X(vkCmdBlitImage) X(vkCmdClearColorImage) X(vkCmdPipelineBarrier) X(vkCreateAndroidSurfaceKHR) X(vkCreateCommandPool) X(vkCreateDevice) X(vkCreateFence) X(vkCreateSemaphore) X(vkCreateSwapchainKHR) X(vkDestroyCommandPool) X(vkDestroyDevice) X(vkDestroyFence) X(vkDestroyInstance) X(vkDestroySemaphore) X(vkDestroySurfaceKHR) X(vkDestroySwapchainKHR) X(vkDeviceWaitIdle) X(vkEndCommandBuffer) X(vkEnumerateDeviceExtensionProperties) X(vkEnumeratePhysicalDevices) X(vkFreeCommandBuffers) X(vkGetDeviceQueue) X(vkGetPhysicalDeviceFeatures2) X(vkGetPhysicalDeviceProperties) X(vkGetPhysicalDeviceQueueFamilyProperties) X(vkGetPhysicalDeviceSurfaceCapabilitiesKHR) X(vkGetPhysicalDeviceSurfaceFormatsKHR) X(vkGetPhysicalDeviceSurfacePresentModesKHR) X(vkGetPhysicalDeviceSurfaceSupportKHR) X(vkGetSwapchainImagesKHR) X(vkQueuePresentKHR) X(vkQueueSubmit) X(vkResetCommandBuffer) X(vkResetFences) X(vkWaitForFences) X(vkGetDeviceProcAddr) X(vkCreateImage) X(vkDestroyImage) X(vkGetImageMemoryRequirements) X(vkAllocateMemory) X(vkFreeMemory) X(vkBindImageMemory) X(vkGetPhysicalDeviceMemoryProperties) X(vkQueueWaitIdle) X(vkCreateBuffer) X(vkDestroyBuffer) X(vkGetBufferMemoryRequirements) X(vkBindBufferMemory) X(vkMapMemory) X(vkUnmapMemory) X(vkCmdCopyImageToBuffer) X(vkInvalidateMappedMemoryRanges)
+#define VK_FUNCS(X) X(vkAcquireNextImageKHR) X(vkAllocateCommandBuffers) X(vkBeginCommandBuffer) X(vkCmdBlitImage) X(vkCmdClearColorImage) X(vkCmdPipelineBarrier) X(vkCreateAndroidSurfaceKHR) X(vkCreateCommandPool) X(vkCreateDevice) X(vkCreateFence) X(vkCreateSemaphore) X(vkCreateSwapchainKHR) X(vkDestroyCommandPool) X(vkDestroyDevice) X(vkDestroyFence) X(vkDestroyInstance) X(vkDestroySemaphore) X(vkDestroySurfaceKHR) X(vkDestroySwapchainKHR) X(vkDeviceWaitIdle) X(vkEndCommandBuffer) X(vkEnumerateDeviceExtensionProperties) X(vkEnumeratePhysicalDevices) X(vkFreeCommandBuffers) X(vkGetDeviceQueue) X(vkGetPhysicalDeviceFeatures2) X(vkGetPhysicalDeviceProperties) X(vkGetPhysicalDeviceQueueFamilyProperties) X(vkGetPhysicalDeviceSurfaceCapabilitiesKHR) X(vkGetPhysicalDeviceSurfaceFormatsKHR) X(vkGetPhysicalDeviceSurfacePresentModesKHR) X(vkGetPhysicalDeviceSurfaceSupportKHR) X(vkGetSwapchainImagesKHR) X(vkQueuePresentKHR) X(vkQueueSubmit) X(vkResetCommandBuffer) X(vkResetFences) X(vkWaitForFences) X(vkGetDeviceProcAddr) X(vkCreateImage) X(vkDestroyImage) X(vkGetImageMemoryRequirements) X(vkAllocateMemory) X(vkFreeMemory) X(vkBindImageMemory) X(vkGetPhysicalDeviceMemoryProperties) X(vkQueueWaitIdle) X(vkCreateImageView) X(vkDestroyImageView) X(vkCreateBuffer) X(vkDestroyBuffer) X(vkGetBufferMemoryRequirements) X(vkBindBufferMemory) X(vkMapMemory) X(vkUnmapMemory) X(vkCmdCopyImageToBuffer) X(vkInvalidateMappedMemoryRanges)
 #define VK_DECLARE(f) PFN_##f f = nullptr;
 VK_FUNCS(VK_DECLARE)
 PFN_vkCreateInstance vkCreateInstance = nullptr;
@@ -622,15 +622,19 @@ void VkContext::present(bool newImage) {
         Display::fit(winW, winH, (int)imageW_, (int)imageH_, x, y, dstW, dstH);
         // Colour or sharpening changed: the compute pass (vk_post.cpp) samples the picture into an
         // image at the shown size, which is copied in; else the plain blit (no extra cost).
-        // Dev test N64_SLANGP (libra.h): the preset draws the picture; colour and Picture passes stay off.
+        // Your own RetroArch preset (libra.h): Colour first at the game's size (no Sharpening), then the
+        // preset into libraImage_ at the shown size, then Sides and Overlay around and over it.
+        // A new preset: the old chain goes once the frames in flight are done with it.
+        if (libra_.stale()) { std::lock_guard<std::mutex> lk(queueMutex_); vkQueueWaitIdle(queue_); }
         bool libra = image_.image_view && dstW > 0 && dstH > 0 &&
                      libra_.ready(instance_, gpu_, device_, queue_, gipa_, queueMutex_, kSyncFrames) &&
                      ensureLibraImage((uint32_t)dstW, (uint32_t)dstH);
-        bool post = !libra && Display::opts().postOn() && image_.image_view && dstW > 0 && dstH > 0 &&
-                    post_.prepare((uint32_t)dstW, (uint32_t)dstH);
+        uint32_t postW = libra ? imageW_ : (uint32_t)dstW, postH = libra ? imageH_ : (uint32_t)dstH;
+        bool post = (libra ? Display::opts().colourOn() : Display::opts().postOn()) && image_.image_view && dstW > 0 && dstH > 0 &&
+                    post_.prepare(postW, postH);
         // Shader, sides, overlay or colour-blind help: the Picture pass (vk_look.cpp) draws the whole
         // window from the picture (or the colour pass's result), which is then copied in.
-        bool look = !libra && Display::opts().lookOn(true) && image_.image_view && dstW > 0 && dstH > 0 &&
+        bool look = Display::opts().lookOn(true) && image_.image_view && dstW > 0 && dstH > 0 &&
                     look_.prepare((uint32_t)winW, (uint32_t)winH);
         bool sampled = post || look || libra;
         // librashader's descriptors say SHADER_READ_ONLY_OPTIMAL, so it gets that even from a GENERAL image.
@@ -638,7 +642,7 @@ void VkContext::present(bool newImage) {
                                  : layout == VK_IMAGE_LAYOUT_GENERAL ? VK_IMAGE_LAYOUT_GENERAL
                                  : sampled ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
         VkAccessFlags readAccess = sampled ? VK_ACCESS_SHADER_READ_BIT : VK_ACCESS_TRANSFER_READ_BIT;
-        VkPipelineStageFlags readStage = libra ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+        VkPipelineStageFlags readStage = libra ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT
                                        : sampled ? VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT : VK_PIPELINE_STAGE_TRANSFER_BIT;
         imageBarrier(cmd, src, range, layout, blitLayout,
                      VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT,
@@ -669,23 +673,45 @@ void VkContext::present(bool newImage) {
                      (int)image_.create_info.format, (int)layout, dstW, dstH);
             }
             VkImageSubresourceRange one{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-            // The previous frame's blit may still read it.
+            VkImage in = src;
+            VkFormat inFormat = image_.create_info.format;
+            if (post) { // Colour at the game's own size, read by the preset
+                VkImage out = VK_NULL_HANDLE;
+                post_.record(cmd, sync_, image_.image_view, blitLayout, imageW_, imageH_, imageW_, imageH_, 1, &out);
+                imageBarrier(cmd, out, one, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                             VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+                in = out;
+                inFormat = VK_FORMAT_R8G8B8A8_UNORM;
+            }
+            // The previous frame's blit or Picture pass may still read it.
             imageBarrier(cmd, libraImage_, one, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                         0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                          VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-            libra_.frame(cmd, src, image_.create_info.format, imageW_, imageH_, libraImage_, VK_FORMAT_R8G8B8A8_UNORM,
+            libra_.frame(cmd, in, inFormat, imageW_, imageH_, libraImage_, VK_FORMAT_R8G8B8A8_UNORM,
                          (uint32_t)dstW, (uint32_t)dstH);
-            imageBarrier(cmd, libraImage_, one, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                         VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
-                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
-            VkImageBlit copy{};
-            copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-            copy.srcOffsets[1] = {dstW, dstH, 1};
-            copy.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-            copy.dstOffsets[0] = {x, y, 0};
-            copy.dstOffsets[1] = {x + dstW, y + dstH, 1};
-            vkCmdBlitImage(cmd, libraImage_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                           1, &copy, VK_FILTER_NEAREST);
+            if (look) { // Sides and Overlay around and over the preset's picture
+                imageBarrier(cmd, libraImage_, one, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                             VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+                VkImage win = VK_NULL_HANDLE;
+                Display::LookPush lp = Display::lookPush(winW, winH, dstW, dstH, (int)imageH_, x, y, dstW, dstH, 1.0f);
+                look_.record(cmd, sync_, libraView_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, lp, &win);
+                vkCmdBlitImage(cmd, win, VK_IMAGE_LAYOUT_GENERAL, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &whole,
+                               VK_FILTER_NEAREST);
+            } else {
+                imageBarrier(cmd, libraImage_, one, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                             VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+                             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+                VkImageBlit copy{};
+                copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+                copy.srcOffsets[1] = {dstW, dstH, 1};
+                copy.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+                copy.dstOffsets[0] = {x, y, 0};
+                copy.dstOffsets[1] = {x + dstW, y + dstH, 1};
+                vkCmdBlitImage(cmd, libraImage_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               1, &copy, VK_FILTER_NEAREST);
+            }
         } else if (post && look) {
             VkImage out = VK_NULL_HANDLE, win = VK_NULL_HANDLE;
             post_.record(cmd, sync_, image_.image_view, blitLayout, imageW_, imageH_, (uint32_t)dstW, (uint32_t)dstH,
@@ -1067,11 +1093,17 @@ bool VkContext::ensureLibraImage(uint32_t w, uint32_t h) {
         LOGE("vulkan: librashader image memory failed"); destroyLibraImage(); return false;
     }
     vkBindImageMemory(device_, libraImage_, libraMem_, 0);
+    VkImageViewCreateInfo vi{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    vi.image = libraImage_; vi.viewType = VK_IMAGE_VIEW_TYPE_2D; vi.format = VK_FORMAT_R8G8B8A8_UNORM;
+    vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    if (vkCreateImageView(device_, &vi, nullptr, &libraView_) != VK_SUCCESS) { libraView_ = VK_NULL_HANDLE; destroyLibraImage(); return false; }
     libraW_ = w; libraH_ = h;
     return true;
 }
 
 void VkContext::destroyLibraImage() {
+    if (libraView_) vkDestroyImageView(device_, libraView_, nullptr);
+    libraView_ = VK_NULL_HANDLE;
     if (libraImage_) vkDestroyImage(device_, libraImage_, nullptr);
     if (libraMem_) vkFreeMemory(device_, libraMem_, nullptr);
     libraImage_ = VK_NULL_HANDLE; libraMem_ = VK_NULL_HANDLE; libraW_ = libraH_ = 0;

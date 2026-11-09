@@ -47,18 +47,27 @@ object Shaders {
     const val MAX_STACK = 4
 }
 
-/** A shader setup: the stack (built-in ids in order; empty = None), each shader's settings, the scale. */
-data class ShaderSetup(val stack: List<String>, val params: Map<String, List<Int>> = emptyMap(), val scale: String = "auto") {
+/**
+ * A shader setup: the stack (built-in ids in order; empty = None), each shader's settings, the scale; or a RetroArch
+ * preset ([slang], the Shader value "slang:...", with its changed settings [slangParams]), which replaces the stack.
+ */
+data class ShaderSetup(val stack: List<String>, val params: Map<String, List<Int>> = emptyMap(), val scale: String = "auto",
+                       val slang: String? = null, val slangParams: Map<String, Float> = emptyMap()) {
     fun paramsOf(id: String): List<Int> {
         val d = Shaders.of(id)?.defaults ?: return emptyList()
         val p = params[id] ?: return d
         return d.indices.map { p.getOrNull(it) ?: d[it] }
     }
-    val label: String get() = if (stack.isEmpty()) "None" else stack.joinToString(" + ") { Shaders.of(it)?.label ?: it }
+    val label: String get() = when {
+        slang != null -> Slang.name(slang)
+        stack.isEmpty() -> "None"
+        else -> stack.joinToString(" + ") { Shaders.of(it)?.label ?: it }
+    }
 
     fun toJson(name: String) = JSONObject().apply {
         put("version", 1); put("name", name); put("stack", stack.joinToString("+"))
         put("params", Picture.paramsString(params)); put("scale", scale)
+        if (slang != null) { put("slang", slang); put("slang_params", Slang.paramsString(slangParams)) }
     }
 }
 
@@ -67,8 +76,10 @@ data class ShaderPreset(val name: String, val setup: ShaderSetup) {
     companion object {
         fun fromJson(o: JSONObject): ShaderPreset? {
             val name = o.optString("name").takeIf { it.isNotBlank() } ?: return null
-            return ShaderPreset(name, ShaderSetup(Picture.stackOf(o.optString("stack")), Picture.paramsOf(o.optString("params")),
-                o.optString("scale", "auto").ifEmpty { "auto" }))
+            val slang = o.optString("slang").takeIf { Slang.isSlang(it) }
+            return ShaderPreset(name, ShaderSetup(if (slang != null) emptyList() else Picture.stackOf(o.optString("stack")),
+                Picture.paramsOf(o.optString("params")), o.optString("scale", "auto").ifEmpty { "auto" },
+                slang, if (slang != null) Slang.paramsOf(o.optString("slang_params")) else emptyMap()))
         }
     }
 }
@@ -86,7 +97,7 @@ data class PictureNative(val ids: IntArray, val params: IntArray, val scale: Int
 
 object Picture {
     // ---- the stored values ------------------------------------------------------------------
-    // Shader: "auto", "none", a stack "ntsc+crt_heavy", or "preset:<name>".
+    // Shader: "auto", "none", a stack "ntsc+crt_heavy", "preset:<name>", or "slang:<folder>/<path>" (SlangParams its settings).
     // ShaderParams: every adjusted shader's settings, "crt_heavy=60,0,1,20,10;lcd=50,30".
     // ShaderScale: auto | game | 2 | 3 | screen. Sides: none | blur | frame | image (SidesImage, SidesPlace "x,y,w").
     // Overlay: off | image (OverlayImage, OverlayOpacity). ColourBlind: off | red | green | blue.
@@ -111,6 +122,7 @@ object Picture {
             value == "auto" -> ShaderSetup(if (autoSharp) listOf("sharp") else emptyList(), params, scale)
             value == "none" -> ShaderSetup(emptyList(), params, scale)
             value.startsWith(PRESET) -> preset(value.removePrefix(PRESET))?.setup ?: ShaderSetup(if (autoSharp) listOf("sharp") else emptyList(), params, scale)
+            Slang.isSlang(value) -> ShaderSetup(emptyList(), params, scale, value, Slang.paramsOf(v[VideoKey.SlangParams]))
             else -> ShaderSetup(stackOf(value), params, scale)
         }
     }
@@ -124,14 +136,15 @@ object Picture {
     /** What the Shader row and the list's Auto line say Auto gives here. */
     fun autoLabel(autoSharp: Boolean) = if (autoSharp) "Sharp pixels on this screen" else "None on this screen"
 
-    /** The row's value: "Auto", "CRT heavy", "NTSC composite + CRT heavy", a preset's name. */
-    fun rowLabel(v: VideoSettings): String {
+    /**
+     * The row's value: "Auto", "CRT heavy", "NTSC composite + CRT heavy", a preset's name, "Your own: crt-geom",
+     * or "crt-royale didn't load" for a RetroArch preset in [failed] (SlangStore.failures).
+     */
+    fun rowLabel(v: VideoSettings, failed: Set<String> = emptySet()): String {
         val value = v[VideoKey.Shader]
         return when {
-            value == "auto" -> "Auto"
-            value == "none" -> "None"
-            value.startsWith(PRESET) -> value.removePrefix(PRESET)
-            else -> ShaderSetup(stackOf(value)).label
+            Slang.isSlang(value) && value in failed -> "${Slang.name(value)} didn't load"
+            else -> valueLabel(value)
         }
     }
 
@@ -199,6 +212,7 @@ object Picture {
         value == "auto" -> "Auto"
         value == "none" -> "None"
         value.startsWith(PRESET) -> value.removePrefix(PRESET)
+        Slang.isSlang(value) -> "Your own: " + Slang.name(value)
         else -> ShaderSetup(stackOf(value)).label
     }
 }

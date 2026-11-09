@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -72,6 +73,8 @@ import com.joeysretro.joey64.video.ShaderDef
 import com.joeysretro.joey64.video.ShaderPreset
 import com.joeysretro.joey64.video.ShaderSetup
 import com.joeysretro.joey64.video.Shaders
+import com.joeysretro.joey64.video.Slang
+import com.joeysretro.joey64.video.SlangStore
 import com.joeysretro.joey64.video.VideoKey
 import com.joeysretro.joey64.video.VideoSettings
 import com.joeysretro.joey64.video.VideoStore
@@ -119,6 +122,9 @@ internal sealed class PicPage {
     data object Sides : PicPage()
     data object Place : PicPage()
     data object Overlay : PicPage()
+    /** Your own RetroArch preset: the presets list (SlangPopups.kt). */
+    data object Slang : PicPage()
+    data class SlangAdjust(val value: String) : PicPage()
 }
 
 /** The Shader list's entries, in the approved order. */
@@ -135,8 +141,12 @@ private sealed class ShEntry(val key: String) {
 @Composable
 internal fun PicturePopups(page: PicPage, ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
     val context = LocalContext.current
+    // The RetroArch previews' own GL context goes with the popups.
+    DisposableEffect(Unit) { onDispose { slangPreviewClose() } }
     when (page) {
         PicPage.Shader -> ShaderPopup(ctx, onPage)
+        PicPage.Slang -> SlangPopup(ctx, onPage)
+        is PicPage.SlangAdjust -> SlangAdjustPopup(ctx, page.value) { onPage(PicPage.Slang) }
         is PicPage.Adjust -> Shaders.of(page.id)?.let { AdjustPopup(it, ctx) { onPage(PicPage.Shader) } } ?: onPage(PicPage.Shader)
         PicPage.Advanced -> AdvancedShaderPopup(ctx, onPage)
         is PicPage.StackPick -> StackPickPopup(ctx, page.index) { onPage(PicPage.Advanced) }
@@ -212,12 +222,23 @@ internal data class PreviewSpec(val setup: ShaderSetup, val colourBlind: Int = 0
 
 /** The live preview: 4:3 (or 16:9 with the picture in its middle for the sides), drawn by [LookPreview] off the main thread. */
 @Composable
-internal fun PicturePreview(spec: PreviewSpec, store: PictureStore, label: String?, width: Dp, modifier: Modifier = Modifier) {
+internal fun PicturePreview(spec: PreviewSpec, store: PictureStore, label: String?, width: Dp, modifier: Modifier = Modifier,
+                            /** A RetroArch preset (spec.setup.slang) that librashader couldn't load: it, the message. */
+                            onSlangError: ((String, String) -> Unit)? = null, onSlangLoaded: ((String) -> Unit)? = null) {
     val context = LocalContext.current
     val source by producePictureSource(context)
     var shown by remember { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(source, spec) {
-        val src = source ?: return@LaunchedEffect
+        var src = source ?: return@LaunchedEffect
+        var setup = spec.setup
+        val slang = setup.slang
+        if (slang != null) {
+            // librashader draws it at 640 x 480 first (moving through the list doesn't build every preset passed).
+            kotlinx.coroutines.delay(350)
+            val (img, err) = withContext(Dispatchers.IO) { slangPreview(context, slang, setup.slangParams, src) }
+            if (img != null) { src = img; onSlangLoaded?.invoke(slang) } else if (err != null) onSlangError?.invoke(slang, err)
+            setup = ShaderSetup(emptyList())
+        }
         shown = withContext(Dispatchers.Default) {
             // 480 lines, so 240 scanlines come out even.
             val h = 480
@@ -230,7 +251,7 @@ internal fun PicturePreview(spec: PreviewSpec, store: PictureStore, label: Strin
                 else -> null
             }
             val ov = spec.overlay?.let { previewImage(store, it, w) }
-            LookPreview.render(src, spec.setup, w, h, rx, 0, rw, h, spec.sides, sidesImg, spec.colourBlind, ov, spec.opacity).bitmap()
+            LookPreview.render(src, setup, w, h, rx, 0, rw, h, spec.sides, sidesImg, spec.colourBlind, ov, spec.opacity).bitmap()
         }
     }
     val shape = RoundedCornerShape(6.dp)
@@ -240,6 +261,25 @@ internal fun PicturePreview(spec: PreviewSpec, store: PictureStore, label: Strin
             modifier = Modifier.align(Alignment.BottomStart).padding(6.dp).background(JoeyTheme.colors.surface, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 1.dp))
     }
 }
+
+/** [value] drawn by librashader on [src] at 640 x 480 (copied in first); the picture, or null and why. */
+private fun slangPreview(context: Context, value: String, params: Map<String, Float>, src: LookPreview.Img): Pair<LookPreview.Img?, String?> {
+    val store = SlangStore(context)
+    store.ensure(value)?.let { return null to it }
+    if (!slangAvailable()) return null to "librashader isn't in this build"
+    val names = params.keys.toTypedArray()
+    val values = FloatArray(names.size) { params.getValue(names[it]) }
+    val err = arrayOfNulls<String>(1)
+    val out = try {
+        com.joeysretro.joey64.NativeBridge.slangPreview(store.localFile(value).path, names, values, src.px, src.w, src.h, 640, 480, err)
+    } catch (e: LinkageError) { null }
+    return if (out != null) LookPreview.Img(out, 640, 480) to null else null to (err[0] ?: "librashader couldn't draw it")
+}
+
+/** Whether this build has librashader (its .so is built separately); false when the host lib isn't there either. */
+internal fun slangAvailable(): Boolean = try { com.joeysretro.joey64.NativeBridge.slangAvailable() } catch (e: LinkageError) { false }
+
+private fun slangPreviewClose() { try { com.joeysretro.joey64.NativeBridge.slangPreviewClose() } catch (e: LinkageError) {} }
 
 // ---- Shader (screens 2 and 6) ----
 
@@ -256,15 +296,16 @@ private fun setupOf(e: ShEntry, ctx: PictureCtx): ShaderSetup = when (e) {
     ShEntry.None -> ShaderSetup(emptyList(), Picture.paramsOf(ctx.v[VideoKey.ShaderParams]), ctx.v[VideoKey.ShaderScale])
     is ShEntry.BuiltIn -> ShaderSetup(listOf(e.def.id), Picture.paramsOf(ctx.v[VideoKey.ShaderParams]), ctx.v[VideoKey.ShaderScale])
     is ShEntry.Preset -> e.p.setup
-    ShEntry.Own, ShEntry.Advanced -> ctx.setup
+    ShEntry.Own -> if (Slang.isSlang(ctx.v[VideoKey.Shader])) ctx.setup else ShaderSetup(emptyList())
+    ShEntry.Advanced -> ctx.setup
 }
 
-private fun entryLabel(e: ShEntry): String = when (e) {
+private fun entryLabel(e: ShEntry, v: VideoSettings? = null): String = when (e) {
     ShEntry.Auto -> "Auto"
     ShEntry.None -> "None"
     is ShEntry.BuiltIn -> e.def.label
     is ShEntry.Preset -> e.p.name
-    ShEntry.Own -> "Your own RetroArch preset"
+    ShEntry.Own -> v?.get(VideoKey.Shader)?.takeIf { Slang.isSlang(it) }?.let { "Your own: " + Slang.name(it) } ?: "Your own RetroArch preset"
     ShEntry.Advanced -> "Advanced"
 }
 
@@ -273,7 +314,11 @@ private fun entryText(e: ShEntry, ctx: PictureCtx): String = when (e) {
     ShEntry.None -> "The picture scaled smoothly to the screen, with nothing added."
     is ShEntry.BuiltIn -> e.def.detail
     is ShEntry.Preset -> "${e.p.setup.label}, with your settings. Start: Rename or Delete."
-    ShEntry.Own -> "A RetroArch shader preset (.slangp) from a folder you pick. Not in this build yet: it needs librashader tested first."
+    ShEntry.Own -> ctx.v[VideoKey.Shader].takeIf { Slang.isSlang(it) }?.let { v ->
+        val from = Slang.folder(v.removePrefix(Slang.PREFIX).substringAfter('/', "")).ifEmpty { null }
+        "RetroArch preset" + (from?.let { ", from $it" } ?: "") + ". X shows its own settings, A picks another."
+    } ?: if (slangAvailable()) "A RetroArch shader preset (.slangp) from a folder you pick, drawn by librashader."
+        else "A RetroArch shader preset (.slangp). This build doesn't have librashader, which draws them."
     ShEntry.Advanced -> "Up to four shaders one after the other, and the size the shaders draw at."
 }
 
@@ -284,15 +329,15 @@ private fun isOn(e: ShEntry, v: VideoSettings): Boolean {
         ShEntry.None -> value == "none"
         is ShEntry.BuiltIn -> value == e.def.id
         is ShEntry.Preset -> value.equals(Picture.PRESET + e.p.name, ignoreCase = true)
-        ShEntry.Own -> false
-        ShEntry.Advanced -> Picture.stackOf(value).size > 1
+        ShEntry.Own -> Slang.isSlang(value)
+        ShEntry.Advanced -> !Slang.isSlang(value) && Picture.stackOf(value).size > 1
     }
 }
 
 /** Picks [e] for the row (A). */
 private fun pick(e: ShEntry, ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
     when (e) {
-        ShEntry.Own -> {}
+        ShEntry.Own -> if (slangAvailable()) onPage(PicPage.Slang)
         ShEntry.Advanced -> onPage(PicPage.Advanced)
         else -> ctx.set(VideoKey.Shader, e.key)
     }
@@ -303,8 +348,9 @@ private fun ShaderPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
     val list = entries(ctx)
     var focused by remember { mutableStateOf<ShEntry>(list.firstOrNull { isOn(it, ctx.v) } ?: ShEntry.Auto) }
     val f = focused
-    val adjustable = f is ShEntry.BuiltIn && f.def.params.isNotEmpty()
-    val savable = f != ShEntry.Own
+    val ownOn = Slang.isSlang(ctx.v[VideoKey.Shader])
+    val adjustable = (f is ShEntry.BuiltIn && f.def.params.isNotEmpty()) || (f == ShEntry.Own && ownOn)
+    val savable = f != ShEntry.Own || ownOn
     val hints = buildList {
         add(Hint("A", "Pick"))
         if (adjustable) add(Hint("X", "Adjust"))
@@ -318,7 +364,8 @@ private fun ShaderPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
             val e = focused
             when (code) {
                 KeyEvent.KEYCODE_BUTTON_X -> if (e is ShEntry.BuiltIn && e.def.params.isNotEmpty()) onPage(PicPage.Adjust(e.def.id))
-                KeyEvent.KEYCODE_BUTTON_Y -> if (e != ShEntry.Own) {
+                    else if (e == ShEntry.Own && ownOn) onPage(PicPage.SlangAdjust(ctx.v[VideoKey.Shader]))
+                KeyEvent.KEYCODE_BUTTON_Y -> if (e != ShEntry.Own || ownOn) {
                     val s = setupOf(e, ctx)
                     onPage(PicPage.Save(s, if (e is ShEntry.Preset) e.p.name else s.label))
                 }
@@ -326,30 +373,32 @@ private fun ShaderPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
         }) {
         Column {
             PopupTitle("Shader", ctx.who)
-            Row(verticalAlignment = Alignment.Top) {
+            // What's left of the card, so the description line shows on a short screen too (it was cut off on the Thor).
+            Row(Modifier.weight(1f, fill = false), verticalAlignment = Alignment.Top) {
                 Column(Modifier.weight(1f).heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
                     for (e in list) {
                         if (e is ShEntry.Preset && e == list.first { it is ShEntry.Preset }) SectionLabel("Your presets")
                         if (e == ShEntry.Own) PopupDivider()
                         val on = isOn(e, ctx.v)
-                        JoeyRow(entryLabel(e), Modifier.initialFocus(on || (e == ShEntry.Auto && list.none { isOn(it, ctx.v) })),
+                        JoeyRow(entryLabel(e, ctx.v), Modifier.initialFocus(on || (e == ShEntry.Auto && list.none { isOn(it, ctx.v) })),
                             detail = when (e) {
                                 ShEntry.Auto -> Picture.autoLabel(ctx.autoSharp)
                                 is ShEntry.Preset -> e.p.setup.label + ", your settings"
+                                ShEntry.Own -> if (on) "RetroArch preset" else null
                                 else -> null
                             },
-                            value = when (e) { ShEntry.Own -> "›"; ShEntry.Advanced -> "Stack, scale  ›"; else -> null },
-                            enabled = e != ShEntry.Own, sideways = true,
+                            value = when (e) { ShEntry.Own -> if (on) null else "›"; ShEntry.Advanced -> "Stack, scale  ›"; else -> null },
+                            enabled = e != ShEntry.Own || slangAvailable(), sideways = true,
                             trailing = if (on && e != ShEntry.Advanced) { _ -> PickerTick() } else null,
                             onFocused = { if (it) focused = e }) { pick(e, ctx, onPage) }
                     }
                 }
                 Spacer(Modifier.width(12.dp))
-                PicturePreview(PreviewSpec(setupOf(f, ctx)), ctx.store, if (f == ShEntry.Own) null else setupOf(f, ctx).label, 300.dp,
+                PicturePreview(PreviewSpec(setupOf(f, ctx)), ctx.store, if (f == ShEntry.Own && !ownOn) null else setupOf(f, ctx).label, 300.dp,
                     Modifier.padding(top = 4.dp))
             }
             Spacer(Modifier.height(6.dp))
-            DescriptionLine(entryLabel(f), entryText(f, ctx))
+            DescriptionLine(entryLabel(f, ctx.v), entryText(f, ctx))
         }
     }
 }
@@ -428,6 +477,7 @@ private fun setStack(ctx: PictureCtx, stack: List<String>, scale: String? = null
 @Composable
 private fun AdvancedShaderPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
     val setup = ctx.setup
+    if (setup.slang != null) { AdvancedSlangPopup(ctx) { onPage(PicPage.Shader) }; return }
     val stack = setup.stack
     var row by remember { mutableIntStateOf(0) }
     JoeyDialog(onDismiss = { onPage(PicPage.Shader) }, width = 520.dp,
@@ -461,6 +511,25 @@ private fun AdvancedShaderPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
                 row == 99 -> DescriptionLine("Shader scale", "Auto: what each shader needs. The game's size, 2x, 3x or the screen's: the lines and grid the shaders draw follow it.")
                 else -> DescriptionLine("Add a shader", "Shaders are drawn one after the other, in this order (NTSC composite, then CRT heavy, as many CRT setups do).")
             }
+        }
+    }
+}
+
+/** Advanced with a RetroArch preset: Stack greyed (approved screen 2: a preset is its own stack), and Shader scale (the preset sets its own). */
+@Composable
+private fun AdvancedSlangPopup(ctx: PictureCtx, onDone: () -> Unit) {
+    var row by remember { mutableIntStateOf(0) }
+    JoeyDialog(onDismiss = onDone, width = 520.dp, hints = listOf(Hint("B", "Done"))) {
+        Column {
+            PopupTitle("Shader, advanced", ctx.who)
+            SectionLabel("Stack, drawn in this order")
+            JoeyRow("1 · ${Slang.name(ctx.setup.slang ?: "")}", Modifier.initialFocus(), detail = "Off with a RetroArch preset", enabled = false,
+                onFocused = { if (it) row = 0 })
+            PopupDivider()
+            JoeyRow("Shader scale", detail = "Off with a RetroArch preset", value = "Its own", enabled = false, onFocused = { if (it) row = 1 })
+            Spacer(Modifier.height(6.dp))
+            if (row == 0) DescriptionLine("Stack", "A RetroArch preset is already its own stack of shaders. Pick a built-in shader to stack them here again.")
+            else DescriptionLine("Shader scale", "A RetroArch preset sets the size each of its shaders draws at.")
         }
     }
 }
@@ -694,7 +763,8 @@ internal fun PicturePanel(saveName: String, row: String, onChanged: () -> Unit, 
             version++; onChanged()
         },
         presetsChanged = { version++; onChanged() })
-    val list = entries(ctx).filter { it != ShEntry.Own && it != ShEntry.Advanced }
+    val list = entries(ctx).filter { it != ShEntry.Advanced && (it != ShEntry.Own || slangAvailable()) }
+    DisposableEffect(Unit) { onDispose { slangPreviewClose() } }
     var focused by remember { mutableStateOf<ShEntry?>(null) }
     var opFocus by remember { mutableStateOf(false) }
     val image = v[VideoKey.SidesImage].ifEmpty { null }
@@ -709,8 +779,9 @@ internal fun PicturePanel(saveName: String, row: String, onChanged: () -> Unit, 
         hints = buildList {
             add(Hint("A", "Pick"))
             val f = focused
-            if (f is ShEntry.BuiltIn && f.def.params.isNotEmpty()) add(Hint("X", "Adjust"))
-            if (f != null) add(Hint("Y", "Save as preset"))
+            val ownOn = Slang.isSlang(v[VideoKey.Shader])
+            if ((f is ShEntry.BuiltIn && f.def.params.isNotEmpty()) || (f == ShEntry.Own && ownOn)) add(Hint("X", "Adjust"))
+            if (f != null && (f != ShEntry.Own || ownOn)) add(Hint("Y", "Save as preset"))
             add(Hint("B", "Done"))
         },
         onOptions = { (focused as? ShEntry.Preset)?.let { page = PicPage.PresetOptions(it.p.name) } },
@@ -718,7 +789,10 @@ internal fun PicturePanel(saveName: String, row: String, onChanged: () -> Unit, 
             val e = focused ?: return@JoeyDialog
             when (code) {
                 KeyEvent.KEYCODE_BUTTON_X -> if (e is ShEntry.BuiltIn && e.def.params.isNotEmpty()) page = PicPage.Adjust(e.def.id)
-                KeyEvent.KEYCODE_BUTTON_Y -> { val s = setupOf(e, ctx); page = PicPage.Save(s, if (e is ShEntry.Preset) e.p.name else s.label) }
+                    else if (e == ShEntry.Own && Slang.isSlang(v[VideoKey.Shader])) page = PicPage.SlangAdjust(v[VideoKey.Shader])
+                KeyEvent.KEYCODE_BUTTON_Y -> if (e != ShEntry.Own || Slang.isSlang(v[VideoKey.Shader])) {
+                    val s = setupOf(e, ctx); page = PicPage.Save(s, if (e is ShEntry.Preset) e.p.name else s.label)
+                }
             }
         }) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
@@ -731,8 +805,11 @@ internal fun PicturePanel(saveName: String, row: String, onChanged: () -> Unit, 
             SectionLabel("Shader")
             for (e in list) {
                 val on = isOn(e, v)
-                JoeyRow(entryLabel(e), Modifier.initialFocus(row == "sh" && on),
+                // Approved screen 6: the Shader section ends with Your own, the preset's name beside it.
+                JoeyRow(if (e == ShEntry.Own) "Your own" else entryLabel(e), Modifier.initialFocus(row == "sh" && on),
                     detail = when (e) { ShEntry.Auto -> Picture.autoLabel(autoSharp).removeSuffix(" on this screen"); is ShEntry.Preset -> "preset"; else -> null },
+                    value = if (e == ShEntry.Own) (v[VideoKey.Shader].takeIf { Slang.isSlang(it) }?.let { Slang.name(it) + "  ›" } ?: "›") else null,
+                    sideways = e == ShEntry.Own,
                     trailing = if (on) { _ -> PickerTick() } else null, onFocused = { if (it) focused = e }) { pick(e, ctx) { page = it } }
             }
             SectionLabel("Sides of the picture")

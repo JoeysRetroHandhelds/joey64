@@ -27,7 +27,10 @@ namespace {
 
 // The core's packet ids (src/main/netplay.c)
 enum : uint8_t { UDP_SEND_KEY_INFO = 0, UDP_RECEIVE_KEY_INFO = 1, UDP_REQUEST_KEY_INFO = 2,
-                 UDP_RECEIVE_KEY_INFO_GRATUITOUS = 3, UDP_SYNC_DATA = 4 };
+                 UDP_RECEIVE_KEY_INFO_GRATUITOUS = 3, UDP_SYNC_DATA = 4,
+                 // Joey64's own (2026-11-10): [5, player 0-3, paused 0/1], sent by the app (not the core) every
+                 // 0.5 s while in a room, so a lost one is made good
+                 UDP_PAUSE_NOTICE = 5 };
 enum : uint8_t { TCP_SEND_SAVE = 1, TCP_RECEIVE_SAVE = 2, TCP_SEND_SETTINGS = 3, TCP_RECEIVE_SETTINGS = 4,
                  TCP_REGISTER_PLAYER = 5, TCP_GET_REGISTRATION = 6, TCP_DISCONNECT_NOTICE = 7 };
 constexpr int kSettingsSize = 24;     // SETTINGS_SIZE: six 32-bit settings
@@ -70,6 +73,35 @@ struct Room {
     std::map<uint32_t, int> syncReports;           // VI count -> reports that matched the first
     int syncMatched = 0;                           // VI counts where every player's report matched
     uint8_t status = 0;
+    uint8_t pausedMask = 0; // players whose app is paused (pause menu, in the background)
+    // Connection numbers per player, logged every 10 s: new inputs, copies (resends), requests, last packet heard.
+    struct NetStats { uint32_t inputs = 0, copies = 0, requests = 0; std::chrono::steady_clock::time_point heard; bool any = false; };
+    NetStats ns[4];
+    std::chrono::steady_clock::time_point nsSince = std::chrono::steady_clock::now();
+    void heard(int p) { ns[p].heard = std::chrono::steady_clock::now(); ns[p].any = true; }
+    void logNet() {
+        auto now = std::chrono::steady_clock::now();
+        double secs = std::chrono::duration<double>(now - nsSince).count();
+        if (secs < 10) return;
+        std::string line;
+        char b[160];
+        for (int i = 0; i < 4; i++) {
+            if (!reg[i].id) continue;
+            long ago = ns[i].any ? (long)std::chrono::duration_cast<std::chrono::milliseconds>(now - ns[i].heard).count() : -1;
+            snprintf(b, sizeof b, "%splayer %d: %u inputs, %u copies, %u requests, heard %ld ms ago%s", line.empty() ? "" : "; ",
+                     i + 1, ns[i].inputs, ns[i].copies, ns[i].requests, ago, disconnected[i] ? " (left)" : (pausedMask & (1 << i)) ? " (paused)" : "");
+            line += b;
+            ns[i].inputs = ns[i].copies = ns[i].requests = 0;
+        }
+        if (!line.empty()) NLOGI("netplay server: net in %.1f s: %s", secs, line.c_str());
+        nsSince = now;
+    }
+    // The status byte sent: bit 0 de-synced, bits 1-4 player 1-4 left, bits 5-7 the first paused player (1-4), 0 = none.
+    uint8_t statusByte() const {
+        uint8_t p = 0;
+        for (int i = 0; i < 4; i++) if (pausedMask & (1 << i)) { p = (uint8_t)(i + 1); break; }
+        return (uint8_t)((status & 0x1F) | (p << 5));
+    }
 
     int registered() const { int n = 0; for (auto& r : reg) n += r.id != 0; return n; }
     int playerOf(uint32_t id) const { for (int i = 0; i < 4; i++) if (id && reg[i].id == id) return i; return -1; }
@@ -91,6 +123,7 @@ struct Room {
         if (player < 0 || disconnected[player]) return;
         disconnected[player] = true;
         status |= (uint8_t)(1 << (player + 1));
+        pausedMask &= (uint8_t)~(1 << player);
         NLOGI("netplay server: player %d left", player + 1);
     }
     // A player who left gets blank input on demand, so the others can go on.
@@ -185,7 +218,7 @@ struct Room {
         for (auto it = inputs[p].find(from); it != inputs[p].end() && it->first == from + n && n < kMaxPerPacket; ++it, ++n) {
             w32(out + k, it->first); w32(out + k + 4, it->second.keys); out[k + 8] = it->second.plugin; k += 9;
         }
-        out[0] = kind; out[1] = (uint8_t)p; out[2] = status; out[3] = lag; out[4] = n;
+        out[0] = kind; out[1] = (uint8_t)p; out[2] = statusByte(); out[3] = lag; out[4] = n;
         sendto(udp, out, k, 0, (const sockaddr*)&to, len);
     }
     void handleUdp(const uint8_t* d, ssize_t n, const sockaddr_storage& from, socklen_t len) {
@@ -195,7 +228,9 @@ struct Room {
             if (n < 11 || d[1] >= 4) return;
             addPeer(from, len);
             int p = d[1]; uint32_t count = r32(d + 2) + (uint32_t)delay;
-            if (inputs[p].count(count)) return;
+            heard(p);
+            if (inputs[p].count(count)) { ns[p].copies++; return; }
+            ns[p].inputs++;
             inputs[p][count] = {r32(d + 6), d[10]};
             // everyone gets it at once (the "gratuitous" reply), so nobody waits for a request round trip
             for (auto& peer : peers) sendInputs(peer.addr, peer.len, UDP_RECEIVE_KEY_INFO_GRATUITOUS, p, count, 0);
@@ -208,10 +243,20 @@ struct Room {
             addPeer(from, len);
             int p = d[1]; uint32_t id = r32(d + 2), count = r32(d + 6);
             lastAsked[p][id] = count;
+            { int me = playerOf(id); if (me >= 0) { heard(me); ns[me].requests++; } }
             uint32_t lead = count;
             for (auto& [rid, c] : lastAsked[p]) if (c > lead && c - lead < 0x80000000u) lead = c;
             fillLeft(p, count);
             sendInputs(from, len, UDP_RECEIVE_KEY_INFO, p, count, (uint8_t)std::min<uint32_t>(lead - count, 255));
+            break;
+        }
+        case UDP_PAUSE_NOTICE: {
+            if (n < 3 || d[1] >= 4) return;
+            uint8_t bit = (uint8_t)(1 << d[1]), was = pausedMask;
+            if (d[2] && !disconnected[d[1]]) pausedMask |= bit; else pausedMask &= (uint8_t)~bit;
+            if (was != pausedMask) NLOGI("netplay server: player %d %s", d[1] + 1, d[2] ? "paused" : "resumed");
+            // with a sequence number (7 bytes) it is also a ping: sent straight back, so the app can time the network
+            if (n >= 7) sendto(udp, d, 7, 0, (const sockaddr*)&from, len);
             break;
         }
         case UDP_SYNC_DATA: {
@@ -282,7 +327,8 @@ struct Room {
                     clients.erase(clients.begin() + i); i--;
                 }
             }
-            g_status = status;
+            g_status = statusByte();
+            logNet();
         }
         for (auto& c : clients) close(c.fd);
         clients.clear();

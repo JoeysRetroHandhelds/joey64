@@ -13,7 +13,7 @@ bool start(int port, int players, int delay);
 void stop();
 bool running();
 // Room state for the UI: players registered so far (bit per player), status byte (bit 0 desync,
-// bits 1-4 a player left), and the highest input count seen.
+// bits 1-4 a player left, bits 5-7 the paused player 1-4 or 0).
 uint8_t registeredMask();
 uint8_t status();
 }

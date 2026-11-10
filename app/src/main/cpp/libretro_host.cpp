@@ -22,6 +22,8 @@
 #include <cstdarg>
 #include <cstring>
 #include <unistd.h>
+#include <netdb.h>
+#include <sys/socket.h>
 #include <sched.h>
 #include <sys/resource.h>
 #include <dirent.h>
@@ -43,6 +45,69 @@
 // runs, skips or repeats frames on one side only is refused while one is on: loading a state, Reset, rewind,
 // fast-forward, slow motion, frame advance, cheat changes and the GameShark button (2026-11-10).
 static std::atomic<bool> g_netplay{false};
+// Netplay pause notices (2026-11-10): while in a room, a thread sends the room [5, player, paused] every 0.5 s and at
+// once on a change, so the others can say who paused (their games wait for this player's input meanwhile).
+static std::thread g_npPauseThread;
+static std::atomic<bool> g_npPauseRun{false};
+static std::atomic<bool> g_npPausedNow{false};
+static std::mutex g_npPauseMutex;
+static std::condition_variable g_npPauseCv;
+// The paused player (1-4) the core last heard from the room, 0 = none.
+static std::atomic<int> g_netplayPausedBy{0};
+static void npPauseStart(const char* np) {
+    std::string s(np);
+    size_t c2 = s.rfind(':'), c1 = c2 == std::string::npos ? c2 : s.rfind(':', c2 - 1);
+    if (c1 == std::string::npos) return;
+    std::string host = s.substr(0, c1), port = s.substr(c1 + 1, c2 - c1 - 1);
+    int player = atoi(s.c_str() + c2 + 1) - 1;
+    if (player < 0 || player > 3) return;
+    addrinfo hints{}, *res = nullptr;
+    hints.ai_socktype = SOCK_DGRAM;
+    if (getaddrinfo(host.c_str(), port.c_str(), &hints, &res) != 0 || !res) { joeyLog(ANDROID_LOG_ERROR, "joey64host", "netplay: pause notices: can't resolve %s", host.c_str()); return; }
+    int fd = socket(res->ai_family, SOCK_DGRAM, 0);
+    if (fd < 0 || connect(fd, res->ai_addr, res->ai_addrlen) != 0) { if (fd >= 0) close(fd); freeaddrinfo(res); return; }
+    freeaddrinfo(res);
+    g_npPauseRun = true;
+    g_npPauseThread = std::thread([fd, player] {
+        // Each notice carries a sequence number and the room sends it straight back: a ping of the network alone (the
+        // core's own replies wait for its next frame). Logged every 10 s: average, worst, and pings with no answer.
+        using clk = std::chrono::steady_clock;
+        uint32_t seq = 0, sent = 0, answered = 0;
+        double sum = 0, worst = 0;
+        clk::time_point sentAt[16], logAt = clk::now();
+        std::unique_lock<std::mutex> lk(g_npPauseMutex);
+        while (g_npPauseRun) {
+            uint8_t b[7] = {5, (uint8_t)player, (uint8_t)(g_npPausedNow ? 1 : 0)};
+            b[3] = seq >> 24; b[4] = seq >> 16; b[5] = seq >> 8; b[6] = (uint8_t)seq;
+            sentAt[seq % 16] = clk::now();
+            (void)!send(fd, b, 7, 0);
+            ++seq; ++sent;
+            g_npPauseCv.wait_for(lk, std::chrono::milliseconds(500));
+            uint8_t r[16];
+            ssize_t n;
+            while ((n = recv(fd, r, sizeof r, MSG_DONTWAIT)) >= 7) {
+                uint32_t s = (uint32_t)r[3] << 24 | (uint32_t)r[4] << 16 | (uint32_t)r[5] << 8 | r[6];
+                if (seq - s > 16) continue; // too old to time
+                double ms = std::chrono::duration<double, std::milli>(clk::now() - sentAt[s % 16]).count();
+                sum += ms; if (ms > worst) worst = ms; ++answered;
+            }
+            if (clk::now() - logAt >= std::chrono::seconds(10)) {
+                joeyLog(ANDROID_LOG_INFO, "joey64host", "netplay: ping %.1f ms (worst %.1f), %u of %u pings unanswered",
+                        answered ? sum / answered : 0.0, worst, sent > answered ? sent - answered : 0, sent);
+                sum = worst = 0; sent = answered = 0; logAt = clk::now();
+            }
+        }
+        uint8_t b[3] = {5, (uint8_t)player, 0};
+        (void)!send(fd, b, 3, 0);
+        close(fd);
+    });
+}
+static void npPauseStop() {
+    if (!g_npPauseThread.joinable()) return;
+    { std::lock_guard<std::mutex> lk(g_npPauseMutex); g_npPauseRun = false; }
+    g_npPauseCv.notify_all();
+    g_npPauseThread.join();
+}
 
 // Dev env N64_LOG_ERR=1 logs info at error level, for devices whose logd drops everything
 // below error (Retroid Pocket Duo).
@@ -307,6 +372,8 @@ std::atomic<bool> g_ddIplMissing{false};
 // stops), and the room's status byte as last heard (bit 0 de-synced, bits 1-4 player 1-4 left).
 std::atomic<bool> g_netplayLost{false};
 std::atomic<uint8_t> g_netplayStatus{0};
+// The player this game has waited for over 1 s (the core's "waiting for player N" / "player N is back"), 0 = none.
+std::atomic<int> g_netplayWaitingFor{0};
 // Rumble Pak, players 1-4 (players 2-4 since 2026-11-07; before, the core's calls for ports 1-3 were
 // refused): the core switches each motor on/off; a UI-side thread waits in waitRumble for any player's
 // motor to change and drives that player's controller (or the device's) vibrator. Polling it from a
@@ -358,6 +425,12 @@ void log_cb(enum retro_log_level level, const char* fmt, ...) {
         if (strstr(line, "Netplay: players have de-synced")) g_netplayStatus |= 1;
         unsigned left;
         if (sscanf(line, "Netplay: player %u has disconnected", &left) == 1 && left >= 1 && left <= 4) g_netplayStatus |= (uint8_t)(1 << left);
+        unsigned pp;
+        if (sscanf(line, "Netplay: player %u paused", &pp) == 1 && pp >= 1 && pp <= 4) g_netplayPausedBy = (int)pp;
+        if (strstr(line, "Netplay: nobody is paused")) g_netplayPausedBy = 0;
+        unsigned wp;
+        if (sscanf(line, "Netplay: waiting for player %u", &wp) == 1 && wp >= 1 && wp <= 4) g_netplayWaitingFor = (int)wp;
+        if (strstr(line, "Netplay: player ") && strstr(line, " is back after ")) g_netplayWaitingFor = 0;
     }
     joeyLogV(level >= RETRO_LOG_ERROR ? ANDROID_LOG_ERROR : level == RETRO_LOG_WARN ? ANDROID_LOG_WARN : ANDROID_LOG_INFO, "core", fmt, ap);
     va_end(ap);
@@ -1210,6 +1283,7 @@ void runLoop() {
     Cheevos::gameUnloaded();
     if (g_hw.context_destroy) g_hw.context_destroy();
     core.unload_game();
+    npPauseStop();
     NetplayServer::stop();
     g_netplay = false;
     core.deinit();
@@ -1366,6 +1440,7 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
     g_ddIplMissing = false;
     g_netplayLost = false;
     g_netplayStatus = 0;
+    g_netplayWaitingFor = 0;
     if (!g_vulkan) {
         if (!g_egl.init()) return JNI_FALSE;
         applySurfaceIfChanged();
@@ -1427,6 +1502,7 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
     }
     { const char* np = getenv("N64_NETPLAY"); g_netplay = np && *np; }
     if (g_netplay) LOGI("netplay: on (%s): state loads, Reset, rewind, fast-forward, slow motion, frame advance and cheat changes are off", getenv("N64_NETPLAY"));
+    if (g_netplay) { g_npPausedNow = false; g_netplayPausedBy = 0; npPauseStart(getenv("N64_NETPLAY")); }
     retro_game_info info{ p, buf.data(), buf.size(), nullptr };
     bool ok;
     if (disk) {
@@ -1508,6 +1584,7 @@ JNIEXPORT void JNICALL JNI(stepFrame)(JNIEnv*, jobject) {
 JNIEXPORT void JNICALL JNI(pause)(JNIEnv*, jobject, jboolean p) {
     if (!p) g_stepFrames = 0;
     g_paused = p;
+    if (g_netplay && g_npPausedNow.exchange(p) != (bool)p) g_npPauseCv.notify_all();
     g_audio.setPaused(p);
     g_pauseCv.notify_all();
 }
@@ -1637,13 +1714,16 @@ JNIEXPORT jint JNICALL JNI(waitRumble)(JNIEnv*, jobject, jint wasMask, jint time
 JNIEXPORT jint JNICALL JNI(coreShutDown)(JNIEnv*, jobject) { return !g_coreShutDown ? 0 : g_ddIplMissing ? 2 : g_netplayLost ? 3 : 1; }
 
 // [in a room (1/0), hosting it (1/0), players joined (bit per player; the host only), status (bit 0 de-synced,
-// bits 1-4 player 1-4 left; the host's is the room's own)].
+// bits 1-4 player 1-4 left; the host's is the room's own), the paused player 1-4 (0 = none),
+// the player this game waits for 1-4 (0 = none; set after 1 s of waiting)].
 JNIEXPORT jintArray JNICALL JNI(netplayInfo)(JNIEnv* env, jobject) {
     bool host = NetplayServer::running();
-    jint v[4] = {g_netplay ? 1 : 0, host ? 1 : 0, host ? NetplayServer::registeredMask() : 0,
-                 (jint)(host ? (NetplayServer::status() | g_netplayStatus) : g_netplayStatus.load())};
-    jintArray out = env->NewIntArray(4);
-    if (out) env->SetIntArrayRegion(out, 0, 4, v);
+    int pausedBy = host ? (NetplayServer::status() >> 5) & 7 : g_netplayPausedBy.load();
+    jint v[6] = {g_netplay ? 1 : 0, host ? 1 : 0, host ? NetplayServer::registeredMask() : 0,
+                 (jint)((host ? (NetplayServer::status() | g_netplayStatus) : g_netplayStatus.load()) & 0x1F),
+                 pausedBy, g_netplayWaitingFor.load()};
+    jintArray out = env->NewIntArray(6);
+    if (out) env->SetIntArrayRegion(out, 0, 6, v);
     return out;
 }
 

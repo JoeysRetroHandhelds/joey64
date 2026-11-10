@@ -2821,7 +2821,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
                 NativeBridge.dumpRam(File(dir, "${i.getStringExtra("name") ?: "ram"}.bin").absolutePath)
             }
         }
-        // adb shell am broadcast -a com.joeysretro.joey64.LOGS  -> cache/joey64-logs.zip (what the Share button will send)
+        // adb shell am broadcast -a com.joeysretro.joey64.LOGS  -> cache/share/joey64-logs.zip (what Settings › About › Share logs sends)
         debugLogs = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, i: Intent) {
                 JLog.i(TAG, "log: zipped to ${LogFiles.zip(ctx)}")

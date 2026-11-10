@@ -305,11 +305,14 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { delay(30_000); now = System.currentTimeMillis() } }
     val info = remember { AboutInfo.read(context) }
+    val scope = rememberCoroutineScope()
+    val logSessions = remember { com.joeysretro.joey64.LogFiles.sessionCount(context) }
 
     LaunchedEffect(focused, row) {
         onHints(when (focused) {
             "chk" -> if (row == RowState.Checking) listOf(Hint("B", "Back")) else listOf(Hint("A", "Check"), Hint("B", "Back"))
             "copy" -> listOf(Hint("A", "Copy"), Hint("B", "Back"))
+            "logs" -> listOf(Hint("A", "Share"), Hint("B", "Back"))
             "gpl", "oss" -> listOf(Hint("A", "Read"), Hint("B", "Back"))
             "rep" -> listOf(Hint("A", "Change"), Hint("B", "Back"))
             "src" -> listOf(Hint("A", "Open"), Hint("B", "Back"))
@@ -339,6 +342,9 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
                 clip.setPrimaryClip(ClipData.newPlainText("Joey64 device info", AboutInfo.report(context, info)))
                 copied = true
             }
+            // Share logs (Joey 2026-11-10: in Settings › About): the kept sessions' logs in one zip, through Android's share sheet.
+            JoeyRow("Share logs", value = "$logSessions ${if (logSessions == 1) "session" else "sessions"} ›", sideways = true,
+                onFocused = { if (it) focused = "logs" }) { shareLogs(context, scope) }
         }) {
             // Reports (approved reports mockup 2026-11-08, screen 1): at the top of the right column.
             SectionLabel("Reports")
@@ -378,6 +384,7 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
             "db" -> "Game list" to "Game names from No-Intro's lists, through libretro-database."
             "cht" -> "Cheats" to "From Project64, Rosalie's Mupen GUI, M64Plus FZ (retroben's codes) and libretro-database, each under its own licence."
             "ctl" -> "Controllers" to "Auto map's controller table is built from SDL_GameControllerDB and RetroArch's joypad autoconfig."
+            "logs" -> "Share logs" to "Puts the logs of the last times Joey64 ran in one zip and opens Android's share sheet, to send with a bug report."
             else -> "Copy device info" to "Copies the version, core, renderer and device, for a bug report."
         }
         DescriptionLine(title, text)
@@ -388,6 +395,22 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
         "reports" -> SendReportsPopup(reportsOn, onDismiss = { open = null },
             onSet = { on -> com.joeysretro.joey64.reports.ReportPrefs.setOn(context, on); reportsOn = on; open = null },
             onResetId = { com.joeysretro.joey64.reports.ReportPrefs.newId(context) })
+    }
+}
+
+/** Zips the kept session logs off the main thread and hands the zip to Android's share sheet. */
+private fun shareLogs(context: Context, scope: kotlinx.coroutines.CoroutineScope) {
+    scope.launch {
+        val uri = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                val zip = com.joeysretro.joey64.LogFiles.zip(context)
+                androidx.core.content.FileProvider.getUriForFile(context, context.packageName + ".launch", zip)
+            }.getOrNull()
+        } ?: return@launch
+        val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("application/zip")
+            .putExtra(android.content.Intent.EXTRA_STREAM, uri).putExtra(android.content.Intent.EXTRA_SUBJECT, "Joey64 logs")
+            .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        runCatching { context.startActivity(android.content.Intent.createChooser(send, null).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)) }
     }
 }
 

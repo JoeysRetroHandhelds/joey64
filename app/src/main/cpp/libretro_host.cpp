@@ -1013,6 +1013,10 @@ void runLoop() {
     const int probeAt = probeEnv && *probeEnv ? atoi(probeEnv) : -1;
     const bool probePress = !(probeEnv && strchr(probeEnv, '/')); // "<frame>/0": no press (env values can't hold a comma)
     int probeFrame = -1; // real frames since N64_STATE loaded
+    // Without N64_STATE the probe counts from boot (a game's intro runs the same every time); N64_LAG_PROBE_LEN=<n>
+    // hashes n frames from <frame> instead of 24 from <frame> - 3.
+    if (probeAt >= 0 && stateWait < 0) probeFrame = 0;
+    const int probeLen = getenv("N64_LAG_PROBE_LEN") ? atoi(getenv("N64_LAG_PROBE_LEN")) : 0;
     auto ffNext = std::chrono::steady_clock::now(), ffLastShown = ffNext, capNext = ffNext, rewindNext = ffNext;
     int rewindTick = 0;
     bool rewindStepped = false;
@@ -1252,7 +1256,7 @@ void runLoop() {
             }
         }
         if (probeAt >= 0 && probeFrame >= 0) {
-            if (probeFrame >= probeAt - 3 && probeFrame <= probeAt + 20) {
+            if (probeLen > 0 ? probeFrame >= probeAt && probeFrame < probeAt + probeLen : probeFrame >= probeAt - 3 && probeFrame <= probeAt + 20) {
                 std::vector<uint8_t> px; unsigned pw = g_lastW, ph = g_lastH;
                 bool ok = g_vulkan ? g_vk.capture(px, pw, ph) : g_egl.capture((int)g_lastW, (int)g_lastH, g_hw.bottom_left_origin, px);
                 uint64_t h = 1469598103934665603ull;

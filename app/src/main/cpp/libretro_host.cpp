@@ -1013,8 +1013,13 @@ void runLoop() {
     const char* statePath = getenv("N64_STATE");
     int stateWait = statePath && *statePath ? 30 : -1;
     g_bench = getenv("N64_BENCH") && atoi(getenv("N64_BENCH")) == 1;
-    const int runAhead = getenv("N64_RUNAHEAD") ? std::clamp(atoi(getenv("N64_RUNAHEAD")), 0, 4) : 0;
+    // Never in a netplay room (N64_NETPLAY joins one, N64_NETPLAY_SERVE hosts one): every player has to run the same
+    // frames, and run-ahead's extra frames and put back would send inputs out of step.
+    const bool netplay = (getenv("N64_NETPLAY") && *getenv("N64_NETPLAY")) || (getenv("N64_NETPLAY_SERVE") && *getenv("N64_NETPLAY_SERVE"));
+    const int runAheadAsked = getenv("N64_RUNAHEAD") ? std::clamp(atoi(getenv("N64_RUNAHEAD")), 0, 4) : 0;
+    const int runAhead = netplay ? 0 : runAheadAsked;
     if (runAhead) LOGI("run-ahead: %d frame%s", runAhead, runAhead > 1 ? "s" : "");
+    else if (runAheadAsked) LOGI("run-ahead: off in a netplay room");
     std::vector<uint8_t> raState;
     double raSaveMs = 0, raLoadMs = 0, raExtraMs = 0; int raFrames = 0, raRefused = 0, raSaveRamPutBack = 0; std::vector<uint8_t> raSaveRam;
     const char* probeEnv = getenv("N64_LAG_PROBE");

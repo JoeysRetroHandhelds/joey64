@@ -1087,6 +1087,40 @@ void runLoop() {
             bool ok = !s.empty() && core.unserialize(s.data(), s.size());
             LOGI("state %s: %s (%zu bytes)", statePath, ok ? "loaded" : "FAILED", s.size());
         }
+        // Dev (env N64_STATE_SAVE=<frame>:<frame>... (any one character between; --es env splits at commas) and
+        // N64_STATE_SAVE_TO=<path prefix>): writes the core's raw state
+        // (what N64_STATE loads) to <prefix><frame>.raw once that many frames have run, e.g. from a game's attract
+        // demo, for the widescreen / 60 fps finders when no gameplay state exists (2026-11-10).
+        {
+            static std::vector<uint32_t> saveAt;
+            static const char* saveTo = getenv("N64_STATE_SAVE_TO");
+            static bool saveParsed = false;
+            if (!saveParsed) {
+                saveParsed = true;
+                if (const char* e = getenv("N64_STATE_SAVE"))
+                    for (const char* p = e; *p;) {
+                        char* end; unsigned long v = strtoul(p, &end, 10);
+                        if (end == p) break;
+                        saveAt.push_back((uint32_t)v);
+                        p = *end ? end + 1 : end;
+                    }
+                if (!saveTo || !*saveTo) saveAt.clear();
+            }
+            const uint32_t ran = g_framesRun.load();
+            for (size_t k = 0; k < saveAt.size(); k++) {
+                if (!saveAt[k] || ran < saveAt[k]) continue;
+                const uint32_t at = saveAt[k];
+                saveAt[k] = 0;
+                std::vector<char> s(core.serialize_size());
+                bool ok = !s.empty() && core.serialize(s.data(), s.size());
+                std::string path = std::string(saveTo) + std::to_string(at) + ".raw";
+                if (ok) {
+                    if (FILE* f = fopen(path.c_str(), "wb")) { ok = fwrite(s.data(), 1, s.size(), f) == s.size(); ok = fclose(f) == 0 && ok; }
+                    else ok = false;
+                }
+                LOGI("state save %s at frame %u: %s (%zu bytes)", path.c_str(), ran, ok ? "written" : "FAILED", s.size());
+            }
+        }
         // Dev (env N64_HASH_RAM=<n>): logs a hash of RDRAM every n frames after the state loads, to check that two
         // builds emulate the same thing (benchmark runs are deterministic from a state).
         static const int hashEvery = getenv("N64_HASH_RAM") ? atoi(getenv("N64_HASH_RAM")) : 0;

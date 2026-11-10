@@ -8,7 +8,7 @@
         {"what": "synchronous parallel-RDP (smart sync), also in fast-forward", "where": "libretro_host.cpp kSyncRdpGames", "why": "photo checks read the framebuffer; async can hand the CPU a stale one"}
       ],
       "issues": [
-        {"status": "open", "devices": "all", "what": "Oak's Mark photo check not yet checked under smart sync (Snap moved from plain sync to smart sync)", "evidence": "README Pokemon Snap photo check item"},
+        {"status": "fixed", "devices": "all", "what": "Oak's Mark photo check under smart sync (Snap moved from plain sync to smart sync): works", "evidence": "README Pokemon Snap photo check item, done 2026-11-09 17:34 on the Flip (open bug (f))"},
         {"status": "parked", "renderer": "GLideN64", "what": "Oak's Mark fix (upstream PRs gonetz/GLideN64#2991, libretro #674) not rechecked after the gonetz update, core d8f51f5", "evidence": "README parked-with-GLideN64 item"}
       ],
       "notes": ["VI filters off: +20% speed on the Flip, the biggest gain of the 14 bench games (2026-11-05, vifilt)"]

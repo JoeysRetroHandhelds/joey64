@@ -10,10 +10,13 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <deque>
 #include <map>
+#include <random>
 #include <string>
 #include <thread>
 #include <vector>
@@ -74,6 +77,33 @@ struct Room {
     int syncMatched = 0;                           // VI counts where every player's report matched
     uint8_t status = 0;
     uint8_t pausedMask = 0; // players whose app is paused (pause menu, in the background)
+    // Dev (2026-11-10): N64_NETPLAY_SIM=<delay ms>:<jitter ms>:<loss %> makes every UDP packet the room sends late by
+    // delay plus up to jitter, and drops loss % of them, so an internet connection can be tried on one Wi-Fi.
+    // Both ways are covered for a joiner, as its inputs come back to it through the room too.
+    int simDelay = 0, simJitter = 0, simLoss = 0;
+    std::mt19937 simRng{12345};
+    struct Late { std::chrono::steady_clock::time_point at; sockaddr_storage to; socklen_t len; std::vector<uint8_t> d; };
+    std::deque<Late> late;
+    uint32_t simDropped = 0, simSent = 0;
+    void udpSend(const uint8_t* d, size_t n, const sockaddr_storage& to, socklen_t len) {
+        if (!simDelay && !simJitter && !simLoss) { sendto(udp, d, n, 0, (const sockaddr*)&to, len); return; }
+        ++simSent;
+        if (simLoss && (int)(simRng() % 100) < simLoss) { ++simDropped; return; }
+        int ms = simDelay + (simJitter ? (int)(simRng() % (uint32_t)(simJitter + 1)) : 0);
+        Late l{std::chrono::steady_clock::now() + std::chrono::milliseconds(ms), to, len, std::vector<uint8_t>(d, d + n)};
+        // kept in send-time order; jitter may reorder packets, as the internet can
+        auto it = late.end();
+        while (it != late.begin() && (it - 1)->at > l.at) --it;
+        late.insert(it, std::move(l));
+    }
+    void sendLate() {
+        auto now = std::chrono::steady_clock::now();
+        while (!late.empty() && late.front().at <= now) {
+            auto& l = late.front();
+            sendto(udp, l.d.data(), l.d.size(), 0, (const sockaddr*)&l.to, l.len);
+            late.pop_front();
+        }
+    }
     // Connection numbers per player, logged every 10 s: new inputs, copies (resends), requests, last packet heard.
     struct NetStats { uint32_t inputs = 0, copies = 0, requests = 0; std::chrono::steady_clock::time_point heard; bool any = false; };
     NetStats ns[4];
@@ -94,6 +124,7 @@ struct Room {
             ns[i].inputs = ns[i].copies = ns[i].requests = 0;
         }
         if (!line.empty()) NLOGI("netplay server: net in %.1f s: %s", secs, line.c_str());
+        if (simSent) { NLOGI("netplay server: simulated internet: %u of %u packets dropped", simDropped, simSent); simSent = simDropped = 0; }
         nsSince = now;
     }
     // The status byte sent: bit 0 de-synced, bits 1-4 player 1-4 left, bits 5-7 the first paused player (1-4), 0 = none.
@@ -219,7 +250,7 @@ struct Room {
             w32(out + k, it->first); w32(out + k + 4, it->second.keys); out[k + 8] = it->second.plugin; k += 9;
         }
         out[0] = kind; out[1] = (uint8_t)p; out[2] = statusByte(); out[3] = lag; out[4] = n;
-        sendto(udp, out, k, 0, (const sockaddr*)&to, len);
+        udpSend(out, k, to, len);
     }
     void handleUdp(const uint8_t* d, ssize_t n, const sockaddr_storage& from, socklen_t len) {
         if (n < 1) return;
@@ -256,7 +287,7 @@ struct Room {
             if (d[2] && !disconnected[d[1]]) pausedMask |= bit; else pausedMask &= (uint8_t)~bit;
             if (was != pausedMask) NLOGI("netplay server: player %d %s", d[1] + 1, d[2] ? "paused" : "resumed");
             // with a sequence number (7 bytes) it is also a ping: sent straight back, so the app can time the network
-            if (n >= 7) sendto(udp, d, 7, 0, (const sockaddr*)&from, len);
+            if (n >= 7) udpSend(d, 7, from, len);
             break;
         }
         case UDP_SYNC_DATA: {
@@ -287,7 +318,8 @@ struct Room {
             fds.push_back({tcp, POLLIN, 0});
             fds.push_back({udp, POLLIN, 0});
             for (auto& c : clients) fds.push_back({c.fd, POLLIN, 0});
-            int r = poll(fds.data(), fds.size(), 100);
+            int r = poll(fds.data(), fds.size(), late.empty() ? 100 : 1);
+            sendLate();
             if (r < 0 && errno != EINTR) break;
             if (fds[0].revents) break;
             if (fds[1].revents & POLLIN) {
@@ -364,6 +396,11 @@ bool start(int port, int players, int delay) {
     auto* room = new Room();
     room->players = players < 1 ? 1 : players > 4 ? 4 : players;
     room->delay = delay < 0 ? 0 : delay > 30 ? 30 : delay;
+    if (const char* s = getenv("N64_NETPLAY_SIM")) {
+        sscanf(s, "%d%*[^0-9]%d%*[^0-9]%d", &room->simDelay, &room->simJitter, &room->simLoss);
+        room->simLoss = std::clamp(room->simLoss, 0, 90);
+        NLOGI("netplay server: simulated internet: %d ms late, up to %d ms more, %d%% lost", room->simDelay, room->simJitter, room->simLoss);
+    }
     room->tcp = openSocket(SOCK_STREAM, port);
     room->udp = openSocket(SOCK_DGRAM, port);
     if (room->tcp < 0 || room->udp < 0 || pipe(g_wake) != 0) {

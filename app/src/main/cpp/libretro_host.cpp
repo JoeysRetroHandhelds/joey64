@@ -82,14 +82,20 @@ static void npPauseStart(const char* np) {
             sentAt[seq % 16] = clk::now();
             (void)!send(fd, b, 7, 0);
             ++seq; ++sent;
-            g_npPauseCv.wait_for(lk, std::chrono::milliseconds(500));
-            uint8_t r[16];
-            ssize_t n;
-            while ((n = recv(fd, r, sizeof r, MSG_DONTWAIT)) >= 7) {
-                uint32_t s = (uint32_t)r[3] << 24 | (uint32_t)r[4] << 16 | (uint32_t)r[5] << 8 | r[6];
-                if (seq - s > 16) continue; // too old to time
-                double ms = std::chrono::duration<double, std::milli>(clk::now() - sentAt[s % 16]).count();
-                sum += ms; if (ms > worst) worst = ms; ++answered;
+            // the next notice in 0.5 s, or at once when the pause changes; echoes are read every 5 ms meanwhile, so
+            // a ping is timed to within 5 ms (reading only after the 0.5 s wait timed the wait itself)
+            const bool was = g_npPausedNow;
+            const auto next = clk::now() + std::chrono::milliseconds(500);
+            while (g_npPauseRun && clk::now() < next && g_npPausedNow == was) {
+                g_npPauseCv.wait_for(lk, std::chrono::milliseconds(5));
+                uint8_t r[16];
+                ssize_t n;
+                while ((n = recv(fd, r, sizeof r, MSG_DONTWAIT)) >= 7) {
+                    uint32_t s = (uint32_t)r[3] << 24 | (uint32_t)r[4] << 16 | (uint32_t)r[5] << 8 | r[6];
+                    if (seq - s > 16) continue; // too old to time
+                    double ms = std::chrono::duration<double, std::milli>(clk::now() - sentAt[s % 16]).count();
+                    sum += ms; if (ms > worst) worst = ms; ++answered;
+                }
             }
             if (clk::now() - logAt >= std::chrono::seconds(10)) {
                 joeyLog(ANDROID_LOG_INFO, "joey64host", "netplay: ping %.1f ms (worst %.1f), %u of %u pings unanswered",

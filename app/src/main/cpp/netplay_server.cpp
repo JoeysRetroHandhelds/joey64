@@ -67,6 +67,8 @@ struct Room {
     std::vector<uint8_t> settings; bool haveSettings = false;
     std::map<std::string, std::vector<uint8_t>> saves;
     std::map<uint32_t, std::vector<uint8_t>> sync; // VI count -> the first CP0 report
+    std::map<uint32_t, int> syncReports;           // VI count -> reports that matched the first
+    int syncMatched = 0;                           // VI counts where every player's report matched
     uint8_t status = 0;
 
     int registered() const { int n = 0; for (auto& r : reg) n += r.id != 0; return n; }
@@ -216,12 +218,15 @@ struct Room {
             if (n < 5) return;
             uint32_t vi = r32(d + 1);
             auto it = sync.find(vi);
-            if (it == sync.end()) sync[vi].assign(d + 5, d + n);
+            if (it == sync.end()) { sync[vi].assign(d + 5, d + n); syncReports[vi] = 1; }
             else if (it->second.size() != (size_t)(n - 5) || memcmp(it->second.data(), d + 5, n - 5) != 0) {
                 if (!(status & 1)) NLOGE("netplay server: players de-synced at VI %u", vi);
                 status |= 1;
+            } else if (++syncReports[vi] == registered()) {
+                // every player's CP0 matched at this VI: log the first and then every 6th (once a minute at 60 VI/s)
+                if (syncMatched++ % 6 == 0) NLOGI("netplay server: in sync at VI %u (%d checks matched so far)", vi, syncMatched);
             }
-            while (sync.size() > 8) sync.erase(sync.begin());
+            while (sync.size() > 8) { syncReports.erase(sync.begin()->first); sync.erase(sync.begin()); }
             break;
         }
         default: break;

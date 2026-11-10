@@ -55,8 +55,10 @@ object GpuRules {
         // odin3-8xsysprdp-compat). Only a8xx: a6xx/a7xx report 128 MB, so 8x is capped to 4x there on any driver.
         // 4x too (Joey 2026-11-09, "Yes use stock"): on the Odin 3 the stock driver ran the quick set +16% uncapped at 4x
         // (odin3-drv) and, capped at 60 fps, with 4-9 ms less input lag in every game and no frames over 33 ms
-        // (odin3-drv4xcap60b); 1x and 2x keep Turnip.
-        f.vendor == Vendor.ADRENO && f.model in 800..899 && upscale >= 4 -> Pick(Driver.SYSTEM, "Adreno 8xx at 4x and up: system driver")
+        // (odin3-drv4xcap60b). 1x and 2x too (2026-11-10, after Joey's "Why driver at 1x if even with stock?"): capped at
+        // 1x the two drivers are even (odin3-drv1xcap60: input lag 21.6 vs 22.0 ms, no frame over 33 ms on either), and the
+        // stock driver passed compat at 1x (odin3-sys1x-compat, 82/82, 0 black) and on the 2x set (odin3-sys2x-set).
+        f.vendor == Vendor.ADRENO && f.model in 800..899 -> Pick(Driver.SYSTEM, "Adreno 8xx: system driver")
         f.vendor == Vendor.ADRENO && f.model in 600..899 -> Pick(Driver.TURNIP, "Adreno 6xx-8xx: bundled Turnip")
         f.vendor == Vendor.ADRENO -> Pick(Driver.SYSTEM, "Adreno outside 6xx-8xx: system driver")
         // Mali-G52 runs parallel-RDP at full speed on the system driver; malisx2 measured ~14% slower there.

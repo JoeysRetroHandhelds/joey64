@@ -39,10 +39,11 @@ class GpuRulesTest {
         // 4x: system driver + parallel-RDP too (Joey 2026-11-09)
         assertEquals(GpuRules.Driver.SYSTEM, GpuRules.autoDriver(f, 4).value)
         assertEquals("parallel", GpuRules.autoRenderer(true, true, false, f, upscale = 4).value)
-        // 1x and 2x: Turnip as before; the stock driver there keeps GLideN64
+        // 1x and 2x: Turnip as before; the stock driver there (picked by hand) gets parallel-RDP too, never GLideN64
         assertEquals(GpuRules.Driver.TURNIP, GpuRules.autoDriver(f, 2).value)
         assertEquals(GpuRules.Driver.TURNIP, GpuRules.autoDriver(f, 1).value)
-        assertEquals("gliden64", GpuRules.autoRenderer(true, true, false, f, upscale = 2).value)
+        assertEquals("parallel", GpuRules.autoRenderer(true, true, false, f, upscale = 2).value)
+        assertEquals("parallel", GpuRules.autoRenderer(true, true, false, f).value)
         // Turnip (custom driver) on Adreno tops out at 4x; stock stays 8x
         assertEquals(4, GpuRules.upscaleTop(f, customDriver = true).value)
         assertEquals(8, GpuRules.upscaleTop(f).value)

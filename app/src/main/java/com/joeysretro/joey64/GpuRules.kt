@@ -73,8 +73,9 @@ object GpuRules {
         !vulkan11 -> Pick("gliden64", "no Vulkan 1.1: GLideN64")
         !storage16 -> Pick("gliden64", "no 16-bit storage buffers: GLideN64")
         customDriver -> Pick("parallel", "custom driver: parallel-RDP")
-        // The stock driver autoDriver picks for 4x and up on Adreno 8xx runs parallel-RDP (Odin 3, Adreno 830).
-        f.vendor == Vendor.ADRENO && f.model in 800..899 && upscale >= 4 -> Pick("parallel", "stock Adreno 8xx at 4x and up: parallel-RDP")
+        // The stock driver on Adreno 8xx runs parallel-RDP (Odin 3 / Odin 3 Portal, Adreno 830: 82/82 compat at 4x and 8x), so
+        // Auto never gives it GLideN64, at any resolution (Joey 2026-11-09: "Glide shouldn't be offered at auto there at all").
+        f.vendor == Vendor.ADRENO && f.model in 800..899 -> Pick("parallel", "stock Adreno 8xx: parallel-RDP")
         // RK3566 (4x Cortex-A55, 1-core Mali-G52; Joey 2026-11-09, "Yes, add the rule"): parallel-RDP held full speed in
         // no game, the Mali driver's own CPU side took 39% of the CPU; GLideN64 SM64 84 vs 44 fps uncapped, OoT 65 vs 57.
         // The Flip (A75 big cores) keeps parallel-RDP.

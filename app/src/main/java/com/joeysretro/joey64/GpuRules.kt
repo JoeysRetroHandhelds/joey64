@@ -53,7 +53,10 @@ object GpuRules {
         // 8x on Adreno 8xx (Odin 3, Adreno 830; Joey 2026-11-09, "Stock driver at 8x"): Turnip draws nothing with a 256 or
         // 512 MB upscaled RDRAM buffer although it reports 2047 MB (odin3-t8-*); Qualcomm's driver draws 8x (up8-odin3-sysdrv,
         // odin3-8xsysprdp-compat). Only a8xx: a6xx/a7xx report 128 MB, so 8x is capped to 4x there on any driver.
-        f.vendor == Vendor.ADRENO && f.model in 800..899 && upscale >= 8 -> Pick(Driver.SYSTEM, "Adreno 8xx at 8x: system driver (Turnip draws nothing past 4x)")
+        // 4x too (Joey 2026-11-09, "Yes use stock"): on the Odin 3 the stock driver ran the quick set +16% uncapped at 4x
+        // (odin3-drv) and, capped at 60 fps, with 4-9 ms less input lag in every game and no frames over 33 ms
+        // (odin3-drv4xcap60b); 1x and 2x keep Turnip.
+        f.vendor == Vendor.ADRENO && f.model in 800..899 && upscale >= 4 -> Pick(Driver.SYSTEM, "Adreno 8xx at 4x and up: system driver")
         f.vendor == Vendor.ADRENO && f.model in 600..899 -> Pick(Driver.TURNIP, "Adreno 6xx-8xx: bundled Turnip")
         f.vendor == Vendor.ADRENO -> Pick(Driver.SYSTEM, "Adreno outside 6xx-8xx: system driver")
         // Mali-G52 runs parallel-RDP at full speed on the system driver; malisx2 measured ~14% slower there.
@@ -70,8 +73,8 @@ object GpuRules {
         !vulkan11 -> Pick("gliden64", "no Vulkan 1.1: GLideN64")
         !storage16 -> Pick("gliden64", "no 16-bit storage buffers: GLideN64")
         customDriver -> Pick("parallel", "custom driver: parallel-RDP")
-        // The stock driver autoDriver picks for 8x on Adreno 8xx runs parallel-RDP (Odin 3, Adreno 830).
-        f.vendor == Vendor.ADRENO && f.model in 800..899 && upscale >= 8 -> Pick("parallel", "stock Adreno 8xx at 8x: parallel-RDP")
+        // The stock driver autoDriver picks for 4x and up on Adreno 8xx runs parallel-RDP (Odin 3, Adreno 830).
+        f.vendor == Vendor.ADRENO && f.model in 800..899 && upscale >= 4 -> Pick("parallel", "stock Adreno 8xx at 4x and up: parallel-RDP")
         // RK3566 (4x Cortex-A55, 1-core Mali-G52; Joey 2026-11-09, "Yes, add the rule"): parallel-RDP held full speed in
         // no game, the Mali driver's own CPU side took 39% of the CPU; GLideN64 SM64 84 vs 44 fps uncapped, OoT 65 vs 57.
         // The Flip (A75 big cores) keeps parallel-RDP.
@@ -153,7 +156,7 @@ object GpuRules {
     fun upscaleTop(f: Family, customDriver: Boolean = false): Pick<Int> = when {
         f.vendor == Vendor.ADRENO && f.model == 722 -> Pick(2, "Adreno 722: 2x")
         // Turnip on Adreno draws nothing past a 128 MB upscaled RDRAM buffer, whatever it reports (Adreno 830: 2047 MB,
-        // black at 8x, odin3-t8-*), so 4x there; Auto takes the system driver for 8x on a8xx.
+        // black at 8x, odin3-t8-*), so 4x there; Auto takes the system driver for 4x and 8x on a8xx.
         f.vendor == Vendor.ADRENO && customDriver -> Pick(4, "Turnip on Adreno: 4x")
         else -> Pick(8, "8x")
     }

@@ -552,6 +552,14 @@ bool environment(unsigned cmd, void* data) {
         return true;
     case RETRO_ENVIRONMENT_GET_VARIABLE: {
         auto* v = static_cast<retro_variable*>(data);
+        // Netplay rooms run at 1x on both renderers (Joey 2026-11-10, like run-ahead): in lockstep one device that
+        // can't hold 60 fps at its upscale slows every player, and the room would read it as late inputs.
+        if (g_netplay && v->key && (!strcmp(v->key, kUpscaleKey) || !strcmp(v->key, "mupen64plus-EnableNativeResFactor"))) {
+            static bool said = false;
+            if (!said) { said = true; LOGI("netplay: rendering at 1x in a room"); }
+            v->value = !strcmp(v->key, kUpscaleKey) ? "1x" : "1";
+            return true;
+        }
         auto it = g_optionOverrides.find(v->key);
         if (it != g_optionOverrides.end()) { v->value = it->second.c_str(); return true; }
         auto d = g_options.find(v->key);

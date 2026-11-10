@@ -725,6 +725,26 @@ void input_poll() {
     sampleButtons();
 }
 
+// Dev (2026-11-10, the Spider-Man 4x strip): N64_LOG_PRESSES=1 logs "press <frame> <hex>" whenever player 1's polled
+// buttons change; N64_PRESS_SCRIPT="<frame>:<hex>/<frame>:<hex>/..." (frames from boot, '/' between, env can't hold a
+// comma) replaces player 1's buttons with the last entry at or before each frame, so a run's presses replay on the same frames.
+static bool g_logPresses = false;
+static int g_lastPressLogged = -1;
+static std::vector<std::pair<uint32_t, int>> g_pressScript;
+static void readPressScript() {
+    g_logPresses = getenv("N64_LOG_PRESSES") && getenv("N64_LOG_PRESSES")[0] == '1';
+    g_pressScript.clear();
+    if (const char* s = getenv("N64_PRESS_SCRIPT")) {
+        for (const char* q = s; *q;) {
+            unsigned f = 0; int m = 0, used = 0;
+            if (sscanf(q, "%u:%x%n", &f, &m, &used) != 2) break;
+            g_pressScript.emplace_back(f, m);
+            q += used; if (*q == '/') ++q;
+        }
+        LOGI("press script: %zu entries", g_pressScript.size());
+    }
+}
+
 void sampleButtons() {
     for (int p = 0; p < kPorts; ++p) {
         int taps = g_tapped[p].exchange(0), held = 0;
@@ -739,6 +759,16 @@ void sampleButtons() {
             const int n = g_turboPolls[p]++, speed = std::max(1, g_turboSpeed[p].load());
             if ((n * speed * 2 / 60) % 2) g_polledButtons[p] &= ~t;
         } else g_turboPolls[p] = 0;
+        if (p == 0 && !g_pressScript.empty()) {
+            const uint32_t f = g_framesRun.load();
+            int m = 0;
+            for (auto& e : g_pressScript) { if (e.first > f) break; m = e.second; }
+            g_polledButtons[0] = m;
+        }
+        if (p == 0 && g_logPresses && g_polledButtons[0] != g_lastPressLogged) {
+            g_lastPressLogged = g_polledButtons[0];
+            LOGI("press %u %x", g_framesRun.load(), (unsigned)g_lastPressLogged);
+        }
     }
     if (g_macroAny.load() || g_macroStickAny) {
         std::lock_guard<std::mutex> lk(g_macroMutex);
@@ -1164,6 +1194,7 @@ void runLoop() {
     else if (runAheadAsked) LOGI("run-ahead: off in a netplay room");
     std::vector<uint8_t> raState;
     double raSaveMs = 0, raLoadMs = 0, raExtraMs = 0; int raFrames = 0, raRefused = 0, raSaveRamPutBack = 0; std::vector<uint8_t> raSaveRam;
+    readPressScript();
     const char* probeEnv = getenv("N64_LAG_PROBE");
     const int probeAt = probeEnv && *probeEnv ? atoi(probeEnv) : -1;
     const bool probePress = !(probeEnv && strchr(probeEnv, '/')); // "<frame>/0": no press (env values can't hold a comma)

@@ -1315,9 +1315,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             trial?.cancel()
             // Only a missing IPL is asked for; a damaged disk or disk save just goes back.
             if (noIpl) intent?.let { com.joeysretro.joey64.launcher.GameStartFailed.diskNeedsBios(it) }
-            // Netplay: the room was lost, couldn't be reached, or has another copy (approved netplay screens). 5 (turned
-            // down) has no approved screen yet, so it just goes back.
-            else if (why in 3..6) { if (why != 5) intent?.takeIf { it.hasExtra(EXTRA_MD5) }?.let { com.joeysretro.joey64.launcher.GameStartFailed.netEnded(it, why) } }
+            // Netplay: the room was lost, couldn't be reached, turned this player down, or has another copy (approved netplay screens).
+            else if (why in 3..6) intent?.takeIf { it.hasExtra(EXTRA_MD5) }?.let { com.joeysretro.joey64.launcher.GameStartFailed.netEnded(it, why) }
             else intent?.takeIf { it.hasExtra(EXTRA_MD5) }?.let { com.joeysretro.joey64.launcher.GameStartFailed.romFailed(it, com.joeysretro.joey64.launcher.GameStartFailed.Why.Stopped) }
             finish()
         }

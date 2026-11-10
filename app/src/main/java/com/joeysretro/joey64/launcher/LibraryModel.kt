@@ -213,7 +213,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                 } else if (failed.need in NET_ENDS) {
                     JLog.i(TAG, "${game.title}: netplay ended (${failed.need.name}): saying so")
                     _netEnded.value = NetEnded(failed.need, game,
-                        failed.intent.getStringExtra(com.joeysretro.joey64.MainActivity.EXTRA_SOURCE_NAME) ?: game.title)
+                        failed.intent.getStringExtra(com.joeysretro.joey64.MainActivity.EXTRA_SOURCE_NAME) ?: game.title, failed.intent)
                 } else if (failed.need == GameStartFailed.Need.Rom) {
                     _startFailed.value = withContext(Dispatchers.IO) { startFailedOf(game, failed) }
                     JLog.i(TAG, "${game.title} didn't start (${failed.why?.name}): saying so" + if (_startFailed.value?.damaged == true) ", the file looks damaged" else "")
@@ -789,15 +789,23 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
      * Netplay's library popups (approved: room lost 2026-11-10 "OK only"; Couldn't reach the room and Your copy doesn't
      * match the host's in Play together v2, 2026-11-06). [file]: this player's copy, for the mismatch's Details.
      */
-    data class NetEnded(val need: GameStartFailed.Need, val game: LibraryGame, val file: String)
+    data class NetEnded(val need: GameStartFailed.Need, val game: LibraryGame, val file: String, val intent: Intent? = null)
 
     private val _netEnded = MutableStateFlow<NetEnded?>(null)
     val netEnded: StateFlow<NetEnded?> = _netEnded
     fun netEndedSeen() { _netEnded.value = null }
+    /** Turned down's Try again: the same join, started again at once. */
+    fun netTryAgain(start: (Intent) -> Unit) {
+        val n = _netEnded.value ?: return
+        _netEnded.value = null
+        val intent = n.intent ?: return
+        JLog.i(TAG, "${n.game.title}: netplay, trying to join again")
+        startNow(n.game, intent, start)
+    }
 
     /** Debug (SHOW --es what net-lost|net-unreach|net-mismatch): the popup for the first game in the library. */
     fun debugNetEnded(what: String) {
-        val need = when (what) { "net-lost" -> GameStartFailed.Need.NetLost; "net-unreach" -> GameStartFailed.Need.NetUnreachable; else -> GameStartFailed.Need.NetMismatch }
+        val need = when (what) { "net-lost" -> GameStartFailed.Need.NetLost; "net-unreach" -> GameStartFailed.Need.NetUnreachable; "net-full" -> GameStartFailed.Need.NetTurnedDown; else -> GameStartFailed.Need.NetMismatch }
         val game = _all.value?.firstOrNull() ?: return
         _netEnded.value = NetEnded(need, game, game.title + ".z64")
     }
@@ -933,4 +941,4 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
 }
 
 /** The netplay ends the library says (LibraryModel.netEnded). */
-private val NET_ENDS = setOf(GameStartFailed.Need.NetLost, GameStartFailed.Need.NetUnreachable, GameStartFailed.Need.NetMismatch)
+private val NET_ENDS = setOf(GameStartFailed.Need.NetLost, GameStartFailed.Need.NetUnreachable, GameStartFailed.Need.NetMismatch, GameStartFailed.Need.NetTurnedDown)

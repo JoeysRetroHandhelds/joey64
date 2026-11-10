@@ -74,7 +74,9 @@ internal fun StartFailedPopup(model: LibraryModel) {
 /**
  * Netplay's library popups. The room is lost (approved netplay mockup 2026-11-10, screen 4, "OK only": "The netplay game
  * ended"); Couldn't reach the room and Your copy doesn't match the host's (Play together v2, approved 2026-11-06), the
- * joiner's side of a join that failed. The host's name and copy aren't sent by the room yet, so they read "the host".
+ * joiner's side of a join that failed; Couldn't join the room (the room is full or the place is taken: approved mockup B
+ * 2026-11-10, scratchpad build_netplay4.py, Try again starts the same join again). The host's name and copy aren't sent by
+ * the room yet, so they read "the host".
  * Details (mismatch): this player's file and MD5.
  */
 @Composable
@@ -82,9 +84,15 @@ internal fun NetEndedPopup(model: LibraryModel) {
     val n = model.netEnded.collectAsStateWithLifecycle().value ?: return
     var details by remember(n) { mutableStateOf(false) }
     val c = JoeyTheme.colors
+    val context = LocalContext.current
+    val turned = n.need == com.joeysretro.joey64.launcher.GameStartFailed.Need.NetTurnedDown
     JoeyDialog(
         onDismiss = { model.netEndedSeen() },
-        hints = if (details) listOf(Hint("A", "OK"), Hint("B", "Back")) else listOf(Hint("A", if (n.need == com.joeysretro.joey64.launcher.GameStartFailed.Need.NetMismatch) "Select" else "OK")),
+        hints = when {
+            details -> listOf(Hint("A", "OK"), Hint("B", "Back"))
+            turned -> listOf(Hint("A", "Select"), Hint("B", "Close"))
+            else -> listOf(Hint("A", if (n.need == com.joeysretro.joey64.launcher.GameStartFailed.Need.NetMismatch) "Select" else "OK"))
+        },
         interceptBack = { if (details) { details = false; true } else false },
         width = 470.dp,
     ) {
@@ -102,6 +110,12 @@ internal fun NetEndedPopup(model: LibraryModel) {
                     PopupTitle("The netplay game ended")
                     PromptText(AnnotatedStringOf("Joey64 lost the connection to the room. The room may have closed, or the Wi-Fi dropped."))
                     JoeyOption("OK", Modifier.initialFocus()) { model.netEndedSeen() }
+                }
+                turned -> {
+                    PopupTitle("Couldn't join the room")
+                    PromptText(AnnotatedStringOf("The room has no place for you: all its players are taken. If someone left, the host can free their place on the room screen, then join again."))
+                    JoeyOption("Try again", Modifier.initialFocus()) { model.netTryAgain { context.startActivity(it) } }
+                    JoeyOption("OK") { model.netEndedSeen() }
                 }
                 n.need == com.joeysretro.joey64.launcher.GameStartFailed.Need.NetUnreachable -> {
                     PopupTitle("Couldn't reach the room")

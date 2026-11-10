@@ -1258,6 +1258,12 @@ void runLoop() {
                 uint64_t h = 1469598103934665603ull;
                 for (size_t i = 0; ok && i < px.size(); i++) h = (h ^ px[i]) * 1099511628211ull;
                 LOGI("lagprobe %d %s %016llx", probeFrame - probeAt, g_probeMask ? "A" : "-", (unsigned long long)h);
+                // N64_LAG_PROBE_DUMP=<dir>: each probed frame's pixels too, <dir>/probe<n>_<w>x<h>.rgba (to see what differs).
+                if (const char* dump = getenv("N64_LAG_PROBE_DUMP"); ok && dump && *dump) {
+                    char path[512];
+                    snprintf(path, sizeof path, "%s/probe%d_%ux%u.rgba", dump, probeFrame - probeAt, pw, ph);
+                    if (FILE* f = fopen(path, "wb")) { fwrite(px.data(), 1, px.size(), f); fclose(f); }
+                }
             }
             ++probeFrame;
         }

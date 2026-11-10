@@ -303,6 +303,10 @@ std::atomic<bool> g_coreShutDown{false};
 // The core said it could not load the 64DD IPL (its region's file, else IPL.n64, is missing): why a disk didn't start,
 // as against a disk or disk save it could not read.
 std::atomic<bool> g_ddIplMissing{false};
+// Netplay as the core reports it (a joining player has no room server here): the connection was lost (the core then
+// stops), and the room's status byte as last heard (bit 0 de-synced, bits 1-4 player 1-4 left).
+std::atomic<bool> g_netplayLost{false};
+std::atomic<uint8_t> g_netplayStatus{0};
 // Rumble Pak, players 1-4 (players 2-4 since 2026-11-07; before, the core's calls for ports 1-3 were
 // refused): the core switches each motor on/off; a UI-side thread waits in waitRumble for any player's
 // motor to change and drives that player's controller (or the device's) vibrator. Polling it from a
@@ -350,6 +354,10 @@ void log_cb(enum retro_log_level level, const char* fmt, ...) {
         vsnprintf(line, sizeof line, fmt, cp);
         va_end(cp);
         if (strstr(line, "Failed to load DD IPL ROM")) g_ddIplMissing = true;
+        if (strstr(line, "Netplay: lost connection")) g_netplayLost = true;
+        if (strstr(line, "Netplay: players have de-synced")) g_netplayStatus |= 1;
+        unsigned left;
+        if (sscanf(line, "Netplay: player %u has disconnected", &left) == 1 && left >= 1 && left <= 4) g_netplayStatus |= (uint8_t)(1 << left);
     }
     joeyLogV(level >= RETRO_LOG_ERROR ? ANDROID_LOG_ERROR : level == RETRO_LOG_WARN ? ANDROID_LOG_WARN : ANDROID_LOG_INFO, "core", fmt, ap);
     va_end(ap);
@@ -1356,6 +1364,8 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
     g_loadStart = std::chrono::steady_clock::now();
     g_coreShutDown = false;
     g_ddIplMissing = false;
+    g_netplayLost = false;
+    g_netplayStatus = 0;
     if (!g_vulkan) {
         if (!g_egl.init()) return JNI_FALSE;
         applySurfaceIfChanged();
@@ -1624,7 +1634,18 @@ JNIEXPORT jint JNICALL JNI(waitRumble)(JNIEnv*, jobject, jint wasMask, jint time
 }
 
 // 0 running, 1 the core shut down, 2 it shut down after it could not load the 64DD IPL.
-JNIEXPORT jint JNICALL JNI(coreShutDown)(JNIEnv*, jobject) { return !g_coreShutDown ? 0 : g_ddIplMissing ? 2 : 1; }
+JNIEXPORT jint JNICALL JNI(coreShutDown)(JNIEnv*, jobject) { return !g_coreShutDown ? 0 : g_ddIplMissing ? 2 : g_netplayLost ? 3 : 1; }
+
+// [in a room (1/0), hosting it (1/0), players joined (bit per player; the host only), status (bit 0 de-synced,
+// bits 1-4 player 1-4 left; the host's is the room's own)].
+JNIEXPORT jintArray JNICALL JNI(netplayInfo)(JNIEnv* env, jobject) {
+    bool host = NetplayServer::running();
+    jint v[4] = {g_netplay ? 1 : 0, host ? 1 : 0, host ? NetplayServer::registeredMask() : 0,
+                 (jint)(host ? (NetplayServer::status() | g_netplayStatus) : g_netplayStatus.load())};
+    jintArray out = env->NewIntArray(4);
+    if (out) env->SetIntArrayRegion(out, 0, 4, v);
+    return out;
+}
 
 JNIEXPORT jint JNICALL JNI(framesRun)(JNIEnv*, jobject) {
     return (jint)g_framesRun.load();

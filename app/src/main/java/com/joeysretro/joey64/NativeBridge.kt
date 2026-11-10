@@ -82,9 +82,14 @@ object NativeBridge {
     external fun framesRun(): Int
     /**
      * The core shut down, so no frames come: 0 it didn't, 1 it couldn't start the game (a damaged disk or disk save),
-     * 2 it couldn't load the 64DD IPL BIOS (none for the disk's region).
+     * 2 it couldn't load the 64DD IPL BIOS (none for the disk's region), 3 netplay lost its connection to the room.
      */
     external fun coreShutDown(): Int
+    /**
+     * Netplay (dev env N64_NETPLAY / N64_NETPLAY_SERVE until the Play together screens): [in a room 1/0, hosting it 1/0,
+     * players joined (bit per player, the host only), status (bit 0 de-synced, bits 1-4 player 1-4 left)].
+     */
+    external fun netplayInfo(): IntArray
     /** New frames presented since start (wraps): what the game drew, without repeats. */
     external fun framesDrawn(): Int
     /** The game's native frame rate (NTSC ~60, PAL 50), for the speed percentage. */

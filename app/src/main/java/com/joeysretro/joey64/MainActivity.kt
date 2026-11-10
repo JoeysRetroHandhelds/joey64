@@ -1082,7 +1082,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             val why = NativeBridge.coreShutDown()
             if (why == 0) { fpsHandler.postDelayed(this, SHUTDOWN_POLL_MS); return }
             val noIpl = why == 2
-            JLog.e(TAG, "the core shut down: the game did not start${if (noIpl) " (no 64DD IPL BIOS for the disk's region)" else ""}, closing the game screen")
+            val why2 = when (why) { 2 -> " (no 64DD IPL BIOS for the disk's region)"; 3 -> " (netplay: lost the connection to the room)"; else -> "" }
+            JLog.e(TAG, "the core shut down: the game stopped$why2, closing the game screen")
             // Not the GPU's doing: the start doesn't count against Auto's trial (a no-op once a frame was drawn).
             trial?.cancel()
             // Only a missing IPL is asked for; a damaged disk or disk save just goes back.

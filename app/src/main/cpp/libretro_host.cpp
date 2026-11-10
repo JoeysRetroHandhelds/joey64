@@ -1300,6 +1300,14 @@ void runLoop() {
             uint64_t h = 1469598103934665603ull;
             for (size_t i = 0; mem && i < words; i++) h = (h ^ mem[i]) * 1099511628211ull;
             LOGI("ramhash %d %016llx", hashFrame, (unsigned long long)h);
+            // N64_RAM_DUMP=<dir>:<from>:<to>: RDRAM at each hashed frame from..to, <dir>/ram<frame>.bin (to see what differs).
+            static const char* ramDump = getenv("N64_RAM_DUMP");
+            static int dumpFrom = -1, dumpTo = -1; static char dumpDir[256];
+            if (ramDump && dumpFrom < 0) sscanf(ramDump, "%255[^:]:%d:%d", dumpDir, &dumpFrom, &dumpTo) == 3 || (dumpFrom = dumpTo = -2);
+            if (ramDump && hashFrame >= dumpFrom && hashFrame <= dumpTo) {
+                char path[320]; snprintf(path, sizeof path, "%s/ram%d.bin", dumpDir, hashFrame);
+                if (FILE* f = fopen(path, "wb")) { fwrite(mem, 4, words, f); fclose(f); }
+            }
         }
         {
             std::lock_guard<std::mutex> lk(g_dumpMutex);

@@ -1034,6 +1034,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         JLog.i(TAG, "widescreen / 60 fps: ${p.extras.log}")
         // RetroAchievements: signs in with the kept account first, so the game is identified as it loads.
         com.joeysretro.joey64.achievements.RaBridge.init(this)
+        // The recompiler's block list, one file per game (Joey 2026-11-09: "Yes, build it"): the blocks the game compiled
+        // last time are compiled early on the compile thread as their code loads, so a scene's first compile doesn't
+        // land in a frame (Flip, Mario Kart 64's race start: a 42-46 ms hitch without the list, none with it). The core
+        // uses it only with the compile thread (Mali, GpuRules.settings). --es env N64_DRC_LIST=<file> or =0 (off) wins.
+        if (devString("env")?.contains("N64_DRC_LIST=") != true)
+            android.system.Os.setenv("N64_DRC_LIST", File(File(filesDir, "blocklists").apply { mkdirs() }, "$saveName.txt").path, true)
         trial?.begin()
         if (NativeBridge.loadGame(rom, saveName)) {
             NativeBridge.start(); started = true; owner = this; gameLoaded = true

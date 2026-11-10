@@ -1069,6 +1069,10 @@ void runLoop() {
     int stateWait = statePath && *statePath ? 30 : -1;
     g_bench = getenv("N64_BENCH") && atoi(getenv("N64_BENCH")) == 1;
     auto ffNext = std::chrono::steady_clock::now(), ffLastShown = ffNext, capNext = ffNext, rewindNext = ffNext;
+    // Fast-forward's shown frames (2026-11-10, "fast forward stutters and looks choppy"): emulated frames since the
+    // last one shown, and per 5 s how many were shown, how many frames each moved on, and how evenly they were spaced.
+    int ffSinceShown = 0, ffShown = 0, ffPerMin = 99, ffPerMax = 0;
+    double ffGapSum = 0, ffGapSq = 0;
     auto ffLastWake = ffNext, ffStepAt = ffNext, ffLogAt = ffNext; // fast-forward's even pacing
     double ffWorkEma = 0, ffPace = 0;
     int ffLate = 0, ffFrames = 0;
@@ -1203,17 +1207,43 @@ void runLoop() {
                 ffNext = now; // don't sprint to catch up
             lastWake = std::chrono::steady_clock::now();
             if (lastWake - logAt >= std::chrono::seconds(5)) {
-                LOGI("fast-forward: chosen %.2fx, paced %.2fx, frame work %.1f ms, %d of %d frames late%s",
-                     want, speed, workEma, late, frames, even ? "" : " (even pacing off)");
+                const int gaps = std::max(1, ffShown - 1);
+                const double gapMean = ffGapSum / gaps, gapSd = std::sqrt(std::max(0.0, ffGapSq / gaps - gapMean * gapMean));
+                LOGI("fast-forward: chosen %.2fx, paced %.2fx, frame work %.1f ms, %d of %d frames late%s; shown %d, "
+                     "%d-%d frames each, %.1f ms apart (sd %.1f)%s",
+                     want, speed, workEma, late, frames, even ? "" : " (even pacing off)", ffShown,
+                     ffPerMin == 99 ? 0 : ffPerMin, ffPerMax, gapMean, gapSd,
+                     getenv("N64_FF_SHOWK") && *getenv("N64_FF_SHOWK") == '1' ? " (every Kth shown)" : "");
                 logAt = lastWake; late = 0; frames = 1;
+                ffShown = 0; ffPerMin = 99; ffPerMax = 0; ffGapSum = ffGapSq = 0;
             }
         }
         // Fast-forward shows at most ~60 frames a second so presenting doesn't cap the speed.
         bool show = true;
         if (ff) {
             auto now = std::chrono::steady_clock::now();
-            show = now - ffLastShown >= std::chrono::microseconds(16000);
-            if (show) ffLastShown = now;
+            // A frame is shown once 16 ms have passed since the last one shown. Dev (2026-11-10): N64_FF_SHOWK=1
+            // shows every Kth frame instead (K = frames per shown frame at the paced speed, at most ~60 shown a second
+            // or the panel's rate if lower), so each shown frame moves the game on by the same amount. Duo, Conker at
+            // 4x: by time 4-5 frames each, 18.7 ms apart (sd 0.3), 7.5% of frames late; every 4th: 4 each, 16.7 ms
+            // apart (sd 1.7), 12.5% late (showing more costs the Duo). Odin 2 Portal the same either way. Not a
+            // measured win, so the timer stays until Joey has looked at both.
+            static const bool counted = getenv("N64_FF_SHOWK") && *getenv("N64_FF_SHOWK") == '1';
+            ++ffSinceShown;
+            if (counted) {
+                const uint64_t rn = g_vulkan ? g_vk.refreshNs() : 0;
+                const double hz = std::min(rn ? 1e9 / (double)rn : 60.0, 62.5);
+                const int k = std::max(1, (int)std::lround(g_av.timing.fps * g_ffSpeedNow.load() / hz));
+                show = ffSinceShown >= k;
+            } else show = now - ffLastShown >= std::chrono::microseconds(16000);
+            if (show) {
+                if (ffShown++ > 0) {
+                    const double gap = std::chrono::duration<double, std::milli>(now - ffLastShown).count();
+                    ffGapSum += gap; ffGapSq += gap * gap;
+                    ffPerMin = std::min(ffPerMin, ffSinceShown); ffPerMax = std::max(ffPerMax, ffSinceShown);
+                }
+                ffLastShown = now; ffSinceShown = 0;
+            }
         }
         if (!ff && !g_bench && !g_paused && !rewinding) { // paused: a frame advance step, no audio to wait for
             auto t0 = std::chrono::steady_clock::now();

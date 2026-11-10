@@ -108,4 +108,22 @@ class GameExtrasTest {
         assertEquals("When a game has one", VideoChoices.label(VideoKey.Widescreen, "auto"))
         assertEquals("60 fps (1 player)", VideoChoices.label(VideoKey.Fps, "Sixty Frames (1P Mode)"))
     }
+
+    @Test fun ownWidescreenMode() {
+        val auto = VideoSettings(mapOf(VideoKey.Widescreen to GameExtras.ALL))
+        val pd = ExtrasOn.withOwnMode(ExtrasOn.NONE, "NPDE", auto, hardcore = false)
+        assertEquals(16 to 9, pd.shape); assertTrue(pd.codeLines.isEmpty())
+        assertEquals(16 to 9, VideoApply.aspect(VideoSettings(emptyMap()), pd.shape))
+        assertEquals(16 to 9, ExtrasOn.withOwnMode(ExtrasOn.NONE, "NFUP", auto, hardcore = false).shape)
+        // Aspect ratio set by hand wins
+        assertEquals(4 to 3, VideoApply.aspect(VideoSettings(mapOf(VideoKey.Aspect to "4:3")), pd.shape))
+        // Widescreen off or Hardcore: nothing; a game not on the list: nothing
+        assertNull(ExtrasOn.withOwnMode(ExtrasOn.NONE, "NPDE", VideoSettings.DEFAULTS, hardcore = false).shape)
+        assertNull(ExtrasOn.withOwnMode(ExtrasOn.NONE, "NPDE", auto, hardcore = true).shape)
+        assertNull(ExtrasOn.withOwnMode(ExtrasOn.NONE, "NSME", auto, hardcore = false).shape)
+        assertNull(ExtrasOn.withOwnMode(ExtrasOn.NONE, null, auto, hardcore = false).shape)
+        // A picked code keeps its own shape
+        val code = ExtrasOn(listOf("81000000 0002"), 21 to 9, false, "code")
+        assertEquals(21 to 9, ExtrasOn.withOwnMode(code, "NGEE", auto, hardcore = false).shape)
+    }
 }

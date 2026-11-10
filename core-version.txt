@@ -1,7 +1,7 @@
 # The core bundled in app/src/main/jniLibs (written by devtools/bundle-core.sh; the .so itself is not committed)
 repo: JoeysRetroHandhelds/joey64-core
-branch: state-return
-commit: 92e7fbaa03f5ca541f73321e5bf776e219282d27 2026-11-08 13:39:45 -0600 Save states: go back to the frontend right after a save or load job
-uncommitted: new_dynarec.c (line ending only, no change with whitespace ignored)
-built: 2026-11-08 13:39
-md5: 16298e1dca8d89c8268aa560ae26618b
+branch: ra-known2
+commit: 1281dd828032dd292a18c5a5e4b590f02be03f2f 2026-11-09 21:54:59 -0600 Merge branch 'runahead-state' into ra-known2
+uncommitted: none
+built: 2026-11-09 21:55
+md5: fe1f6927b7ecdeed7d397f9fc2c3e5f4

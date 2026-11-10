@@ -8,7 +8,7 @@
         {"what": "synchronous parallel-RDP (smart sync), also in fast-forward", "where": "libretro_host.cpp kSyncRdpGames", "why": "photo checks read the framebuffer; async can hand the CPU a stale one"}
       ],
       "issues": [
-        {"status": "open", "devices": "all", "what": "Oak's Mark photo check not yet checked under smart sync (Snap moved from plain sync to smart sync)", "evidence": "README Pokemon Snap photo check item"},
+        {"status": "fixed", "devices": "all", "what": "Oak's Mark photo check under smart sync (Snap moved from plain sync to smart sync): works", "evidence": "README Pokemon Snap photo check item, done 2026-11-09 17:34 on the Flip (open bug (f))"},
         {"status": "parked", "renderer": "GLideN64", "what": "Oak's Mark fix (upstream PRs gonetz/GLideN64#2991, libretro #674) not rechecked after the gonetz update, core d8f51f5", "evidence": "README parked-with-GLideN64 item"}
       ],
       "notes": ["VI filters off: +20% speed on the Flip, the biggest gain of the 14 bench games (2026-11-05, vifilt)"]
@@ -75,15 +75,16 @@
     {
       "id": "NGU", "title": "Sin and Punishment (English patch)",
       "settings": [
-        {"what": "cached interpreter instead of the dynarec", "where": "libretro_host.cpp kInterpreterGames", "why": "new_dynarec jumps to a bogus address right after boot since upstream's 3.0 core update"}
+        {"what": "runs on the recompiler (the cached interpreter setting dropped 2026-11-09)", "where": "core 19eff8c new_dynarec", "why": "its English patch runs a hook at the end of its 32 MB ROM; the recompiler now compiles code in cartridge ROM instead of exiting"}
       ],
       "issues": [
-        {"status": "open", "devices": "all", "what": "find the dynarec commit that broke it, fix, report upstream (then drop the interpreter setting)", "evidence": "README Sin and Punishment item"}
+        {"status": "fixed", "devices": "all", "what": "new_dynarec jumped to a bogus address right after boot (code in cartridge ROM); fixed in core 19eff8c, spfix2/spfix3 compat 82/82 on all four devices; an upstream report only on Joey's go", "evidence": "README Sin and Punishment item"}
       ]
     },
     {
       "id": "NPD", "title": "Perfect Dark",
       "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (Options › Video › Ratio 16:9, per agent file; checked on the Portal 2026-11-09 with N64_ASPECT=16:9)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"},
         {"what": "Expansion Pak always on: Settings › Emulation greys the row (Needed by this game) and Off is never applied", "where": "EmulationSettings.kt ExpansionPak.NEEDED_BY (2026-11-08)", "why": "without it most of the game (solo missions, co-op, counter-op, most multiplayer) is locked"}
       ],
       "fixed": [
@@ -92,6 +93,7 @@
       ],
       "notes": [
         "input delay steady 18-24 ms (Smash 16-18); an earlier 54-83 ms was an averaging artifact",
+        "widescreen: its own Options › Video › Ratio 16:9 (saved per agent file) plus the app's 16:9 picture (N64_ASPECT=16:9 until Aspect ratio Auto knows it) is right on parallel-RDP: Portal 2026-11-09, Carrington Institute, proportions correct and wider view, 60 emu fps; no widescreen code needed (README item 33 group a)",
         "Flip slow frames are a first-run dynarec compile burst (2009 blocks / 273 ms in one window), like MK64",
         "100-140 ms boot frames on the Flip"
       ]
@@ -140,13 +142,15 @@
     {
       "id": "NFU", "title": "Conker's Bad Fur Day",
       "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"},
         {"what": "smoother timing, CountPerOp=1 (counter factor 1), on Adreno 730 and up (Portal, Odin 3, Thor) only", "where": "libretro_host.cpp kSmootherGames, MainActivity N64_SMOOTHER", "why": "Odin 3 21.4 -> 28.6 fps; compat with it passed on the Odin 3 and Portal (odin3-/portal-smoothc), Joey 2026-11-06. Hacks with this ID get it too"}
       ],
-      "notes": ["100-140 ms boot frames on the Flip", "RSP chunk cache made it 10.9% slower (dropped)", "Europe ROM (07) has no bench state; use the USA ROM (81)"]
+      "notes": ["100-140 ms boot frames on the Flip", "RSP chunk cache made it 10.9% slower (dropped)", "Europe ROM (07) has no bench state; use the USA ROM (81)", "the intro has black gaps between scenes (gamma-dither values 0-1, black to the eye): compat shots at 20/45 s land on them on the Flip at full speed; not a bug (README open bugs (a), settled 2026-11-09, flip-conkq1/q3 time series)"]
     },
     {
       "id": "NDO", "title": "Donkey Kong 64",
       "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"},
         {"what": "save type from the header ID for hacks", "where": "core rom.c, 67a1fcd", "why": "hacks not in the database got 4K EEPROM and could not save"},
         {"what": "Expansion Pak always on: Settings › Emulation greys the row (Needed by this game) and Off is never applied", "where": "EmulationSettings.kt ExpansionPak.NEEDED_BY (2026-11-08)", "why": "won't run without it"}
       ],
@@ -155,6 +159,7 @@
     {
       "id": "NB7", "title": "Banjo-Tooie",
       "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"},
         {"what": "save type from the header ID for hacks", "where": "core rom.c, 67a1fcd", "why": "hacks not in the database got 4K EEPROM and could not save"}
       ],
       "issues": [
@@ -164,10 +169,11 @@
     {
       "id": "NSM", "crc": "DC493C8DE033E6F2", "title": "SM64 Last Impact (hack)",
       "settings": [
-        {"what": "PI DMA keeps bit 0 of the cart address (all ROMs not in the database)", "where": "core 22aa47a", "why": "ERET crash at boot in every libretro build; upstream PR libretro #675"}
+        {"what": "PI DMA keeps bit 0 of the cart address (all ROMs not in the database)", "where": "core 22aa47a", "why": "ERET crash at boot in every libretro build; upstream PR libretro #675"},
+        {"what": "Auto renderer GLideN64 (with the HLE RSP) where the GPU rule gives parallel-RDP", "where": "app GpuRules.gameRenderer (ROM MD5 70059d4d7ba7ac0f0741b44aec8b44dc)", "why": "every LLE setup and parallel-n64's HLE geometry cut the file-select pad and sign; GLideN64 + HLE draws them whole (Joey 2026-11-09)"}
       ],
-      "issues": [
-        {"status": "open", "devices": "all", "what": "file-select screen: thin purple/yellow line across the platform, 'FILE 1' half drawn, floor bulging; may be how the hack looks: compare with M64Plus FZ / a console video", "evidence": "every compat run since 2026-11-03"}
+      "fixed": [
+        {"what": "file-select pad and SELECT A FILE sign cut by the floor (LLE RSP on every driver, and parallel-n64's HLE geometry)", "fix": "Auto runs it on GLideN64 + HLE (setting above), app 2026-11-09; Portal portal-lirule-43: whole at 60 fps"}
       ]
     },
     {
@@ -176,14 +182,14 @@
         {"what": "PI DMA keeps bit 0 of the cart address", "where": "core 22aa47a", "why": "crashed in every libretro build"}
       ],
       "issues": [
-        {"status": "open", "devices": "Duo, Odin 3, Flip", "what": "in the game only Mario, Yoshi and the HUD on black in the compat screenshots; may be a black opening cutscene: check live and against FZ", "evidence": "README Star Road item"},
+        {"status": "fixed", "devices": "Duo (Odin 3, Flip to check)", "what": "in the game only Mario, Yoshi and the HUD on black (parallel-RDP; menus fine): the hack's bad SetCombine FC127FFFFFFFF838 (296 of them), which accurate renderers draw black. Fixed by replacing it with FC121824FF33FFFF in the loaded ROM, SM64 hacks only, past the first megabyte (core combine-fix bbf17b1 + 0fd8e71; RetroPie forum topic 17605, GLideN64 issue 1745); N64_COMBINE_FIX=0 turns it off", "evidence": "duo-cfix-sr 2026-11-10 (app-cfix-bbf1): level drawn; duo-cfix-sroff: black; recheck duo-/odin3-cfix3-sr (app-cfix-3)"},
         {"status": "parked", "renderer": "GLideN64", "what": "black screen (FZ shows it too)", "evidence": "README parked item"}
       ]
     },
     {
       "id": "NSM", "crc": "A97AA1A91B749C63", "title": "SM64 Elise (hack)",
       "issues": [
-        {"status": "open", "devices": "all", "what": "freezes on its title half faded in: CPU runs (61 fps) but no more display lists. Emulation, not drawing; check FZ, then timing / save type / RSP-RDP status", "evidence": "every compat run since 2026-11-03"}
+        {"status": "fixed", "devices": "all", "what": "froze on its title part-way through the fade-in (same on parallel-RDP, GLideN64, HLE/LLE RSP, LLE audio, interpreter, CountPerOp 3): the counter timing. Fixed by CountPerOp 1 in the core ini (MD5 193C195A5C5B28ACD0D7346F050DEEA5; core aa9ca58 / sp-dynarec b27858f, core e33d0279 = app-spfix3)", "evidence": "duo-elise1..7 2026-11-09: title fades in fully and file select appears with default settings on app-spfix3"}
       ]
     },
     {
@@ -209,9 +215,76 @@
     {
       "id": "NGE", "title": "GoldenEye 007",
       "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (Ratio 16:9 on the watch)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"},
         {"what": "smoother timing, CountPerOp=1 (counter factor 1), on Adreno 730 and up (Portal, Odin 3, Thor) only", "where": "libretro_host.cpp kSmootherGames, MainActivity N64_SMOOTHER", "why": "runs below its frame rate on hardware; Odin 3 49.7 -> 59.9 fps; compat with it passed on the Odin 3 and Portal (odin3-/portal-smoothc), Joey 2026-11-06. Hacks with this ID get it too"}
       ],
       "notes": ["VI filters off: +9% on the Flip", "Duo 2x upscaled: 59.9 fps on faux123 Turnip vs 50.7 on the bundled Gen8"]
+    },
+    {
+      "id": "NO7", "title": "007: The World Is Not Enough",
+      "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"}
+      ]
+    },
+    {
+      "id": "NAR", "title": "Armorines: Project S.W.A.R.M.",
+      "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"}
+      ]
+    },
+    {
+      "id": "NJF", "title": "Jet Force Gemini",
+      "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"}
+      ]
+    },
+    {
+      "id": "NML", "title": "Mickey's Speedway USA",
+      "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"}
+      ]
+    },
+    {
+      "id": "NMI", "title": "Mission: Impossible",
+      "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"}
+      ]
+    },
+    {
+      "id": "NDT", "title": "South Park",
+      "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"}
+      ]
+    },
+    {
+      "id": "NRC", "title": "Top Gear Overdrive",
+      "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"}
+      ]
+    },
+    {
+      "id": "NSC", "title": "Starshot: Space Circus Fever",
+      "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"}
+      ]
+    },
+    {
+      "id": "NSP", "title": "Superman",
+      "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"}
+      ]
+    },
+    {
+      "id": "NT2", "title": "Turok 2: Seeds of Evil",
+      "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"}
+      ]
+    },
+    {
+      "id": "NTK", "title": "Turok 3: Shadow of Oblivion",
+      "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"}
+      ]
     },
     {
       "disk": "SimCity 64 (Japan)", "title": "SimCity 64 (64DD)",
@@ -305,7 +378,7 @@
     {
       "disk": "Mario Artist - Paint Studio (Japan) (Beta) (1999-02-11)", "title": "Mario Artist: Paint Studio (64DD, 1999 beta)",
       "issues": [
-        {"status": "open", "devices": "all", "what": "with only IPL_JPN.n64 the core shuts down (the game did not start); with the USA and development IPLs in bios/ too it runs 61 emu fps but draws nothing (black at 60 s)", "evidence": "Thor (2026-11-07, app 9263f30 + core dd ddf3103, before the VI event fix in core dd 7a8c4ba, IPL_JPN = Japan v1.2, 30-60 s from the start)"}
+        {"status": "open", "devices": "all", "what": "with only IPL_JPN.n64 the core shuts down (the game did not start); with the USA and development IPLs in bios/ too it runs 61 emu fps but draws nothing (black at 60 s)", "evidence": "Thor (2026-11-07, app 9263f30 + core dd ddf3103, before the VI event fix in core dd 7a8c4ba, IPL_JPN = Japan v1.2, 30-60 s from the start); Duo 2026-11-09 on app-spfix3 (results/duo-ddbeta1): an SDK-format development disk, so it needs IPL_DEV (with IPL_JPN alone the game screen closes as it should); with IPL_DEV it draws 53 frames, parks the disk motor and then nothing (no sound): the core waits on something 64DD-side, not drawing"}
       ]
     },
     {

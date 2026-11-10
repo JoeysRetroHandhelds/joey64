@@ -121,5 +121,46 @@ data class ExtrasOn(val codeLines: List<String>, val shape: Pair<Int, Int>?, val
             val log = "widescreen ${ws?.name ?: "off"} (${x.widescreen.size} here), fps ${fps?.name ?: "off"} (${x.fps.size} here)"
             return ExtrasOn(lines, ws?.shape, fps != null, log, ws?.name, fps?.name)
         }
+
+        /**
+         * Widescreen's "When a game has one" for a game with a 16:9 mode of its own ([OwnWidescreen]) and no code picked:
+         * no code, only the 16:9 picture for Aspect ratio's Auto (Joey 2026-11-10: "Yes, use it"). The game's own option
+         * is still the player's to set in the game. Not in Hardcore, which locks Widescreen.
+         */
+        fun withOwnMode(on: ExtrasOn, gameCode: String?, v: VideoSettings, hardcore: Boolean): ExtrasOn {
+            if (hardcore || on.shape != null || v[VideoKey.Widescreen] != GameExtras.ALL) return on
+            val where = OwnWidescreen.where(gameCode) ?: return on
+            return on.copy(shape = 16 to 9, log = on.log + ", the game's own 16:9 mode: 16:9 picture (set in the game: $where)")
+        }
     }
+}
+
+/**
+ * Games with a 16:9 mode of their own, drawn squeezed for a widescreen TV, so they need only the picture stretched to 16:9:
+ * the LaunchBox N64 Widescreen Project's first group (read 2026-11-09) plus Conker's Bad Fur Day. By the header's game
+ * code without the region letter; codes from our ROMs' headers (compat set) or, for the six we don't have, ares'
+ * and cen64's game lists.
+ */
+object OwnWidescreen {
+    private val GAMES = mapOf(
+        "NO7" to "007: The World Is Not Enough, options",
+        "NAR" to "Armorines, options",
+        "NB7" to "Banjo-Tooie, options",
+        "NDO" to "Donkey Kong 64, options",
+        "NGE" to "GoldenEye 007, Ratio 16:9 on the watch",
+        "NJF" to "Jet Force Gemini, options",
+        "NML" to "Mickey's Speedway USA, options",
+        "NMI" to "Mission: Impossible, options",
+        "NPD" to "Perfect Dark, Options › Video › Ratio 16:9, per agent file",
+        "NDT" to "South Park, options",
+        "NRC" to "Top Gear Overdrive, options",
+        "NSC" to "Starshot: Space Circus Fever, options",
+        "NSP" to "Superman, options",
+        "NT2" to "Turok 2, options",
+        "NTK" to "Turok 3, options",
+        "NFU" to "Conker's Bad Fur Day, options",
+    )
+
+    /** Where [gameCode]'s ("NPDE" or "NPD") own 16:9 option is, or null when it has none on the list. */
+    fun where(gameCode: String?): String? = gameCode?.takeIf { it.length >= 3 }?.let { GAMES[it.take(3).uppercase()] }
 }

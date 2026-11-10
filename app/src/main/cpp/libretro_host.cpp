@@ -23,6 +23,8 @@
 #include <cstdarg>
 #include <cstring>
 #include <unistd.h>
+#include <netdb.h>
+#include <sys/socket.h>
 #include <sched.h>
 #include <sys/resource.h>
 #include <dirent.h>
@@ -38,6 +40,82 @@
 #include "vk_context.h"
 #include "audio_out.h"
 #include "achievements.h"
+#include "netplay_server.h"
+#include "upnp.h"
+
+// In a netplay room every player's game must take the same inputs at the same input count, so anything that
+// runs, skips or repeats frames on one side only is refused while one is on: loading a state, Reset, rewind,
+// fast-forward, slow motion, frame advance, cheat changes and the GameShark button (2026-11-10).
+static std::atomic<bool> g_netplay{false};
+// Netplay pause notices (2026-11-10): while in a room, a thread sends the room [5, player, paused] every 0.5 s and at
+// once on a change, so the others can say who paused (their games wait for this player's input meanwhile).
+static std::thread g_npPauseThread;
+static std::atomic<bool> g_npPauseRun{false};
+static std::atomic<bool> g_npPausedNow{false};
+static std::mutex g_npPauseMutex;
+static std::condition_variable g_npPauseCv;
+// The paused player (1-4) the core last heard from the room, 0 = none.
+static std::atomic<int> g_netplayPausedBy{0};
+static void npPauseStart(const char* np) {
+    std::string s(np);
+    size_t c2 = s.rfind(':'), c1 = c2 == std::string::npos ? c2 : s.rfind(':', c2 - 1);
+    if (c1 == std::string::npos) return;
+    std::string host = s.substr(0, c1), port = s.substr(c1 + 1, c2 - c1 - 1);
+    int player = atoi(s.c_str() + c2 + 1) - 1;
+    if (player < 0 || player > 3) return;
+    addrinfo hints{}, *res = nullptr;
+    hints.ai_socktype = SOCK_DGRAM;
+    if (getaddrinfo(host.c_str(), port.c_str(), &hints, &res) != 0 || !res) { joeyLog(ANDROID_LOG_ERROR, "joey64host", "netplay: pause notices: can't resolve %s", host.c_str()); return; }
+    int fd = socket(res->ai_family, SOCK_DGRAM, 0);
+    if (fd < 0 || connect(fd, res->ai_addr, res->ai_addrlen) != 0) { if (fd >= 0) close(fd); freeaddrinfo(res); return; }
+    freeaddrinfo(res);
+    g_npPauseRun = true;
+    g_npPauseThread = std::thread([fd, player] {
+        // Each notice carries a sequence number and the room sends it straight back: a ping of the network alone (the
+        // core's own replies wait for its next frame). Logged every 10 s: average, worst, and pings with no answer.
+        using clk = std::chrono::steady_clock;
+        uint32_t seq = 0, sent = 0, answered = 0;
+        double sum = 0, worst = 0;
+        clk::time_point sentAt[16], logAt = clk::now();
+        std::unique_lock<std::mutex> lk(g_npPauseMutex);
+        while (g_npPauseRun) {
+            uint8_t b[7] = {5, (uint8_t)player, (uint8_t)(g_npPausedNow ? 1 : 0)};
+            b[3] = seq >> 24; b[4] = seq >> 16; b[5] = seq >> 8; b[6] = (uint8_t)seq;
+            sentAt[seq % 16] = clk::now();
+            (void)!send(fd, b, 7, 0);
+            ++seq; ++sent;
+            // the next notice in 0.5 s, or at once when the pause changes; echoes are read every 5 ms meanwhile, so
+            // a ping is timed to within 5 ms (reading only after the 0.5 s wait timed the wait itself)
+            const bool was = g_npPausedNow;
+            const auto next = clk::now() + std::chrono::milliseconds(500);
+            while (g_npPauseRun && clk::now() < next && g_npPausedNow == was) {
+                g_npPauseCv.wait_for(lk, std::chrono::milliseconds(5));
+                uint8_t r[16];
+                ssize_t n;
+                while ((n = recv(fd, r, sizeof r, MSG_DONTWAIT)) >= 7) {
+                    uint32_t s = (uint32_t)r[3] << 24 | (uint32_t)r[4] << 16 | (uint32_t)r[5] << 8 | r[6];
+                    if (seq - s > 16) continue; // too old to time
+                    double ms = std::chrono::duration<double, std::milli>(clk::now() - sentAt[s % 16]).count();
+                    sum += ms; if (ms > worst) worst = ms; ++answered;
+                }
+            }
+            if (clk::now() - logAt >= std::chrono::seconds(10)) {
+                joeyLog(ANDROID_LOG_INFO, "joey64host", "netplay: ping %.1f ms (worst %.1f), %u of %u pings unanswered",
+                        answered ? sum / answered : 0.0, worst, sent > answered ? sent - answered : 0, sent);
+                sum = worst = 0; sent = answered = 0; logAt = clk::now();
+            }
+        }
+        uint8_t b[3] = {5, (uint8_t)player, 0};
+        (void)!send(fd, b, 3, 0);
+        close(fd);
+    });
+}
+static void npPauseStop() {
+    if (!g_npPauseThread.joinable()) return;
+    { std::lock_guard<std::mutex> lk(g_npPauseMutex); g_npPauseRun = false; }
+    g_npPauseCv.notify_all();
+    g_npPauseThread.join();
+}
 
 // Dev env N64_LOG_ERR=1 logs info at error level, for devices whose logd drops everything
 // below error (Retroid Pocket Duo).
@@ -343,6 +421,13 @@ std::atomic<bool> g_coreShutDown{false};
 // The core said it could not load the 64DD IPL (its region's file, else IPL.n64, is missing): why a disk didn't start,
 // as against a disk or disk save it could not read.
 std::atomic<bool> g_ddIplMissing{false};
+// Netplay as the core reports it (a joining player has no room server here): the connection was lost (the core then
+// stops), and the room's status byte as last heard (bit 0 de-synced, bits 1-4 player 1-4 left).
+std::atomic<bool> g_netplayLost{false};
+std::atomic<uint8_t> g_netplayStatus{0};
+// The player this game has waited for over 1 s (the core's "waiting for player N" / "player N is back"), 0 = none.
+std::atomic<int> g_netplayWaitingFor{0};
+std::atomic<int> g_netplayJoinFailed{0}; // the core's "Netplay: can't join (N)": 4 no room, 5 turned down, 6 another ROM
 // Rumble Pak, players 1-4 (players 2-4 since 2026-11-07; before, the core's calls for ports 1-3 were
 // refused): the core switches each motor on/off; a UI-side thread waits in waitRumble for any player's
 // motor to change and drives that player's controller (or the device's) vibrator. Polling it from a
@@ -390,6 +475,18 @@ void log_cb(enum retro_log_level level, const char* fmt, ...) {
         vsnprintf(line, sizeof line, fmt, cp);
         va_end(cp);
         if (strstr(line, "Failed to load DD IPL ROM")) g_ddIplMissing = true;
+        if (strstr(line, "Netplay: lost connection")) g_netplayLost = true;
+        int jf;
+        if (sscanf(line, "Netplay: can't join (%d)", &jf) == 1 && jf >= 4 && jf <= 6) g_netplayJoinFailed = jf;
+        if (strstr(line, "Netplay: players have de-synced")) g_netplayStatus |= 1;
+        unsigned left;
+        if (sscanf(line, "Netplay: player %u has disconnected", &left) == 1 && left >= 1 && left <= 4) g_netplayStatus |= (uint8_t)(1 << left);
+        unsigned pp;
+        if (sscanf(line, "Netplay: player %u paused", &pp) == 1 && pp >= 1 && pp <= 4) g_netplayPausedBy = (int)pp;
+        if (strstr(line, "Netplay: nobody is paused")) g_netplayPausedBy = 0;
+        unsigned wp;
+        if (sscanf(line, "Netplay: waiting for player %u", &wp) == 1 && wp >= 1 && wp <= 4) g_netplayWaitingFor = (int)wp;
+        if (strstr(line, "Netplay: player ") && strstr(line, " is back after ")) g_netplayWaitingFor = 0;
     }
     joeyLogV(level >= RETRO_LOG_ERROR ? ANDROID_LOG_ERROR : level == RETRO_LOG_WARN ? ANDROID_LOG_WARN : ANDROID_LOG_INFO, "core", fmt, ap);
     va_end(ap);
@@ -854,6 +951,10 @@ void serveStateRequest(bool ready, bool failEarly) {
 bool runStateRequest(StateRequest& req, int timeoutMs) {
     std::unique_lock<std::mutex> lk(g_stateMutex);
     if (!g_running || g_stateReq) return false;
+    // In netplay the emulation thread can be stuck in the core, waiting for the room (players to register, before
+    // the first frame) or for a player's input: no request is served then, so fail at once rather than at the
+    // timeout (2026-11-10: quitting a room nobody had joined waited ~20 s for the quit save).
+    if (g_netplay && (g_framesRun == 0 || g_netplayWaitingFor != 0)) return false;
     g_stateReq = &req;
     g_statePending = true;
     { std::lock_guard<std::mutex> pl(g_pauseMutex); }   // so a paused emulation thread can't miss the wake-up
@@ -1031,6 +1132,9 @@ void runLoop() {
     if (probeAt >= 0 && stateWait < 0) probeFrame = 0;
     const int probeLen = getenv("N64_LAG_PROBE_LEN") ? atoi(getenv("N64_LAG_PROBE_LEN")) : 0;
     auto ffNext = std::chrono::steady_clock::now(), ffLastShown = ffNext, capNext = ffNext, rewindNext = ffNext;
+    auto ffLastWake = ffNext, ffStepAt = ffNext, ffLogAt = ffNext; // fast-forward's even pacing
+    double ffWorkEma = 0, ffPace = 0;
+    int ffLate = 0, ffFrames = 0;
     int rewindTick = 0;
     bool rewindStepped = false;
     if (!g_vulkan) g_egl.makeCurrent();
@@ -1134,14 +1238,46 @@ void runLoop() {
                 g_optionsDirty = true;
             }
             ffNext = std::chrono::steady_clock::now();
+            // each fast-forward starts again from the chosen speed (even pacing, below)
+            ffWorkEma = 0; ffPace = 0; ffLate = 0; ffFrames = 0;
+            ffLastWake = ffStepAt = ffLogAt = ffNext;
         }
         if (ff) {
-            const double speed = std::min(std::max(g_ffSpeedPct.load(), 100) / 100.0, (double)Thermal::fastForwardSpeed());
+            const double want = std::min(std::max(g_ffSpeedPct.load(), 100) / 100.0, (double)Thermal::fastForwardSpeed());
+            // Even pacing (2026-11-10, fast-forward stutter item): a heavy game that can't hold the chosen speed
+            // used to run flat out with 100 ms catch-up sprints (Conker, Odin 3: 110-240 fps). Each frame's work
+            // (the loop without this sleep) is averaged, and every 0.5 s the pace is set to ~90% of the speed that
+            // holds when that is below the chosen one (up again by at most 10% a step), with no sprints; so the
+            // game runs steadily a little slower instead of lurching. N64_FF_EVEN=0 keeps the old way.
+            static const bool even = !(getenv("N64_FF_EVEN") && *getenv("N64_FF_EVEN") == '0');
+            double& workEma = ffWorkEma; double& pace = ffPace; int& late = ffLate; int& frames = ffFrames;
+            auto& lastWake = ffLastWake; auto& stepAt = ffStepAt; auto& logAt = ffLogAt;
+            auto now = std::chrono::steady_clock::now();
+            if (pace <= 0) pace = want;
+            const double work = std::chrono::duration<double, std::milli>(now - lastWake).count();
+            const double slotMs = 1e3 / (g_av.timing.fps * pace);
+            if (frames > 0 && work < 250) workEma = workEma > 0 ? workEma * 0.9 + work * 0.1 : work;
+            if (frames > 0 && work > slotMs * 1.5) late++;
+            frames++;
+            if (!even) pace = want;
+            else if (now - stepAt >= std::chrono::milliseconds(500) && workEma > 0) {
+                stepAt = now;
+                const double holds = 1e3 / (g_av.timing.fps * workEma);
+                pace = std::max(1.0, std::min({want, holds * 0.9, pace * 1.1}));
+            }
+            pace = std::min(pace, want);
+            const double speed = pace;
             g_ffSpeedNow = speed;
             ffNext += std::chrono::microseconds((long long)(1e6 / (g_av.timing.fps * speed)));
-            auto now = std::chrono::steady_clock::now();
             if (ffNext > now) std::this_thread::sleep_until(ffNext);
-            else if (now - ffNext > std::chrono::milliseconds(100)) ffNext = now; // don't sprint to catch up
+            else if (even ? now - ffNext > std::chrono::microseconds((long long)(1e6 / (g_av.timing.fps * speed))) : now - ffNext > std::chrono::milliseconds(100))
+                ffNext = now; // don't sprint to catch up
+            lastWake = std::chrono::steady_clock::now();
+            if (lastWake - logAt >= std::chrono::seconds(5)) {
+                LOGI("fast-forward: chosen %.2fx, paced %.2fx, frame work %.1f ms, %d of %d frames late%s",
+                     want, speed, workEma, late, frames, even ? "" : " (even pacing off)");
+                logAt = lastWake; late = 0; frames = 1;
+            }
         }
         // Fast-forward shows at most ~60 frames a second so presenting doesn't cap the speed.
         bool show = true;
@@ -1304,6 +1440,40 @@ void runLoop() {
             LOGI("state %s: %s (%zu bytes)", statePath, ok ? "loaded" : "FAILED", s.size());
             if (probeAt >= 0) probeFrame = 0;
         }
+        // Dev (env N64_STATE_SAVE=<frame>:<frame>... (any one character between; --es env splits at commas) and
+        // N64_STATE_SAVE_TO=<path prefix>): writes the core's raw state
+        // (what N64_STATE loads) to <prefix><frame>.raw once that many frames have run, e.g. from a game's attract
+        // demo, for the widescreen / 60 fps finders when no gameplay state exists (2026-11-10).
+        {
+            static std::vector<uint32_t> saveAt;
+            static const char* saveTo = getenv("N64_STATE_SAVE_TO");
+            static bool saveParsed = false;
+            if (!saveParsed) {
+                saveParsed = true;
+                if (const char* e = getenv("N64_STATE_SAVE"))
+                    for (const char* p = e; *p;) {
+                        char* end; unsigned long v = strtoul(p, &end, 10);
+                        if (end == p) break;
+                        saveAt.push_back((uint32_t)v);
+                        p = *end ? end + 1 : end;
+                    }
+                if (!saveTo || !*saveTo) saveAt.clear();
+            }
+            const uint32_t ran = g_framesRun.load();
+            for (size_t k = 0; k < saveAt.size(); k++) {
+                if (!saveAt[k] || ran < saveAt[k]) continue;
+                const uint32_t at = saveAt[k];
+                saveAt[k] = 0;
+                std::vector<char> s(core.serialize_size());
+                bool ok = !s.empty() && core.serialize(s.data(), s.size());
+                std::string path = std::string(saveTo) + std::to_string(at) + ".raw";
+                if (ok) {
+                    if (FILE* f = fopen(path.c_str(), "wb")) { ok = fwrite(s.data(), 1, s.size(), f) == s.size(); ok = fclose(f) == 0 && ok; }
+                    else ok = false;
+                }
+                LOGI("state save %s at frame %u: %s (%zu bytes)", path.c_str(), ran, ok ? "written" : "FAILED", s.size());
+            }
+        }
         // Dev (env N64_HASH_RAM=<n>): logs a hash of RDRAM every n frames after the state loads, to check that two
         // builds emulate the same thing (benchmark runs are deterministic from a state).
         static const int hashEvery = getenv("N64_HASH_RAM") ? atoi(getenv("N64_HASH_RAM")) : 0;
@@ -1360,6 +1530,9 @@ void runLoop() {
     Cheevos::gameUnloaded();
     if (g_hw.context_destroy) g_hw.context_destroy();
     core.unload_game();
+    npPauseStop();
+    NetplayServer::stop();
+    g_netplay = false;
     core.deinit();
     g_coreInited = false;
     g_audio.close();
@@ -1656,6 +1829,10 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
     g_loadStart = std::chrono::steady_clock::now();
     g_coreShutDown = false;
     g_ddIplMissing = false;
+    g_netplayLost = false;
+    g_netplayStatus = 0;
+    g_netplayWaitingFor = 0;
+    g_netplayJoinFailed = 0;
     if (!g_vulkan) {
         if (!g_egl.init()) return JNI_FALSE;
         applySurfaceIfChanged();
@@ -1689,13 +1866,10 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
     else g_rdpSync = idIn(kSyncRdpGames);
     g_optionOverrides["mupen64plus-parallel-rdp-synchronous"] = g_rdpSync ? "True" : "False";
     g_optionsDirty = true;
-    // CPU core: the dynamic recompiler, except games it crashes. Sin and Punishment (the English patch):
-    // jumps to a bogus address right after boot; fine on the cached interpreter. --es opts wins.
-    static const char* const kInterpreterGames[] = {"NGU"};
+    // CPU core: the dynamic recompiler for every game (Sin and Punishment's English patch, the last game on the cached
+    // interpreter, runs on it since core 19eff8c compiles code in cartridge ROM). --es opts wins.
     if (!g_optionOverrides.count("mupen64plus-cpucore"))
-        g_optionOverrides["mupen64plus-cpucore"] =
-            std::any_of(std::begin(kInterpreterGames), std::end(kInterpreterGames),
-                        [&](const char* g) { return id.compare(0, 3, g) == 0; }) ? "cached_interpreter" : "dynamic_recompiler";
+        g_optionOverrides["mupen64plus-cpucore"] = "dynamic_recompiler";
     // Smoother timing: CountPerOp=1 (Project64's counter factor 1) for games that ran below their frame rate on
     // hardware, where MainActivity sets N64_SMOOTHER=1 (strong devices). Odin 3 (odin3-smooth): GoldenEye 49.7 -> 59.9,
     // Conker 21.4 -> 28.6, Mario Kart 64 26.5 -> 28.1, Yoshi's Story 28.6 -> 30.0 fps. --es opts wins.
@@ -1708,6 +1882,19 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
          g_optionOverrides["mupen64plus-cpucore"].c_str());
     LOGI("ROM %s: %s", p, romSummary(buf).c_str());
     for (auto& [k, v] : g_optionOverrides) LOGI("option in effect: %s = %s", k.c_str(), v.c_str());
+    // Netplay host (dev, 2026-11-10): N64_NETPLAY_SERVE=port:players:delay opens the room in this process and
+    // joins it as player 1; the core reads N64_NETPLAY=host:port:player when its emulation thread starts.
+    if (const char* e = getenv("N64_NETPLAY_SERVE")) {
+        int port = 45000, players = 2, delay = 2;
+        sscanf(e, "%d%*[^0-9]%d%*[^0-9]%d", &port, &players, &delay);
+        if (NetplayServer::start(port, players, delay) && !getenv("N64_NETPLAY")) {
+            char v[64]; snprintf(v, sizeof v, "127.0.0.1:%d:1", port);
+            setenv("N64_NETPLAY", v, 1);
+        }
+    }
+    { const char* np = getenv("N64_NETPLAY"); g_netplay = np && *np; }
+    if (g_netplay) LOGI("netplay: on (%s): state loads, Reset, rewind, fast-forward, slow motion, frame advance and cheat changes are off", getenv("N64_NETPLAY"));
+    if (g_netplay) { g_npPausedNow = false; g_netplayPausedBy = 0; npPauseStart(getenv("N64_NETPLAY")); }
     retro_game_info info{ p, buf.data(), buf.size(), nullptr };
     bool ok;
     if (disk) {
@@ -1795,7 +1982,7 @@ JNIEXPORT void JNICALL JNI(showAgain)(JNIEnv*, jobject) {
 
 // Frame advance: while paused, the game runs one more frame and stays paused. Does nothing if not paused.
 JNIEXPORT void JNICALL JNI(stepFrame)(JNIEnv*, jobject) {
-    if (!g_paused) return;
+    if (!g_paused || g_netplay) return;
     { std::lock_guard<std::mutex> pl(g_pauseMutex); if (g_stepFrames < 4) ++g_stepFrames; }
     g_pauseCv.notify_all();
 }
@@ -1803,6 +1990,7 @@ JNIEXPORT void JNICALL JNI(stepFrame)(JNIEnv*, jobject) {
 JNIEXPORT void JNICALL JNI(pause)(JNIEnv*, jobject, jboolean p) {
     if (!p) g_stepFrames = 0;
     g_paused = p;
+    if (g_netplay && g_npPausedNow.exchange(p) != (bool)p) g_npPauseCv.notify_all();
     g_audio.setPaused(p);
     g_pauseCv.notify_all();
 }
@@ -1850,6 +2038,7 @@ JNIEXPORT void JNICALL JNI(setOptionsLive)(JNIEnv* env, jobject, jobjectArray ke
 
 // Replaces every cheat; a running game takes them between frames (a paused one when it resumes).
 JNIEXPORT void JNICALL JNI(setCheats)(JNIEnv* env, jobject, jobjectArray codes) {
+    if (g_netplay && g_thread.joinable()) { LOGI("netplay: cheat change refused"); return; }
     std::vector<std::string> next;
     jsize n = env->GetArrayLength(codes);
     for (jsize i = 0; i < n; ++i) {
@@ -1868,6 +2057,7 @@ JNIEXPORT void JNICALL JNI(setCheats)(JNIEnv* env, jobject, jobjectArray codes) 
 
 // The GameShark button down or up; the game takes it between frames.
 JNIEXPORT void JNICALL JNI(setGameShark)(JNIEnv*, jobject, jboolean down) {
+    if (g_netplay) return;
     if (g_gsButton.exchange(down) == (bool)down) return;
     LOGI("GameShark button %s", down ? "down" : "up");
     g_cheatsChanged = true;
@@ -1880,7 +2070,7 @@ JNIEXPORT void JNICALL JNI(dumpRam)(JNIEnv* env, jobject, jstring path) {
 }
 
 JNIEXPORT void JNICALL JNI(setFastForward)(JNIEnv*, jobject, jboolean on) {
-    g_fastForward = on;
+    g_fastForward = on && !g_netplay;
 }
 
 JNIEXPORT void JNICALL JNI(setFastForwardSpeed)(JNIEnv*, jobject, jint percent) {
@@ -1888,16 +2078,16 @@ JNIEXPORT void JNICALL JNI(setFastForwardSpeed)(JNIEnv*, jobject, jint percent) 
 }
 
 JNIEXPORT void JNICALL JNI(setSlowMotion)(JNIEnv*, jobject, jint percent) {
-    g_slowPct = percent <= 0 ? 0 : std::clamp((int)percent, 10, 99);
+    g_slowPct = percent <= 0 || g_netplay ? 0 : std::clamp((int)percent, 10, 99);
 }
 
 JNIEXPORT void JNICALL JNI(setRewind)(JNIEnv*, jobject, jboolean on, jint every, jint maxMoments) {
-    g_rewindOnCfg = on; g_rewindEveryCfg = std::max(1, (int)every); g_rewindMaxCfg = std::max(1, (int)maxMoments);
+    g_rewindOnCfg = on && !g_netplay; g_rewindEveryCfg = std::max(1, (int)every); g_rewindMaxCfg = std::max(1, (int)maxMoments);
     g_rewindCfgChanged = true;
 }
 
 JNIEXPORT void JNICALL JNI(setRewinding)(JNIEnv*, jobject, jboolean held) {
-    g_rewindHeld = held;
+    g_rewindHeld = held && !g_netplay;
 }
 
 // [moments that can still be gone back to, most kept, frames gone back since the press, 1 at the oldest].
@@ -1927,8 +2117,32 @@ JNIEXPORT jint JNICALL JNI(waitRumble)(JNIEnv*, jobject, jint wasMask, jint time
 }
 
 // 0 running, 1 the core shut down, 2 it shut down after it could not load the 64DD IPL.
-JNIEXPORT jint JNICALL JNI(coreShutDown)(JNIEnv*, jobject) { return !g_coreShutDown ? 0 : g_ddIplMissing ? 2 : 1; }
+JNIEXPORT jint JNICALL JNI(coreShutDown)(JNIEnv*, jobject) {
+    return !g_coreShutDown ? 0 : g_ddIplMissing ? 2 : g_netplayJoinFailed ? g_netplayJoinFailed.load() : g_netplayLost ? 3 : 1;
+}
+
 JNIEXPORT jlong JNICALL JNI(saveRamFailed)(JNIEnv*, jobject) { return (jlong)g_saveFailedBytes.load(); }
+
+// [in a room (1/0), hosting it (1/0), players joined (bit per player; the host only), status (bit 0 de-synced,
+// bits 1-4 player 1-4 left; the host's is the room's own), the paused player 1-4 (0 = none),
+// the player this game waits for 1-4 (0 = none; set after 1 s of waiting)].
+// The host's room on the router: [0] = Upnp::State (0 off, 1 looking, 2 open, 3 no UPnP router, 4 refused,
+// 5 opened but behind another NAT), then "ip:port" others outside use (empty until 2 or 5).
+JNIEXPORT jstring JNICALL JNI(netplayOutside)(JNIEnv* env, jobject) {
+    std::string s = std::to_string((int)Upnp::state()) + " " + Upnp::outside();
+    return env->NewStringUTF(s.c_str());
+}
+
+JNIEXPORT jintArray JNICALL JNI(netplayInfo)(JNIEnv* env, jobject) {
+    bool host = NetplayServer::running();
+    int pausedBy = host ? (NetplayServer::status() >> 5) & 7 : g_netplayPausedBy.load();
+    jint v[6] = {g_netplay ? 1 : 0, host ? 1 : 0, host ? NetplayServer::registeredMask() : 0,
+                 (jint)((host ? (NetplayServer::status() | g_netplayStatus) : g_netplayStatus.load()) & 0x1F),
+                 pausedBy, g_netplayWaitingFor.load()};
+    jintArray out = env->NewIntArray(6);
+    if (out) env->SetIntArrayRegion(out, 0, 6, v);
+    return out;
+}
 
 JNIEXPORT jint JNICALL JNI(framesRun)(JNIEnv*, jobject) {
     return (jint)g_framesRun.load();
@@ -1990,6 +2204,10 @@ JNIEXPORT void JNICALL JNI(stop)(JNIEnv*, jobject) {
     if (!g_running) return;
     g_running = false;
     g_pauseCv.notify_all();
+    // A host's core can be waiting in its own room (for players to register, up to 30 s, or for their input):
+    // closing the room first ends that wait, so leaving takes no longer than with nobody in the room (2026-11-10:
+    // a room nobody joined took 20 s to quit). Called again after the run loop, which then does nothing.
+    if (g_netplay && NetplayServer::running()) NetplayServer::stop();
     if (g_thread.joinable()) g_thread.join();
     { std::lock_guard<std::mutex> lk(g_stateMutex); }
     g_stateCv.notify_all();
@@ -2028,6 +2246,7 @@ JNIEXPORT jbyteArray JNICALL JNI(captureFrame)(JNIEnv* env, jobject, jint timeou
 // The pause menu's Reset (the console's reset button), between frames; also while paused. False if
 // it wasn't served in [timeoutMs].
 JNIEXPORT jboolean JNICALL JNI(resetGame)(JNIEnv*, jobject, jint timeoutMs) {
+    if (g_netplay) return JNI_FALSE;
     StateRequest req;
     req.reset = true;
     return runStateRequest(req, timeoutMs) && req.ok ? JNI_TRUE : JNI_FALSE;
@@ -2044,6 +2263,7 @@ JNIEXPORT jbyteArray JNICALL JNI(stateProgress)(JNIEnv* env, jobject) {
 }
 
 JNIEXPORT jboolean JNICALL JNI(loadState)(JNIEnv* env, jobject, jbyteArray data, jbyteArray achv, jint timeoutMs) {
+    if (g_netplay) { LOGI("netplay: state load refused"); return JNI_FALSE; }
     StateRequest req;
     req.save = false;
     jsize n = env->GetArrayLength(data);

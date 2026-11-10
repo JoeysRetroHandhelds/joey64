@@ -229,6 +229,10 @@ object ReportJson {
             }
             for (k in listOf("rdpSync", "fromState")) if (stored.has(k)) put(k, stored.optBoolean(k))
             stored.optString("cpuCore").takeIf { it == "interpreter" || it == "dynarec" }?.let { put("cpuCore", it) }
+            // Added 2026-11-09 (server migrations/0004-gpu-rules.sql): why this driver and renderer ran.
+            for (k in listOf("driverRule", "rendererRule")) clean(stored.optString(k), 120)?.let { put(k, it) }
+            if (stored.has("trialLevel")) stored.optInt("trialLevel", -1).takeIf { it in 0..2 }?.let { put("trialLevel", it) }
+            stored.optString("pickedBy").takeIf { it == "auto" || it == "user" }?.let { put("pickedBy", it) }
             put("ended", if (stored.optString("ended") == "crash") "crash" else "quit")
         }
     }

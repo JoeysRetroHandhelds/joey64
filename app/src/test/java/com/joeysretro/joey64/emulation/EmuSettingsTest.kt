@@ -89,7 +89,7 @@ class EmuSettingsTest {
     }
 
     @Test fun autoPicks() {
-        assertEquals("interpreter", EmuAuto.cpuCore("NGUJ"))
+        assertEquals("recompiler", EmuAuto.cpuCore("NGUJ"))
         assertEquals("recompiler", EmuAuto.cpuCore("NSME"))
         assertEquals("2x", EmuAuto.overclock("NGEE", true))
         assertEquals("normal", EmuAuto.overclock("NGEE", false))
@@ -102,7 +102,9 @@ class EmuSettingsTest {
         val cpp = File("src/main/cpp/libretro_host.cpp").readText()
         fun list(name: String) = Regex("""$name\[\]\s*=\s*\{([^}]*)\}""").find(cpp)!!.groupValues[1]
             .split(',').map { it.trim().trim('"') }.filter { it.isNotEmpty() }.toSet()
-        assertEquals(EmuAuto.INTERPRETER_GAMES, list("kInterpreterGames"))
+        // The host picks the recompiler for every game: no interpreter list there, none here.
+        assertFalse(cpp.contains("kInterpreterGames"))
+        assertTrue(EmuAuto.INTERPRETER_GAMES.isEmpty())
         assertEquals(EmuAuto.SMOOTHER_GAMES, list("kSmootherGames"))
     }
 }

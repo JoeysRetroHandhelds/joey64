@@ -134,11 +134,24 @@ object NativeBridge {
     external fun framesRun(): Int
     /**
      * The core shut down, so no frames come: 0 it didn't, 1 it couldn't start the game (a damaged disk or disk save),
-     * 2 it couldn't load the 64DD IPL BIOS (none for the disk's region).
+     * 2 it couldn't load the 64DD IPL BIOS (none for the disk's region), 3 netplay lost its connection to the room,
+     * and a netplay join that failed before the game started (the game is never played alone): 4 the room can't be
+     * reached (or isn't a Joey64 room), 5 the room turned the player down (taken or full), 6 this ROM isn't the host's.
      */
     external fun coreShutDown(): Int
     /** Bytes of save RAM the last write couldn't put on disk (a full disk, or another write error); 0 once one is written. */
     external fun saveRamFailed(): Long
+    /**
+     * Netplay (dev env N64_NETPLAY / N64_NETPLAY_SERVE until the Play together screens): [in a room 1/0, hosting it 1/0,
+     * players joined (bit per player, the host only), status (bit 0 de-synced, bits 1-4 player 1-4 left)].
+     */
+    external fun netplayInfo(): IntArray
+    /**
+     * The hosted room's port on the router (UPnP), "<state> <ip:port>": state 0 off, 1 looking, 2 open (players
+     * outside join at ip:port), 3 no UPnP router answered, 4 the router refused, 5 opened but the router is behind
+     * another NAT (players outside still can't reach it). The address is empty until 2 or 5.
+     */
+    external fun netplayOutside(): String
     /** New frames presented since start (wraps): what the game drew, without repeats. */
     external fun framesDrawn(): Int
     /** The game's native frame rate (NTSC ~60, PAL 50), for the speed percentage. */

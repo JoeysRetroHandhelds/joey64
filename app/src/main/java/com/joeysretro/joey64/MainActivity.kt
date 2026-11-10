@@ -67,6 +67,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
      */
     private val devBuild get() = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
     private fun devString(name: String): String? = if (devBuild) intent?.getStringExtra(name) else null
+
+    /** The parallel-RDP Resolution this start asks for (dev `--es opts` upscaling, else Settings › Video), for Auto's driver. */
+    private fun wantedUpscale(): Int =
+        devString("opts")?.split(',')?.map { it.split('=', limit = 2) }?.firstOrNull { it.size == 2 && it[0].trim() == UPSCALE_KEY }
+            ?.get(1)?.trim()?.removeSuffix("x")?.toIntOrNull()
+            ?: video.int(com.joeysretro.joey64.video.VideoKey.Resolution)
     private fun devFlag(name: String): Boolean = devBuild && intent?.getBooleanExtra(name, false) == true
 
     /** A save name as a file name only: a "/" or ".." in one handed over put the save outside saves/. */
@@ -477,7 +483,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val system = parseGpu(NativeBridge.probeVulkan(false))
         val kgsl = kgslModel()
         val systemFamily = GpuRules.family(system?.vendor ?: 0, system?.name.orEmpty(), kgsl)
-        val auto = GpuRules.autoDriver(systemFamily)
+        val upscale = wantedUpscale()
+        val auto = GpuRules.autoDriver(systemFamily, upscale)
         val videoDriver = when (video[com.joeysretro.joey64.video.VideoKey.Driver]) {
             "system" -> "system"
             "bundled" -> if (auto.value == GpuRules.Driver.FAUX123) "faux123" else "turnip"
@@ -511,23 +518,34 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         gpuName = gpu?.name ?: ""
         gpuFamily = GpuRules.family(gpu?.vendor ?: 0, gpuName, kgsl)
         storageRangeMb = gpu?.storageRangeMb ?: 0
+        customDriverInUse = custom != null
         statsDriver = statsDriverName(lib?.takeIf { custom != null }, dev != null, gpu?.driver.orEmpty())
-        val rendererPick = GpuRules.autoRenderer(gpu != null && gpu.vulkan11, gpu != null && gpu.storage16 == 1, custom != null, gpuFamily)
+        val cpuinfo = try { File("/proc/cpuinfo").readText() } catch (e: Exception) { null }
+        val rendererPick = GpuRules.autoRenderer(gpu != null && gpu.vulkan11, gpu != null && gpu.storage16 == 1, custom != null, gpuFamily,
+            GpuRules.littleCoresOnly(cpuinfo), upscale)
         // The trial's level 1 is the system driver (its renderer by the rule above); level 2, or level 1 when Auto was
         // already the system driver, is GLideN64 as well.
         val trialGl = trialPick != null && (level >= 2 || (level == 1 && auto.value == GpuRules.Driver.SYSTEM))
-        val parallel = rendererPick.value == "parallel" && !trialGl
+        val parallelForGpu = rendererPick.value == "parallel" && !trialGl
+        // A game Auto runs on GLideN64 (GpuRules.gameRenderer: SM64 Last Impact); the GPU's own pick still goes to
+        // Settings' "Auto · ..." below.
+        val gamePick = if (parallelForGpu) GpuRules.gameRenderer(earlyMd5()) else null
+        val parallel = parallelForGpu && gamePick == null
         if (gpu != null && gpu.vulkan11 && gpu.storage16 != 1) JLog.w(TAG, "GPU ${gpu.name}: no 16-bit storage buffers, parallel-RDP can't run")
         JLog.i(TAG, "GPU: ${gpu ?: "no Vulkan"}, driver ${if (custom != null) lib!!.relativeTo(gpuDriverDir).path else "system"}, " +
             "default renderer ${if (parallel) "parallel" else "gliden64"}")
         // Which rule picked what (README item 38 e: a tester's log says it).
         JLog.i(TAG, "GPU rules: family $systemFamily; Auto driver: ${auto.rule}; Auto renderer: ${rendererPick.rule}; " +
-            "trial: ${trialPick?.what ?: "off (driver or renderer not left on Auto)"}${if (trialGl) ", so GLideN64" else ""}")
+            "trial: ${trialPick?.what ?: "off (driver or renderer not left on Auto)"}${if (trialGl) ", so GLideN64" else ""}" +
+            (gamePick?.let { "; this game: ${it.rule}" } ?: ""))
+        // The same for reports (Joey 2026-11-09): which rules picked the driver and renderer, the trial's level, and
+        // whether Auto picked at all (Settings did when autoOnly is false; the rules then say what Auto would pick).
+        gpuWhy = GpuWhy(auto.rule, gamePick?.rule ?: rendererPick.rule, trialPick?.level, if (autoOnly) "auto" else "user")
         // What Auto picks here, for Settings › Video's "Auto · ..." (the launcher can't probe Vulkan itself):
         // the renderer by GPU, and the driver that ran when nothing but Auto chose it (a dev driver in
         // files/drivers counts: it is what Auto uses then).
         val prefs = getSharedPreferences("device", MODE_PRIVATE).edit()
-        prefs.putString("auto_renderer", if (parallel) "parallel" else "gliden64")
+        prefs.putString("auto_renderer", if (parallelForGpu) "parallel" else "gliden64")
         if (devString("driver") == null && videoDriver == null) prefs.putString("driver", when {
             custom == null -> "system"
             dev != null -> "custom"
@@ -549,6 +567,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private var gpuName = ""
     private var gpuFamily = GpuRules.Family(GpuRules.Vendor.OTHER, 0, "")
     private var storageRangeMb = 0
+    private var customDriverInUse = false
+    /** Why this start ran its driver and renderer, for reports (setupGpu's "GPU rules:" line). */
+    private data class GpuWhy(val driverRule: String, val rendererRule: String, val trialLevel: Int?, val pickedBy: String)
+    private var gpuWhy: GpuWhy? = null
     /** Auto's start-up trial on this GPU; null when the driver or renderer was picked. */
     private var trial: GpuTrial? = null
 
@@ -600,7 +622,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
      * On [gameIo]: [rom]'s widescreen and 60 fps versions from its kept cheat lists (the scan downloads them; nothing is
      * fetched here), and the ones Video's rows pick. None while Hardcore is on.
      */
-    private fun gameExtras(rom: String): com.joeysretro.joey64.video.ExtrasOn {
+    private fun gameExtras(rom: String): com.joeysretro.joey64.video.ExtrasOn =
+        com.joeysretro.joey64.video.ExtrasOn.withOwnMode(gameExtrasFromLists(rom), romGameCode(rom), videoAtStart,
+            com.joeysretro.joey64.achievements.RaHardcore.on())
+
+    private fun gameExtrasFromLists(rom: String): com.joeysretro.joey64.video.ExtrasOn {
         val keys = headerKeys(rom)
         if (keys.isEmpty()) return com.joeysretro.joey64.video.ExtrasOn.NONE
         val v = videoAtStart
@@ -783,6 +809,18 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         i.getStringExtra(EXTRA_SAVE_NAME)?.takeIf { it.isNotEmpty() }?.let { return cleanSaveName(it) }
         val file = i.getStringExtra(EXTRA_SOURCE_NAME) ?: (if (devBuild) i.getStringExtra("rom") else null) ?: i.data?.let { displayName(it) } ?: return null
         return saveName(file)
+    }
+
+    /**
+     * The game's MD5 before the ROM is loaded, for Auto's per-game renderer ([GpuRules.gameRenderer]): the launcher's
+     * EXTRA_MD5, else a handed-over or dev (`--es rom`) ROM hashed here; null when not known.
+     */
+    private fun earlyMd5(): String? {
+        intent?.getStringExtra(EXTRA_MD5)?.takeIf { it.isNotEmpty() }?.let { return it }
+        val path = handedRom()?.first
+            ?: devString("rom")?.let { n -> listOfNotNull(getExternalFilesDir(null), filesDir).map { File(it, "roms/$n") }.firstOrNull { it.exists() }?.path }
+            ?: return null
+        return romMd5(path)
     }
 
     /** The host's display state from [video]: shape, integer scaling, black frames, colour, sharpening. */
@@ -990,7 +1028,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val f = value.removeSuffix("x").toIntOrNull() ?: return value
         // Dev: --ez nocap true lifts the caps, to try other drivers
         if (devFlag("nocap")) return value
-        var top = GpuRules.upscaleTop(gpuFamily).value
+        var top = GpuRules.upscaleTop(gpuFamily, customDriverInUse).value
         if (storageRangeMb > 0) while (top > 1 && 8 * top * top > storageRangeMb) top /= 2
         if (f <= top) return value
         JLog.w(TAG, "parallel-RDP upscaling $value capped at ${top}x on $gpuName (storage buffer range $storageRangeMb MB)")
@@ -1225,6 +1263,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // RetroAchievements: signs in with the kept account first, so the game is identified as it loads.
         com.joeysretro.joey64.achievements.RaBridge.init(this)
         com.joeysretro.joey64.achievements.RaBridge.gameStarting()
+        // The recompiler's block list, one file per game (Joey 2026-11-09: "Yes, build it"): the blocks the game compiled
+        // last time are compiled early on the compile thread as their code loads, so a scene's first compile doesn't
+        // land in a frame (Flip, Mario Kart 64's race start: a 42-46 ms hitch without the list, none with it). The core
+        // uses it only with the compile thread (Mali, GpuRules.settings). --es env N64_DRC_LIST=<file> or =0 (off) wins.
+        if (devString("env")?.contains("N64_DRC_LIST=") != true)
+            android.system.Os.setenv("N64_DRC_LIST", File(File(filesDir, "blocklists").apply { mkdirs() }, "$saveName.txt").path, true)
         trial?.begin()
         if (NativeBridge.loadGame(rom, saveName)) {
             NativeBridge.start(); started = true; owner = this; gameLoaded = true
@@ -1261,7 +1305,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             val why = NativeBridge.coreShutDown()
             if (why == 0) { fpsHandler.postDelayed(this, SHUTDOWN_POLL_MS); return }
             val noIpl = why == 2
-            JLog.e(TAG, "the core shut down: the game did not start${if (noIpl) " (no 64DD IPL BIOS for the disk's region)" else ""}, closing the game screen")
+            val why2 = when (why) { 2 -> " (no 64DD IPL BIOS for the disk's region)"; 3 -> " (netplay: lost the connection to the room)"
+                4 -> " (netplay: can't reach the room)"; 5 -> " (netplay: the room turned this player down)"
+                6 -> " (netplay: this ROM isn't the host's)"; else -> "" }
+            JLog.e(TAG, "the core shut down: the game stopped$why2, closing the game screen")
             // Not the GPU's doing: the start doesn't count against Auto's trial (a no-op once a frame was drawn).
             trial?.cancel()
             // Only a missing IPL is asked for; a damaged disk or disk save just goes back.
@@ -1415,6 +1462,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             shown?.refreshRate?.takeIf { it > 0 }?.let { put("refreshHz", Math.round(it)) }
             put("fromState", intent?.getStringExtra(EXTRA_LOAD_STATE) != null)
             put("cheats", cheatsMost)
+            gpuWhy?.let { w ->
+                put("driverRule", w.driverRule)
+                put("rendererRule", w.rendererRule)
+                w.trialLevel?.let { put("trialLevel", it) }
+                put("pickedBy", w.pickedBy)
+            }
         }
         // The library's report with no session yet names the GPU and driver from here.
         getSharedPreferences("device", MODE_PRIVATE).edit().putString("report_gpu", gpuName.replace("(TM) ", "")).putString("report_driver", statsDriver).apply()
@@ -2817,7 +2870,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // adb shell am broadcast -a com.joeysretro.joey64.DUMP --es name snap1  -> files/dumps/snap1.bin
         debugDump = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, i: Intent) {
-                val dir = File(getExternalFilesDir(null), "dumps").apply { mkdirs() }
+                // Internal storage: adb and run-as can't read the external files folder on the Flip.
+                val dir = File(filesDir, "dumps").apply { mkdirs() }
                 NativeBridge.dumpRam(File(dir, "${i.getStringExtra("name") ?: "ram"}.bin").absolutePath)
             }
         }

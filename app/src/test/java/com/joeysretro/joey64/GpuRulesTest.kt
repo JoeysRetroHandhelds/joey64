@@ -25,10 +25,34 @@ class GpuRulesTest {
 
     @Test fun odin3830() {
         val f = GpuRules.family(adreno, "Adreno (TM) 830", "Adreno830v2")
-        assertEquals(GpuRules.Driver.TURNIP, GpuRules.autoDriver(f).value)
+        assertEquals(GpuRules.Driver.SYSTEM, GpuRules.autoDriver(f).value)
         assertEquals(mapOf("N64_SMOOTHER" to "1", "mupen64plus-parallel-rdp-synchronous" to "True", "N64_RDP_PREBUILD" to "0"), env(f))
         assertEquals(listOf("N64_KGSL_PRIO"), GpuRules.beforeDriver("Odin3").map { it.key })
         assertTrue(GpuRules.beforeDriver("Retroid Pocket 5").isEmpty())
+    }
+
+    @Test fun odin3StockDriverAt8x() {
+        val f = GpuRules.family(adreno, "Adreno (TM) 830", "Adreno830v2")
+        // 8x: system driver, and parallel-RDP on it
+        assertEquals(GpuRules.Driver.SYSTEM, GpuRules.autoDriver(f, 8).value)
+        assertEquals("parallel", GpuRules.autoRenderer(true, true, false, f, upscale = 8).value)
+        // 4x: system driver + parallel-RDP too (Joey 2026-11-09)
+        assertEquals(GpuRules.Driver.SYSTEM, GpuRules.autoDriver(f, 4).value)
+        assertEquals("parallel", GpuRules.autoRenderer(true, true, false, f, upscale = 4).value)
+        // 1x and 2x: the system driver too (2026-11-10), and parallel-RDP on it, never GLideN64
+        assertEquals(GpuRules.Driver.SYSTEM, GpuRules.autoDriver(f, 2).value)
+        assertEquals(GpuRules.Driver.SYSTEM, GpuRules.autoDriver(f, 1).value)
+        assertEquals("parallel", GpuRules.autoRenderer(true, true, false, f, upscale = 2).value)
+        assertEquals("parallel", GpuRules.autoRenderer(true, true, false, f).value)
+        // Turnip (custom driver) on Adreno tops out at 4x; stock stays 8x
+        assertEquals(4, GpuRules.upscaleTop(f, customDriver = true).value)
+        assertEquals(8, GpuRules.upscaleTop(f).value)
+        // a7xx at 8x keeps Turnip (it caps to 4x anyway)
+        val t = GpuRules.family(adreno, "Adreno (TM) 740", null)
+        assertEquals(GpuRules.Driver.TURNIP, GpuRules.autoDriver(t, 8).value)
+        assertEquals("gliden64", GpuRules.autoRenderer(true, true, false, t, upscale = 8).value)
+        // Duo stays 2x with Turnip; Mali untouched
+        assertEquals(2, GpuRules.upscaleTop(GpuRules.family(adreno, "Turnip Adreno (TM) 722", null), customDriver = true).value)
     }
 
     @Test fun duo722() {
@@ -43,9 +67,33 @@ class GpuRulesTest {
         assertEquals(GpuRules.Vendor.MALI, f.vendor)
         assertEquals(GpuRules.Driver.SYSTEM, GpuRules.autoDriver(f).value)
         assertEquals(mapOf("N64_EARLY_ACQUIRE" to "30", "PARALLEL_RDP_SINGLE_THREADED_COMMAND" to "1", "N64_RDP_RING_LAZY" to "0",
-            "N64_DRC_THREAD" to "1"), env(f))
+            "N64_DRC_THREAD" to "1", "N64_DRC_JCACHE" to "0"), env(f))
         assertEquals("parallel", GpuRules.autoRenderer(true, true, false, f).value)
         assertEquals(8, GpuRules.upscaleTop(f).value)
+    }
+
+    @Test fun rk3566LittleCoresGetGliden() {
+        // the RK3566 report (2026-11-09): four Cortex-A55s, so stock Mali goes to GLideN64
+        val rk = (0..3).joinToString("\n\n") { "processor\t: $it\nCPU implementer\t: 0x41\nCPU part\t: 0xd05\n" } + "\nHardware\t: Rockchip RK3566"
+        val f = GpuRules.family(arm, "Mali-G52", null)
+        assertTrue(GpuRules.littleCoresOnly(rk))
+        assertEquals("gliden64", GpuRules.autoRenderer(true, true, false, f, GpuRules.littleCoresOnly(rk)).value)
+        // a dev driver stays the user's choice
+        assertEquals("parallel", GpuRules.autoRenderer(true, true, true, f, true).value)
+        // the Flip (T618: 6x A55 + 2x A75) keeps parallel-RDP; unreadable cpuinfo changes nothing
+        val flip = (0..5).joinToString("\n") { "CPU part\t: 0xd05" } + "\n" + (6..7).joinToString("\n") { "CPU part\t: 0xd0a" }
+        assertEquals(false, GpuRules.littleCoresOnly(flip))
+        assertEquals(false, GpuRules.littleCoresOnly(null))
+        assertEquals(false, GpuRules.littleCoresOnly(""))
+        assertEquals("parallel", GpuRules.autoRenderer(true, true, false, f, GpuRules.littleCoresOnly(flip)).value)
+    }
+
+    @Test fun lastImpactGetsGliden() {
+        // SM64 Last Impact by its MD5 (either case); plain SM64 and an unknown game have no per-game renderer
+        assertEquals("gliden64", GpuRules.gameRenderer("70059d4d7ba7ac0f0741b44aec8b44dc")?.value)
+        assertEquals("gliden64", GpuRules.gameRenderer("70059D4D7BA7AC0F0741B44AEC8B44DC")?.value)
+        assertEquals(null, GpuRules.gameRenderer("20b854b239203baf6c961b850a4a51a2"))
+        assertEquals(null, GpuRules.gameRenderer(null))
     }
 
     @Test fun newFamilies() {
@@ -57,7 +105,7 @@ class GpuRulesTest {
         assertEquals(GpuRules.Driver.SYSTEM, GpuRules.autoDriver(GpuRules.family(adreno, "Adreno (TM) 530", null)).value)
         val other = GpuRules.family(0x1010, "PowerVR B-Series BXM-8-256", null)
         assertEquals(GpuRules.Vendor.OTHER, other.vendor)
-        assertEquals(mapOf("N64_RDP_RING_LAZY" to "0"), env(other))
+        assertEquals(mapOf("N64_RDP_RING_LAZY" to "0", "N64_DRC_JCACHE" to "0"), env(other))
         assertEquals("gliden64", GpuRules.autoRenderer(true, false, true, other).value)
     }
 

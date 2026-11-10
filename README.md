@@ -255,6 +255,7 @@ One line per idea from emulator-review.md. An idea leaves "Not tested" only with
     - [x] Cruis'n USA 30% slower with run-ahead off: bisected to da8c7c9 (a state load from a file kept recompiled code by page; Cruis'n stayed slow after it). Fixed in core 8e77c6c: only run-ahead's own loads keep code by page. Thor rach11: 555 bundled, 558 new; the other 13 quick-set games within 1% too (OoT see above).
     - [x] OoT not exact on the full-copy path: core 8e77c6c waits for the RDP there too, like copy-on-write. Thor rach11: 0 of 1122 frames differ with N64_STATE_COW=0 (was 180), SM64 0 of 1136 either way, Snap 64 of 1135 either way (its known bursts).
     - [x] Audio skip and hidden scanout skip taken out (Joey: yes; core 9365d7a, b4d76b0).
+    - [ ] Dynamic resolution with run-ahead at 4x (Joey's idea 2026-11-09): drop parallel-RDP to 2x after a couple of seconds below full speed, back to 4x after a long stretch with headroom (only 2x/4x/8x exist; each switch rebuilds the renderer between frames as fast-forward does). First measure the switch's hitch on the Thor; a dev switch if it's small; a setting only with Joey's design. Mostly for games still under 60 with the automatic native draws (SM64 57 uncapped at 4x).
     - [ ] Results still running on the Thor (2026-11-09): lag probes off/RA1/RA2 + GLideN64 with poll->display, capped 1x/2x/4x, run-ahead off bundled vs new for the quick set, uncapped 4x off vs RA1 (ra_chain4/5/6).
 - [ ] T10. Idle-loop skipping: waits for all runs (Joey), as item 8
 

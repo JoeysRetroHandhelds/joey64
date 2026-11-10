@@ -913,6 +913,9 @@ void runLoop() {
     int stateWait = statePath && *statePath ? 30 : -1;
     g_bench = getenv("N64_BENCH") && atoi(getenv("N64_BENCH")) == 1;
     auto ffNext = std::chrono::steady_clock::now(), ffLastShown = ffNext, capNext = ffNext, rewindNext = ffNext;
+    auto ffLastWake = ffNext, ffStepAt = ffNext, ffLogAt = ffNext; // fast-forward's even pacing
+    double ffWorkEma = 0, ffPace = 0;
+    int ffLate = 0, ffFrames = 0;
     int rewindTick = 0;
     bool rewindStepped = false;
     if (!g_vulkan) g_egl.makeCurrent();
@@ -1008,14 +1011,46 @@ void runLoop() {
                 g_optionsDirty = true;
             }
             ffNext = std::chrono::steady_clock::now();
+            // each fast-forward starts again from the chosen speed (even pacing, below)
+            ffWorkEma = 0; ffPace = 0; ffLate = 0; ffFrames = 0;
+            ffLastWake = ffStepAt = ffLogAt = ffNext;
         }
         if (ff) {
-            const double speed = std::min(std::max(g_ffSpeedPct.load(), 100) / 100.0, (double)Thermal::fastForwardSpeed());
+            const double want = std::min(std::max(g_ffSpeedPct.load(), 100) / 100.0, (double)Thermal::fastForwardSpeed());
+            // Even pacing (2026-11-10, fast-forward stutter item): a heavy game that can't hold the chosen speed
+            // used to run flat out with 100 ms catch-up sprints (Conker, Odin 3: 110-240 fps). Each frame's work
+            // (the loop without this sleep) is averaged, and every 0.5 s the pace is set to ~90% of the speed that
+            // holds when that is below the chosen one (up again by at most 10% a step), with no sprints; so the
+            // game runs steadily a little slower instead of lurching. N64_FF_EVEN=0 keeps the old way.
+            static const bool even = !(getenv("N64_FF_EVEN") && *getenv("N64_FF_EVEN") == '0');
+            double& workEma = ffWorkEma; double& pace = ffPace; int& late = ffLate; int& frames = ffFrames;
+            auto& lastWake = ffLastWake; auto& stepAt = ffStepAt; auto& logAt = ffLogAt;
+            auto now = std::chrono::steady_clock::now();
+            if (pace <= 0) pace = want;
+            const double work = std::chrono::duration<double, std::milli>(now - lastWake).count();
+            const double slotMs = 1e3 / (g_av.timing.fps * pace);
+            if (frames > 0 && work < 250) workEma = workEma > 0 ? workEma * 0.9 + work * 0.1 : work;
+            if (frames > 0 && work > slotMs * 1.5) late++;
+            frames++;
+            if (!even) pace = want;
+            else if (now - stepAt >= std::chrono::milliseconds(500) && workEma > 0) {
+                stepAt = now;
+                const double holds = 1e3 / (g_av.timing.fps * workEma);
+                pace = std::max(1.0, std::min({want, holds * 0.9, pace * 1.1}));
+            }
+            pace = std::min(pace, want);
+            const double speed = pace;
             g_ffSpeedNow = speed;
             ffNext += std::chrono::microseconds((long long)(1e6 / (g_av.timing.fps * speed)));
-            auto now = std::chrono::steady_clock::now();
             if (ffNext > now) std::this_thread::sleep_until(ffNext);
-            else if (now - ffNext > std::chrono::milliseconds(100)) ffNext = now; // don't sprint to catch up
+            else if (even ? now - ffNext > std::chrono::microseconds((long long)(1e6 / (g_av.timing.fps * speed))) : now - ffNext > std::chrono::milliseconds(100))
+                ffNext = now; // don't sprint to catch up
+            lastWake = std::chrono::steady_clock::now();
+            if (lastWake - logAt >= std::chrono::seconds(5)) {
+                LOGI("fast-forward: chosen %.2fx, paced %.2fx, frame work %.1f ms, %d of %d frames late%s",
+                     want, speed, workEma, late, frames, even ? "" : " (even pacing off)");
+                logAt = lastWake; late = 0; frames = 1;
+            }
         }
         // Fast-forward shows at most ~60 frames a second so presenting doesn't cap the speed.
         bool show = true;

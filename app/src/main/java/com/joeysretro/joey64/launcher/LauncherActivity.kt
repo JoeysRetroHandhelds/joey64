@@ -156,6 +156,7 @@ class LauncherActivity : ComponentActivity() {
                     else if (what == "reports-ask") model.debugAskReports()
                     else if (what == "reports-send") model.debugSendReports()
                     else if (what == "lost-folder" || what == "lost-folder-off") model.debugLostFolder(what == "lost-folder")
+                    else if (what.startsWith("net-")) model.debugNetEnded(what)
                     else if (what.startsWith("update")) updates.debugShow(what) else model.debugSetupPage(what.takeIf { it == "first-run" || it == "data" || it == "import" })
                 }
             }

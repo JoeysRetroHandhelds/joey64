@@ -1277,6 +1277,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             startSession(rom, saveName)
             fpsHandler.postDelayed(shutdownWatch, SHUTDOWN_POLL_MS)
             fpsHandler.postDelayed(saveRamWatch, SAVE_RAM_POLL_MS)
+            if (android.system.Os.getenv("N64_NETPLAY") != null || android.system.Os.getenv("N64_NETPLAY_SERVE") != null)
+                fpsHandler.postDelayed(netWatch, NET_POLL_MS)
             getSystemService(android.hardware.input.InputManager::class.java)?.registerInputDeviceListener(padListener, fpsHandler)
             reportGameState(loading = false)
         } else {
@@ -1313,6 +1315,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             trial?.cancel()
             // Only a missing IPL is asked for; a damaged disk or disk save just goes back.
             if (noIpl) intent?.let { com.joeysretro.joey64.launcher.GameStartFailed.diskNeedsBios(it) }
+            // Netplay: the room was lost, couldn't be reached, or has another copy (approved netplay screens). 5 (turned
+            // down) has no approved screen yet, so it just goes back.
+            else if (why in 3..6) { if (why != 5) intent?.takeIf { it.hasExtra(EXTRA_MD5) }?.let { com.joeysretro.joey64.launcher.GameStartFailed.netEnded(it, why) } }
             else intent?.takeIf { it.hasExtra(EXTRA_MD5) }?.let { com.joeysretro.joey64.launcher.GameStartFailed.romFailed(it, com.joeysretro.joey64.launcher.GameStartFailed.Why.Stopped) }
             finish()
         }
@@ -1712,6 +1717,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         }
         override fun disconnectChoice(choice: com.joeysretro.joey64.launcher.ingame.DisconnectChoice) = disconnected(choice)
         override fun closeNoSpace() { closeMenu() }
+        override val inRoom: Boolean get() = net.inRoom
+        override val netLine: String? get() = if (!net.inRoom) null
+            else com.joeysretro.joey64.netplay.NetplayWords.waitingForYou(net.playersIn(net.joined).filter { it != netMe })
+        override fun netMenu() { openMenu() }
+        override fun netCarryOn() { closeMenu() }
+        override fun netLeave() { JLog.i(TAG, "netplay: leaving the room"); overlay?.screen = null; quitToLibrary() }
         override val quitLabel: String get() = hotkeys.quitTo.menuRow
         override fun pick(save: Boolean, slot: Int) {
             val st = states ?: return
@@ -1756,6 +1767,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private var hotkeyHatY = 0
 
     private fun hotkey(action: HotkeyAction) {
+        if (netBlocked(action)) return
         when (action) {
             HotkeyAction.Save -> hotkeySave()
             HotkeyAction.Load -> hotkeyLoad()
@@ -1794,6 +1806,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private fun hotkeyEdge(action: HotkeyAction, event: KeyEvent, down: Boolean) {
         val up = event.action == KeyEvent.ACTION_UP
         if (quitting) return
+        if (net.inRoom && com.joeysretro.joey64.netplay.NetplayWords.blockedLine(action) != null) { if (down) netBlocked(action); return }
         when (action) {
             HotkeyAction.GameShark -> if (down) { fpsHandler.removeCallbacks(gameSharkUp); gameSharkButton(true) } else if (up) gameSharkRelease()
             HotkeyAction.FastForward -> if (down || up) fastForwardKey(down)
@@ -2119,6 +2132,86 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
      * Quit to library: the game is paused, the auto slot written (Continue starts from it) and the
      * recovery state dropped, then the screen closes.
      */
+    // ---- Netplay in game (approved mockup 2026-11-10, scratchpad build_netplay3.py / netplay3_mock.png, "Approve as drawn") ----
+    // The room is read four times a second while the game is in one (dev env N64_NETPLAY / N64_NETPLAY_SERVE until the
+    // Play together screens). Screens: (1) another player paused, (2) the pauser's menu line (PauseScreens), (3) waiting for a
+    // slow player, (5) out of step, (6) a hotkey that waits until you leave; the player-left popup (approved 2026-11-05).
+    // Room lost (4) is the library's (GameStartFailed.netEnded).
+    private var net = com.joeysretro.joey64.netplay.NetInfo.OFF
+    /** This device's player (1-4), 0 until known. */
+    private var netMe = 0
+    /** Out of step shows once a play; players who left are said once. */
+    private var netOutShown = false
+    private var netLeftSaid = 0
+    /** The player the Waiting pop-up names, 0 for none. */
+    private var netWaitShown = 0
+
+    private val netWatch = object : Runnable {
+        override fun run() {
+            if (destroyed || isFinishing) return
+            val n = com.joeysretro.joey64.netplay.NetInfo.of(NativeBridge.netplayInfo())
+            net = n
+            if (n.inRoom && netMe == 0) {
+                netMe = com.joeysretro.joey64.netplay.NetplayWords.myPlayer(n.hosting, android.system.Os.getenv("N64_NETPLAY"))
+                JLog.i(TAG, "netplay: in the room as player $netMe" + if (n.hosting) " (hosting)" else "")
+            }
+            if (n.inRoom && !quitting) netShow(n)
+            fpsHandler.postDelayed(this, NET_POLL_MS)
+        }
+    }
+
+    private fun netShow(n: com.joeysretro.joey64.netplay.NetInfo) {
+        val o = overlay ?: return
+        val w = com.joeysretro.joey64.netplay.NetplayWords
+        // (5) Out of step: over the paused game (pausing tells the room, so everyone stops), once a play.
+        if (n.outOfStep && !netOutShown) {
+            netOutShown = true
+            JLog.i(TAG, "netplay: the games are out of step, asking")
+            if (!menuOpen) openMenu()
+            o.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.NetOutOfStep(n.hosting)
+            return
+        }
+        // Player left: the game paused for everyone while the popup is up.
+        val newLeft = n.left and netLeftSaid.inv()
+        if (newLeft != 0) {
+            netLeftSaid = netLeftSaid or n.left
+            val p = n.playersIn(newLeft).first()
+            JLog.i(TAG, "netplay: player $p left, asking")
+            if (!menuOpen) openMenu()
+            if (o.screen !is com.joeysretro.joey64.launcher.ingame.PauseScreen.NetOutOfStep) o.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.NetLeft(p)
+            return
+        }
+        // (1) Another player's menu has the game stopped: shown while it's open, unless this player's own menu is.
+        val other = n.pausedBy != 0 && n.pausedBy != netMe
+        val scr = o.screen
+        if (other && !menuOpen && (scr == null || (scr is com.joeysretro.joey64.launcher.ingame.PauseScreen.NetPaused && scr.player != n.pausedBy))) {
+            if (scr == null) JLog.i(TAG, "netplay: player ${n.pausedBy} paused the game")
+            o.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.NetPaused(n.pausedBy)
+            touch?.setActive(false)
+        } else if (!other && scr is com.joeysretro.joey64.launcher.ingame.PauseScreen.NetPaused) {
+            JLog.i(TAG, "netplay: player ${scr.player} is back")
+            o.screen = null
+            touch?.setActive(touchActive())
+        }
+        // (3) Waiting for a slow player (the core says so after a second's wait), while nobody has paused.
+        val waitFor = if (n.pausedBy == 0 && n.waitingFor != netMe) n.waitingFor else 0
+        if (waitFor != netWaitShown) {
+            netWaitShown = waitFor
+            if (waitFor == 0) o.hide("npwait")
+            else o.show(InGamePopup("npwait", InGamePopup.Kind.NetWait, "Netplay", w.waitingTitle(waitFor), w.slowLine(waitFor),
+                stayMs = com.joeysretro.joey64.launcher.ingame.PopupQueue.UNTIL_HIDDEN))
+        }
+    }
+
+    /** (6) In a room, a hotkey for something that changes the game's course says it waits until you leave (3 s). True if it's blocked. */
+    private fun netBlocked(action: HotkeyAction): Boolean {
+        if (!net.inRoom) return false
+        val line = com.joeysretro.joey64.netplay.NetplayWords.blockedLine(action) ?: return false
+        JLog.i(TAG, "netplay: ${action.label} refused in a room")
+        overlay?.show(InGamePopup("npblock", InGamePopup.Kind.NetBlocked, "Netplay", com.joeysretro.joey64.netplay.NetplayWords.BLOCKED, line, stayMs = NET_BLOCKED_MS))
+        return true
+    }
+
     private fun quitToLibrary() {
         val st = states ?: run { finish(); return }
         if (quitting) return
@@ -2263,7 +2356,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             if (quitting) return
             when (c.kind) {
                 com.joeysretro.joey64.touch.TouchKind.Menu -> if (!down && !menuOpen) openMenu()
-                com.joeysretro.joey64.touch.TouchKind.FastForward -> touchFastForward(down)
+                com.joeysretro.joey64.touch.TouchKind.FastForward -> if (!net.inRoom) touchFastForward(down) else if (down) netBlocked(HotkeyAction.FastForward)
                 com.joeysretro.joey64.touch.TouchKind.SaveState -> if (down) hotkey(HotkeyAction.Save)
                 com.joeysretro.joey64.touch.TouchKind.LoadState -> if (down) hotkey(HotkeyAction.Load)
                 com.joeysretro.joey64.touch.TouchKind.Screenshot -> if (down) hotkey(HotkeyAction.Screenshot)
@@ -2918,6 +3011,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         /** A game was loaded in this process; the core cannot load a second one, so a new ROM restarts the process. */
         private var gameLoaded = false
         private const val SHUTDOWN_POLL_MS = 500L
+        private const val NET_POLL_MS = 250L
+        private const val NET_BLOCKED_MS = 3_000L
         /** How often the game screen checks whether the game's own save was written (Not enough space to save). */
         private const val SAVE_RAM_POLL_MS = 3_000L
         /** Game start and quit file work, one job at a time in order, for every instance (they share cache/current.rom and saves/). */

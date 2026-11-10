@@ -64,7 +64,9 @@ data class InGamePopup(
         /** Next shader and Shader on/off (approved Picture mockup 2026-11-08). */
         Shader,
         /** A RetroArch overlay's word at game start: "No overlay for this game" (approved mockup 2026-11-08). */
-        Sides }
+        Sides,
+        /** Netplay (approved mockup 2026-11-10): waiting for a slow player (screen 3), a hotkey that waits until you leave (screen 6). */
+        NetWait, NetBlocked }
 }
 
 /**
@@ -138,12 +140,15 @@ fun InGamePopupCard(p: InGamePopup) {
         InGamePopup.Kind.TurboOff -> R.drawable.ic_bolt_off
         InGamePopup.Kind.Undo -> R.drawable.ic_arrow_back_up
         InGamePopup.Kind.Shader, InGamePopup.Kind.Sides -> R.drawable.ic_device_tv_old
+        InGamePopup.Kind.NetWait -> R.drawable.ic_hourglass
+        InGamePopup.Kind.NetBlocked -> R.drawable.ic_x
     }
     JoeyToast(icon, p.label, p.name, p.line, iconTint = when (p.kind) {
         InGamePopup.Kind.Problem, InGamePopup.Kind.ChallengeFailed -> JoeyTheme.colors.error
         InGamePopup.Kind.Account, InGamePopup.Kind.Achievement, InGamePopup.Kind.Progress, InGamePopup.Kind.Game,
         InGamePopup.Kind.NoAchievements, InGamePopup.Kind.AchievementsOff,
-        InGamePopup.Kind.Turbo, InGamePopup.Kind.TurboOff -> JoeyTheme.colors.gold
+        InGamePopup.Kind.Turbo, InGamePopup.Kind.TurboOff, InGamePopup.Kind.NetBlocked -> JoeyTheme.colors.gold
+        InGamePopup.Kind.NetWait -> JoeyTheme.colors.tagMissable
         else -> null
     }, badge = p.badge, compact = p.compact, framed = p.framed, extra = p.extra, bar = p.bar)
 }

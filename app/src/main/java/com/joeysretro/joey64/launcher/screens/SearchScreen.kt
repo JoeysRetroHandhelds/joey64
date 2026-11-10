@@ -42,6 +42,7 @@ fun SearchScreen(model: LibraryModel, onHints: (List<Hint>) -> Unit, onClose: ()
     }
     NeedsBiosPopup(model) { ctx.startActivity(it) }
     StartFailedPopup(model)
+    NetEndedPopup(model)
     LostFolderPopup(model)
     NeedsCartPopup(model) { ctx.startActivity(it) }
     var query by rememberSaveable { mutableStateOf("") }

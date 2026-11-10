@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- An hourglass (in-game pop-ups: netplay waiting for a slow player). A line icon drawn here; tinted where it's used. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M6.5,7H17.5 M6.5,17H17.5 M6,20V18A6,6 0 1 1 18,18V20A1,1 0 0 1 17,21H7A1,1 0 0 1 6,20Z M6,4V6A6,6 0 1 0 18,6V4A1,1 0 0 0 17,3H7A1,1 0 0 0 6,4Z"/>
+</vector>

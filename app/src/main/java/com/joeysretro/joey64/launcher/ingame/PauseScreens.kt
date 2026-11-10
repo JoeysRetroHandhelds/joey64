@@ -73,6 +73,15 @@ sealed interface PauseScreen {
     data class Disconnected(val player: Int, val name: String, val builtIn: Boolean, /** No built-in controls: Use touch controls (player 1). */ val touch: Boolean = false) : PauseScreen
     /** Not enough space to save (screen 5): [text] says what wasn't saved and how much room there is. OK goes back to the game. */
     data class NoSpace(val text: String) : PauseScreen
+    /**
+     * Netplay (approved mockup 2026-11-10, screen 1): [player]'s pause menu has the game stopped for everyone. No buttons;
+     * it goes by itself when they're back. B opens this player's own menu.
+     */
+    data class NetPaused(val player: Int) : PauseScreen
+    /** Netplay screen 5: the games no longer match. Keep playing, or Leave the room ([host]: End for everyone). */
+    data class NetOutOfStep(val host: Boolean) : PauseScreen
+    /** Netplay, the host: [player] left (player-left popup, approved 2026-11-05). The game is paused for everyone while it's up. */
+    data class NetLeft(val player: Int) : PauseScreen
 }
 
 /** What the Controller disconnected popup's rows do. */
@@ -111,6 +120,16 @@ interface PauseActions {
     fun disconnectChoice(choice: DisconnectChoice) {}
     /** Not enough space to save: OK or B, back to the game. */
     fun closeNoSpace() {}
+    /** In a netplay room: the menu greys Save state, Load state, Cheats and Reset, and Quit is Leave the room. */
+    val inRoom: Boolean get() = false
+    /** In a netplay room: the menu's line under its title (screen 2), "Players 1 and 3 are waiting for you". */
+    val netLine: String? get() = null
+    /** Netplay screen 1's B: this player's own pause menu. */
+    fun netMenu() {}
+    /** Netplay: Keep playing (out of step) or Carry on without them (player left). */
+    fun netCarryOn() {}
+    /** Netplay: Leave the room, or the host's End for everyone. */
+    fun netLeave() {}
     /** Cheats' "Press GameShark button": back to the game with the button held for a second. */
     fun pressGameShark()
     fun reset()
@@ -157,6 +176,7 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
         return
     }
     if (screen is PauseScreen.Disconnected) { DisconnectedPopup(screen, actions); return }
+    if (screen is PauseScreen.NetPaused || screen is PauseScreen.NetOutOfStep || screen is PauseScreen.NetLeft) { NetplayPopup(screen, actions); return }
     if (screen is PauseScreen.NoSpace) {
         JoeyDialog(onDismiss = { actions.closeNoSpace() }, hints = listOf(Hint("A", "OK"), Hint("B", "Back to game")), width = 470.dp) {
             Column {
@@ -185,24 +205,37 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
         when (screen) {
             is PauseScreen.Menu -> Column {
                 PopupTitle(title)
+                // Netplay screen 2: only the line is new; the menu is today's.
+                val netLine = androidx.compose.runtime.remember(screen) { actions.netLine }
+                if (netLine != null) Text(netLine, style = JoeyTheme.type.note, color = JoeyTheme.colors.gold,
+                    modifier = Modifier.padding(horizontal = JoeyTheme.spacing.rowPadH).padding(bottom = 6.dp))
+                val room = androidx.compose.runtime.remember(screen) { actions.inRoom }
                 // The rows scroll under the title: on a short screen (the Thor at 1080p) the card ran out of
                 // room and squeezed the last row, Quit, to a thin line with no text. Focus brings a row into view.
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
                 JoeyOption("Resume", Modifier.initialFocus(screen.from == MenuRow.Resume)) { actions.resume() }
+                // Netplay screen 6: greyed in a room, with the pop-up's words.
+                if (room) {
+                    NetBlockedRow("Save state")
+                    NetBlockedRow("Load state")
+                } else {
                 JoeyOption("Save state", Modifier.initialFocus(screen.from == MenuRow.Save), value = "$saveSlotName  ▸") { actions.openSave() }
                 JoeyOption("Load state", Modifier.initialFocus(screen.from == MenuRow.Load), value = "›") { actions.openLoad() }
+                }
                 PopupDivider()
                 JoeyOption("Game settings", Modifier.initialFocus(screen.from == MenuRow.GameSettings),
                     value = androidx.compose.runtime.remember(screen) { actions.gameSettingsLabel } + "  ›") { actions.openGameSettings() }
                 JoeyOption("Controls", Modifier.initialFocus(screen.from == MenuRow.Controls), value = "›") { actions.openControls() }
-                JoeyOption("Cheats", Modifier.initialFocus(screen.from == MenuRow.Cheats), value = "›") { actions.openCheats() }
+                if (room) NetBlockedRow("Cheats")
+                else JoeyOption("Cheats", Modifier.initialFocus(screen.from == MenuRow.Cheats), value = "›") { actions.openCheats() }
                 // Only when RetroAchievements knows the game (signed in, and it has a set).
                 val hasSet = androidx.compose.runtime.remember(screen) { com.joeysretro.joey64.achievements.RaBridge.gameInfo() != "null" ||
                     com.joeysretro.joey64.achievements.RaBridge.debugCache != null }
                 if (hasSet) JoeyOption("Achievements", Modifier.initialFocus(screen.from == MenuRow.Achievements), value = "›") { actions.openAchievements() }
                 PopupDivider()
-                JoeyOption("Reset") { actions.reset() }
-                JoeyOption(actions.quitLabel) { actions.quit() }
+                if (room) NetBlockedRow("Reset") else JoeyOption("Reset") { actions.reset() }
+                if (room) JoeyOption(com.joeysretro.joey64.netplay.NetplayWords.LEAVE) { actions.netLeave() }
+                else JoeyOption(actions.quitLabel) { actions.quit() }
                 }
             }
             is PauseScreen.Picker -> SlotGrid(screen, now) { actions.pick(screen.save, it) }
@@ -213,7 +246,7 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
                 com.joeysretro.joey64.launcher.components.JoeyRow("Later", detail = "Keep playing as it is") { actions.restartLater() }
             }
             is PauseScreen.Controls, is PauseScreen.Cheats, is PauseScreen.Achievements, is PauseScreen.GameSettings, PauseScreen.SignIn,
-            is PauseScreen.Disconnected, is PauseScreen.NoSpace -> {}
+            is PauseScreen.Disconnected, is PauseScreen.NoSpace, is PauseScreen.NetPaused, is PauseScreen.NetOutOfStep, is PauseScreen.NetLeft -> {}
         }
     }
 }
@@ -315,5 +348,50 @@ private fun DisconnectedPopup(screen: PauseScreen.Disconnected, actions: PauseAc
             if (screen.player > 0) JoeyOption("Carry on without them", firstFocus()) { actions.disconnectChoice(DisconnectChoice.WithoutThem) }
             JoeyOption(actions.quitLabel, firstFocus()) { actions.disconnectChoice(DisconnectChoice.Quit) }
         }
+    }
+}
+
+/** A pause menu row that does nothing in a netplay room (approved netplay mockup 2026-11-10, screen 6): greyed, with the pop-up's words. */
+@Composable
+private fun NetBlockedRow(label: String) =
+    com.joeysretro.joey64.launcher.components.JoeyRow(label, enabled = false, detail = com.joeysretro.joey64.netplay.NetplayWords.BLOCKED) {}
+
+/**
+ * The in-game netplay popups (approved mockup 2026-11-10, scratchpad build_netplay3.py, "Approve as drawn"):
+ *  - **Player N paused the game** (screen 1), on every other screen while that player's menu is open: no rows, B opens this
+ *    player's own menu; MainActivity takes it away when they're back.
+ *  - **The games are out of step** (screen 5), over the paused game: Keep playing, Leave the room (the host: End for everyone).
+ *  - **Player N left the game** (the host; the player-left popup approved 2026-11-05): Carry on without them, Leave the room.
+ *    Its Wait row waits for rejoin (after the first testing build, Joey 2026-11-10).
+ */
+@Composable
+private fun NetplayPopup(screen: PauseScreen, actions: PauseActions) {
+    val w = com.joeysretro.joey64.netplay.NetplayWords
+    when (screen) {
+        is PauseScreen.NetPaused -> JoeyDialog(onDismiss = { actions.netMenu() }, hints = listOf(Hint("B", "Menu")), width = 470.dp) {
+            Column {
+                PopupTitle(w.pausedTitle(screen.player))
+                com.joeysretro.joey64.launcher.components.PromptText(androidx.compose.ui.text.AnnotatedString(w.PAUSED_TEXT))
+                // Something has to hold focus so B reaches the dialog; nothing to press.
+                Box(Modifier.size(1.dp).initialFocus().pressable(rememberFocusState().first, onClick = {}))
+            }
+        }
+        is PauseScreen.NetOutOfStep -> JoeyDialog(onDismiss = {}, hints = listOf(Hint("A", "Select")), width = 470.dp) {
+            Column {
+                PopupTitle(w.OUT_OF_STEP_TITLE)
+                com.joeysretro.joey64.launcher.components.PromptText(androidx.compose.ui.text.AnnotatedString(w.OUT_OF_STEP_TEXT))
+                JoeyOption("Keep playing", Modifier.initialFocus()) { actions.netCarryOn() }
+                JoeyOption(if (screen.host) w.END_FOR_EVERYONE else w.LEAVE) { actions.netLeave() }
+            }
+        }
+        is PauseScreen.NetLeft -> JoeyDialog(onDismiss = {}, hints = listOf(Hint("A", "Select")), width = 470.dp) {
+            Column {
+                PopupTitle(w.leftTitle(screen.player))
+                com.joeysretro.joey64.launcher.components.PromptText(androidx.compose.ui.text.AnnotatedString(w.leftText(screen.player)))
+                JoeyOption("Carry on without them", Modifier.initialFocus()) { actions.netCarryOn() }
+                JoeyOption(w.LEAVE) { actions.netLeave() }
+            }
+        }
+        else -> {}
     }
 }

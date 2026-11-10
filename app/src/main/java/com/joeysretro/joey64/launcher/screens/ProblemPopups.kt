@@ -72,6 +72,62 @@ internal fun StartFailedPopup(model: LibraryModel) {
 }
 
 /**
+ * Netplay's library popups. The room is lost (approved netplay mockup 2026-11-10, screen 4, "OK only": "The netplay game
+ * ended"); Couldn't reach the room and Your copy doesn't match the host's (Play together v2, approved 2026-11-06), the
+ * joiner's side of a join that failed. The host's name and copy aren't sent by the room yet, so they read "the host".
+ * Details (mismatch): this player's file and MD5.
+ */
+@Composable
+internal fun NetEndedPopup(model: LibraryModel) {
+    val n = model.netEnded.collectAsStateWithLifecycle().value ?: return
+    var details by remember(n) { mutableStateOf(false) }
+    val c = JoeyTheme.colors
+    JoeyDialog(
+        onDismiss = { model.netEndedSeen() },
+        hints = if (details) listOf(Hint("A", "OK"), Hint("B", "Back")) else listOf(Hint("A", if (n.need == com.joeysretro.joey64.launcher.GameStartFailed.Need.NetMismatch) "Select" else "OK")),
+        interceptBack = { if (details) { details = false; true } else false },
+        width = 470.dp,
+    ) {
+        key(details) { Column {
+            LandAgain()
+            fun bold(s: String) = SpanStyle(fontWeight = FontWeight.Bold, color = c.text)
+            when {
+                details -> {
+                    PopupTitle(n.game.title, "Your copy")
+                    InfoRow("File", n.file, labelColor = c.textDim, valueColor = c.text)
+                    InfoRow("MD5", n.game.md5, labelColor = c.textDim, valueColor = c.text, valueStyle = JoeyTheme.type.code)
+                    JoeyOption("OK", Modifier.initialFocus()) { model.netEndedSeen() }
+                }
+                n.need == com.joeysretro.joey64.launcher.GameStartFailed.Need.NetLost -> {
+                    PopupTitle("The netplay game ended")
+                    PromptText(AnnotatedStringOf("Joey64 lost the connection to the room. The room may have closed, or the Wi-Fi dropped."))
+                    JoeyOption("OK", Modifier.initialFocus()) { model.netEndedSeen() }
+                }
+                n.need == com.joeysretro.joey64.launcher.GameStartFailed.Need.NetUnreachable -> {
+                    PopupTitle("Couldn't reach the room")
+                    PromptText(AnnotatedStringOf("The code is right, but the host's router isn't letting players from outside in. On the same Wi-Fi as the host, it works."))
+                    JoeyOption("OK", Modifier.initialFocus()) { model.netEndedSeen() }
+                }
+                else -> {
+                    PopupTitle("Your copy doesn't match the host's")
+                    PromptText(buildAnnotatedString {
+                        append("Everyone needs the same copy of ")
+                        pushStyle(bold("")); append(n.game.title); pop()
+                        append(" or the games fall out of step. Yours is ")
+                        pushStyle(bold("")); append(n.file); pop()
+                        append(".")
+                    })
+                    JoeyOption("OK", Modifier.initialFocus()) { model.netEndedSeen() }
+                    JoeyOption("Details") { details = true }
+                }
+            }
+        } }
+    }
+}
+
+private fun AnnotatedStringOf(s: String) = androidx.compose.ui.text.AnnotatedString(s)
+
+/**
  * Screen 3: a ROM folder that can't be reached (the SD card is out, or Android took the permission away). Its games are
  * greyed; this asks once when the library opens, and again on A on a greyed game. Try again reads the folder; Choose the
  * folder again opens Android's folder picker; Not now (and B) closes it.

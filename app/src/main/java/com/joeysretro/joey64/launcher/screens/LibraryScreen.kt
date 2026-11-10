@@ -97,6 +97,7 @@ fun LibraryScreen(model: LibraryModel, onSearch: () -> Unit) {
     NeedsBiosPopup(model) { context.startActivity(it) }
     NeedsCartPopup(model) { context.startActivity(it) }
     StartFailedPopup(model)
+    NetEndedPopup(model)
     LostFolderPopup(model)
     var showing by remember { mutableStateOf(false) }
     if (showing) ShowPopup(model) { showing = false }

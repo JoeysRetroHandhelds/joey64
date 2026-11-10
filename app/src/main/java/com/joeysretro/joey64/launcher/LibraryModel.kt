@@ -210,6 +210,10 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                 } else if (failed.need == GameStartFailed.Need.Bios) {
                     JLog.i(TAG, "${game.title} didn't start (no IPL for its region): asking for the 64DD BIOS")
                     _needsBios.value = NeedsBios(game, failed.intent, failedStart = true)
+                } else if (failed.need in NET_ENDS) {
+                    JLog.i(TAG, "${game.title}: netplay ended (${failed.need.name}): saying so")
+                    _netEnded.value = NetEnded(failed.need, game,
+                        failed.intent.getStringExtra(com.joeysretro.joey64.MainActivity.EXTRA_SOURCE_NAME) ?: game.title)
                 } else if (failed.need == GameStartFailed.Need.Rom) {
                     _startFailed.value = withContext(Dispatchers.IO) { startFailedOf(game, failed) }
                     JLog.i(TAG, "${game.title} didn't start (${failed.why?.name}): saying so" + if (_startFailed.value?.damaged == true) ", the file looks damaged" else "")
@@ -781,6 +785,23 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
             why = failed.why ?: GameStartFailed.Why.Refused)
     }
 
+    /**
+     * Netplay's library popups (approved: room lost 2026-11-10 "OK only"; Couldn't reach the room and Your copy doesn't
+     * match the host's in Play together v2, 2026-11-06). [file]: this player's copy, for the mismatch's Details.
+     */
+    data class NetEnded(val need: GameStartFailed.Need, val game: LibraryGame, val file: String)
+
+    private val _netEnded = MutableStateFlow<NetEnded?>(null)
+    val netEnded: StateFlow<NetEnded?> = _netEnded
+    fun netEndedSeen() { _netEnded.value = null }
+
+    /** Debug (SHOW --es what net-lost|net-unreach|net-mismatch): the popup for the first game in the library. */
+    fun debugNetEnded(what: String) {
+        val need = when (what) { "net-lost" -> GameStartFailed.Need.NetLost; "net-unreach" -> GameStartFailed.Need.NetUnreachable; else -> GameStartFailed.Need.NetMismatch }
+        val game = _all.value?.firstOrNull() ?: return
+        _netEnded.value = NetEnded(need, game, game.title + ".z64")
+    }
+
     /** Screen 3: a ROM folder that can't be reached ([path]: "SD card › ROMs › n64"). */
     data class LostFolder(val tree: String, val path: String)
 
@@ -910,3 +931,6 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         const val TAG = "Joey64Library"
     }
 }
+
+/** The netplay ends the library says (LibraryModel.netEnded). */
+private val NET_ENDS = setOf(GameStartFailed.Need.NetLost, GameStartFailed.Need.NetUnreachable, GameStartFailed.Need.NetMismatch)

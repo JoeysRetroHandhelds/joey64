@@ -84,6 +84,27 @@ struct Room {
     int syncMatched = 0;                           // VI counts where every player's report matched
     uint8_t status = 0;
     uint8_t pausedMask = 0; // players whose app is paused (pause menu, in the background)
+    // Each player's name and own ping, from its app's pause notices; sent to every app once a second as
+    // [7, count, then per player: player 0-3, ping ms u16, name length, name] (Joey64 2026-11-10, netplayPlayers)
+    std::string rosterName[4];
+    uint16_t rosterPing[4] = {};
+    sockaddr_storage rosterAddr[4];
+    socklen_t rosterAddrLen[4] = {};
+    std::chrono::steady_clock::time_point rosterAt = std::chrono::steady_clock::now();
+    void sendRoster() {
+        auto now = std::chrono::steady_clock::now();
+        if (now - rosterAt < std::chrono::seconds(1)) return;
+        rosterAt = now;
+        uint8_t out[512]; size_t k = 2; uint8_t cnt = 0;
+        for (int i = 0; i < 4; i++) {
+            if (!reg[i].id || disconnected[i]) continue;
+            size_t l = std::min<size_t>(rosterName[i].size(), 40);
+            out[k++] = (uint8_t)i; out[k++] = rosterPing[i] >> 8; out[k++] = (uint8_t)rosterPing[i];
+            out[k++] = (uint8_t)l; memcpy(out + k, rosterName[i].data(), l); k += l; cnt++;
+        }
+        out[0] = 7; out[1] = cnt;
+        for (int i = 0; i < 4; i++) if (rosterAddrLen[i] && !disconnected[i]) udpSend(out, k, rosterAddr[i], rosterAddrLen[i]);
+    }
     // Dev (2026-11-10): N64_NETPLAY_SIM=<delay ms>:<jitter ms>:<loss %> makes every UDP packet the room sends late by
     // delay plus up to jitter, and drops loss % of them, so an internet connection can be tried on one Wi-Fi.
     // Both ways are covered for a joiner, as its inputs come back to it through the room too.
@@ -308,6 +329,17 @@ struct Room {
         }
         case UDP_PAUSE_NOTICE: {
             if (n < 3 || d[1] >= 4) return;
+            // Joey64 2026-11-10: [.., seq32, ping ms u16, name length, name] adds the player's name and its own
+            // measured ping; the room sends everyone the list (sendRoster)
+            if (n >= 10) {
+                int p = d[1];
+                rosterPing[p] = (uint16_t)(d[7] << 8 | d[8]);
+                size_t l = std::min<size_t>(d[9], (size_t)n - 10);
+                std::string nm((const char*)d + 10, l);
+                for (char& ch : nm) if (ch == '|' || ch == ';' || (unsigned char)ch < 32) ch = ' ';
+                if (nm != rosterName[p]) { rosterName[p] = nm; NLOGI("netplay server: player %d is %s", p + 1, nm.c_str()); }
+                rosterAddr[p] = from; rosterAddrLen[p] = len;
+            }
             uint8_t bit = (uint8_t)(1 << d[1]), was = pausedMask;
             if (d[2] && !disconnected[d[1]]) pausedMask |= bit; else pausedMask &= (uint8_t)~bit;
             if (was != pausedMask) NLOGI("netplay server: player %d %s", d[1] + 1, d[2] ? "paused" : "resumed");
@@ -395,6 +427,7 @@ struct Room {
             }
             g_status = statusByte();
             logNet();
+            sendRoster();
         }
         for (auto& c : clients) close(c.fd);
         clients.clear();

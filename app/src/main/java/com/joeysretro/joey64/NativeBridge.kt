@@ -143,9 +143,16 @@ object NativeBridge {
     external fun saveRamFailed(): Long
     /**
      * Netplay (dev env N64_NETPLAY / N64_NETPLAY_SERVE until the Play together screens): [in a room 1/0, hosting it 1/0,
-     * players joined (bit per player, the host only), status (bit 0 de-synced, bits 1-4 player 1-4 left)].
+     * players joined (bit per player, the host only), status (bit 0 de-synced, bits 1-4 player 1-4 left), the paused
+     * player 1-4 or 0, the player this game waits for 1-4 or 0, this game's own player 1-4 (0 = not in a room)].
      */
     external fun netplayInfo(): IntArray
+    /**
+     * The room's players, "1|AYN Thor|18;2|Odin 3|24" (player number; name, from env N64_NETPLAY_NAME or the device
+     * model; that player's own ping to the room in ms, smoothed, the host's ~0). Once a second; "" until the first list.
+     * This game's own player number is netplayInfo()[6].
+     */
+    external fun netplayPlayers(): String
     /**
      * The hosted room's port on the router (UPnP), "<state> <ip:port>": state 0 off, 1 looking, 2 open (players
      * outside join at ip:port), 3 no UPnP router answered, 4 the router refused, 5 opened but the router is behind

@@ -171,7 +171,7 @@
         {"what": "PI DMA keeps bit 0 of the cart address", "where": "core 22aa47a", "why": "crashed in every libretro build"}
       ],
       "issues": [
-        {"status": "fixed", "devices": "Duo (Odin 3, Flip to check)", "what": "in the game only Mario, Yoshi and the HUD on black (parallel-RDP; menus fine): the hack's bad SetCombine FC127FFFFFFFF838 (296 of them), which accurate renderers draw black. Fixed by replacing it with FC121824FF33FFFF in the loaded ROM (core combine-fix bbf17b1; RetroPie forum topic 17605, GLideN64 issue 1745); N64_COMBINE_FIX=0 turns it off", "evidence": "duo-cfix-sr 2026-11-10 (app-cfix-bbf1): level drawn; duo-cfix-sroff: black"},
+        {"status": "fixed", "devices": "Duo (Odin 3, Flip to check)", "what": "in the game only Mario, Yoshi and the HUD on black (parallel-RDP; menus fine): the hack's bad SetCombine FC127FFFFFFFF838 (296 of them), which accurate renderers draw black. Fixed by replacing it with FC121824FF33FFFF in the loaded ROM, SM64 hacks only, past the first megabyte (core combine-fix bbf17b1 + 0fd8e71; RetroPie forum topic 17605, GLideN64 issue 1745); N64_COMBINE_FIX=0 turns it off", "evidence": "duo-cfix-sr 2026-11-10 (app-cfix-bbf1): level drawn; duo-cfix-sroff: black; recheck duo-/odin3-cfix3-sr (app-cfix-3)"},
         {"status": "parked", "renderer": "GLideN64", "what": "black screen (FZ shows it too)", "evidence": "README parked item"}
       ]
     },

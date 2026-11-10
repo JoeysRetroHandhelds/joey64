@@ -1,0 +1,5 @@
+miniupnpc 2.3.3 (BSD-3-Clause, LICENSE here), github.com/miniupnp/miniupnp tag miniupnpc_2_3_3
+(commit bf4215a7574f88aa55859db9db00e3ae58cf42d6). Only the library sources (src/, include/); no tests,
+no upnpc tool, no Python module. miniupnpcstrings.h is the release's .h.in with OS_STRING "Android" and
+the version filled in. Used by app/src/main/cpp/upnp.cpp to open a netplay room's port on the router
+(Joey 2026-11-10: "Yes, add UPnP").

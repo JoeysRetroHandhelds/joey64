@@ -92,6 +92,12 @@ object NativeBridge {
      * players joined (bit per player, the host only), status (bit 0 de-synced, bits 1-4 player 1-4 left)].
      */
     external fun netplayInfo(): IntArray
+    /**
+     * The hosted room's port on the router (UPnP), "<state> <ip:port>": state 0 off, 1 looking, 2 open (players
+     * outside join at ip:port), 3 no UPnP router answered, 4 the router refused, 5 opened but the router is behind
+     * another NAT (players outside still can't reach it). The address is empty until 2 or 5.
+     */
+    external fun netplayOutside(): String
     /** New frames presented since start (wraps): what the game drew, without repeats. */
     external fun framesDrawn(): Int
     /** The game's native frame rate (NTSC ~60, PAL 50), for the speed percentage. */

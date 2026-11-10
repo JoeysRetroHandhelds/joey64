@@ -40,6 +40,7 @@
 #include "audio_out.h"
 #include "achievements.h"
 #include "netplay_server.h"
+#include "upnp.h"
 
 // In a netplay room every player's game must take the same inputs at the same input count, so anything that
 // runs, skips or repeats frames on one side only is refused while one is on: loading a state, Reset, rewind,
@@ -849,6 +850,10 @@ void serveStateRequest(bool ready, bool failEarly) {
 bool runStateRequest(StateRequest& req, int timeoutMs) {
     std::unique_lock<std::mutex> lk(g_stateMutex);
     if (!g_running || g_stateReq) return false;
+    // In netplay the emulation thread can be stuck in the core, waiting for the room (players to register, before
+    // the first frame) or for a player's input: no request is served then, so fail at once rather than at the
+    // timeout (2026-11-10: quitting a room nobody had joined waited ~20 s for the quit save).
+    if (g_netplay && (g_framesRun == 0 || g_netplayWaitingFor != 0)) return false;
     g_stateReq = &req;
     g_statePending = true;
     { std::lock_guard<std::mutex> pl(g_pauseMutex); }   // so a paused emulation thread can't miss the wake-up
@@ -1728,6 +1733,13 @@ JNIEXPORT jint JNICALL JNI(coreShutDown)(JNIEnv*, jobject) {
 // [in a room (1/0), hosting it (1/0), players joined (bit per player; the host only), status (bit 0 de-synced,
 // bits 1-4 player 1-4 left; the host's is the room's own), the paused player 1-4 (0 = none),
 // the player this game waits for 1-4 (0 = none; set after 1 s of waiting)].
+// The host's room on the router: [0] = Upnp::State (0 off, 1 looking, 2 open, 3 no UPnP router, 4 refused,
+// 5 opened but behind another NAT), then "ip:port" others outside use (empty until 2 or 5).
+JNIEXPORT jstring JNICALL JNI(netplayOutside)(JNIEnv* env, jobject) {
+    std::string s = std::to_string((int)Upnp::state()) + " " + Upnp::outside();
+    return env->NewStringUTF(s.c_str());
+}
+
 JNIEXPORT jintArray JNICALL JNI(netplayInfo)(JNIEnv* env, jobject) {
     bool host = NetplayServer::running();
     int pausedBy = host ? (NetplayServer::status() >> 5) & 7 : g_netplayPausedBy.load();
@@ -1799,6 +1811,10 @@ JNIEXPORT void JNICALL JNI(stop)(JNIEnv*, jobject) {
     if (!g_running) return;
     g_running = false;
     g_pauseCv.notify_all();
+    // A host's core can be waiting in its own room (for players to register, up to 30 s, or for their input):
+    // closing the room first ends that wait, so leaving takes no longer than with nobody in the room (2026-11-10:
+    // a room nobody joined took 20 s to quit). Called again after the run loop, which then does nothing.
+    if (g_netplay && NetplayServer::running()) NetplayServer::stop();
     if (g_thread.joinable()) g_thread.join();
     { std::lock_guard<std::mutex> lk(g_stateMutex); }
     g_stateCv.notify_all();

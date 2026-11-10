@@ -1,6 +1,7 @@
 // Netplay room server: see netplay_server.h. GPL-3.0-or-later.
 #include "netplay_server.h"
 #include "joeylog.h"
+#include "upnp.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -448,6 +449,8 @@ bool start(int port, int players, int delay) {
     g_running = true;
     g_thread = std::thread([room] { room->loop(); });
     NLOGI("netplay server: room open on port %d for %d players, input delay %d", port, room->players, room->delay);
+    // the port on the router too, so players outside the home network can join (dev: N64_NETPLAY_UPNP=0 skips it)
+    { const char* u = getenv("N64_NETPLAY_UPNP"); if (!u || strcmp(u, "0") != 0) Upnp::open(port); }
     return true;
 }
 
@@ -459,6 +462,7 @@ void stop() {
     close(g_room->tcp); close(g_room->udp);
     close(g_wake[0]); close(g_wake[1]); g_wake[0] = g_wake[1] = -1;
     delete g_room; g_room = nullptr;
+    Upnp::close();
     NLOGI("netplay server: room closed");
 }
 

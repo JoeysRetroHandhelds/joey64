@@ -93,6 +93,8 @@ val OSS_ENTRIES = listOf(
         listOf("ares.txt"), "save types by game"),
     OssEntry("Emulator", "rcheevos", "MIT", "MIT", "github.com/RetroAchievements/rcheevos",
         listOf("rcheevos.txt"), "RetroAchievements"),
+    OssEntry("App", "miniupnpc", "BSD 3-Clause", "BSD 3-Clause", "miniupnp.tuxfamily.org",
+        listOf("miniupnpc.txt"), "Play together over the internet"),
     OssEntry("App", "Kotlin, AndroidX", "Apache 2.0", "Apache 2.0", "developer.android.com/jetpack",
         listOf("androidx.txt", "apache-2.0.txt"), "with Compose"),
     OssEntry("App", "Commons Compress", "Apache 2.0", "Apache 2.0", "commons.apache.org/proper/commons-compress",

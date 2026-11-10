@@ -58,6 +58,8 @@ static std::condition_variable g_npPauseCv;
 static std::atomic<int> g_netplayPausedBy{0};
 // This game's player (1-4, 0 = not in a room), and the room's list of players: "1|name|ping ms;2|..." (netplayPlayers).
 static std::atomic<int> g_npPlayer{0};
+// The room's input delay in frames, from its list of players (a joiner; the host asks its room), 0 = not known.
+static std::atomic<int> g_npDelay{0};
 static std::mutex g_npRosterMutex;
 static std::string g_npRoster;
 // The name the others see: N64_NETPLAY_NAME, else the device model (Build.MODEL's ro.product.model).
@@ -119,6 +121,10 @@ static void npPauseStart(const char* np) {
                             out += std::to_string(p + 1) + "|" + std::string((const char*)r + k + 4, l) + "|" + std::to_string(ping);
                             k += 4 + l;
                         }
+                        if (k < (size_t)n) { // after the players: the room's input delay (rooms from 2026-11-10 on)
+                            int dl = r[k];
+                            if (dl != g_npDelay.exchange(dl)) joeyLog(ANDROID_LOG_INFO, "joey64host", "netplay: input delay %d", dl);
+                        }
                         std::lock_guard<std::mutex> rl(g_npRosterMutex);
                         // the names only: pings change every second
                         auto names = [](const std::string& s) { std::string o; size_t a = 0;
@@ -153,7 +159,7 @@ static void npPauseStop() {
     { std::lock_guard<std::mutex> lk(g_npPauseMutex); g_npPauseRun = false; }
     g_npPauseCv.notify_all();
     g_npPauseThread.join();
-    g_npPlayer = 0;
+    g_npPlayer = 0; g_npDelay = 0;
     std::lock_guard<std::mutex> rl(g_npRosterMutex); g_npRoster.clear();
 }
 
@@ -1551,6 +1557,7 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
     if (const char* e = getenv("N64_NETPLAY_SERVE")) {
         int port = 45000, players = 2, delay = 2;
         sscanf(e, "%d%*[^0-9]%d%*[^0-9]%d", &port, &players, &delay);
+        if (strstr(e, "auto")) delay = -1; // port:players:auto = adaptive input delay (2-12 frames)
         if (NetplayServer::start(port, players, delay) && !getenv("N64_NETPLAY")) {
             char v[64]; snprintf(v, sizeof v, "127.0.0.1:%d:1", port);
             setenv("N64_NETPLAY", v, 1);
@@ -1784,11 +1791,12 @@ JNIEXPORT jstring JNICALL JNI(netplayOutside)(JNIEnv* env, jobject) {
 JNIEXPORT jintArray JNICALL JNI(netplayInfo)(JNIEnv* env, jobject) {
     bool host = NetplayServer::running();
     int pausedBy = host ? (NetplayServer::status() >> 5) & 7 : g_netplayPausedBy.load();
-    jint v[7] = {g_netplay ? 1 : 0, host ? 1 : 0, host ? NetplayServer::registeredMask() : 0,
+    jint v[8] = {g_netplay ? 1 : 0, host ? 1 : 0, host ? NetplayServer::registeredMask() : 0,
                  (jint)((host ? (NetplayServer::status() | g_netplayStatus) : g_netplayStatus.load()) & 0x1F),
-                 pausedBy, g_netplayWaitingFor.load(), g_npPlayer.load()};
-    jintArray out = env->NewIntArray(7);
-    if (out) env->SetIntArrayRegion(out, 0, 7, v);
+                 pausedBy, g_netplayWaitingFor.load(), g_npPlayer.load(),
+                 host ? NetplayServer::inputDelay() : g_npDelay.load()};
+    jintArray out = env->NewIntArray(8);
+    if (out) env->SetIntArrayRegion(out, 0, 8, v);
     return out;
 }
 

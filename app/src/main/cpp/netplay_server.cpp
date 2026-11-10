@@ -34,7 +34,10 @@ enum : uint8_t { UDP_SEND_KEY_INFO = 0, UDP_RECEIVE_KEY_INFO = 1, UDP_REQUEST_KE
                  UDP_RECEIVE_KEY_INFO_GRATUITOUS = 3, UDP_SYNC_DATA = 4,
                  // Joey64's own (2026-11-10): [5, player 0-3, paused 0/1], sent by the app (not the core) every
                  // 0.5 s while in a room, so a lost one is made good
-                 UDP_PAUSE_NOTICE = 5 };
+                 UDP_PAUSE_NOTICE = 5,
+                 // [8, player, n, n x (count32, keys32, plugin)]: a player's last inputs in one packet, which the
+                 // core sends while it waits (2026-11-10, NP_RESEND 20: more than the largest adaptive delay)
+                 UDP_JOEY_KEY_BATCH = 8 };
 enum : uint8_t { TCP_SEND_SAVE = 1, TCP_RECEIVE_SAVE = 2, TCP_SEND_SETTINGS = 3, TCP_RECEIVE_SETTINGS = 4,
                  TCP_REGISTER_PLAYER = 5, TCP_GET_REGISTRATION = 6, TCP_DISCONNECT_NOTICE = 7,
                  // Joey64's own (2026-11-10): [0x40, ROM MD5 as 32 hex characters], answered 2 = the host's ROM,
@@ -65,6 +68,7 @@ struct Peer { sockaddr_storage addr; socklen_t len; };
 
 std::atomic<bool> g_running{false};
 std::atomic<uint8_t> g_regMask{0}, g_status{0};
+std::atomic<int> g_delay{0};
 std::thread g_thread;
 int g_wake[2] = {-1, -1};
 
@@ -84,6 +88,114 @@ struct Room {
     int syncMatched = 0;                           // VI counts where every player's report matched
     uint8_t status = 0;
     uint8_t pausedMask = 0; // players whose app is paused (pause menu, in the background)
+    // Adaptive input delay (Joey64 2026-11-10; start() with delay -1). For each input and each player's game, the
+    // room works out how late it came: when the room got it, plus that player's one-way time, against when that
+    // game reached the frame (its first request for it, less its one-way time; one-way = half its own ping).
+    // Every 4 s: if 10% or more of them came late, a frame of delay is added; if under 3% did and 95% came at
+    // least 20 ms early, for 15 s (twice as long each time a frame taken away had to come back within a minute,
+    // up to 2 min), one is taken away.
+    // A dropout makes one input very late for each game (the games stop at it), so it barely counts: more delay
+    // would not have helped. A player's input sent at its event count c goes to slot c + its delay; sched keeps from which count on each delay holds, so resends land where the
+    // first copy did. Adding a frame fills the next slot with a copy of the last input; taking one away drops one
+    // input (one that repeats the one before when there is one within 60 frames, so no short press is lost).
+    bool adaptive = false;
+    static constexpr int kMinDelay = 2, kMaxDelay = 12;
+    std::vector<std::pair<uint32_t, int>> sched[4]; // from client event count -> slot offset
+    uint32_t hi[4] = {}; bool started[4] = {};       // newest client event count heard per player
+    int pendingLower[4] = {};                        // inputs left before a frame is dropped anyway, 0 = none
+    using tp = std::chrono::steady_clock::time_point;
+    std::map<uint64_t, tp> missing; // player << 32 | slot -> first asked before any input was there (holes, below)
+    struct SlotTimes { tp arr, req[4]; bool hasArr = false; uint8_t reqMask = 0; };
+    std::map<uint64_t, SlotTimes> times; // player << 32 | slot -> when the room got it, when each game first asked
+    std::vector<float> lateMs;            // this window's lateness samples in ms (> 0: that game waited for it)
+    void sample(int r, tp arr, tp req) {
+        lateMs.push_back((float)(std::chrono::duration<double, std::milli>(arr - req).count() + rosterPing[r]));
+    }
+    void arrived(int p, uint32_t slot) {
+        if (!adaptive) return;
+        auto& s = times[(uint64_t)p << 32 | slot];
+        if (s.hasArr) return;
+        s.arr = std::chrono::steady_clock::now(); s.hasArr = true;
+        for (int r = 0; r < 4; r++) if (s.reqMask & (1 << r)) sample(r, s.arr, s.req[r]);
+    }
+    void asked(int p, uint32_t slot, int r) {
+        if (!adaptive || r < 0 || !active(p)) return;
+        auto& s = times[(uint64_t)p << 32 | slot];
+        if (s.reqMask & (1 << r)) return;
+        s.reqMask |= (uint8_t)(1 << r); s.req[r] = std::chrono::steady_clock::now();
+        if (s.hasArr) sample(r, s.arr, s.req[r]);
+    }
+    std::chrono::steady_clock::time_point windowAt = std::chrono::steady_clock::now(), calmSince = windowAt,
+        holdUntil = windowAt, lastLowerAt = windowAt - std::chrono::minutes(5);
+    int calmNeed = 15;
+    int offsetOf(int p, uint32_t c) const {
+        for (auto it = sched[p].rbegin(); it != sched[p].rend(); ++it)
+            if (c - it->first < 0x80000000u) return it->second;
+        return sched[p].empty() ? delay : sched[p].front().second;
+    }
+    // A player's input into a slot: everyone gets it at once (the "gratuitous" reply), so nobody waits for a request round trip
+    void put(int p, uint32_t slot, Input in) {
+        inputs[p][slot] = in;
+        missing.erase((uint64_t)p << 32 | slot);
+        arrived(p, slot);
+        for (auto& peer : peers) sendInputs(peer.addr, peer.len, UDP_RECEIVE_KEY_INFO_GRATUITOUS, p, slot, 0);
+    }
+    bool active(int i) const { return reg[i].id && !disconnected[i]; }
+    void changeDelay(int to, const char* why) {
+        NLOGI("netplay server: input delay %d -> %d (%s)", delay, to, why);
+        for (int i = 0; i < 4; i++) {
+            if (!active(i) || !started[i]) continue;
+            if (to > delay) {
+                int off = offsetOf(i, hi[i]); uint32_t slot = hi[i] + (uint32_t)off;
+                auto it = inputs[i].find(slot);
+                Input copy = it != inputs[i].end() ? it->second : Input{0, reg[i].plugin};
+                if (!inputs[i].count(slot + 1)) put(i, slot + 1, copy);
+                sched[i].push_back({hi[i] + 1, off + 1});
+            } else pendingLower[i] = 60;
+            while (sched[i].size() > 8) sched[i].erase(sched[i].begin());
+        }
+        delay = to;
+    }
+    void adapt() {
+        if (!adaptive) return;
+        using namespace std::chrono;
+        auto now = steady_clock::now();
+        bool quiet = pausedMask != 0;
+        for (int i = 0; i < 4; i++) if (active(i) && !started[i]) quiet = true;
+        if (quiet || now < holdUntil) {
+            lateMs.clear(); windowAt = now;
+            if (quiet) { calmSince = now; holdUntil = now + seconds(3); }
+            return;
+        }
+        for (int i = 0; i < 4; i++) if (pendingLower[i] && active(i)) return; // a frame is still being taken away
+        if (now - windowAt < seconds(4)) return;
+        windowAt = now;
+        // forget slot times older than 3 s
+        for (auto it = times.begin(); it != times.end();) {
+            tp t = it->second.hasArr ? it->second.arr : it->second.req[__builtin_ctz(it->second.reqMask | 0x10) & 3];
+            if (now - t > seconds(3)) it = times.erase(it); else ++it;
+        }
+        size_t n = lateMs.size();
+        if (n < 40) { lateMs.clear(); calmSince = now; return; } // too few to say
+        size_t waited = 0; for (float v : lateMs) waited += v > 0;
+        std::nth_element(lateMs.begin(), lateMs.begin() + n * 95 / 100, lateMs.end());
+        float p95 = lateMs[n * 95 / 100];
+        lateMs.clear();
+        double frac = (double)waited / n;
+        NLOGI("netplay server: delay %d: %.0f%% of %zu inputs late, 95%% by %.0f ms or less", delay, frac * 100, n, p95);
+        char why[64];
+        if (frac >= 0.10 && delay < kMaxDelay) {
+            snprintf(why, sizeof why, "%.0f%% of inputs late", frac * 100);
+            if (now - lastLowerAt < seconds(60)) calmNeed = std::min(calmNeed * 2, 120);
+            changeDelay(delay + 1, why);
+            holdUntil = now + seconds(2); calmSince = now;
+        } else if (frac >= 0.03 || p95 > -20) calmSince = now;
+        else if (now - calmSince >= seconds(calmNeed) && delay > kMinDelay) {
+            snprintf(why, sizeof why, "calm for %d s", calmNeed);
+            changeDelay(delay - 1, why);
+            calmSince = lastLowerAt = now;
+        }
+    }
     // Each player's name and own ping, from its app's pause notices; sent to every app once a second as
     // [7, count, then per player: player 0-3, ping ms u16, name length, name] (Joey64 2026-11-10, netplayPlayers)
     std::string rosterName[4];
@@ -103,6 +215,7 @@ struct Room {
             out[k++] = (uint8_t)l; memcpy(out + k, rosterName[i].data(), l); k += l; cnt++;
         }
         out[0] = 7; out[1] = cnt;
+        out[k++] = (uint8_t)delay; // after the players: the room's input delay now (Joey64 2026-11-10)
         for (int i = 0; i < 4; i++) if (rosterAddrLen[i] && !disconnected[i]) udpSend(out, k, rosterAddr[i], rosterAddrLen[i]);
     }
     // Dev (2026-11-10): N64_NETPLAY_SIM=<delay ms>:<jitter ms>:<loss %> makes every UDP packet the room sends late by
@@ -240,6 +353,7 @@ struct Room {
                 g_regMask = m;
                 // the first `delay` events of each player are blank, which is what gives the input delay
                 for (uint32_t k = 0; k < (uint32_t)delay; k++) inputs[p][k] = {0, b[2]};
+                sched[p] = {{0u, delay}}; started[p] = false; pendingLower[p] = 0;
             }
             NLOGI("netplay server: player %d register %08x: %s", p + 1, id, ok ? "ok" : "taken");
             uint8_t out[2] = {ok, kBufferTarget};
@@ -298,21 +412,40 @@ struct Room {
         out[0] = kind; out[1] = (uint8_t)p; out[2] = statusByte(); out[3] = lag; out[4] = n;
         udpSend(out, k, to, len);
     }
+    // A player's input sent at its event count cc (UDP_SEND_KEY_INFO or a batch)
+    void gotInput(int p, uint32_t cc, uint32_t keys, uint8_t plugin) {
+        heard(p);
+        if (pendingLower[p] && started[p] && cc == hi[p] + 1) {
+            // taking a frame away: this input goes where the one before went, so it is dropped
+            auto prev = inputs[p].find(hi[p] + (uint32_t)offsetOf(p, hi[p]));
+            bool same = prev != inputs[p].end() && prev->second.keys == keys;
+            if (same || --pendingLower[p] <= 0) {
+                sched[p].push_back({cc, offsetOf(p, cc) - 1});
+                pendingLower[p] = 0;
+                NLOGI("netplay server: player %d input %u dropped for the lower delay%s", p + 1, cc, same ? "" : " (not a repeat)");
+            }
+        }
+        if (!started[p] || (cc != hi[p] && cc - hi[p] < 0x80000000u)) { hi[p] = cc; started[p] = true; }
+        uint32_t count = cc + (uint32_t)offsetOf(p, cc);
+        if (inputs[p].count(count)) { ns[p].copies++; return; }
+        ns[p].inputs++;
+        put(p, count, {keys, plugin});
+        // keep the last ~10 s
+        while (!inputs[p].empty() && inputs[p].begin()->first + 600 < count) inputs[p].erase(inputs[p].begin());
+    }
     void handleUdp(const uint8_t* d, ssize_t n, const sockaddr_storage& from, socklen_t len) {
         if (n < 1) return;
         switch (d[0]) {
+        case UDP_JOEY_KEY_BATCH: {
+            if (n < 3 || d[1] >= 4) return;
+            addPeer(from, len);
+            for (int i = 0, k = 3; i < d[2] && k + 9 <= n; i++, k += 9) gotInput(d[1], r32(d + k), r32(d + k + 4), d[k + 8]);
+            break;
+        }
         case UDP_SEND_KEY_INFO: {
             if (n < 11 || d[1] >= 4) return;
             addPeer(from, len);
-            int p = d[1]; uint32_t count = r32(d + 2) + (uint32_t)delay;
-            heard(p);
-            if (inputs[p].count(count)) { ns[p].copies++; return; }
-            ns[p].inputs++;
-            inputs[p][count] = {r32(d + 6), d[10]};
-            // everyone gets it at once (the "gratuitous" reply), so nobody waits for a request round trip
-            for (auto& peer : peers) sendInputs(peer.addr, peer.len, UDP_RECEIVE_KEY_INFO_GRATUITOUS, p, count, 0);
-            // keep the last ~10 s
-            while (!inputs[p].empty() && inputs[p].begin()->first + 600 < count) inputs[p].erase(inputs[p].begin());
+            gotInput(d[1], r32(d + 2), r32(d + 6), d[10]);
             break;
         }
         case UDP_REQUEST_KEY_INFO: {
@@ -320,10 +453,28 @@ struct Room {
             addPeer(from, len);
             int p = d[1]; uint32_t id = r32(d + 2), count = r32(d + 6);
             lastAsked[p][id] = count;
-            { int me = playerOf(id); if (me >= 0) { heard(me); ns[me].requests++; } }
+            int me = playerOf(id);
+            if (me >= 0) { heard(me); ns[me].requests++; }
             uint32_t lead = count;
             for (auto& [rid, c] : lastAsked[p]) if (c > lead && c - lead < 0x80000000u) lead = c;
             fillLeft(p, count);
+            asked(p, count, me);
+            if (adaptive && active(p) && !inputs[p].count(count)) {
+                auto now = std::chrono::steady_clock::now();
+                tp askedAt = missing.emplace((uint64_t)p << 32 | count, now).first->second;
+                // a slot nobody's input goes to, with later ones there: fill it with the input before (everyone gets
+                // the same from the room, so no desync) and say what the slots look like
+                auto after = inputs[p].upper_bound(count);
+                if (after != inputs[p].end() && now - askedAt > std::chrono::seconds(1)) {
+                    auto before = inputs[p].lower_bound(count);
+                    Input copy = before != inputs[p].begin() ? std::prev(before)->second : Input{0, reg[p].plugin};
+                    std::string s;
+                    for (auto& [f, o] : sched[p]) s += " " + std::to_string(f) + ":" + std::to_string(o);
+                    NLOGE("netplay server: player %d slot %u had no input for 1 s (next slot %u, newest input %u, delay from:%s), filled",
+                          p + 1, count, after->first, hi[p], s.c_str());
+                    put(p, count, copy);
+                }
+            }
             sendInputs(from, len, UDP_RECEIVE_KEY_INFO, p, count, (uint8_t)std::min<uint32_t>(lead - count, 255));
             break;
         }
@@ -428,6 +579,8 @@ struct Room {
             g_status = statusByte();
             logNet();
             sendRoster();
+            adapt();
+            g_delay = delay;
         }
         for (auto& c : clients) close(c.fd);
         clients.clear();
@@ -462,7 +615,9 @@ bool start(int port, int players, int delay) {
     if (g_running) stop();
     auto* room = new Room();
     room->players = players < 1 ? 1 : players > 4 ? 4 : players;
-    room->delay = delay < 0 ? 0 : delay > 30 ? 30 : delay;
+    room->adaptive = delay < 0;
+    room->delay = room->adaptive ? Room::kMinDelay : delay > 30 ? 30 : delay;
+    g_delay = room->delay;
     if (const char* s = getenv("N64_NETPLAY_SIM")) {
         sscanf(s, "%d%*[^0-9]%d%*[^0-9]%d", &room->simDelay, &room->simJitter, &room->simLoss);
         room->simLoss = std::clamp(room->simLoss, 0, 90);
@@ -481,7 +636,8 @@ bool start(int port, int players, int delay) {
     g_regMask = 0; g_status = 0;
     g_running = true;
     g_thread = std::thread([room] { room->loop(); });
-    NLOGI("netplay server: room open on port %d for %d players, input delay %d", port, room->players, room->delay);
+    NLOGI("netplay server: room open on port %d for %d players, input delay %d%s", port, room->players, room->delay,
+          room->adaptive ? " (adaptive)" : "");
     // the port on the router too, so players outside the home network can join (dev: N64_NETPLAY_UPNP=0 skips it)
     { const char* u = getenv("N64_NETPLAY_UPNP"); if (!u || strcmp(u, "0") != 0) Upnp::open(port); }
     return true;
@@ -502,5 +658,6 @@ void stop() {
 bool running() { return g_running; }
 uint8_t registeredMask() { return g_regMask; }
 uint8_t status() { return g_status; }
+int inputDelay() { return g_running ? g_delay.load() : 0; }
 
 } // namespace NetplayServer

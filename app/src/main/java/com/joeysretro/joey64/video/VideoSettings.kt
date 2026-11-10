@@ -58,7 +58,7 @@ enum class VideoKey(val key: String, val default: String) {
     DitherFilter("dither_filter", "on"),
     Divot("divot", "on"),
     GammaDither("gamma_dither", "on"),
-    Deinterlace("deinterlace", "bob"),
+    Deinterlace("deinterlace", "weave"), // Weave since 2026-11-10 (Joey): upscaled, Bob shook still 480i pictures (THPS2, Spider-Man)
     Supersample("supersample", "off"),
     NativeTexLod("native_tex_lod", "off"),
     NativeTexRect("native_tex_rect", "on"),

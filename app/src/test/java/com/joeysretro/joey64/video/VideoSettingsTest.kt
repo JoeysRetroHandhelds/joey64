@@ -16,12 +16,12 @@ class VideoSettingsTest {
         assertEquals(1, v.int(VideoKey.Resolution))
         assertEquals("original", v.look)
         val a = VideoApply.of(v, parallel = true)
-        // The core's own defaults, so a user who never opens Video plays as before.
+        // The core's own defaults, so a user who never opens Video plays as before; deinterlace is ours (Weave, Joey 2026-11-10).
         assertEquals("1x", a.coreOptions["mupen64plus-parallel-rdp-upscaling"])
         assertEquals("True", a.coreOptions["mupen64plus-parallel-rdp-vi-aa"])
         assertEquals("True", a.coreOptions["mupen64plus-parallel-rdp-native-tex-rect"])
         assertEquals("disable", a.coreOptions["mupen64plus-parallel-rdp-downscaling"])
-        assertEquals("Bob", a.coreOptions["mupen64plus-parallel-rdp-deinterlace-method"])
+        assertEquals("Weave", a.coreOptions["mupen64plus-parallel-rdp-deinterlace-method"]) // ours, not the core's (Bob)
         assertTrue(a.env.isEmpty())
         assertEquals(4 to 3, VideoApply.aspect(v, widescreen = null))
     }

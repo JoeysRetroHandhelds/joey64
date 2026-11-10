@@ -1,6 +1,6 @@
 {
   "about": "Joey64 per-game database: what each game needs, what is wrong with it and where, and what was fixed. Seed for the M3 profile DB. Rules: gamedb/README.md. Update this file in the same commit as any change to a game's status (new problem found, fixed, regressed, setting added or dropped).",
-  "updated": "2026-11-08",
+  "updated": "2026-11-10",
   "games": [
     {
       "id": "NPF", "title": "Pokemon Snap",
@@ -61,9 +61,16 @@
         {"what": "synchronous parallel-RDP on every GPU, also in fast-forward", "where": "kSyncRdpGames", "why": "async: intro draws, then black (Portal 2026-11-03, every Flip run since 2026-11-05)"}
       ],
       "fixed": [
-        {"devices": "Flip (Mali)", "what": "intro, then every frame black from ~25 s with async parallel-RDP; sync plays it", "fix": "added to kSyncRdpGames, app f6b99e6; flip-blk-*; default build checked: draws to the end (flip-sync6)"}
+        {"devices": "Flip (Mali)", "what": "intro, then every frame black from ~25 s with async parallel-RDP; sync plays it", "fix": "added to kSyncRdpGames, app f6b99e6; flip-blk-*; default build checked: draws to the end (flip-sync6)"},
+        {"devices": "all (upscaled parallel-RDP)", "what": "the picture shook every frame at 2x/4x/8x: Bob deinterlacing moves each 480i field a quarter line x scale (Joey saw it on the Thor, 2026-11-10)", "fix": "Weave is the default deinterlace since 2026-11-10 (Joey); shake.py back-and-forth shifts: Bob 4x 1946, Weave 4x 0 (results/flick)"}
       ],
       "notes": ["Flip with sync: 58.4-58.6 emu fps average, lowest 5 s window 49.3-53.5 (flip-blk-sync, flip-sync6)"]
+    },
+    {
+      "id": "NTQ", "title": "Tony Hawk's Pro Skater 2",
+      "fixed": [
+        {"devices": "all (upscaled parallel-RDP)", "what": "the picture shook every frame at 2x/4x/8x: Bob deinterlacing moves each 480i field a quarter line x scale (Joey saw it on the Thor, 2026-11-10)", "fix": "Weave is the default deinterlace since 2026-11-10 (Joey); shake.py back-and-forth shifts: Bob 4x 2451, 2x 3220, 1x none, Weave 4x 0 (results/flick)"}
+      ]
     },
     {
       "id": "NGU", "title": "Sin and Punishment (English patch)",

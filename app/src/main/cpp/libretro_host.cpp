@@ -39,6 +39,11 @@
 #include "achievements.h"
 #include "netplay_server.h"
 
+// In a netplay room every player's game must take the same inputs at the same input count, so anything that
+// runs, skips or repeats frames on one side only is refused while one is on: loading a state, Reset, rewind,
+// fast-forward, slow motion, frame advance, cheat changes and the GameShark button (2026-11-10).
+static std::atomic<bool> g_netplay{false};
+
 // Dev env N64_LOG_ERR=1 logs info at error level, for devices whose logd drops everything
 // below error (Retroid Pocket Duo).
 #define LOGI(...) joeyLog(ANDROID_LOG_INFO, "joey64host", __VA_ARGS__)
@@ -1198,6 +1203,7 @@ void runLoop() {
     if (g_hw.context_destroy) g_hw.context_destroy();
     core.unload_game();
     NetplayServer::stop();
+    g_netplay = false;
     core.deinit();
     g_audio.close();
     if (g_vulkan) g_vk.destroy();
@@ -1409,6 +1415,8 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
             setenv("N64_NETPLAY", v, 1);
         }
     }
+    { const char* np = getenv("N64_NETPLAY"); g_netplay = np && *np; }
+    if (g_netplay) LOGI("netplay: on (%s): state loads, Reset, rewind, fast-forward, slow motion, frame advance and cheat changes are off", getenv("N64_NETPLAY"));
     retro_game_info info{ p, buf.data(), buf.size(), nullptr };
     bool ok;
     if (disk) {
@@ -1482,7 +1490,7 @@ JNIEXPORT void JNICALL JNI(start)(JNIEnv*, jobject) {
 
 // Frame advance: while paused, the game runs one more frame and stays paused. Does nothing if not paused.
 JNIEXPORT void JNICALL JNI(stepFrame)(JNIEnv*, jobject) {
-    if (!g_paused) return;
+    if (!g_paused || g_netplay) return;
     { std::lock_guard<std::mutex> pl(g_pauseMutex); if (g_stepFrames < 4) ++g_stepFrames; }
     g_pauseCv.notify_all();
 }
@@ -1537,6 +1545,7 @@ JNIEXPORT void JNICALL JNI(setOptionsLive)(JNIEnv* env, jobject, jobjectArray ke
 
 // Replaces every cheat; a running game takes them between frames (a paused one when it resumes).
 JNIEXPORT void JNICALL JNI(setCheats)(JNIEnv* env, jobject, jobjectArray codes) {
+    if (g_netplay && g_thread.joinable()) { LOGI("netplay: cheat change refused"); return; }
     std::vector<std::string> next;
     jsize n = env->GetArrayLength(codes);
     for (jsize i = 0; i < n; ++i) {
@@ -1555,6 +1564,7 @@ JNIEXPORT void JNICALL JNI(setCheats)(JNIEnv* env, jobject, jobjectArray codes) 
 
 // The GameShark button down or up; the game takes it between frames.
 JNIEXPORT void JNICALL JNI(setGameShark)(JNIEnv*, jobject, jboolean down) {
+    if (g_netplay) return;
     if (g_gsButton.exchange(down) == (bool)down) return;
     LOGI("GameShark button %s", down ? "down" : "up");
     g_cheatsChanged = true;
@@ -1567,7 +1577,7 @@ JNIEXPORT void JNICALL JNI(dumpRam)(JNIEnv* env, jobject, jstring path) {
 }
 
 JNIEXPORT void JNICALL JNI(setFastForward)(JNIEnv*, jobject, jboolean on) {
-    g_fastForward = on;
+    g_fastForward = on && !g_netplay;
 }
 
 JNIEXPORT void JNICALL JNI(setFastForwardSpeed)(JNIEnv*, jobject, jint percent) {
@@ -1575,16 +1585,16 @@ JNIEXPORT void JNICALL JNI(setFastForwardSpeed)(JNIEnv*, jobject, jint percent) 
 }
 
 JNIEXPORT void JNICALL JNI(setSlowMotion)(JNIEnv*, jobject, jint percent) {
-    g_slowPct = percent <= 0 ? 0 : std::clamp((int)percent, 10, 99);
+    g_slowPct = percent <= 0 || g_netplay ? 0 : std::clamp((int)percent, 10, 99);
 }
 
 JNIEXPORT void JNICALL JNI(setRewind)(JNIEnv*, jobject, jboolean on, jint every, jint maxMoments) {
-    g_rewindOnCfg = on; g_rewindEveryCfg = std::max(1, (int)every); g_rewindMaxCfg = std::max(1, (int)maxMoments);
+    g_rewindOnCfg = on && !g_netplay; g_rewindEveryCfg = std::max(1, (int)every); g_rewindMaxCfg = std::max(1, (int)maxMoments);
     g_rewindCfgChanged = true;
 }
 
 JNIEXPORT void JNICALL JNI(setRewinding)(JNIEnv*, jobject, jboolean held) {
-    g_rewindHeld = held;
+    g_rewindHeld = held && !g_netplay;
 }
 
 // [moments that can still be gone back to, most kept, frames gone back since the press, 1 at the oldest].
@@ -1714,6 +1724,7 @@ JNIEXPORT jbyteArray JNICALL JNI(captureFrame)(JNIEnv* env, jobject, jint timeou
 // The pause menu's Reset (the console's reset button), between frames; also while paused. False if
 // it wasn't served in [timeoutMs].
 JNIEXPORT jboolean JNICALL JNI(resetGame)(JNIEnv*, jobject, jint timeoutMs) {
+    if (g_netplay) return JNI_FALSE;
     StateRequest req;
     req.reset = true;
     return runStateRequest(req, timeoutMs) && req.ok ? JNI_TRUE : JNI_FALSE;
@@ -1730,6 +1741,7 @@ JNIEXPORT jbyteArray JNICALL JNI(stateProgress)(JNIEnv* env, jobject) {
 }
 
 JNIEXPORT jboolean JNICALL JNI(loadState)(JNIEnv* env, jobject, jbyteArray data, jbyteArray achv, jint timeoutMs) {
+    if (g_netplay) { LOGI("netplay: state load refused"); return JNI_FALSE; }
     StateRequest req;
     req.save = false;
     jsize n = env->GetArrayLength(data);

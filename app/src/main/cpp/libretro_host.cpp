@@ -1879,6 +1879,10 @@ JNIEXPORT void JNICALL JNI(stop)(JNIEnv*, jobject) {
     // A host's core can be waiting in its own room (for players to register, up to 30 s, or for their input):
     // closing the room first ends that wait, so leaving takes no longer than with nobody in the room (2026-11-10:
     // a room nobody joined took 20 s to quit). Called again after the run loop, which then does nothing.
+    // A joiner's core can be waiting the same way on someone else's room: the core's joey64_netplay_abort shuts
+    // its connection, which ends the wait (cores without it wait as before).
+    if (g_netplay && core.handle)
+        if (auto abortNp = reinterpret_cast<void (*)()>(dlsym(core.handle, "joey64_netplay_abort"))) abortNp();
     if (g_netplay && NetplayServer::running()) NetplayServer::stop();
     if (g_thread.joinable()) g_thread.join();
     { std::lock_guard<std::mutex> lk(g_stateMutex); }

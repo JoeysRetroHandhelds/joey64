@@ -1718,7 +1718,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         override fun closeNoSpace() { closeMenu() }
         override val inRoom: Boolean get() = net.inRoom
         override val netLine: String? get() = if (!net.inRoom) null
-            else com.joeysretro.joey64.netplay.NetplayWords.waitingForYou(net.playersIn(net.joined).filter { it != netMe })
+            else com.joeysretro.joey64.netplay.NetplayWords.waitingForYou(
+                (netPlayers.map { it.player }.ifEmpty { net.playersIn(net.joined) }).filter { it != netMe })
         override fun netMenu() { openMenu() }
         override fun netCarryOn() { closeMenu() }
         override fun netLeave() { JLog.i(TAG, "netplay: leaving the room"); overlay?.screen = null; quitToLibrary() }
@@ -2144,6 +2145,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private var netLeftSaid = 0
     /** The player the Waiting pop-up names, 0 for none. */
     private var netWaitShown = 0
+    /** The room's players (names, pings), and every name seen this play (a player who left isn't listed any more). */
+    private var netPlayers = emptyList<com.joeysretro.joey64.netplay.NetPlayer>()
+    private val netNames = HashMap<Int, String>()
+    private var netChip: com.joeysretro.joey64.netplay.NetChip? = null
+    private fun netName(p: Int) = netNames[p]
 
     private val netWatch = object : Runnable {
         override fun run() {
@@ -2151,10 +2157,16 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             val n = com.joeysretro.joey64.netplay.NetInfo.of(NativeBridge.netplayInfo())
             net = n
             if (n.inRoom && netMe == 0) {
-                netMe = com.joeysretro.joey64.netplay.NetplayWords.myPlayer(n.hosting, android.system.Os.getenv("N64_NETPLAY"))
-                JLog.i(TAG, "netplay: in the room as player $netMe" + if (n.hosting) " (hosting)" else "")
+                netMe = com.joeysretro.joey64.netplay.NetplayWords.myPlayer(n.hosting, android.system.Os.getenv("N64_NETPLAY"), n.me)
+                if (netMe != 0) JLog.i(TAG, "netplay: in the room as player $netMe" + if (n.hosting) " (hosting)" else "")
             }
+            netPlayers = if (n.inRoom) com.joeysretro.joey64.netplay.NetPlayers.parse(NativeBridge.netplayPlayers()) else emptyList()
+            for (p in netPlayers) netNames[p.player] = p.name
             if (n.inRoom && !quitting) netShow(n)
+            // The players chip (approved), top right; at the bottom right when the stats are top right.
+            if (netChip == null && netPlayers.isNotEmpty()) netChip = com.joeysretro.joey64.netplay.NetChip(this@MainActivity, windowManager)
+            netChip?.show(if (quitting) emptyList() else netPlayers,
+                onScreen.stats != com.joeysretro.joey64.onscreen.StatsMode.Off && onScreen.corner.top && !onScreen.corner.left)
             fpsHandler.postDelayed(this, NET_POLL_MS)
         }
     }
@@ -2177,15 +2189,15 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             val p = n.playersIn(newLeft).first()
             JLog.i(TAG, "netplay: player $p left, asking")
             if (!menuOpen) openMenu()
-            if (o.screen !is com.joeysretro.joey64.launcher.ingame.PauseScreen.NetOutOfStep) o.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.NetLeft(p)
+            if (o.screen !is com.joeysretro.joey64.launcher.ingame.PauseScreen.NetOutOfStep) o.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.NetLeft(p, netName(p))
             return
         }
         // (1) Another player's menu has the game stopped: shown while it's open, unless this player's own menu is.
         val other = n.pausedBy != 0 && n.pausedBy != netMe
         val scr = o.screen
-        if (other && !menuOpen && (scr == null || (scr is com.joeysretro.joey64.launcher.ingame.PauseScreen.NetPaused && scr.player != n.pausedBy))) {
+        if (other && !menuOpen && (scr == null || (scr is com.joeysretro.joey64.launcher.ingame.PauseScreen.NetPaused && (scr.player != n.pausedBy || scr.name != netName(n.pausedBy))))) {
             if (scr == null) JLog.i(TAG, "netplay: player ${n.pausedBy} paused the game")
-            o.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.NetPaused(n.pausedBy)
+            o.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.NetPaused(n.pausedBy, netName(n.pausedBy))
             touch?.setActive(false)
         } else if (!other && scr is com.joeysretro.joey64.launcher.ingame.PauseScreen.NetPaused) {
             JLog.i(TAG, "netplay: player ${scr.player} is back")
@@ -2197,7 +2209,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (waitFor != netWaitShown) {
             netWaitShown = waitFor
             if (waitFor == 0) o.hide("npwait")
-            else o.show(InGamePopup("npwait", InGamePopup.Kind.NetWait, "Netplay", w.waitingTitle(waitFor), w.slowLine(waitFor),
+            else o.show(InGamePopup("npwait", InGamePopup.Kind.NetWait, "Netplay", w.waitingTitle(waitFor), w.slowLine(waitFor, netName(waitFor)),
                 stayMs = com.joeysretro.joey64.launcher.ingame.PopupQueue.UNTIL_HIDDEN))
         }
     }
@@ -2901,6 +2913,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         debugRaEvent?.let { unregisterReceiver(it) }
         destroyed = true
         stats?.destroy()
+        netChip?.remove()
         raPopups?.stop()
         raCache?.stop()
         touch?.destroy()

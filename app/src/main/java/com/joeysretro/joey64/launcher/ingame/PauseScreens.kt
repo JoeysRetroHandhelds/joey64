@@ -77,11 +77,11 @@ sealed interface PauseScreen {
      * Netplay (approved mockup 2026-11-10, screen 1): [player]'s pause menu has the game stopped for everyone. No buttons;
      * it goes by itself when they're back. B opens this player's own menu.
      */
-    data class NetPaused(val player: Int) : PauseScreen
+    data class NetPaused(val player: Int, /** From the room's list, null before it arrives. */ val name: String? = null) : PauseScreen
     /** Netplay screen 5: the games no longer match. Keep playing, or Leave the room ([host]: End for everyone). */
     data class NetOutOfStep(val host: Boolean) : PauseScreen
     /** Netplay, the host: [player] left (player-left popup, approved 2026-11-05). The game is paused for everyone while it's up. */
-    data class NetLeft(val player: Int) : PauseScreen
+    data class NetLeft(val player: Int, val name: String? = null) : PauseScreen
 }
 
 /** What the Controller disconnected popup's rows do. */
@@ -371,7 +371,10 @@ private fun NetplayPopup(screen: PauseScreen, actions: PauseActions) {
         is PauseScreen.NetPaused -> JoeyDialog(onDismiss = { actions.netMenu() }, hints = listOf(Hint("B", "Menu")), width = 470.dp) {
             Column {
                 PopupTitle(w.pausedTitle(screen.player))
-                com.joeysretro.joey64.launcher.components.PromptText(androidx.compose.ui.text.AnnotatedString(w.PAUSED_TEXT))
+                com.joeysretro.joey64.launcher.components.PromptText(buildAnnotatedString {
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = JoeyTheme.colors.text)) { append(screen.name ?: "They") }
+                    append(w.PAUSED_TEXT)
+                })
                 // Something has to hold focus so B reaches the dialog; nothing to press.
                 Box(Modifier.size(1.dp).initialFocus().pressable(rememberFocusState().first, onClick = {}))
             }
@@ -386,7 +389,7 @@ private fun NetplayPopup(screen: PauseScreen, actions: PauseActions) {
         }
         is PauseScreen.NetLeft -> JoeyDialog(onDismiss = {}, hints = listOf(Hint("A", "Select")), width = 470.dp) {
             Column {
-                PopupTitle(w.leftTitle(screen.player))
+                PopupTitle(w.leftTitle(screen.player, screen.name))
                 com.joeysretro.joey64.launcher.components.PromptText(androidx.compose.ui.text.AnnotatedString(w.leftText(screen.player)))
                 JoeyOption("Carry on without them", Modifier.initialFocus()) { actions.netCarryOn() }
                 JoeyOption(w.LEAVE) { actions.netLeave() }

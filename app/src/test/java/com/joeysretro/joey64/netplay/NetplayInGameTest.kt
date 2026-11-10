@@ -15,7 +15,8 @@ class NetplayInGameTest {
 
     @Test fun readsTheBridgeFields() {
         // Hosting, players 1, 2 and 4 joined, out of step, player 3 left, player 2 paused, waiting for player 4.
-        val n = NetInfo.of(intArrayOf(1, 1, 0b1011, 1 or (1 shl 3), 2, 4))
+        val n = NetInfo.of(intArrayOf(1, 1, 0b1011, 1 or (1 shl 3), 2, 4, 1))
+        assertEquals(1, n.me)
         assertTrue(n.inRoom); assertTrue(n.hosting); assertTrue(n.outOfStep)
         assertEquals(listOf(1, 2, 4), n.playersIn(n.joined))
         assertEquals(listOf(3), n.playersIn(n.left))
@@ -52,5 +53,14 @@ class NetplayInGameTest {
         assertEquals(3, NetplayWords.myPlayer(false, "192.168.1.5:45000:3"))
         assertEquals(0, NetplayWords.myPlayer(false, "192.168.1.5:45000"))
         assertEquals(0, NetplayWords.myPlayer(false, null))
+        assertEquals(2, NetplayWords.myPlayer(false, "192.168.1.5:45000:3", fromBridge = 2))
+    }
+
+    @Test fun playersList() {
+        assertEquals(emptyList<NetPlayer>(), NetPlayers.parse(""))
+        assertEquals(listOf(NetPlayer(1, "Odin3", 5), NetPlayer(2, "Odin2 Portal", 118)), NetPlayers.parse("2|Odin2 Portal|118;1|Odin3|5"))
+        assertEquals(listOf(NetPlayer(3, "Player 3", 0)), NetPlayers.parse("3||;9|x|1;junk"))
+        assertEquals("Sam (Odin 3)'s connection is slow", NetplayWords.slowLine(2, "Sam (Odin 3)"))
+        assertEquals("Player 2 left the game", NetplayWords.leftTitle(2))
     }
 }

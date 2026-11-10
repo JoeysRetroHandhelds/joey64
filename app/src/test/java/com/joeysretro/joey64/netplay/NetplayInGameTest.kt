@@ -41,7 +41,8 @@ class NetplayInGameTest {
 
     @Test fun blockedHotkeys() {
         for (a in listOf(HotkeyAction.Save, HotkeyAction.Load, HotkeyAction.Reset, HotkeyAction.FastForward, HotkeyAction.SlowMotion,
-            HotkeyAction.Rewind, HotkeyAction.FrameAdvance, HotkeyAction.GameShark, HotkeyAction.UndoLoad, HotkeyAction.UndoSave))
+            HotkeyAction.Rewind, HotkeyAction.FrameAdvance, HotkeyAction.GameShark, HotkeyAction.UndoLoad, HotkeyAction.UndoSave,
+            HotkeyAction.UpscaleUp, HotkeyAction.UpscaleDown))
             assertTrue(a.name, NetplayWords.blockedLine(a) != null)
         assertEquals("Save states wait until you leave", NetplayWords.blockedLine(HotkeyAction.Save))
         for (a in listOf(HotkeyAction.PauseMenu, HotkeyAction.Pause, HotkeyAction.Screenshot, HotkeyAction.VolumeUp, HotkeyAction.Quit))

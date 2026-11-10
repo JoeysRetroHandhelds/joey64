@@ -76,6 +76,8 @@ object NetplayWords {
         HotkeyAction.Rewind -> "Rewind waits until you leave"
         HotkeyAction.FrameAdvance -> "Frame advance waits until you leave"
         HotkeyAction.GameShark -> "The GameShark button waits until you leave"
+        // A room renders at 1x (Joey 2026-11-10: "Keep netplay to 1x only, same way we turn off runahead").
+        HotkeyAction.UpscaleUp, HotkeyAction.UpscaleDown -> "Upscaling waits until you leave"
         else -> null
     }
 

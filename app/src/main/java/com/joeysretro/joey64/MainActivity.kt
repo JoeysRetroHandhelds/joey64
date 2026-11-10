@@ -149,10 +149,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // scaling, black frames, colour and sharpening. The dev switches below still win.
         val vApply = com.joeysretro.joey64.video.VideoApply.of(video, renderer == "parallel")
         for ((k, v) in vApply.coreOptions) NativeBridge.setOption(k, capUpscaling(k, v))
-        // The stats overlay's "parallel-RDP 2x" (after the Duo's cap; a dev --es opts upscale isn't shown).
-        statsRenderer = if (renderer == "parallel") "parallel-RDP " + capUpscaling("mupen64plus-parallel-rdp-upscaling",
-            vApply.coreOptions["mupen64plus-parallel-rdp-upscaling"] ?: "1x") else "GLideN64 " + (vApply.coreOptions["mupen64plus-EnableNativeResFactor"] ?: "1") + "x"
-        if (renderer == "parallel") playUpscale = capUpscaling(UPSCALE_KEY, vApply.coreOptions[UPSCALE_KEY] ?: "1x")
+        // The stats overlay's "parallel-RDP 2x" (after the Duo's cap; a dev --es opts upscale isn't shown). A netplay room
+        // renders at 1x whatever is asked (the host answers the core so, Joey 2026-11-10), so it says 1x there.
+        val room1x = android.system.Os.getenv("N64_NETPLAY") != null || android.system.Os.getenv("N64_NETPLAY_SERVE") != null
+        statsRenderer = if (renderer == "parallel") "parallel-RDP " + (if (room1x) "1x" else capUpscaling("mupen64plus-parallel-rdp-upscaling",
+            vApply.coreOptions["mupen64plus-parallel-rdp-upscaling"] ?: "1x")) else "GLideN64 " + (if (room1x) "1" else vApply.coreOptions["mupen64plus-EnableNativeResFactor"] ?: "1") + "x"
+        if (renderer == "parallel") playUpscale = if (room1x) "1x" else capUpscaling(UPSCALE_KEY, vApply.coreOptions[UPSCALE_KEY] ?: "1x")
         applyVideoDisplay()
         applyPicture()
         devSharp = devFlag("sharp2") || devFlag("sharp")

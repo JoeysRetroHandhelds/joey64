@@ -6,7 +6,7 @@
       "repo": "libretro/parallel-n64",
       "branch": "master",
       "path": "mupen64plus-video-paraLLEl",
-      "seen": "c50beac611a7f377fe9b34b15255736735b8ca6c",
+      "seen": "41a7da2aba847cb7ca27e14579f0fef0e4bdffe1",
       "why": "libretro's reworked parallel-RDP, much newer than the author's public copy; port its speed changes (emulator-review.md)"
     },
     {

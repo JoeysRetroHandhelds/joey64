@@ -49,7 +49,11 @@ CREATE TABLE IF NOT EXISTS sessions (
   cpu_core        TEXT,      -- "dynarec" or "interpreter"
   refresh_hz      INTEGER,   -- the screen's refresh rate
   cheats          INTEGER,   -- most cheat codes on at once
-  from_state      INTEGER    -- 1: started from a save state (Continue)
+  from_state      INTEGER,   -- 1: started from a save state (Continue)
+  driver_rule     TEXT,      -- Auto's driver rule (GpuRules): "Adreno 6xx-8xx: bundled Turnip" (migrations/0004-gpu-rules.sql)
+  renderer_rule   TEXT,      -- Auto's renderer rule, or the per-game one when that won
+  trial_level     INTEGER,   -- GpuTrial: 0 Auto's pick, 1 system driver, 2 GLideN64 too; NULL: no trial (Settings picked)
+  picked_by       TEXT       -- "auto" or "user" (driver or renderer set in Settings; the rules then say what Auto would pick)
 );
 CREATE INDEX IF NOT EXISTS sessions_md5 ON sessions (md5);
 

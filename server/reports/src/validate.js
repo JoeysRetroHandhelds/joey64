@@ -110,6 +110,14 @@ function event(e) {
         refresh_hz: num(e.refreshHz, "refreshHz", 0, 500, { int: true }),
         cheats: num(e.cheats, "cheats", 0, 1000, { int: true }),
         from_state: bool(e.fromState, "fromState"),
+        // Added 2026-11-09 (migrations/0004-gpu-rules.sql): why the device ran this driver and renderer. Auto's rule
+        // for each (GpuRules: "Adreno 6xx-8xx: bundled Turnip"), the start-up trial's level (GpuTrial: 0 Auto's own
+        // pick, 1 the system driver, 2 GLideN64 too; missing when the trial didn't run) and whether Auto picked
+        // ("auto") or Settings did ("user", then the rules say what Auto would have picked).
+        driver_rule: str(e.driverRule, "driverRule", 120),
+        renderer_rule: str(e.rendererRule, "rendererRule", 120),
+        trial_level: num(e.trialLevel, "trialLevel", 0, 2, { int: true }),
+        picked_by: e.pickedBy === undefined || e.pickedBy === null ? null : oneOf(e.pickedBy, "pickedBy", ["auto", "user"]),
       };
     case "nocover":
     case "replaced":

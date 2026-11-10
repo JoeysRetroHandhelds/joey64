@@ -58,7 +58,8 @@ per install), 404/405 anything else. `GET /health` says `ok`.
 
 - `schema.sql`: the tables (reports, sessions, covers, crashes), as a new database gets them.
 - `migrations/`: changes for a database made before them, each run once (`0002-session-details.sql`: the
-  session details, 2026-11-08). Run a migration before deploying the Worker that writes its columns.
+  session details, 2026-11-08; `0003-screen.sql`: the screen size, 2026-11-08; `0004-gpu-rules.sql`: Auto's driver and
+  renderer rules, the start-up trial's level and who picked, 2026-11-09, read by `queries/rules.sql`). Run a migration before deploying the Worker that writes its columns.
 - `src/index.js`: the Worker (handlers only: a Worker's main module may export nothing else).
 - `src/validate.js`, `src/store.js`: checking and storing.
 - `queries/`: `missing-covers.sql` (covers to make for joey64-data), `replaced-covers.sql` (wrong

@@ -178,4 +178,20 @@ class ReportsTest {
         assertEquals(6L, s.getLong("thermalMax"))
         assertFalse(s.has("lagMs")); assertFalse(s.has("cpuCore"))
     }
+
+    @Test fun whyThisDriverAndRendererGoesAsTheServerTakesIt() {
+        val stored = JSONObject().put("md5", md5).put("seconds", 60).put("ended", "quit")
+            .put("driverRule", "Adreno 6xx-8xx: bundled Turnip").put("rendererRule", "custom driver: parallel-RDP")
+            .put("trialLevel", 1).put("pickedBy", "auto")
+        val s = ReportJson.session(stored, null)!!
+        assertEquals("Adreno 6xx-8xx: bundled Turnip", s.getString("driverRule"))
+        assertEquals("custom driver: parallel-RDP", s.getString("rendererRule"))
+        assertEquals(1, s.getInt("trialLevel"))
+        assertEquals("auto", s.getString("pickedBy"))
+        // Too long a rule is cut to 120; a level or picker the server wouldn't take stays out, as does a missing one.
+        val odd = ReportJson.session(JSONObject().put("md5", md5).put("driverRule", "x".repeat(200)).put("trialLevel", 3)
+            .put("pickedBy", "dev"), null)!!
+        assertEquals(120, odd.getString("driverRule").length)
+        assertFalse(odd.has("trialLevel")); assertFalse(odd.has("pickedBy")); assertFalse(odd.has("rendererRule"))
+    }
 }

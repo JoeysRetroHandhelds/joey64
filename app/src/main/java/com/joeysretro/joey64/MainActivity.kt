@@ -524,6 +524,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         JLog.i(TAG, "GPU rules: family $systemFamily; Auto driver: ${auto.rule}; Auto renderer: ${rendererPick.rule}; " +
             "trial: ${trialPick?.what ?: "off (driver or renderer not left on Auto)"}${if (trialGl) ", so GLideN64" else ""}" +
             (gamePick?.let { "; this game: ${it.rule}" } ?: ""))
+        // The same for reports (Joey 2026-11-09): which rules picked the driver and renderer, the trial's level, and
+        // whether Auto picked at all (Settings did when autoOnly is false; the rules then say what Auto would pick).
+        gpuWhy = GpuWhy(auto.rule, gamePick?.rule ?: rendererPick.rule, trialPick?.level, if (autoOnly) "auto" else "user")
         // What Auto picks here, for Settings › Video's "Auto · ..." (the launcher can't probe Vulkan itself):
         // the renderer by GPU, and the driver that ran when nothing but Auto chose it (a dev driver in
         // files/drivers counts: it is what Auto uses then).
@@ -551,6 +554,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private var gpuFamily = GpuRules.Family(GpuRules.Vendor.OTHER, 0, "")
     private var storageRangeMb = 0
     private var customDriverInUse = false
+    /** Why this start ran its driver and renderer, for reports (setupGpu's "GPU rules:" line). */
+    private data class GpuWhy(val driverRule: String, val rendererRule: String, val trialLevel: Int?, val pickedBy: String)
+    private var gpuWhy: GpuWhy? = null
     /** Auto's start-up trial on this GPU; null when the driver or renderer was picked. */
     private var trial: GpuTrial? = null
 
@@ -1213,6 +1219,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             shown?.refreshRate?.takeIf { it > 0 }?.let { put("refreshHz", Math.round(it)) }
             put("fromState", intent?.getStringExtra(EXTRA_LOAD_STATE) != null)
             put("cheats", cheatsMost)
+            gpuWhy?.let { w ->
+                put("driverRule", w.driverRule)
+                put("rendererRule", w.rendererRule)
+                w.trialLevel?.let { put("trialLevel", it) }
+                put("pickedBy", w.pickedBy)
+            }
         }
         // The library's report with no session yet names the GPU and driver from here.
         getSharedPreferences("device", MODE_PRIVATE).edit().putString("report_gpu", gpuName.replace("(TM) ", "")).putString("report_driver", statsDriver).apply()

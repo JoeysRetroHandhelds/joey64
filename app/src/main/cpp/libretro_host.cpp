@@ -41,6 +41,7 @@
 #include "achievements.h"
 #include "netplay_server.h"
 #include "upnp.h"
+#include <sys/system_properties.h>
 
 // In a netplay room every player's game must take the same inputs at the same input count, so anything that
 // runs, skips or repeats frames on one side only is refused while one is on: loading a state, Reset, rewind,
@@ -55,6 +56,17 @@ static std::mutex g_npPauseMutex;
 static std::condition_variable g_npPauseCv;
 // The paused player (1-4) the core last heard from the room, 0 = none.
 static std::atomic<int> g_netplayPausedBy{0};
+// This game's player (1-4, 0 = not in a room), and the room's list of players: "1|name|ping ms;2|..." (netplayPlayers).
+static std::atomic<int> g_npPlayer{0};
+static std::mutex g_npRosterMutex;
+static std::string g_npRoster;
+// The name the others see: N64_NETPLAY_NAME, else the device model (Build.MODEL's ro.product.model).
+static std::string npName() {
+    if (const char* n = getenv("N64_NETPLAY_NAME")) if (*n) return std::string(n).substr(0, 40);
+    char m[PROP_VALUE_MAX] = "";
+    __system_property_get("ro.product.model", m);
+    return *m ? std::string(m).substr(0, 40) : "Player";
+}
 static void npPauseStart(const char* np) {
     std::string s(np);
     size_t c2 = s.rfind(':'), c1 = c2 == std::string::npos ? c2 : s.rfind(':', c2 - 1);
@@ -69,19 +81,25 @@ static void npPauseStart(const char* np) {
     if (fd < 0 || connect(fd, res->ai_addr, res->ai_addrlen) != 0) { if (fd >= 0) close(fd); freeaddrinfo(res); return; }
     freeaddrinfo(res);
     g_npPauseRun = true;
-    g_npPauseThread = std::thread([fd, player] {
+    g_npPlayer = player + 1;
+    { std::lock_guard<std::mutex> rl(g_npRosterMutex); g_npRoster.clear(); }
+    const std::string name = npName();
+    g_npPauseThread = std::thread([fd, player, name] {
         // Each notice carries a sequence number and the room sends it straight back: a ping of the network alone (the
         // core's own replies wait for its next frame). Logged every 10 s: average, worst, and pings with no answer.
         using clk = std::chrono::steady_clock;
         uint32_t seq = 0, sent = 0, answered = 0;
-        double sum = 0, worst = 0;
+        double sum = 0, worst = 0, smooth = -1; // smooth: the ping the others see (each answer moves it 1/4 of the way)
         clk::time_point sentAt[16], logAt = clk::now();
         std::unique_lock<std::mutex> lk(g_npPauseMutex);
         while (g_npPauseRun) {
-            uint8_t b[7] = {5, (uint8_t)player, (uint8_t)(g_npPausedNow ? 1 : 0)};
+            uint8_t b[64] = {5, (uint8_t)player, (uint8_t)(g_npPausedNow ? 1 : 0)};
             b[3] = seq >> 24; b[4] = seq >> 16; b[5] = seq >> 8; b[6] = (uint8_t)seq;
+            const int pms = smooth < 0 ? 0 : std::min(65535, (int)(smooth + 0.5));
+            b[7] = (uint8_t)(pms >> 8); b[8] = (uint8_t)pms;
+            b[9] = (uint8_t)name.size(); memcpy(b + 10, name.data(), name.size());
             sentAt[seq % 16] = clk::now();
-            (void)!send(fd, b, 7, 0);
+            (void)!send(fd, b, 10 + name.size(), 0);
             ++seq; ++sent;
             // the next notice in 0.5 s, or at once when the pause changes; echoes are read every 5 ms meanwhile, so
             // a ping is timed to within 5 ms (reading only after the 0.5 s wait timed the wait itself)
@@ -89,13 +107,34 @@ static void npPauseStart(const char* np) {
             const auto next = clk::now() + std::chrono::milliseconds(500);
             while (g_npPauseRun && clk::now() < next && g_npPausedNow == was) {
                 g_npPauseCv.wait_for(lk, std::chrono::milliseconds(5));
-                uint8_t r[16];
+                uint8_t r[512];
                 ssize_t n;
-                while ((n = recv(fd, r, sizeof r, MSG_DONTWAIT)) >= 7) {
+                while ((n = recv(fd, r, sizeof r, MSG_DONTWAIT)) >= 2) {
+                    if (r[0] == 7) { // the room's list of players
+                        std::string out; size_t k = 2;
+                        for (int i = 0; i < r[1] && k + 4 <= (size_t)n; i++) {
+                            int p = r[k], ping = r[k + 1] << 8 | r[k + 2]; size_t l = r[k + 3];
+                            if (k + 4 + l > (size_t)n) break;
+                            if (!out.empty()) out += ';';
+                            out += std::to_string(p + 1) + "|" + std::string((const char*)r + k + 4, l) + "|" + std::to_string(ping);
+                            k += 4 + l;
+                        }
+                        std::lock_guard<std::mutex> rl(g_npRosterMutex);
+                        // the names only: pings change every second
+                        auto names = [](const std::string& s) { std::string o; size_t a = 0;
+                            while (a < s.size()) { size_t e = s.find(';', a); if (e == std::string::npos) e = s.size();
+                                std::string x = s.substr(a, e - a); o += x.substr(0, x.rfind('|')) + ";"; a = e + 1; }
+                            return o; };
+                        if (names(out) != names(g_npRoster)) joeyLog(ANDROID_LOG_INFO, "joey64host", "netplay: players %s", out.c_str());
+                        g_npRoster = out;
+                        continue;
+                    }
+                    if (r[0] != 5 || n < 7) continue;
                     uint32_t s = (uint32_t)r[3] << 24 | (uint32_t)r[4] << 16 | (uint32_t)r[5] << 8 | r[6];
                     if (seq - s > 16) continue; // too old to time
                     double ms = std::chrono::duration<double, std::milli>(clk::now() - sentAt[s % 16]).count();
                     sum += ms; if (ms > worst) worst = ms; ++answered;
+                    smooth = smooth < 0 ? ms : smooth + (ms - smooth) / 4;
                 }
             }
             if (clk::now() - logAt >= std::chrono::seconds(10)) {
@@ -114,6 +153,8 @@ static void npPauseStop() {
     { std::lock_guard<std::mutex> lk(g_npPauseMutex); g_npPauseRun = false; }
     g_npPauseCv.notify_all();
     g_npPauseThread.join();
+    g_npPlayer = 0;
+    std::lock_guard<std::mutex> rl(g_npRosterMutex); g_npRoster.clear();
 }
 
 // Dev env N64_LOG_ERR=1 logs info at error level, for devices whose logd drops everything
@@ -1743,12 +1784,20 @@ JNIEXPORT jstring JNICALL JNI(netplayOutside)(JNIEnv* env, jobject) {
 JNIEXPORT jintArray JNICALL JNI(netplayInfo)(JNIEnv* env, jobject) {
     bool host = NetplayServer::running();
     int pausedBy = host ? (NetplayServer::status() >> 5) & 7 : g_netplayPausedBy.load();
-    jint v[6] = {g_netplay ? 1 : 0, host ? 1 : 0, host ? NetplayServer::registeredMask() : 0,
+    jint v[7] = {g_netplay ? 1 : 0, host ? 1 : 0, host ? NetplayServer::registeredMask() : 0,
                  (jint)((host ? (NetplayServer::status() | g_netplayStatus) : g_netplayStatus.load()) & 0x1F),
-                 pausedBy, g_netplayWaitingFor.load()};
-    jintArray out = env->NewIntArray(6);
-    if (out) env->SetIntArrayRegion(out, 0, 6, v);
+                 pausedBy, g_netplayWaitingFor.load(), g_npPlayer.load()};
+    jintArray out = env->NewIntArray(7);
+    if (out) env->SetIntArrayRegion(out, 0, 7, v);
     return out;
+}
+
+// The room's players, "1|AYN Thor|18;2|Odin 3|24": player number, name (N64_NETPLAY_NAME or the device model),
+// that player's own ping to the room in ms (smoothed; the host's is its own loopback, ~0). Updated once a second;
+// empty until the room's first list arrives. A player who left is not listed.
+JNIEXPORT jstring JNICALL JNI(netplayPlayers)(JNIEnv* env, jobject) {
+    std::lock_guard<std::mutex> rl(g_npRosterMutex);
+    return env->NewStringUTF(g_npRoster.c_str());
 }
 
 JNIEXPORT jint JNICALL JNI(framesRun)(JNIEnv*, jobject) {

@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -183,6 +185,9 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
         when (screen) {
             is PauseScreen.Menu -> Column {
                 PopupTitle(title)
+                // The rows scroll under the title: on a short screen (the Thor at 1080p) the card ran out of
+                // room and squeezed the last row, Quit, to a thin line with no text. Focus brings a row into view.
+                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
                 JoeyOption("Resume", Modifier.initialFocus(screen.from == MenuRow.Resume)) { actions.resume() }
                 JoeyOption("Save state", Modifier.initialFocus(screen.from == MenuRow.Save), value = "$saveSlotName  ▸") { actions.openSave() }
                 JoeyOption("Load state", Modifier.initialFocus(screen.from == MenuRow.Load), value = "›") { actions.openLoad() }
@@ -198,6 +203,7 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
                 PopupDivider()
                 JoeyOption("Reset") { actions.reset() }
                 JoeyOption(actions.quitLabel) { actions.quit() }
+                }
             }
             is PauseScreen.Picker -> SlotGrid(screen, now) { actions.pick(screen.save, it) }
             is PauseScreen.Restart -> Column {

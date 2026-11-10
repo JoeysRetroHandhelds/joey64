@@ -1082,7 +1082,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             val why = NativeBridge.coreShutDown()
             if (why == 0) { fpsHandler.postDelayed(this, SHUTDOWN_POLL_MS); return }
             val noIpl = why == 2
-            val why2 = when (why) { 2 -> " (no 64DD IPL BIOS for the disk's region)"; 3 -> " (netplay: lost the connection to the room)"; else -> "" }
+            val why2 = when (why) { 2 -> " (no 64DD IPL BIOS for the disk's region)"; 3 -> " (netplay: lost the connection to the room)"
+                4 -> " (netplay: can't reach the room)"; 5 -> " (netplay: the room turned this player down)"
+                6 -> " (netplay: this ROM isn't the host's)"; else -> "" }
             JLog.e(TAG, "the core shut down: the game stopped$why2, closing the game screen")
             // Not the GPU's doing: the start doesn't count against Auto's trial (a no-op once a frame was drawn).
             trial?.cancel()

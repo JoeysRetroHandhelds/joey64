@@ -380,6 +380,7 @@ std::atomic<bool> g_netplayLost{false};
 std::atomic<uint8_t> g_netplayStatus{0};
 // The player this game has waited for over 1 s (the core's "waiting for player N" / "player N is back"), 0 = none.
 std::atomic<int> g_netplayWaitingFor{0};
+std::atomic<int> g_netplayJoinFailed{0}; // the core's "Netplay: can't join (N)": 4 no room, 5 turned down, 6 another ROM
 // Rumble Pak, players 1-4 (players 2-4 since 2026-11-07; before, the core's calls for ports 1-3 were
 // refused): the core switches each motor on/off; a UI-side thread waits in waitRumble for any player's
 // motor to change and drives that player's controller (or the device's) vibrator. Polling it from a
@@ -428,6 +429,8 @@ void log_cb(enum retro_log_level level, const char* fmt, ...) {
         va_end(cp);
         if (strstr(line, "Failed to load DD IPL ROM")) g_ddIplMissing = true;
         if (strstr(line, "Netplay: lost connection")) g_netplayLost = true;
+        int jf;
+        if (sscanf(line, "Netplay: can't join (%d)", &jf) == 1 && jf >= 4 && jf <= 6) g_netplayJoinFailed = jf;
         if (strstr(line, "Netplay: players have de-synced")) g_netplayStatus |= 1;
         unsigned left;
         if (sscanf(line, "Netplay: player %u has disconnected", &left) == 1 && left >= 1 && left <= 4) g_netplayStatus |= (uint8_t)(1 << left);
@@ -1447,6 +1450,7 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
     g_netplayLost = false;
     g_netplayStatus = 0;
     g_netplayWaitingFor = 0;
+    g_netplayJoinFailed = 0;
     if (!g_vulkan) {
         if (!g_egl.init()) return JNI_FALSE;
         applySurfaceIfChanged();
@@ -1717,7 +1721,9 @@ JNIEXPORT jint JNICALL JNI(waitRumble)(JNIEnv*, jobject, jint wasMask, jint time
 }
 
 // 0 running, 1 the core shut down, 2 it shut down after it could not load the 64DD IPL.
-JNIEXPORT jint JNICALL JNI(coreShutDown)(JNIEnv*, jobject) { return !g_coreShutDown ? 0 : g_ddIplMissing ? 2 : g_netplayLost ? 3 : 1; }
+JNIEXPORT jint JNICALL JNI(coreShutDown)(JNIEnv*, jobject) {
+    return !g_coreShutDown ? 0 : g_ddIplMissing ? 2 : g_netplayJoinFailed ? g_netplayJoinFailed.load() : g_netplayLost ? 3 : 1;
+}
 
 // [in a room (1/0), hosting it (1/0), players joined (bit per player; the host only), status (bit 0 de-synced,
 // bits 1-4 player 1-4 left; the host's is the room's own), the paused player 1-4 (0 = none),

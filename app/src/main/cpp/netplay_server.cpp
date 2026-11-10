@@ -35,7 +35,10 @@ enum : uint8_t { UDP_SEND_KEY_INFO = 0, UDP_RECEIVE_KEY_INFO = 1, UDP_REQUEST_KE
                  // 0.5 s while in a room, so a lost one is made good
                  UDP_PAUSE_NOTICE = 5 };
 enum : uint8_t { TCP_SEND_SAVE = 1, TCP_RECEIVE_SAVE = 2, TCP_SEND_SETTINGS = 3, TCP_RECEIVE_SETTINGS = 4,
-                 TCP_REGISTER_PLAYER = 5, TCP_GET_REGISTRATION = 6, TCP_DISCONNECT_NOTICE = 7 };
+                 TCP_REGISTER_PLAYER = 5, TCP_GET_REGISTRATION = 6, TCP_DISCONNECT_NOTICE = 7,
+                 // Joey64's own (2026-11-10): [0x40, ROM MD5 as 32 hex characters], answered 2 = the host's ROM,
+                 // 1 = another one, 0 = no host ROM within 30 s. The host's is the one from this device (127.0.0.1).
+                 TCP_JOEY_ROM_CHECK = 0x40 };
 constexpr int kSettingsSize = 24;     // SETTINGS_SIZE: six 32-bit settings
 constexpr int kMaxPerPacket = 56;     // (512 - 5) / 9 input events in one reply
 constexpr uint8_t kBufferTarget = 2;  // the client's local buffer above which it may catch up (fast-forward)
@@ -53,6 +56,9 @@ struct Client {
     std::chrono::steady_clock::time_point regAskedAt;
     bool waitingSettings = false;
     std::vector<std::string> waitingSaves; // TCP_RECEIVE_SAVE extensions not answered yet
+    bool local = false;               // connected from this device: the host's own game
+    std::string romAsked;             // a TCP_JOEY_ROM_CHECK waiting for the host's ROM
+    std::chrono::steady_clock::time_point romAskedAt;
 };
 struct Peer { sockaddr_storage addr; socklen_t len; };
 
@@ -165,7 +171,18 @@ struct Room {
     }
 
     // --- TCP ---
+    std::string hostRom;
+    void answerRom(Client& c, uint8_t a) {
+        sendAll(c.fd, &a, 1);
+        NLOGI("netplay server: ROM check %s from %08x: %s", c.romAsked.c_str(), c.regId,
+              a == 2 ? "the host's" : a == 1 ? "NOT the host's" : "no host ROM yet");
+        c.romAsked.clear();
+    }
     void answerPending(Client& c) {
+        if (!c.romAsked.empty()) {
+            if (!hostRom.empty()) answerRom(c, c.romAsked == hostRom ? 2 : 1);
+            else if (std::chrono::steady_clock::now() - c.romAskedAt > std::chrono::seconds(30)) answerRom(c, 0);
+        }
         if (c.waitingRegistration && (registered() >= players ||
                 std::chrono::steady_clock::now() - c.regAskedAt > std::chrono::seconds(30))) {
             uint8_t out[24]; size_t k = 0;
@@ -232,6 +249,13 @@ struct Room {
             if (e < 0) return 0;
             c.waitingSaves.emplace_back((const char*)&b[1]);
             return (size_t)e + 1;
+        }
+        case TCP_JOEY_ROM_CHECK: {
+            if (b.size() < 33) return 0;
+            std::string md5((const char*)&b[1], 32);
+            if (c.local && hostRom.empty()) { hostRom = md5; NLOGI("netplay server: host ROM %s", md5.c_str()); }
+            c.romAsked = md5; c.romAskedAt = std::chrono::steady_clock::now();
+            return 33;
         }
         case TCP_DISCONNECT_NOTICE:
             if (b.size() < 5) return 0;
@@ -323,10 +347,19 @@ struct Room {
             if (r < 0 && errno != EINTR) break;
             if (fds[0].revents) break;
             if (fds[1].revents & POLLIN) {
-                int fd = accept(tcp, nullptr, nullptr);
+                sockaddr_storage from{}; socklen_t flen = sizeof from;
+                int fd = accept(tcp, (sockaddr*)&from, &flen);
                 if (fd >= 0) {
                     const int one = 1; setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
-                    Client c; c.fd = fd; clients.push_back(c);
+                    Client c; c.fd = fd;
+                    if (from.ss_family == AF_INET)
+                        c.local = ntohl(((const sockaddr_in&)from).sin_addr.s_addr) == INADDR_LOOPBACK;
+                    else if (from.ss_family == AF_INET6) {
+                        const auto& a6 = ((const sockaddr_in6&)from).sin6_addr;
+                        c.local = IN6_IS_ADDR_LOOPBACK(&a6) ||
+                                  (IN6_IS_ADDR_V4MAPPED(&a6) && a6.s6_addr[12] == 127 && a6.s6_addr[15] == 1);
+                    }
+                    clients.push_back(c);
                     NLOGI("netplay server: a player connected (%zu)", clients.size());
                 }
             }

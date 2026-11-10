@@ -82,7 +82,9 @@ object NativeBridge {
     external fun framesRun(): Int
     /**
      * The core shut down, so no frames come: 0 it didn't, 1 it couldn't start the game (a damaged disk or disk save),
-     * 2 it couldn't load the 64DD IPL BIOS (none for the disk's region), 3 netplay lost its connection to the room.
+     * 2 it couldn't load the 64DD IPL BIOS (none for the disk's region), 3 netplay lost its connection to the room,
+     * and a netplay join that failed before the game started (the game is never played alone): 4 the room can't be
+     * reached (or isn't a Joey64 room), 5 the room turned the player down (taken or full), 6 this ROM isn't the host's.
      */
     external fun coreShutDown(): Int
     /**

@@ -14,7 +14,8 @@ add_library(joey64host SHARED
     vk_post.cpp
     rewind_test.cpp
     rewind.cpp
-    achievements.cpp)
+    achievements.cpp
+    netplay_server.cpp)
 
 add_subdirectory(third_party/libadrenotools)
 

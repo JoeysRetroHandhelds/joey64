@@ -37,6 +37,7 @@
 #include "vk_context.h"
 #include "audio_out.h"
 #include "achievements.h"
+#include "netplay_server.h"
 
 // Dev env N64_LOG_ERR=1 logs info at error level, for devices whose logd drops everything
 // below error (Retroid Pocket Duo).
@@ -1196,6 +1197,7 @@ void runLoop() {
     Cheevos::gameUnloaded();
     if (g_hw.context_destroy) g_hw.context_destroy();
     core.unload_game();
+    NetplayServer::stop();
     core.deinit();
     g_audio.close();
     if (g_vulkan) g_vk.destroy();
@@ -1397,6 +1399,16 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
          g_optionOverrides["mupen64plus-cpucore"].c_str());
     LOGI("ROM %s: %s", p, romSummary(buf).c_str());
     for (auto& [k, v] : g_optionOverrides) LOGI("option in effect: %s = %s", k.c_str(), v.c_str());
+    // Netplay host (dev, 2026-11-10): N64_NETPLAY_SERVE=port:players:delay opens the room in this process and
+    // joins it as player 1; the core reads N64_NETPLAY=host:port:player when its emulation thread starts.
+    if (const char* e = getenv("N64_NETPLAY_SERVE")) {
+        int port = 45000, players = 2, delay = 2;
+        sscanf(e, "%d%*[^0-9]%d%*[^0-9]%d", &port, &players, &delay);
+        if (NetplayServer::start(port, players, delay) && !getenv("N64_NETPLAY")) {
+            char v[64]; snprintf(v, sizeof v, "127.0.0.1:%d:1", port);
+            setenv("N64_NETPLAY", v, 1);
+        }
+    }
     retro_game_info info{ p, buf.data(), buf.size(), nullptr };
     bool ok;
     if (disk) {

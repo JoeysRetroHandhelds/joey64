@@ -608,7 +608,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
      * On [gameIo]: [rom]'s widescreen and 60 fps versions from its kept cheat lists (the scan downloads them; nothing is
      * fetched here), and the ones Video's rows pick. None while Hardcore is on.
      */
-    private fun gameExtras(rom: String): com.joeysretro.joey64.video.ExtrasOn {
+    private fun gameExtras(rom: String): com.joeysretro.joey64.video.ExtrasOn =
+        com.joeysretro.joey64.video.ExtrasOn.withOwnMode(gameExtrasFromLists(rom), romGameCode(rom), videoAtStart,
+            com.joeysretro.joey64.achievements.RaHardcore.on())
+
+    private fun gameExtrasFromLists(rom: String): com.joeysretro.joey64.video.ExtrasOn {
         val keys = headerKeys(rom)
         if (keys.isEmpty()) return com.joeysretro.joey64.video.ExtrasOn.NONE
         val v = videoAtStart

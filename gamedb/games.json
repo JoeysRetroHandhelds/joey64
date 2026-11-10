@@ -77,6 +77,7 @@
     {
       "id": "NPD", "title": "Perfect Dark",
       "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (Options › Video › Ratio 16:9, per agent file; checked on the Portal 2026-11-09 with N64_ASPECT=16:9)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"},
         {"what": "Expansion Pak always on: Settings › Emulation greys the row (Needed by this game) and Off is never applied", "where": "EmulationSettings.kt ExpansionPak.NEEDED_BY (2026-11-08)", "why": "without it most of the game (solo missions, co-op, counter-op, most multiplayer) is locked"}
       ],
       "fixed": [
@@ -134,6 +135,7 @@
     {
       "id": "NFU", "title": "Conker's Bad Fur Day",
       "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"},
         {"what": "smoother timing, CountPerOp=1 (counter factor 1), on Adreno 730 and up (Portal, Odin 3, Thor) only", "where": "libretro_host.cpp kSmootherGames, MainActivity N64_SMOOTHER", "why": "Odin 3 21.4 -> 28.6 fps; compat with it passed on the Odin 3 and Portal (odin3-/portal-smoothc), Joey 2026-11-06. Hacks with this ID get it too"}
       ],
       "notes": ["100-140 ms boot frames on the Flip", "RSP chunk cache made it 10.9% slower (dropped)", "Europe ROM (07) has no bench state; use the USA ROM (81)", "the intro has black gaps between scenes (gamma-dither values 0-1, black to the eye): compat shots at 20/45 s land on them on the Flip at full speed; not a bug (README open bugs (a), settled 2026-11-09, flip-conkq1/q3 time series)"]
@@ -141,6 +143,7 @@
     {
       "id": "NDO", "title": "Donkey Kong 64",
       "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"},
         {"what": "save type from the header ID for hacks", "where": "core rom.c, 67a1fcd", "why": "hacks not in the database got 4K EEPROM and could not save"},
         {"what": "Expansion Pak always on: Settings › Emulation greys the row (Needed by this game) and Off is never applied", "where": "EmulationSettings.kt ExpansionPak.NEEDED_BY (2026-11-08)", "why": "won't run without it"}
       ],
@@ -149,6 +152,7 @@
     {
       "id": "NB7", "title": "Banjo-Tooie",
       "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"},
         {"what": "save type from the header ID for hacks", "where": "core rom.c, 67a1fcd", "why": "hacks not in the database got 4K EEPROM and could not save"}
       ],
       "issues": [
@@ -204,9 +208,76 @@
     {
       "id": "NGE", "title": "GoldenEye 007",
       "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (Ratio 16:9 on the watch)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"},
         {"what": "smoother timing, CountPerOp=1 (counter factor 1), on Adreno 730 and up (Portal, Odin 3, Thor) only", "where": "libretro_host.cpp kSmootherGames, MainActivity N64_SMOOTHER", "why": "runs below its frame rate on hardware; Odin 3 49.7 -> 59.9 fps; compat with it passed on the Odin 3 and Portal (odin3-/portal-smoothc), Joey 2026-11-06. Hacks with this ID get it too"}
       ],
       "notes": ["VI filters off: +9% on the Flip", "Duo 2x upscaled: 59.9 fps on faux123 Turnip vs 50.7 on the bundled Gen8"]
+    },
+    {
+      "id": "NO7", "title": "007: The World Is Not Enough",
+      "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"}
+      ]
+    },
+    {
+      "id": "NAR", "title": "Armorines: Project S.W.A.R.M.",
+      "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"}
+      ]
+    },
+    {
+      "id": "NJF", "title": "Jet Force Gemini",
+      "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"}
+      ]
+    },
+    {
+      "id": "NML", "title": "Mickey's Speedway USA",
+      "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"}
+      ]
+    },
+    {
+      "id": "NMI", "title": "Mission: Impossible",
+      "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"}
+      ]
+    },
+    {
+      "id": "NDT", "title": "South Park",
+      "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"}
+      ]
+    },
+    {
+      "id": "NRC", "title": "Top Gear Overdrive",
+      "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"}
+      ]
+    },
+    {
+      "id": "NSC", "title": "Starshot: Space Circus Fever",
+      "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"}
+      ]
+    },
+    {
+      "id": "NSP", "title": "Superman",
+      "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"}
+      ]
+    },
+    {
+      "id": "NT2", "title": "Turok 2: Seeds of Evil",
+      "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"}
+      ]
+    },
+    {
+      "id": "NTK", "title": "Turok 3: Shadow of Oblivion",
+      "settings": [
+        {"what": "Widescreen's \"When a game has one\" gives the 16:9 picture (no code): the game has a 16:9 mode of its own, drawn squeezed for a widescreen TV; the player sets it in the game (its options)", "where": "GameExtras.kt OwnWidescreen + ExtrasOn.withOwnMode (2026-11-10, Joey: \"Yes, use it\")", "why": "a 16:9 mode made for a stretched TV only needs the picture stretched; not in Hardcore"}
+      ]
     },
     {
       "disk": "SimCity 64 (Japan)", "title": "SimCity 64 (64DD)",

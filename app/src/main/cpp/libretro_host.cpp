@@ -154,6 +154,11 @@ bool g_raReplay = false, g_raMute = false, g_raHide = false;
 // (repeat frames are skipped), that picture is the one to show: else games that draw 20-30 a second froze
 // (Pokemon Snap showed nothing new, Mario Kart 64 7 frames a second; Thor 2026-11-09).
 bool g_raFresh = false;
+// The last run-ahead step's shown frame was presented (a new picture). The hidden real frame then runs the same
+// emulated frame that one showed, so its new picture is the one on screen already: a repeat of it isn't presented
+// again. Before (core runahead-state 27aa4c9, Thor 2026-11-10), Snap at 30 a second presented 60, every picture
+// twice: the core skipped half the refreshes as repeats, and each skipped shown frame got the hidden one's picture.
+bool g_raPrevShown = false;
 // g_raState: run-ahead is taking or putting back its state (GET_SAVESTATE_CONTEXT answers RUNAHEAD_SAME_INSTANCE).
 bool g_raState = false;
 // Dev lag probe (N64_LAG_PROBE=<frame>[/0]): presses N64 A for 20 frames from that many frames after N64_STATE
@@ -500,7 +505,10 @@ void video_refresh(const void* data, unsigned w, unsigned h, size_t) {
         if (g_vulkan) g_vk.videoRefresh(data, w, h);
         return;
     }
-    if (!data && g_raFresh) data = RETRO_HW_FRAME_BUFFER_VALID; // the hidden frame's new picture
+    static const bool raPrevCheck = !(getenv("N64_RA_PRESENT_TWICE") && *getenv("N64_RA_PRESENT_TWICE") == '1');
+    if (!data && g_raFresh && !(raPrevCheck && g_raReplay && g_raPrevShown))
+        data = RETRO_HW_FRAME_BUFFER_VALID; // the hidden frame's new picture, not on screen yet
+    g_raPrevShown = g_raReplay && data != nullptr;
     g_raFresh = false;
     if (g_vulkan) {
         if (!data) ++g_statDupes;
@@ -1219,6 +1227,7 @@ void runLoop() {
                 // The core takes no state while an RSP task is still running at the frame's end (it would be lost and
                 // the game would wait for it for good): this frame goes without run-ahead, its own picture shown.
                 ++raRefused;
+                g_raPrevShown = false;
                 if (g_raFresh) {
                     if (g_vulkan) g_vk.showAgain();
                     else if (g_egl.hasWindow() && g_lastW && g_lastH) g_egl.present((int)g_lastW, (int)g_lastH, g_hw.bottom_left_origin);
@@ -1300,6 +1309,14 @@ void runLoop() {
             uint64_t h = 1469598103934665603ull;
             for (size_t i = 0; mem && i < words; i++) h = (h ^ mem[i]) * 1099511628211ull;
             LOGI("ramhash %d %016llx", hashFrame, (unsigned long long)h);
+            // N64_HASH_RAM_TWICE=1: hash again at once; a different second hash means the RDP was still writing RDRAM
+            // while the host read it (the hash itself races, not the emulation).
+            static const bool hashTwice = getenv("N64_HASH_RAM_TWICE") && getenv("N64_HASH_RAM_TWICE")[0] == '1';
+            if (hashTwice) {
+                uint64_t h2 = 1469598103934665603ull;
+                for (size_t i = 0; mem && i < words; i++) h2 = (h2 ^ mem[i]) * 1099511628211ull;
+                if (h2 != h) LOGI("ramhash-race %d %016llx %016llx", hashFrame, (unsigned long long)h, (unsigned long long)h2);
+            }
             // N64_RAM_DUMP=<dir>:<from>:<to>: RDRAM at each hashed frame from..to, <dir>/ram<frame>.bin (to see what differs).
             static const char* ramDump = getenv("N64_RAM_DUMP");
             static int dumpFrom = -1, dumpTo = -1; static char dumpDir[256];

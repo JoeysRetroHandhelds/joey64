@@ -1,6 +1,6 @@
 {
   "about": "Joey64 per-game database: what each game needs, what is wrong with it and where, and what was fixed. Seed for the M3 profile DB. Rules: gamedb/README.md. Update this file in the same commit as any change to a game's status (new problem found, fixed, regressed, setting added or dropped).",
-  "updated": "2026-11-10",
+  "updated": "2026-11-11",
   "games": [
     {
       "id": "NPF", "title": "Pokemon Snap",
@@ -41,7 +41,8 @@
         {"status": "open", "what": "bench state stops on the Controller Pak notice, so its bench numbers are a static menu (150-1190 fps swings); needs a state in a race", "evidence": "README bench states item"}
       ],
       "fixed": [
-        {"what": "RSP looped on the boot screen with precise smart sync", "fix": "copies (DMA, RSP, C code) always wait, core 2938164"}
+        {"what": "RSP looped on the boot screen with precise smart sync", "fix": "copies (DMA, RSP, C code) always wait, core 2938164"},
+        {"what": "black on the Flip when started with its block list (compile thread, Mali): the game kept running but looped within 10 s of boot, from the RDRAM page-0 block compiled early from the list", "fix": "RDRAM page 0 is never listed or compiled from a list, core eb8e801 (bundled 2026-11-11 as combine-fix c4b5339, same binary)", "devices": "Flip", "evidence": "README open bugs (2); flip-cf28-compat 82/82 ok, odin2p-cf30 and o3p-audit3 compat 82/82 ok on cores built on it"}
       ]
     },
     {

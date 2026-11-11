@@ -26,6 +26,9 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.platform.LocalInputModeManager
+import androidx.compose.ui.platform.LocalWindowInfo
 import kotlinx.coroutines.launch
 
 /**
@@ -93,8 +96,8 @@ fun Modifier.focusRow(first: FocusRequester): Modifier = this.focusRestorer(firs
  * A one-shot "focus lands here next" hand-off, for when focus has to go to an element that may
  * not exist yet (rows still loading, a lazy item composed at the next layout, a button a run is
  * about to show). The element asks for focus itself ([landFocus]) from an effect that only runs
- * once it is in the tree, so there is no frame wait, no retry and no "not attached" error to
- * swallow. [arm] it in the event that makes the change.
+ * once it is in the tree, so there is no frame wait and no "not attached" error to swallow; a
+ * refused request tries again only on a window focus or input mode change. [arm] it in the event that makes the change.
  */
 @Stable
 class FocusLanding(armed: Boolean = true) {
@@ -117,10 +120,16 @@ fun Modifier.landFocus(landing: FocusLanding?, enabled: Boolean = true): Modifie
     val requester = remember { FocusRequester() }
     if (landing != null && enabled && landing.pending) {
         val generation = landing.armedAt
-        LaunchedEffect(landing, generation) {
+        // A landing still pending tries again when the window gets focus back (a system picker
+        // closing) and when the first controller key leaves touch mode (the picker was tapped):
+        // without that, first-run came back from the folder picker with nothing highlighted.
+        val windowFocused = LocalWindowInfo.current.isWindowFocused
+        val keys = LocalInputModeManager.current.inputMode == InputMode.Keyboard
+        LaunchedEffect(landing, generation, windowFocused, keys) {
+            if (!windowFocused) return@LaunchedEffect
             if (requester.requestFocus(FocusDirection.Enter)) landing.landedAt = generation
-            // Refused (not focusable now, or another window has focus): logged, since the only
-            // symptom is "nothing highlighted".
+            // Refused (not focusable now, or in touch mode): logged, since the only symptom is
+            // "nothing highlighted"; it tries again on the next window focus or input mode change.
             else JLog.i(TAG, "A focus request was refused (landing $generation)")
         }
     }

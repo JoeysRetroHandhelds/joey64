@@ -42,6 +42,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -108,6 +109,11 @@ fun JoeyDialog(
      * (the touch controls' layout editor, approved mockup 2026-11-09 screen 3, draws its own over the game).
      */
     bare: Boolean = false,
+    /**
+     * Up on the first item goes to the last, Down on the last to the first (the pause menu, Joey 2026-11-10:
+     * "up from resume should reach quit"). A held key still stops at the end.
+     */
+    wrap: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val backRegistry = remember { DialogBackRegistry() }
@@ -134,6 +140,7 @@ fun JoeyDialog(
         ),
     ) {
         val view = LocalView.current
+        val focusManager = LocalFocusManager.current
         val blurPx = with(LocalDensity.current) { JoeyTheme.spacing.popupBlur.roundToPx() }
         // A dialog is its own window with its own bar state. Set while the popup is first
         // composed, before its window draws, so it is never born showing the navigation bar for
@@ -259,6 +266,19 @@ fun JoeyDialog(
                                 }
                                 KeyEvent.KEYCODE_BUTTON_B -> {
                                     if (native.action == KeyEvent.ACTION_UP && !native.isCanceled) requestClose()
+                                    true
+                                }
+                                KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> if (!wrap) false else {
+                                    if (native.action == KeyEvent.ACTION_DOWN) {
+                                        val up = native.keyCode == KeyEvent.KEYCODE_DPAD_UP
+                                        val dir = if (up) FocusDirection.Up else FocusDirection.Down
+                                        // At the end: walk to the other end (the rows are few; capped all the same).
+                                        if (!focusManager.moveFocus(dir) && native.repeatCount == 0) {
+                                            val back = if (up) FocusDirection.Down else FocusDirection.Up
+                                            var n = 0
+                                            while (n++ < 64 && focusManager.moveFocus(back)) {}
+                                        }
+                                    }
                                     true
                                 }
                                 KeyEvent.KEYCODE_BUTTON_START, KeyEvent.KEYCODE_MENU -> {

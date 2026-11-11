@@ -199,6 +199,7 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
         interceptBack = { if (picker != null) { actions.backToMenu(if (picker.save) MenuRow.Save else MenuRow.Load); true } else false },
         // Five slot pictures to a row once older quit saves make it longer than three rows of four.
         width = when { restart != null -> 470.dp; picker == null -> 300.dp; picker.slots.size > 12 -> 564.dp; else -> 454.dp },
+        wrap = screen is PauseScreen.Menu,
     ) {
         val landing = LocalFocusLanding.current
         LaunchedEffect(screen) { landing?.arm() }

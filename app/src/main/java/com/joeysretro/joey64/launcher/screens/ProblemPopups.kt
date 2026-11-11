@@ -121,8 +121,12 @@ internal fun NetEndedPopup(model: LibraryModel) {
                 n.need == com.joeysretro.joey64.launcher.GameStartFailed.Need.NetUnreachable -> {
                     PopupTitle(if (n.hostName != null) "Couldn't reach ${n.hostName}'s room" else "Couldn't reach the room")
                     val h = n.hostName
-                    PromptText(AnnotatedStringOf(if (h != null) "The code is right, but $h's router isn't letting players from outside in. On the same Wi-Fi as $h, it works."
-                        else "The code is right, but the host's router isn't letting players from outside in. On the same Wi-Fi as the host, it works."))
+                    // A room picked from a list had no code typed (Joey 2026-11-10: "That room didn't answer...").
+                    PromptText(AnnotatedStringOf(when {
+                        !n.fromCode -> "That room didn't answer. It may have just closed."
+                        h != null -> "The code is right, but $h's router isn't letting players from outside in. On the same Wi-Fi as $h, it works."
+                        else -> "The code is right, but the host's router isn't letting players from outside in. On the same Wi-Fi as the host, it works."
+                    }))
                     JoeyOption("OK", Modifier.initialFocus()) { model.netEndedSeen() }
                 }
                 else -> {

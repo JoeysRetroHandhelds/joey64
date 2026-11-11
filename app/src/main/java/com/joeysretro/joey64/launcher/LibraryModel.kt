@@ -18,6 +18,7 @@ import com.joeysretro.joey64.states.StateSlots
 import com.joeysretro.joey64.launcher.data.LibraryDb
 import com.joeysretro.joey64.launcher.settings.SettingsStore
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
@@ -49,6 +50,8 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     private val scanner = LibraryScanner(app, db)
     private val launcher = GameLauncher(app, db)
     private val boxArt = BoxArt(app, db)
+    /** ScreenScraper takes one request at a time from an app without a user account: the box-art run and room covers. */
+    private val screenScraperOne = kotlinx.coroutines.sync.Mutex()
     private val settings = SettingsStore(app)
 
     private val _debugSetup = MutableStateFlow<String?>(null)
@@ -232,7 +235,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                     is com.joeysretro.joey64.netplay.PlayTogether.Full -> NetEnded(GameStartFailed.Need.NetTurnedDown, mine, mine?.title ?: "", hostName = s.hostName, retry = s.again)
                     is com.joeysretro.joey64.netplay.PlayTogether.Mismatch -> NetEnded(GameStartFailed.Need.NetMismatch, mine?.takeIf { s.mine.md5.isNotEmpty() }, mine?.title ?: "",
                         hostName = s.hostName, hostGame = s.hostGame.title.ifEmpty { null })
-                    is com.joeysretro.joey64.netplay.PlayTogether.Unreachable -> NetEnded(GameStartFailed.Need.NetUnreachable, mine, "", hostName = s.hostName)
+                    is com.joeysretro.joey64.netplay.PlayTogether.Unreachable -> NetEnded(GameStartFailed.Need.NetUnreachable, mine, "", hostName = s.hostName, fromCode = s.fromCode)
                     else -> null
                 } ?: return@collect
                 com.joeysretro.joey64.netplay.PlayTogether.endedSeen()
@@ -254,11 +257,12 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
             val started = android.os.SystemClock.elapsedRealtime()
             _artPaused.value = false
             val outcome = try {
-                boxArt.fetch(maxWidth = if (settings.settings.first().boxArtLow) BoxArt.LOW_WIDTH else BoxArt.HIGH_WIDTH,
+                // One ScreenScraper request at a time (no user account): room covers wait for this run.
+                screenScraperOne.withLock { boxArt.fetch(maxWidth = if (settings.settings.first().boxArtLow) BoxArt.LOW_WIDTH else BoxArt.HIGH_WIDTH,
                     onProgress = { done, total -> _art.value = Progress(done, total, started) }) {
                 // Covers appear as they come, a few at a time.
                 if (++got % 4 == 0) _all.value = db.libraryGames()
-            }
+            } }
             } finally {
                 _art.value = null
             }
@@ -812,7 +816,9 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
      * [hostGame] when the room said them; [retry]: Try again joins that room again (a Netplay room screen join).
      */
     data class NetEnded(val need: GameStartFailed.Need, val game: LibraryGame?, val file: String, val intent: Intent? = null,
-                        val hostName: String? = null, val hostGame: String? = null, val retry: com.joeysretro.joey64.netplay.PlayTogether.Target? = null)
+                        val hostName: String? = null, val hostGame: String? = null, val retry: com.joeysretro.joey64.netplay.PlayTogether.Target? = null,
+                        /** Couldn't reach a room whose code was typed (else picked from a list). */
+                        val fromCode: Boolean = false)
 
     private val _netEnded = MutableStateFlow<NetEnded?>(null)
     val netEnded: StateFlow<NetEnded?> = _netEnded
@@ -883,9 +889,38 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         if (com.joeysretro.joey64.netplay.RoomCode.decode(code) == null) return false
         viewModelScope.launch {
             val t = withContext(Dispatchers.IO) { com.joeysretro.joey64.netplay.PlayTogether.targetForCode(code) } ?: return@launch
-            netplayJoin(t)
+            netplayJoin(t.copy(fromCode = true))
         }
         return true
+    }
+
+    /** The most players [game] takes (the 4 players filter's table), or null when it isn't known. */
+    fun playersOf(game: LibraryGame): Int? = _facts.value?.let { com.joeysretro.joey64.launcher.library.LibraryViews.playersOf(game, it) }
+
+    /** A game Netplay can't host: one known to take only 1 player (Joey 2026-11-10). */
+    fun onePlayerOnly(game: LibraryGame) = playersOf(game) == 1
+
+    private val _roomCovers = MutableStateFlow<Map<String, java.io.File>>(emptyMap())
+    /** Covers for rooms of games not in this library, by MD5 ([lookUpRoomCover]). */
+    val roomCovers: StateFlow<Map<String, java.io.File>> = _roomCovers
+    private val roomCoversAsked = java.util.Collections.synchronizedSet(HashSet<String>())
+
+    /**
+     * The cover of a room's game this library doesn't have (Joey 2026-11-10: greyed covers as drawn), looked up by its
+     * MD5 once per launcher run when Download box art is on; kept apart from the library's covers (boxart/rooms).
+     */
+    fun lookUpRoomCover(md5: String, title: String) {
+        val key = md5.lowercase()
+        if (key.isEmpty() || !roomCoversAsked.add(key)) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val kept = boxArt.roomCoverFile(key)
+            val f = if (kept.exists()) kept else {
+                val s = settings.settings.first()
+                if (!s.downloadBoxArt) return@launch
+                screenScraperOne.withLock { boxArt.roomCover(key, title, if (s.boxArtLow) BoxArt.LOW_WIDTH else BoxArt.HIGH_WIDTH) } ?: return@launch
+            }
+            _roomCovers.value = _roomCovers.value + (key to f)
+        }
     }
 
     /** Start the game (the host): this device's game starts hosting the room's server; the others follow once it's open. */

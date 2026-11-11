@@ -168,6 +168,63 @@ class BoxArt(private val context: Context, private val db: LibraryDb) {
         return n
     }
 
+    /** A room's game cover (a game not in the library): boxart/rooms/<md5>.jpg. */
+    fun roomCoverFile(md5: String) = File(File(dir, "rooms"), "$md5.jpg")
+
+    /**
+     * Looks up the cover of a room's game by its [md5] (Joey64's own, fixes.tsv, then ScreenScraper by MD5 and by
+     * [title], as for the library), kept as [roomCoverFile]; null when there's none (asked again after a week), it
+     * failed, or this build has no ScreenScraper login. Blocking: one ScreenScraper request at a time (the caller's lock).
+     */
+    fun roomCover(md5: String, title: String, maxWidth: Int): File? {
+        val to = roomCoverFile(md5)
+        if (to.exists()) return to
+        val none = File(to.parentFile, "$md5.none")
+        val now = System.currentTimeMillis()
+        if (none.exists() && now - none.lastModified() < RETRY_NONE_MS) return null
+        return try {
+            to.parentFile?.mkdirs()
+            val covers = JoeyCovers(context)
+            if (covers.index().containsKey(md5)) { keep(covers.picture(md5), to); JLog.i(TAG, "room cover for $md5: Joey64's own"); return to }
+            if (!ScreenScraper.usable) return null
+            val base = ScreenScraper.base(devBase())
+            val noIntro = BoxArtTable.get(context)[md5]
+            val fix = BoxArtFixes.get(context)[md5]
+            if (fix is BoxArtFixes.Fix.Game && fix.region != null) {
+                val got = try { download(ScreenScraper.coverUrl(base, fix.id, fix.region, maxWidth), to); true } catch (e: NotAnImage) { false }
+                if (got) { JLog.i(TAG, "room cover for $md5: game ${fix.id} (${fix.region}, listed)"); return to }
+            }
+            val term = ScreenScraperPick.searchTerm(noIntro ?: title)
+            val info = { p: Map<String, String> -> ScreenScraperPick.game(ScreenScraper.jeuInfos(base, mapOf("systemeid" to "${ScreenScraper.N64}") + p))?.takeIf { it.covers.isNotEmpty() } }
+            val game = when {
+                fix == BoxArtFixes.Fix.None -> null
+                fix is BoxArtFixes.Fix.Game -> info(mapOf("gameid" to fix.id))
+                else -> {
+                    val hashed = info(mapOf("romtype" to "rom", "romnom" to "$title.z64", "md5" to md5))
+                    if (hashed != null && hashed.fits(term)) hashed
+                    else (if (term.isEmpty()) null else ScreenScraper.jeuRecherche(base, term).firstOrNull()?.let { j ->
+                        val hit = ScreenScraperPick.game(j)
+                        if (hit == null || !hit.fits(term)) null else info(mapOf("gameid" to hit.id))
+                    }) ?: hashed
+                }
+            }
+            val cover = game?.let { ScreenScraperPick.cover(it, noIntro ?: title) }
+            if (game == null || cover == null) {
+                none.writeText(""); none.setLastModified(now)
+                JLog.i(TAG, "room cover for $md5: none")
+                null
+            } else {
+                download(ScreenScraper.mediaUrl(cover.second, maxWidth), to)
+                JLog.i(TAG, "room cover for $md5: ${game.name} (${cover.first})")
+                to
+            }
+        } catch (e: ScreenScraper.Busy) {
+            JLog.w(TAG, "room cover for $md5: ScreenScraper busy or closed (${e.code})"); null
+        } catch (e: IOException) {
+            JLog.w(TAG, "room cover for $md5: $e"); null
+        }
+    }
+
     private enum class Result { Found, None, Failed, Busy, Offline }
 
     /** Waits before trying a game again after no answer (timeout, connection refused, no DNS). */

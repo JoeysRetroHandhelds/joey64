@@ -64,10 +64,11 @@ object PlayTogether {
     data class Closed(val hostName: String) : Ended
     data class Full(val hostName: String?, val again: Target) : Ended
     data class Mismatch(val hostName: String?, val hostGame: Game, val mine: Game) : Ended
-    data class Unreachable(val hostName: String?) : Ended
+    /** [fromCode]: the player typed the room's code (else they picked it from a list). */
+    data class Unreachable(val hostName: String?, val fromCode: Boolean = false) : Ended
 
-    /** Where to join: an address from the list or a code. */
-    data class Target(val ip: String, val port: Int, val hostName: String?)
+    /** Where to join: an address from the list or a code ([fromCode]: typed, for what a failed join says). */
+    data class Target(val ip: String, val port: Int, val hostName: String?, val fromCode: Boolean = false)
 
     data class FoundRoom(val ip: String, val port: Int, val hostName: String, val device: String, val game: String, val md5: String,
                          val players: Int, val code: String, val pingMs: Int?, val seenAt: Long)
@@ -354,10 +355,11 @@ object PlayTogether {
     }
 
     /** X on a player (approved mockup screen 3): to the next number, swapping with whoever has it. */
-    fun movePlayer(slot: Int) {
+    /** X on a player: they move to the next number (swapping); false when [slot] is empty. */
+    fun movePlayer(slot: Int): Boolean {
         synchronized(lock) {
             // The host's key is null, so look for the entry: an empty number has none and nothing moves.
-            val entry = slots.entries.firstOrNull { it.value == slot } ?: return
+            val entry = slots.entries.firstOrNull { it.value == slot } ?: return false
             val moved = LobbyLines.move(slots.toMap(), entry.key)
             slots.clear(); slots.putAll(moved)
         }
@@ -365,6 +367,7 @@ object PlayTogether {
         publishHost()
         // Called from the UI (X): socket writes go off the main thread (StrictMode killed the launcher).
         scope.launch { sendPlayers() }
+        return true
     }
 
     @Volatile private var handingOver = false
@@ -518,7 +521,7 @@ object PlayTogether {
             } catch (e: Exception) {
                 if (joinSocket !== sock) return@launch // left
                 JLog.i(TAG, "can't reach ${target.ip}:${target.port}: $e")
-                _state.value = if (game == null) Unreachable(hostName) else Closed(hostName ?: "The host")
+                _state.value = if (game == null) Unreachable(hostName, target.fromCode) else Closed(hostName ?: "The host")
             } finally {
                 pinger?.cancel()
                 try { sock.close() } catch (e: Exception) { }

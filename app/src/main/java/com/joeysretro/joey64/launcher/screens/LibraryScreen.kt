@@ -35,6 +35,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.MarqueeAnimationMode
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.foundation.gestures.scrollBy
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -190,19 +199,64 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
         // selected tile and its outline are never the cut-off ones (approved grid, 2026-11-04).
         // Compose's default stops with the tile flush against the hint row, outline cut.
         val gap = with(LocalDensity.current) { 16.dp.toPx() }
+        val cols = com.joeysretro.joey64.launcher.library.LibraryArrange.columns(LocalScreenLayout.current.boxArtColumns, size)
+        val gridState = rememberLazyGridState()
+        val scope = androidx.compose.runtime.rememberCoroutineScope()
+        // Up and Down go by index (the tile [cols] before or after), so the column stays. Compose's own search goes by
+        // where tiles are on screen, and with a key held the next row isn't laid out yet: holding Up from the last game
+        // landed in another column (Joey 2026-11-10). Down from a row with nothing under it goes to the last game.
+        val tileFocus = remember { HashMap<Long, FocusRequester>() }
+        var focusedIndex by remember { mutableStateOf(-1) }
+        var moving by remember { mutableStateOf(false) }
+        val listNow by rememberUpdatedState(list)
         CompositionLocalProvider(LocalBringIntoViewSpec provides remember(gap) { RowGapSpec(gap) }) {
         LazyVerticalGrid(
-            columns = GridCells.Fixed(com.joeysretro.joey64.launcher.library.LibraryArrange.columns(LocalScreenLayout.current.boxArtColumns, size)),
+            columns = GridCells.Fixed(cols),
+            state = gridState,
             contentPadding = PaddingValues(horizontal = JoeyTheme.spacing.margin, vertical = 14.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.fillMaxSize().focusRestorer().focusGroup(),
+            modifier = Modifier.fillMaxSize().focusRestorer().focusGroup().onPreviewKeyEvent { event ->
+                val k = event.nativeKeyEvent
+                val up = k.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP
+                if (!up && k.keyCode != android.view.KeyEvent.KEYCODE_DPAD_DOWN) return@onPreviewKeyEvent false
+                val from = focusedIndex
+                val games = listNow
+                if (from !in games.indices) return@onPreviewKeyEvent false
+                if (up && from < cols) return@onPreviewKeyEvent false   // the top row: up to the filter chip as before
+                if (k.action != android.view.KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent true
+                if (moving) return@onPreviewKeyEvent true
+                val to = when {
+                    up -> from - cols
+                    from + cols < games.size -> from + cols
+                    from / cols < (games.size - 1) / cols -> games.size - 1
+                    else -> return@onPreviewKeyEvent true   // the last row: stay
+                }
+                val id = games[to].id
+                moving = true
+                scope.launch {
+                    try {
+                        // Not laid out yet: scroll a row at a time until it is (a held key outruns the layout).
+                        var n = 0
+                        while (tileFocus[id] == null && n++ < 8) {
+                            val row = gridState.layoutInfo.visibleItemsInfo.firstOrNull()?.size?.height ?: break
+                            gridState.scrollBy((if (up) -1f else 1f) * (row + gap))
+                            androidx.compose.runtime.withFrameNanos { }
+                        }
+                        if (tileFocus[id] == null) { gridState.scrollToItem(to); androidx.compose.runtime.withFrameNanos { } }
+                        tileFocus[id]?.requestFocus()
+                    } finally { moving = false }
+                }
+                true
+            },
         ) {
             itemsIndexed(list, key = { _, g -> g.id }) { i, g ->
+                val own = remember { FocusRequester() }
+                androidx.compose.runtime.DisposableEffect(g.id) { tileFocus[g.id] = own; onDispose { if (tileFocus[g.id] === own) tileFocus.remove(g.id) } }
                 GameTile(g, model.cover(g), names, com.joeysretro.joey64.launcher.library.LibraryArrange.title(g, style), greyed = g.id in greyed,
-                    modifier = Modifier.initialFocus(firstFocus && i == 0)
+                    modifier = Modifier.initialFocus(firstFocus && i == 0).focusRequester(own)
                     .then(if (i == 0 && firstTile != null) Modifier.focusRequester(firstTile) else Modifier),
-                    onFocus = { on -> if (on) focusedGame = g else if (focusedGame?.id == g.id) focusedGame = null },
+                    onFocus = { on -> if (on) { focusedGame = g; focusedIndex = i } else if (focusedGame?.id == g.id) { focusedGame = null; focusedIndex = -1 } },
                     onOptions = { popup = g.id to GamePopup.Options }) { model.playAsked(g) { context.startActivity(it) } }
             }
         }
@@ -239,7 +293,11 @@ private fun GameTile(game: LibraryGame, cover: File?, names: com.joeysretro.joey
     LaunchedEffect(focused) { onFocus(focused) }
     val picture by rememberCover(cover)
     val shape = RoundedCornerShape(4.dp)
-    Column(modifier.fillMaxWidth()) {
+    // Focus brings only the cover into view, and the name under it is taller than the row gap: the bottom row's
+    // names were cut off by the hint row (Joey 2026-11-10). The whole tile comes into view instead.
+    val whole = remember { BringIntoViewRequester() }
+    LaunchedEffect(focused) { if (focused) { androidx.compose.runtime.withFrameNanos { }; whole.bringIntoView() } }
+    Column(modifier.fillMaxWidth().bringIntoViewRequester(whole)) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -261,8 +319,13 @@ private fun GameTile(game: LibraryGame, cover: File?, names: com.joeysretro.joey
         }
     }
     if (names == com.joeysretro.joey64.launcher.library.NamesMode.Under) {
+        // The focused game's name scrolls when it doesn't fit (Joey 2026-11-10: "titles should probably marquee");
+        // the others end in "...".
         Text(name, style = JoeyTheme.type.note, color = if (focused) c.gold else if (greyed) c.textFaint else c.textSecondary, maxLines = 1,
-            overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp, start = 2.dp, end = 2.dp))
+            overflow = if (focused) TextOverflow.Clip else TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 6.dp, start = 2.dp, end = 2.dp)
+                .then(if (focused) Modifier.basicMarquee(iterations = Int.MAX_VALUE, animationMode = MarqueeAnimationMode.Immediately,
+                    initialDelayMillis = 900, repeatDelayMillis = 1_500) else Modifier))
     }
     }
 }

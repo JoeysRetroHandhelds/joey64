@@ -861,7 +861,9 @@ void logStats() {
     double fillMs, targetMs; int underruns;
     const int refill = g_audioRefillWindows.load();
     if (refill > 0) g_audioRefillWindows = refill - 1;
-    g_audio.takeStats(!g_fastForward && !g_bench && refill == 0 && g_statRuns / secs >= 58.5, fillMs, targetMs, underruns);
+    // Full speed is 97.5% of the game's own rate (2026-11-11: it was a fixed 58.5 fps, so a PAL game at 50 never
+    // counted as keeping up and its underruns never raised the target).
+    g_audio.takeStats(!g_fastForward && !g_bench && refill == 0 && g_statRuns / secs >= 0.975 * g_av.timing.fps, fillMs, targetMs, underruns);
     Thermal::update();
     // Reports: underruns and lag from the third window on. The first 10 s are the boot and the audio buffer
     // settling (Super Mario 64 on the Thor 2026-11-08: 89 + 40 underruns and a 486 ms lag max, then none).

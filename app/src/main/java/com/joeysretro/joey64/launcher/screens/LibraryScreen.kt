@@ -189,6 +189,8 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
     val names = look?.names ?: com.joeysretro.joey64.launcher.library.NamesMode.DEFAULT
     val style = look?.nameStyle ?: com.joeysretro.joey64.launcher.library.NameStyle.Short
     val greyed by model.greyed.collectAsStateWithLifecycle()
+    // Copies that would look alike here get a line under the name: "USA", "USA · v2 · Beta" (approved mockup A, 2026-11-11).
+    val copyLines = remember(list) { com.joeysretro.joey64.launcher.library.CopyLabels.of(list) }
     // keepPlace: the game focus lands on, read as the grid is made (null: the first game, as before).
     val landId = remember(list, landOn) { (if (keepPlace) model.libraryFocus else landOn)?.takeIf { id -> list.any { it.id == id } } }
     val landing = LocalFocusLanding.current
@@ -300,6 +302,7 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
                 val own = remember { FocusRequester() }
                 androidx.compose.runtime.DisposableEffect(g.id) { tileFocus[g.id] = own; onDispose { if (tileFocus[g.id] === own) tileFocus.remove(g.id) } }
                 GameTile(g, model.cover(g), names, com.joeysretro.joey64.launcher.library.LibraryArrange.title(g, style), greyed = g.id in greyed,
+                    copyLine = copyLines[g.id],
                     modifier = Modifier.initialFocus(if (landId != null) g.id == landId else firstFocus && i == 0).focusRequester(own)
                     .then(if (i == 0 && firstTile != null) Modifier.focusRequester(firstTile) else Modifier),
                     onFocus = { on -> if (on) { focusedGame = g; focusedIndex = i; keep(g) } else if (focusedGame?.id == g.id) { focusedGame = null; focusedIndex = -1 } },
@@ -329,10 +332,12 @@ private class RowGapSpec(private val margin: Float) : BringIntoViewSpec {
  * is cropped), or without one a plain tile the size and shape of a cover. While a cover loads the
  * tile is plain, so a name doesn't flash up first. Settings › Library › Names (approved 2026-11-08):
  * Only without box art puts [name] on a plain tile, Under the cover puts it under every tile, Off never.
+ * [copyLine]: with names under the covers, a game that another tile here shares its name with says which copy it is
+ * on a grey line under the name ([com.joeysretro.joey64.launcher.library.CopyLabels], approved mockup A, 2026-11-11).
  */
 @Composable
 private fun GameTile(game: LibraryGame, cover: File?, names: com.joeysretro.joey64.launcher.library.NamesMode, name: String,
-                     greyed: Boolean = false, modifier: Modifier = Modifier, onFocus: (Boolean) -> Unit,
+                     greyed: Boolean = false, copyLine: String? = null, modifier: Modifier = Modifier, onFocus: (Boolean) -> Unit,
                      onOptions: () -> Unit, onClick: () -> Unit) {
     val c = JoeyTheme.colors
     val (source, focused) = rememberFocusState()
@@ -352,7 +357,7 @@ private fun GameTile(game: LibraryGame, cover: File?, names: com.joeysretro.joey
             .background(c.chip, shape)
             .pressable(source, onLongClick = onOptions, onClick = onClick)
             // TalkBack (code audit 3, M33): the game's name, picture or not, and why it's greyed.
-            .semantics { contentDescription = name; if (greyed) stateDescription = "Its ROMs folder can't be reached" },
+            .semantics { contentDescription = if (copyLine != null) "$name, $copyLine" else name; if (greyed) stateDescription = "Its ROMs folder can't be reached" },
         contentAlignment = Alignment.Center,
     ) {
         val p = picture
@@ -372,6 +377,12 @@ private fun GameTile(game: LibraryGame, cover: File?, names: com.joeysretro.joey
         Text(name, style = JoeyTheme.type.note, color = if (focused) c.gold else if (greyed) c.textFaint else c.textSecondary, maxLines = 1,
             overflow = if (focused) TextOverflow.Clip else TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 6.dp, start = 2.dp, end = 2.dp).clearAndSetSemantics { }
+                .then(if (focused) Modifier.basicMarquee(iterations = Int.MAX_VALUE, animationMode = MarqueeAnimationMode.Immediately,
+                    initialDelayMillis = 900, repeatDelayMillis = 1_500) else Modifier))
+        // Which copy it is, grey in the label style; it stays grey when focused and scrolls like the name.
+        if (copyLine != null) Text(copyLine, style = JoeyTheme.type.label, color = if (greyed) c.textFaint else c.textDim, maxLines = 1,
+            overflow = if (focused) TextOverflow.Clip else TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 2.dp, start = 2.dp, end = 2.dp).clearAndSetSemantics { }
                 .then(if (focused) Modifier.basicMarquee(iterations = Int.MAX_VALUE, animationMode = MarqueeAnimationMode.Immediately,
                     initialDelayMillis = 900, repeatDelayMillis = 1_500) else Modifier))
     }

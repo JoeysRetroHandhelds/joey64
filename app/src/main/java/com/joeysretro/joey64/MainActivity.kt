@@ -1050,6 +1050,14 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // uses it only with the compile thread (Mali, GpuRules.settings). --es env N64_DRC_LIST=<file> or =0 (off) wins.
         if (devString("env")?.contains("N64_DRC_LIST=") != true)
             android.system.Os.setenv("N64_DRC_LIST", File(File(filesDir, "blocklists").apply { mkdirs() }, "$saveName.txt").path, true)
+        // The router's address for a hosted room's NAT-PMP (when no UPnP router answers): from the network's default
+        // route, since Android's main route table that libnatpmp reads has none. --es env N64_NETPLAY_GW=<ip> wins.
+        if (devString("env")?.contains("N64_NETPLAY_GW=") != true) runCatching {
+            val cm = getSystemService(android.net.ConnectivityManager::class.java)
+            val gw = cm?.getLinkProperties(cm.activeNetwork)?.routes
+                ?.firstOrNull { it.isDefaultRoute && it.gateway is java.net.Inet4Address }?.gateway?.hostAddress
+            if (gw != null) android.system.Os.setenv("N64_NETPLAY_GW", gw, true) else android.system.Os.unsetenv("N64_NETPLAY_GW")
+        }
         trial?.begin()
         if (NativeBridge.loadGame(rom, saveName)) {
             NativeBridge.start(); started = true; owner = this; gameLoaded = true

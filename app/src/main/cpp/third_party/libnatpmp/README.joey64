@@ -1,0 +1,5 @@
+libnatpmp (BSD-3-Clause, LICENSE here), github.com/miniupnp/libnatpmp master at commit 134fc89 (2025-04-03; the
+project has no release tags, VERSION says 20120821). Only natpmp.c, getgateway.c and their headers; no natpmpc tool,
+no Python or Java modules. Used by app/src/main/cpp/upnp.cpp when no UPnP router answers, to open a netplay room's port
+on a router that speaks NAT-PMP instead (Apple AirPort and some others; Joey 2026-11-10: "Go ahead"). Android's main
+route table has no default route (policy routing), so the app passes the router's address in N64_NETPLAY_GW.

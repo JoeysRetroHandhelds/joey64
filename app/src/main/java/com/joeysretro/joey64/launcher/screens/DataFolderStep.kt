@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -65,6 +66,9 @@ fun DataFolderStep(debugOnly: Boolean = false, onDone: () -> Unit) {
         }
     }
     val choose = { picker.launch(null) }
+    // Coming from the ROMs step, the button A pressed is gone: land on this step's first button
+    // (as ImportScreen does), or nothing is highlighted and the first key only brings it back.
+    LaunchedEffect(Unit) { landing?.arm() }
 
     SetupPage {
         val u = using

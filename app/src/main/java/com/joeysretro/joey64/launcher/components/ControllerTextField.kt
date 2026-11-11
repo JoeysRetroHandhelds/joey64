@@ -34,7 +34,9 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -71,6 +73,11 @@ fun ControllerTextField(
 ) {
     val c = JoeyTheme.colors
     var typing by remember { mutableStateOf(startTyping) }
+    // The text with its cursor. Given only the text, the field put the cursor before it when typing started
+    // again (Search › Edit search on the Odin 3, 2026-11-11: "zelda", then X, gave "Xzelda"), so it's kept
+    // here, and typing always starts at the end. A change from outside (Clear) puts the cursor at the end too.
+    var field by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
+    if (field.text != value) field = TextFieldValue(value, TextRange(value.length))
     val fieldFocus = remember { FocusRequester() }
     // The highlight-only stop comes back when typing stops; this puts focus on it as it arrives.
     val backToBox = remember { FocusLanding(armed = false) }
@@ -99,6 +106,7 @@ fun ControllerTextField(
     val windowInfo = androidx.compose.ui.platform.LocalWindowInfo.current
     LaunchedEffect(typing) {
         if (typing) {
+            field = field.copy(selection = TextRange(field.text.length))
             // A popup that opens typing (New collection): Android ignores the keyboard until the
             // popup's window has focus (found on the Thor: the field had the cursor, no keyboard).
             androidx.compose.runtime.snapshotFlow { windowInfo.isWindowFocused }.first { it }
@@ -121,8 +129,8 @@ fun ControllerTextField(
     ) {
         Box(modifier = Modifier.weight(1f)) {
             BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
+                value = field,
+                onValueChange = { field = it; if (it.text != value) onValueChange(it.text) },
                 singleLine = !code,
                 minLines = if (code) 2 else 1,
                 interactionSource = fieldSource,

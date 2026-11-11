@@ -104,7 +104,10 @@ class CheatLists(private val context: Context) {
                 if (e is UnknownHostException || e is ConnectException || e is SocketTimeoutException) return@withContext
             }
         }
-        if (got > 0) JLog.i(TAG, "cheats: $got lists downloaded for ${games.size} games")
+        // How many of the games asked about have any list (the line used to give the games asked about: "for 1208 games"
+        // where 873 had cheats, 1,231-game test 2026-11-11).
+        val with = games.count { keys -> keys.any { !index[it].isNullOrEmpty() } }
+        if (got > 0) JLog.i(TAG, "cheats: $got lists downloaded; $with of ${games.size} games have cheats")
     }
 
     @Volatile private var cached: Pair<Long, Map<String, Map<String, Int>>>? = null

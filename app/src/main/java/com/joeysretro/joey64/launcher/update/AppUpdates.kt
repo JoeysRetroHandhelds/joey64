@@ -41,9 +41,14 @@ object AppUpdates {
     private const val KEY_SEEN = "seen_version"
     private const val KEY_NOTES = "notes_"
     // On every fresh start, then every 15 minutes while the library is showing (GitHub allows 60
-    // unauthenticated checks an hour). A failed check doesn't count, so it's tried again a minute later.
+    // unauthenticated checks an hour). A failed check doesn't count: it's tried again after 1 minute, then
+    // 2, 4, 8 and from then on every 15 (1,231-game test 2026-11-11: with the repo private every check
+    // 404s, and a try every minute is the whole hourly allowance).
     private const val INTERVAL_MS = 15 * 60 * 1000L
+    private const val RETRY_MS = 60 * 1000L
     @Volatile private var checkedThisRun = false
+    @Volatile private var failedInARow = 0
+    @Volatile private var lastFailAt = 0L
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -68,8 +73,20 @@ object AppUpdates {
     /** When the last check that reached the feed ran (ms since 1970), or 0. */
     fun lastCheck(context: Context): Long = prefs(context).getLong(KEY_LAST_CHECK, 0L)
 
-    fun checkDue(context: Context): Boolean =
-        !checkedThisRun || System.currentTimeMillis() - lastCheck(context) > INTERVAL_MS
+    fun checkDue(context: Context): Boolean {
+        val now = System.currentTimeMillis()
+        if (failedInARow > 0 && now - lastFailAt < retryWait(failedInARow)) return false
+        return !checkedThisRun || now - lastCheck(context) > INTERVAL_MS
+    }
+
+    /** How long to wait after [failed] failures in a row: 1, 2, 4, 8 minutes, then 15. */
+    fun retryWait(failed: Int): Long = minOf(RETRY_MS shl (failed - 1).coerceIn(0, 4), INTERVAL_MS)
+
+    private fun failed(): Check {
+        failedInARow++
+        lastFailAt = System.currentTimeMillis()
+        return Check.Failed
+    }
 
     /**
      * Once per start: the version this device last ran, so the library can say "Updated" when it
@@ -104,13 +121,14 @@ object AppUpdates {
         val testing = testing(context)
         val url = feed(context) + if (testing) "/releases?per_page=20" else "/releases/latest"
         val json = try { get(url) } catch (e: IOException) {
-            JLog.w(TAG, "check failed: ${e.message}"); return@withContext Check.Failed
+            JLog.w(TAG, "check failed: ${e.message}"); return@withContext failed()
         }
         checkedThisRun = true
+        failedInARow = 0
         prefs(context).edit().putLong(KEY_LAST_CHECK, System.currentTimeMillis()).apply()
         val installed = installedVersion(context)
         val release = try { Releases.newer(json, installed, testing) } catch (e: org.json.JSONException) {
-            JLog.w(TAG, "check: unreadable answer: ${e.message}"); return@withContext Check.Failed
+            JLog.w(TAG, "check: unreadable answer: ${e.message}"); return@withContext failed()
         }
         if (release == null) {
             JLog.i(TAG, "check: up to date ($installed, testing builds ${if (testing) "on" else "off"})")

@@ -236,6 +236,17 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
         var focusedIndex by remember { mutableStateOf(-1) }
         var moving by remember { mutableStateOf(false) }
         val listNow by rememberUpdatedState(list)
+        // The list changed under the focused game (Recently played puts the game just played first, off screen; found on
+        // the Odin 3 Portal 2026-11-11 with nothing lit): its row is scrolled back in and it keeps focus.
+        LaunchedEffect(list) {
+            val g = currentFocused ?: return@LaunchedEffect
+            androidx.compose.runtime.withFrameNanos { }
+            val index = listNow.indexOfFirst { it.id == g.id }
+            if (index < 0 || gridState.layoutInfo.visibleItemsInfo.any { it.index == index }) return@LaunchedEffect
+            gridState.scrollToItem(index)
+            androidx.compose.runtime.withFrameNanos { }
+            tileFocus[g.id]?.requestFocus()
+        }
         // The game to land on is off screen (the list changed while away: Recently played puts the game just played
         // first): its row is scrolled in, and focus lands on it as it's composed.
         if (landId != null && landing?.pending == true) LaunchedEffect(landId) {
@@ -254,7 +265,8 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
                 val k = event.nativeKeyEvent
                 val up = k.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP
                 if (!up && k.keyCode != android.view.KeyEvent.KEYCODE_DPAD_DOWN) return@onPreviewKeyEvent false
-                val from = focusedIndex
+                // From the focused game's place now: a reorder moves it without a new focus event.
+                val from = currentFocused?.let { f -> listNow.indexOfFirst { it.id == f.id } } ?: focusedIndex
                 val games = listNow
                 if (from !in games.indices) return@onPreviewKeyEvent false
                 if (up && from < cols) return@onPreviewKeyEvent false   // the top row: up to the filter chip as before

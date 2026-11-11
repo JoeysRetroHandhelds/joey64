@@ -100,7 +100,7 @@ internal fun NetEndedPopup(model: LibraryModel) {
             LandAgain()
             fun bold(s: String) = SpanStyle(fontWeight = FontWeight.Bold, color = c.text)
             when {
-                details -> {
+                details && n.game != null -> {
                     PopupTitle(n.game.title, "Your copy")
                     InfoRow("File", n.file, labelColor = c.textDim, valueColor = c.text)
                     InfoRow("MD5", n.game.md5, labelColor = c.textDim, valueColor = c.text, valueStyle = JoeyTheme.type.code)
@@ -112,27 +112,35 @@ internal fun NetEndedPopup(model: LibraryModel) {
                     JoeyOption("OK", Modifier.initialFocus()) { model.netEndedSeen() }
                 }
                 turned -> {
-                    PopupTitle("Couldn't join the room")
-                    PromptText(AnnotatedStringOf("The room has no place for you: all its players are taken. If someone left, the host can free their place on the room screen, then join again."))
+                    val host = n.hostName ?: "the host"
+                    PopupTitle(if (n.hostName != null) "Couldn't join ${n.hostName}'s room" else "Couldn't join the room")
+                    PromptText(AnnotatedStringOf("The room has no place for you: all its players are taken. If someone left, ${host} can free their place on the room screen, then join again."))
                     JoeyOption("Try again", Modifier.initialFocus()) { model.netTryAgain { context.startActivity(it) } }
                     JoeyOption("OK") { model.netEndedSeen() }
                 }
                 n.need == com.joeysretro.joey64.launcher.GameStartFailed.Need.NetUnreachable -> {
-                    PopupTitle("Couldn't reach the room")
-                    PromptText(AnnotatedStringOf("The code is right, but the host's router isn't letting players from outside in. On the same Wi-Fi as the host, it works."))
+                    PopupTitle(if (n.hostName != null) "Couldn't reach ${n.hostName}'s room" else "Couldn't reach the room")
+                    val h = n.hostName
+                    PromptText(AnnotatedStringOf(if (h != null) "The code is right, but $h's router isn't letting players from outside in. On the same Wi-Fi as $h, it works."
+                        else "The code is right, but the host's router isn't letting players from outside in. On the same Wi-Fi as the host, it works."))
                     JoeyOption("OK", Modifier.initialFocus()) { model.netEndedSeen() }
                 }
                 else -> {
                     PopupTitle("Your copy doesn't match the host's")
+                    // As approved (v2 screen f): "The host has <theirs>; yours is <mine>." once the room says its copy.
+                    val named = n.hostGame ?: n.game?.title ?: ""
                     PromptText(buildAnnotatedString {
                         append("Everyone needs the same copy of ")
-                        pushStyle(bold("")); append(com.joeysretro.joey64.launcher.library.LibraryArrange.shortTitle(n.game.title)); pop()
-                        append(" or the games fall out of step. Yours is ")
-                        pushStyle(bold("")); append(n.file); pop()
-                        append(".")
+                        pushStyle(bold("")); append(com.joeysretro.joey64.launcher.library.LibraryArrange.shortTitle(named)); pop()
+                        append(" or the games fall out of step. ")
+                        if (n.hostGame != null) {
+                            append("The host has "); pushStyle(bold("")); append(n.hostGame); pop()
+                            if (n.game != null) { append("; yours is "); pushStyle(bold("")); append(n.file); pop(); append(".") }
+                            else append(", which isn't in your library.")
+                        } else { append("Yours is "); pushStyle(bold("")); append(n.file); pop(); append(".") }
                     })
                     JoeyOption("OK", Modifier.initialFocus()) { model.netEndedSeen() }
-                    JoeyOption("Details") { details = true }
+                    if (n.game != null) JoeyOption("Details") { details = true }
                 }
             }
         } }

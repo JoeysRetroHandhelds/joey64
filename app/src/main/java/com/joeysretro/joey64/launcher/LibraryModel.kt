@@ -221,6 +221,24 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
             }
         }
         app.getSystemService(ConnectivityManager::class.java)?.registerDefaultNetworkCallback(network)
+        com.joeysretro.joey64.netplay.RoomList.init(app)
+        // Netplay: a join that ended before the game (full, another copy, can't reach) is said by the library's popups.
+        // Dispatchers.Main, not the scope's Main.immediate: the first value comes at once, and the fields it reads
+        // (netplayFor, _netEnded) are set further down this class, after this init block.
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+            com.joeysretro.joey64.netplay.PlayTogether.state.collect { s ->
+                val mine = netplayFor.value ?: netplayGame
+                val e = when (s) {
+                    is com.joeysretro.joey64.netplay.PlayTogether.Full -> NetEnded(GameStartFailed.Need.NetTurnedDown, mine, mine?.title ?: "", hostName = s.hostName, retry = s.again)
+                    is com.joeysretro.joey64.netplay.PlayTogether.Mismatch -> NetEnded(GameStartFailed.Need.NetMismatch, mine?.takeIf { s.mine.md5.isNotEmpty() }, mine?.title ?: "",
+                        hostName = s.hostName, hostGame = s.hostGame.title.ifEmpty { null })
+                    is com.joeysretro.joey64.netplay.PlayTogether.Unreachable -> NetEnded(GameStartFailed.Need.NetUnreachable, mine, "", hostName = s.hostName)
+                    else -> null
+                } ?: return@collect
+                com.joeysretro.joey64.netplay.PlayTogether.endedSeen()
+                _netEnded.value = e
+            }
+        }
     }
 
     override fun onCleared() {
@@ -789,7 +807,12 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
      * Netplay's library popups (approved: room lost 2026-11-10 "OK only"; Couldn't reach the room and Your copy doesn't
      * match the host's in Play together v2, 2026-11-06). [file]: this player's copy, for the mismatch's Details.
      */
-    data class NetEnded(val need: GameStartFailed.Need, val game: LibraryGame, val file: String, val intent: Intent? = null)
+    /**
+     * [game]: this player's game (null: a Netplay join from the page for a game not in the library); [hostName] and
+     * [hostGame] when the room said them; [retry]: Try again joins that room again (a Netplay room screen join).
+     */
+    data class NetEnded(val need: GameStartFailed.Need, val game: LibraryGame?, val file: String, val intent: Intent? = null,
+                        val hostName: String? = null, val hostGame: String? = null, val retry: com.joeysretro.joey64.netplay.PlayTogether.Target? = null)
 
     private val _netEnded = MutableStateFlow<NetEnded?>(null)
     val netEnded: StateFlow<NetEnded?> = _netEnded
@@ -798,9 +821,100 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     fun netTryAgain(start: (Intent) -> Unit) {
         val n = _netEnded.value ?: return
         _netEnded.value = null
+        n.retry?.let { netplayJoin(it); return }
         val intent = n.intent ?: return
-        JLog.i(TAG, "${n.game.title}: netplay, trying to join again")
-        startNow(n.game, intent, start)
+        val game = n.game ?: return
+        JLog.i(TAG, "${game.title}: netplay, trying to join again")
+        startNow(game, intent, start)
+    }
+
+    // ---- Netplay (approved v2 2026-11-06; netplay5 and netplay6 mockups 2026-11-10) ----
+
+    private val _netplayFor = MutableStateFlow<LibraryGame?>(null)
+    /** The game whose Netplay popup is open (a game's options › Netplay), or null. */
+    val netplayFor: StateFlow<LibraryGame?> = _netplayFor
+    /** The game of the room this device hosts or joined, for its start. */
+    private var netplayGame: LibraryGame? = null
+    private var netplayLooking = 0
+
+    /** While the Netplay page or popup is open: this Wi-Fi's rooms and the public list. */
+    fun netplayLook(on: Boolean) {
+        if (on) {
+            if (netplayLooking++ == 0) { com.joeysretro.joey64.netplay.PlayTogether.browse(getApplication()); com.joeysretro.joey64.netplay.RoomList.watch() }
+        } else if (netplayLooking > 0 && --netplayLooking == 0) {
+            com.joeysretro.joey64.netplay.PlayTogether.stopBrowsing(); com.joeysretro.joey64.netplay.RoomList.unwatch()
+        }
+    }
+
+    fun openNetplay(game: LibraryGame) { _netplayFor.value = game }
+    fun closeNetplay() { _netplayFor.value = null }
+
+    /** This player in a room: the RetroAchievements name when signed in, else the device's own name; the model under it. */
+    fun netplayMe(): com.joeysretro.joey64.netplay.PlayTogether.Me {
+        val app = getApplication<Application>()
+        val m = android.os.Build.MODEL.orEmpty(); val maker = android.os.Build.MANUFACTURER.orEmpty()
+        val model = if (m.startsWith(maker, ignoreCase = true) || maker.isBlank()) m else "$maker $m"
+        val ra = com.joeysretro.joey64.achievements.RaBridge.account.value?.display?.takeIf { it.isNotBlank() }
+        val named = try { android.provider.Settings.Global.getString(app.contentResolver, "device_name") } catch (e: Exception) { null }
+        return com.joeysretro.joey64.netplay.PlayTogether.Me(ra ?: named?.takeIf { it.isNotBlank() } ?: model, model)
+    }
+
+    /** The library's game with [md5], or null. */
+    fun gameByMd5(md5: String): LibraryGame? = _all.value?.firstOrNull { it.md5.equals(md5, ignoreCase = true) }
+
+    private fun netGame(g: LibraryGame) = com.joeysretro.joey64.netplay.PlayTogether.Game(g.title, g.md5.lowercase(), g.title)
+
+    /** Host a room for [game]: false when no room port could be opened. */
+    fun netplayHost(game: LibraryGame): Boolean {
+        netplayGame = game
+        return com.joeysretro.joey64.netplay.PlayTogether.host(netplayMe(), netGame(game))
+    }
+
+    fun netplayJoin(target: com.joeysretro.joey64.netplay.PlayTogether.Target) {
+        netplayGame = null
+        val mine = _netplayFor.value
+        com.joeysretro.joey64.netplay.PlayTogether.join(netplayMe(), target, mine?.let { netGame(it) } ?: com.joeysretro.joey64.netplay.PlayTogether.Game("", "", "")) { md5 ->
+            gameByMd5(md5)?.also { netplayGame = it }?.let { netGame(it) }
+        }
+    }
+
+    /** Join by code's Start: false when the code isn't right (its check doesn't add up). */
+    fun netplayJoinCode(code: String): Boolean {
+        if (com.joeysretro.joey64.netplay.RoomCode.decode(code) == null) return false
+        viewModelScope.launch {
+            val t = withContext(Dispatchers.IO) { com.joeysretro.joey64.netplay.PlayTogether.targetForCode(code) } ?: return@launch
+            netplayJoin(t)
+        }
+        return true
+    }
+
+    /** Start the game (the host): this device's game starts hosting the room's server; the others follow once it's open. */
+    fun netplayStartHosted(start: (Intent) -> Unit) {
+        val game = netplayGame ?: return
+        val hs = com.joeysretro.joey64.netplay.PlayTogether.startGame() ?: return
+        _netplayFor.value = null
+        viewModelScope.launch {
+            val intent = withContext(Dispatchers.IO) { launcher.intentFor(game) } ?: run { JLog.w(TAG, "no readable file for ${game.title}"); return@launch }
+            intent.putExtra(com.joeysretro.joey64.MainActivity.EXTRA_NETPLAY_HOST, hs.serve)
+                .putExtra(com.joeysretro.joey64.MainActivity.EXTRA_NETPLAY_JOIN, hs.join)
+                .putExtra(com.joeysretro.joey64.MainActivity.EXTRA_NETPLAY_NAME, hs.name)
+            JLog.i(TAG, "${game.title}: Netplay, hosting (${hs.serve})")
+            startNow(game, intent, start)
+        }
+    }
+
+    /** The host said go (the joiner): this device's game joins the room. */
+    fun netplayGo(go: com.joeysretro.joey64.netplay.PlayTogether.Go, start: (Intent) -> Unit) {
+        com.joeysretro.joey64.netplay.PlayTogether.goTaken()
+        val game = gameByMd5(go.md5) ?: return
+        _netplayFor.value = null
+        viewModelScope.launch {
+            val intent = withContext(Dispatchers.IO) { launcher.intentFor(game) } ?: run { JLog.w(TAG, "no readable file for ${game.title}"); return@launch }
+            intent.putExtra(com.joeysretro.joey64.MainActivity.EXTRA_NETPLAY_JOIN, go.join)
+                .putExtra(com.joeysretro.joey64.MainActivity.EXTRA_NETPLAY_NAME, go.name)
+            JLog.i(TAG, "${game.title}: Netplay, joining (${go.join})")
+            startNow(game, intent, start)
+        }
     }
 
     /** Debug (SHOW --es what net-lost|net-unreach|net-mismatch): the popup for the first game in the library. */

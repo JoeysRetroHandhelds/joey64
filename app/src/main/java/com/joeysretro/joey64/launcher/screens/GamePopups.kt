@@ -105,6 +105,8 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
             when (popup) {
                 GamePopup.Options -> {
                     JoeyOption("Play", modifier = Modifier.initialFocus()) { onPopup(null); onPlay() }
+                    // Approved netplay6 screen 8 (the v2 Play together, renamed Netplay).
+                    JoeyOption("Netplay", value = "›") { onPopup(null); model.openNetplay(game) }
                     JoeyOption("Details") { onPopup(GamePopup.Details) }
                     gameSettings?.let { JoeyOption("Game settings", value = "$it  ›") { onPopup(null); model.openGameSettings(game) } }
                     com.joeysretro.joey64.launcher.components.PopupDivider()

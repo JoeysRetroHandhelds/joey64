@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A globe with a line through it (Netplay room: only this Wi-Fi can join). A line icon drawn here; tinted where it is used. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M5.65,5.65A9,9 0 0 0 18.36,18.36 M20.12,16A9,9 0 0 0 8,3.88 M3.6,9H9 M13,9H20.4 M3.6,15H15 M11.5,3A17,17 0 0 0 9.8,8.9 M9.2,13.3A17,17 0 0 0 11.5,21 M12.5,3A17,17 0 0 1 14.4,9.9 M3,3L21,21"/>
+</vector>

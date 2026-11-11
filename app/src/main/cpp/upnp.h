@@ -13,7 +13,8 @@ enum State : int {
     DoubleNat = 5,   // opened, but the router's own outside address is private (a second router or the carrier's
                      // NAT in front of it): players outside still can't reach the room
 };
-// Opens `port` (TCP and UDP) to this device on the router, on its own thread; renewed every 30 minutes.
+// Opens `port` (TCP and UDP) to this device on the router, on its own thread; renewed every 30 minutes. Asked again for
+// the port already open, it keeps that mapping.
 void open(int port);
 // Removes the mappings (waits up to ~2 s for the router).
 void close();

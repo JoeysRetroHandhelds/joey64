@@ -22,6 +22,7 @@ std::thread g_thread;
 std::mutex g_mutex;
 std::condition_variable g_cv;
 bool g_run = false;
+int g_port = 0; // the port asked for while g_run
 std::atomic<int> g_state{Off};
 std::string g_outside;
 constexpr int kLeaseSeconds = 3600; // the router drops it by itself an hour after a crash
@@ -91,8 +92,11 @@ void work(int port) {
 } // namespace
 
 void open(int port) {
+    // Already asked for this port (Play together's room screen opened it before the game's room server starts on the
+    // same port): keep that mapping, so the router line and the room code stay as they are.
+    { std::lock_guard<std::mutex> lk(g_mutex); if (g_run && g_port == port) return; }
     close();
-    { std::lock_guard<std::mutex> lk(g_mutex); g_run = true; g_outside.clear(); }
+    { std::lock_guard<std::mutex> lk(g_mutex); g_run = true; g_port = port; g_outside.clear(); }
     g_state = Looking;
     g_thread = std::thread(work, port);
 }

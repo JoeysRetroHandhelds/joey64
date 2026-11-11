@@ -274,6 +274,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                                 }
                                 place == RailPlace.Controls -> ControlsScreen(onHints = { settingsHints = it }) { place = RailPlace.Library }
                                 place == RailPlace.Search -> com.joeysretro.joey64.launcher.screens.SearchScreen(model, onHints = { settingsHints = it }) { place = RailPlace.Library }
+                                place == RailPlace.Netplay -> com.joeysretro.joey64.launcher.screens.NetplayScreen(model, onHints = { settingsHints = it }) { place = RailPlace.Library }
                                 else -> LibraryScreen(model) { place = RailPlace.Search }
                             }
                         }
@@ -284,12 +285,15 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                 !home -> listOf(Hint("A", "Select"))
                 importAgain -> listOf(Hint("A", "Select"), Hint("B", "Back"))
                 onRail -> listOf(Hint("A", "Open"))
-                place == RailPlace.Settings || place == RailPlace.Controls || place == RailPlace.Search || place == RailPlace.Achievements ||
+                place == RailPlace.Settings || place == RailPlace.Controls || place == RailPlace.Search || place == RailPlace.Achievements || place == RailPlace.Netplay ||
                     cheatsFor != null || achievementsFor != null || gameSettingsFor != null || savesFor != null || screenshotsFor != null -> settingsHints
                 else -> listOf(Hint("A", "Play"), Hint("Start", "Options"), Hint("Y", "Search"))
             })
             if (home) updates.prompt.collectAsStateWithLifecycle().value?.let { UpdatePopup(it, updates) }
             com.joeysretro.joey64.launcher.screens.NeedsControllerPopup(model)
+            // Netplay: a game's options › Netplay, and the room screens wherever a room was opened or joined.
+            if (home) com.joeysretro.joey64.launcher.screens.NetplayGamePopup(model)
+            if (home) com.joeysretro.joey64.launcher.screens.NetplayRoomPopups(model)
         }
         } } }
     }

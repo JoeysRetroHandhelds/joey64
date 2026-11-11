@@ -142,7 +142,7 @@ object NativeBridge {
     /** Bytes of save RAM the last write couldn't put on disk (a full disk, or another write error); 0 once one is written. */
     external fun saveRamFailed(): Long
     /**
-     * Netplay (dev env N64_NETPLAY / N64_NETPLAY_SERVE until the Play together screens): [in a room 1/0, hosting it 1/0,
+     * Netplay (Play together's extras, or dev env N64_NETPLAY / N64_NETPLAY_SERVE): [in a room 1/0, hosting it 1/0,
      * players joined (bit per player, the host only), status (bit 0 de-synced, bits 1-4 player 1-4 left), the paused
      * player 1-4 or 0, the player this game waits for 1-4 or 0, this game's own player 1-4 (0 = not in a room)].
      */
@@ -159,6 +159,12 @@ object NativeBridge {
      * another NAT (players outside still can't reach it). The address is empty until 2 or 5.
      */
     external fun netplayOutside(): String
+    /**
+     * Play together's room screen: opens [port] (TCP and UDP) on the router by UPnP before the game, read back through
+     * [netplayOutside]; the game's room server on the same port keeps that mapping. [netplayUpnpClose] removes it.
+     */
+    external fun netplayUpnpOpen(port: Int)
+    external fun netplayUpnpClose()
     /** New frames presented since start (wraps): what the game drew, without repeats. */
     external fun framesDrawn(): Int
     /** The game's native frame rate (NTSC ~60, PAL 50), for the speed percentage. */

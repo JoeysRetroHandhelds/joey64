@@ -121,6 +121,13 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val sys = File(filesDir, "system").apply { mkdirs() }
         val saves = File(filesDir, "saves").apply { mkdirs() }
 
+        // Netplay (Play together, 2026-11-10): the room's extras, as the environment the host and core read. A game screen
+        // runs in the launcher's process, and the host sets N64_NETPLAY itself when it opens a room, so a game without the
+        // extras clears them first: one netplay game must never make the next one a netplay game.
+        for (k in NETPLAY_ENV) android.system.Os.unsetenv(k)
+        intent?.getStringExtra(EXTRA_NETPLAY_HOST)?.let { android.system.Os.setenv("N64_NETPLAY_SERVE", it, true) }
+        intent?.getStringExtra(EXTRA_NETPLAY_JOIN)?.let { android.system.Os.setenv("N64_NETPLAY", it, true) }
+        intent?.getStringExtra(EXTRA_NETPLAY_NAME)?.let { android.system.Os.setenv("N64_NETPLAY_NAME", it, true) }
         // Dev: --es env "PARALLEL_RDP_UBERSHADER=1,KEY=value" (process environment, read by the core).
         // Set before setupGpu: the driver hooks (N64_KGSL_PRIO) read it while the custom driver loads
         devString("env")?.split(',')?.forEach { kv ->
@@ -3048,6 +3055,13 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         private const val SESSION_TICK_MS = 5_000L
         /** A 64DD disk's cartridge, as a content URI (F-Zero X Expansion Kit: F-Zero X (Japan)); without it a disk boots alone. */
         const val EXTRA_DD_CART = "com.joeysretro.joey64.DD_CART"
+        /** Play together: host a room, "port:players:auto" (N64_NETPLAY_SERVE); with [EXTRA_NETPLAY_JOIN] "127.0.0.1:port:own player". */
+        const val EXTRA_NETPLAY_HOST = "com.joeysretro.joey64.NETPLAY_HOST"
+        /** Play together: join the room at "host:port:player" (N64_NETPLAY). */
+        const val EXTRA_NETPLAY_JOIN = "com.joeysretro.joey64.NETPLAY_JOIN"
+        /** Play together: this player's name in the room (N64_NETPLAY_NAME). */
+        const val EXTRA_NETPLAY_NAME = "com.joeysretro.joey64.NETPLAY_NAME"
+        private val NETPLAY_ENV = listOf("N64_NETPLAY", "N64_NETPLAY_SERVE", "N64_NETPLAY_NAME")
         const val STATE_AUTO = "auto"
         const val STATE_RECOVERY = "recovery"
         /** "slot:<n>": the state in StateSlots' slot n (the Saves page's Play from here). */

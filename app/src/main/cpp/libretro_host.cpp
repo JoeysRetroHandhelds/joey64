@@ -2205,6 +2205,13 @@ JNIEXPORT jstring JNICALL JNI(netplayOutside)(JNIEnv* env, jobject) {
     return env->NewStringUTF(s.c_str());
 }
 
+// Play together's room screen (before the game): the room's port on the router, kept for the game's room server.
+JNIEXPORT void JNICALL JNI(netplayUpnpOpen)(JNIEnv*, jobject, jint port) {
+    const char* u = getenv("N64_NETPLAY_UPNP");
+    if (!u || strcmp(u, "0") != 0) Upnp::open((int)port);
+}
+JNIEXPORT void JNICALL JNI(netplayUpnpClose)(JNIEnv*, jobject) { Upnp::close(); }
+
 JNIEXPORT jintArray JNICALL JNI(netplayInfo)(JNIEnv* env, jobject) {
     bool host = NetplayServer::running();
     int pausedBy = host ? (NetplayServer::status() >> 5) & 7 : g_netplayPausedBy.load();

@@ -228,6 +228,8 @@ fun IconRow(
     rightNote: String? = null,
     /** Lighter title (a locked achievement). */
     dim: Boolean = false,
+    /** Left / Right leave the row for the next column, as [JoeyRow]'s (the Netplay page's two lists). */
+    sideways: Boolean = false,
     onFocused: ((Boolean) -> Unit)? = null,
     picture: @Composable (focused: Boolean) -> Unit,
     tag: (@Composable () -> Unit)? = null,
@@ -239,7 +241,7 @@ fun IconRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .focusProperties { left = FocusRequester.Cancel; right = FocusRequester.Cancel }
+            .then(if (sideways) Modifier else Modifier.focusProperties { left = FocusRequester.Cancel; right = FocusRequester.Cancel })
             .rowSelection(focused, RoundedCornerShape(JoeyTheme.spacing.rowCorner))
             .pressable(source, onClick = onClick)
             .padding(horizontal = JoeyTheme.spacing.rowPadH, vertical = 7.dp),

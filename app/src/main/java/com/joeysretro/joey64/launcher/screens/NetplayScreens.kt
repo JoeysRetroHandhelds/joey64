@@ -84,8 +84,8 @@ import com.joeysretro.joey64.netplay.RoomList
  * ("they're private, don't show at all"), this Wi-Fi's rooms as drawn, and a Join by code row on the page.
  */
 
-/** "Mario Kart 64 · 1 of 4 players". */
-private fun roomLine(game: String, players: Int) = "${LibraryArrange.shortTitle(game)} · $players of 4 players"
+/** "Mario Kart 64 · 1 of 4 players"; [places] is the game's most players. */
+private fun roomLine(game: String, players: Int, places: Int) = "${LibraryArrange.shortTitle(game)} · $players of $places players"
 
 private fun shortGame(title: String) = LibraryArrange.shortTitle(title)
 
@@ -108,7 +108,7 @@ fun NetplayScreen(model: LibraryModel, onHints: (List<Hint>) -> Unit, onClose: (
     val wifiRooms = wifi.filter { !onlyMine || it.md5 in have }
     val wifiCodes = wifi.map { RoomCode.clean(it.code) }.toSet()
     // Nearest first; full rooms left out; a room already on this Wi-Fi's list isn't listed twice.
-    val publicRooms = listed.orEmpty().filter { it.players < 4 && it.code !in wifiCodes && (!onlyMine || it.md5 in have) }
+    val publicRooms = listed.orEmpty().filter { it.players < model.netPlaces(it.md5) && it.code !in wifiCodes && (!onlyMine || it.md5 in have) }
         .sortedBy { pings["${it.ip}:${it.port}"] ?: Int.MAX_VALUE }
 
     val currentOnClose by rememberUpdatedState(onClose)
@@ -160,7 +160,7 @@ fun NetplayScreen(model: LibraryModel, onHints: (List<Hint>) -> Unit, onClose: (
                     val g = gameOf(r.md5)
                     val key = "wifi ${r.ip}:${r.port}"
                     lines[key] = "${r.hostName}'s room" to (if (g != null) "${g.title}, your copy matches · ${r.hostName}'s ${r.device}" else "${r.game} isn't in your library")
-                    RoomRow(model, g, r.md5, r.game, "${r.hostName}'s room", if (g == null) "${shortGame(r.game)} · you don't have this game" else roomLine(r.game, r.players),
+                    RoomRow(model, g, r.md5, r.game, "${r.hostName}'s room", if (g == null) "${shortGame(r.game)} · you don't have this game" else roomLine(r.game, r.players, model.netPlaces(r.md5)),
                         r.pingMs, onFocused = { focusKey = key }) {
                         if (g != null) model.netplayJoin(PlayTogether.Target(r.ip, r.port, r.hostName))
                     }
@@ -175,7 +175,7 @@ fun NetplayScreen(model: LibraryModel, onHints: (List<Hint>) -> Unit, onClose: (
                     val g = gameOf(r.md5)
                     val key = "public ${r.ip}:${r.port}"
                     lines[key] = "${r.name}'s room" to (if (g != null) "${g.title}, your copy matches · ${r.name}'s ${r.device}" else "${r.game} isn't in your library")
-                    RoomRow(model, g, r.md5, r.game, "${r.name}'s room", if (g == null) "${shortGame(r.game)} · you don't have this game" else roomLine(r.game, r.players),
+                    RoomRow(model, g, r.md5, r.game, "${r.name}'s room", if (g == null) "${shortGame(r.game)} · you don't have this game" else roomLine(r.game, r.players, model.netPlaces(r.md5)),
                         pings["${r.ip}:${r.port}"], onFocused = { focusKey = key }) {
                         if (g != null) model.netplayJoin(PlayTogether.Target(r.ip, r.port, r.name))
                     }
@@ -293,14 +293,14 @@ fun NetplayGamePopup(model: LibraryModel) {
     // The room screens take over while there's a room.
     if (state is PlayTogether.Hosting || state is PlayTogether.InRoom) return
     val wifiCodes = wifi.map { RoomCode.clean(it.code) }.toSet()
-    val publicHere = listed.filter { it.players < 4 && it.code !in wifiCodes && it.md5.equals(game.md5, true) }
+    val publicHere = listed.filter { it.players < model.netPlaces(it.md5) && it.code !in wifiCodes && it.md5.equals(game.md5, true) }
         .sortedBy { pings["${it.ip}:${it.port}"] ?: Int.MAX_VALUE }.take(3)
     JoeyDialog(onDismiss = { model.closeNetplay() }, hints = listOf(Hint("A", "Select"), Hint("B", "Back")), width = 620.dp) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             LandAgain()
             PopupTitle("Netplay", shortGame(game.title))
             // The game's real count (the 4 players filter's table); 4 when it isn't known.
-            val most = (model.playersOf(game) ?: 4).coerceIn(2, 4)
+            val most = model.netPlaces(game)
             Text("Up to $most players. Everyone needs Joey64 and the same copy of the game.", style = JoeyTheme.type.small, color = JoeyTheme.colors.textDim,
                 modifier = Modifier.padding(horizontal = JoeyTheme.spacing.rowPadH).padding(bottom = 6.dp))
             NetOption("Host a room", Modifier.initialFocus(), detail = "On this Wi-Fi it shows up by itself. Anywhere else, share the room code") { model.netplayHost(game) }
@@ -308,12 +308,12 @@ fun NetplayGamePopup(model: LibraryModel) {
             if (wifi.isEmpty()) RoomsEmpty("No rooms on this Wi-Fi.")
             for (r in wifi) {
                 val have = games.any { it.md5.equals(r.md5, true) }
-                NetOption("${r.hostName}'s room", detail = if (have) roomLine(r.game, r.players) else "${shortGame(r.game)} · you don't have this game",
+                NetOption("${r.hostName}'s room", detail = if (have) roomLine(r.game, r.players, model.netPlaces(r.md5)) else "${shortGame(r.game)} · you don't have this game",
                     pingMs = r.pingMs, enabled = have) { model.netplayJoin(PlayTogether.Target(r.ip, r.port, r.hostName)) }
             }
             SectionLabel("Public rooms")
             if (publicHere.isEmpty()) RoomsEmpty("No public rooms for this game right now.")
-            for (r in publicHere) NetOption("${r.name}'s room", detail = roomLine(r.game, r.players), pingMs = pings["${r.ip}:${r.port}"]) {
+            for (r in publicHere) NetOption("${r.name}'s room", detail = roomLine(r.game, r.players, model.netPlaces(r.md5)), pingMs = pings["${r.ip}:${r.port}"]) {
                 model.netplayJoin(PlayTogether.Target(r.ip, r.port, r.name))
             }
             NetOption("Join by code", detail = "For a private room", value = "›") { joinCode = true }
@@ -402,7 +402,7 @@ fun NetplayRoomPopups(model: LibraryModel) {
     LaunchedEffect(go) { go?.let { model.netplayGo(it) { i -> context.startActivity(i) } } }
     when (state) {
         is PlayTogether.Hosting -> YourRoom(model, state)
-        is PlayTogether.InRoom -> TheirRoom(state)
+        is PlayTogether.InRoom -> TheirRoom(state, model.netPlaces(state.game.md5))
         // Joey 2026-11-10: a popup while a join connects (up to 5 s), B Cancel.
         is PlayTogether.Connecting -> JoeyDialog(onDismiss = { PlayTogether.leave() }, hints = listOf(Hint("B", "Cancel")), width = 470.dp) {
             Column {
@@ -463,12 +463,12 @@ private fun YourRoom(model: LibraryModel, s: PlayTogether.Hosting) {
     val slotFocus = remember { List(5) { androidx.compose.ui.focus.FocusRequester() } }
     var followTo by remember { mutableIntStateOf(0) }
     LaunchedEffect(followTo, s.players) {
-        if (followTo in 1..4) { try { slotFocus[followTo].requestFocus() } catch (e: IllegalStateException) { }; followTo = 0 }
+        if (followTo in 1..s.game.places) { try { slotFocus[followTo].requestFocus() } catch (e: IllegalStateException) { }; followTo = 0 }
     }
     JoeyDialog(onDismiss = { PlayTogether.leave() }, hints = listOf(Hint("A", "Select"), Hint("X", "Move a player"), Hint("B", "Back")), width = 640.dp,
         onPadButton = { k ->
-            if (k == KeyEvent.KEYCODE_BUTTON_X && focusedSlot in 1..4 && PlayTogether.movePlayer(focusedSlot))
-                followTo = com.joeysretro.joey64.netplay.LobbyLines.nextSlot(focusedSlot)
+            if (k == KeyEvent.KEYCODE_BUTTON_X && focusedSlot in 1..s.game.places && PlayTogether.movePlayer(focusedSlot))
+                followTo = com.joeysretro.joey64.netplay.LobbyLines.nextSlot(focusedSlot, s.game.places)
         }) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             LandAgain()
@@ -485,7 +485,7 @@ private fun YourRoom(model: LibraryModel, s: PlayTogether.Hosting) {
             ReachLine(s.reach)
             TwoColumns(gap = 18.dp, scroll = false, left = {
                 com.joeysretro.joey64.launcher.components.SectionLabel("Players")
-                for (n in 1..4) {
+                for (n in 1..s.game.places) {
                     val p = s.players.firstOrNull { it.slot == n }
                     val line = when {
                         p == null -> null
@@ -513,7 +513,7 @@ private fun YourRoom(model: LibraryModel, s: PlayTogether.Hosting) {
 }
 
 @Composable
-private fun TheirRoom(s: PlayTogether.InRoom) {
+private fun TheirRoom(s: PlayTogether.InRoom, places: Int) {
     val c = JoeyTheme.colors
     val host = s.hostName.ifEmpty { "The host" }
     JoeyDialog(onDismiss = { PlayTogether.leave() }, hints = listOf(Hint("A", "Select"), Hint("B", "Leave")), width = 640.dp) {
@@ -522,7 +522,7 @@ private fun TheirRoom(s: PlayTogether.InRoom) {
             PopupTitle("$host's room", shortGame(s.game.title))
             TwoColumns(gap = 18.dp, scroll = false, left = {
                 com.joeysretro.joey64.launcher.components.SectionLabel("Players")
-                for (n in 1..4) {
+                for (n in 1..places) {
                     val p = s.players.firstOrNull { it.slot == n }
                     val line = when {
                         p == null -> null

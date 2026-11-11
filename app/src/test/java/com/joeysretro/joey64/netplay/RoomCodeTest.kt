@@ -66,6 +66,12 @@ class RoomCodeTest {
         assertEquals(mapOf<String?, Int>(null to 2, "sam" to 1), LobbyLines.move(mapOf<String?, Int>(null to 1, "sam" to 2), null))
         assertEquals(3, LobbyLines.freeSlot(listOf(1, 2, 4)))
         assertNull(LobbyLines.freeSlot(listOf(1, 2, 3, 4)))
+        // A 2-player game's room (Joey 2026-11-10: "Yes, cap it"): two places, X wraps 2 to 1.
+        assertNull(LobbyLines.freeSlot(listOf(1, 2), places = 2))
+        assertEquals(2, LobbyLines.freeSlot(listOf(1), places = 2))
+        assertEquals(1, LobbyLines.nextSlot(2, places = 2))
+        assertEquals(3, LobbyLines.nextSlot(2, places = 3))
+        assertEquals(mapOf("host" to 2, "sam" to 1), LobbyLines.move(mapOf("host" to 1, "sam" to 2), "sam", places = 2))
     }
 
     @Test fun publicList() {

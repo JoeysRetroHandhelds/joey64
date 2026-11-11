@@ -46,7 +46,8 @@ object PlayTogether {
     private const val SERVER_WAIT_MS = 30_000L
 
     data class Me(val name: String, val device: String)
-    data class Game(val title: String, val md5: String, val file: String)
+    /** [places]: how many players the room takes, the game's most (Joey 2026-11-10: a 2-player game's room has 2). */
+    data class Game(val title: String, val md5: String, val file: String, val places: Int = 4)
     enum class Reach { Looking, Anywhere, RouterSaidNo, SharedAddress, AllPortsTaken }
     data class Player(val slot: Int, val name: String, val device: String, val pingMs: Int?, val you: Boolean, val host: Boolean, val thisWifi: Boolean)
 
@@ -205,7 +206,7 @@ object PlayTogether {
         outsideCode = null
         reach = Reach.Looking
         public = false
-        JLog.i(TAG, "room open for ${game.title} on port $hostPort (this Wi-Fi ${lanAddress() ?: "?"})")
+        JLog.i(TAG, "room open for ${game.title} (${game.places} players) on port $hostPort (this Wi-Fi ${lanAddress() ?: "?"})")
         publishHost()
         val port = hostPort
         upnpQueue.execute { NativeBridge.netplayUpnpOpen(port) }
@@ -259,7 +260,7 @@ object PlayTogether {
                         val md5 = f[4].lowercase()
                         if (md5 != game.md5.lowercase()) { synchronized(out) { out.print("MISMATCH\n"); out.flush() }; JLog.i(TAG, "${f[2]} has another copy"); break }
                         val j = Joiner(sock, out, f[2].ifEmpty { "Player" }, f[3], isPrivate(sock.inetAddress))
-                        val slot = synchronized(lock) { LobbyLines.freeSlot(slots.values)?.also { slots[j] = it } }
+                        val slot = synchronized(lock) { LobbyLines.freeSlot(slots.values, game.places)?.also { slots[j] = it } }
                         if (slot == null) { synchronized(out) { out.print("FULL\n"); out.flush() }; JLog.i(TAG, "${j.name} turned away: the room is full"); break }
                         joiner = j
                         j.send(LobbyLines.line("WELCOME", slot))
@@ -358,13 +359,14 @@ object PlayTogether {
     /** X on a player (approved mockup screen 3): to the next number, swapping with whoever has it. */
     /** X on a player: they move to the next number (swapping); false when [slot] is empty. */
     fun movePlayer(slot: Int): Boolean {
+        val places = hostGame?.places ?: 4
         synchronized(lock) {
             // The host's key is null, so look for the entry: an empty number has none and nothing moves.
             val entry = slots.entries.firstOrNull { it.value == slot } ?: return false
-            val moved = LobbyLines.move(slots.toMap(), entry.key)
+            val moved = LobbyLines.move(slots.toMap(), entry.key, places)
             slots.clear(); slots.putAll(moved)
         }
-        JLog.i(TAG, "player $slot moved to ${LobbyLines.nextSlot(slot)}")
+        JLog.i(TAG, "player $slot moved to ${LobbyLines.nextSlot(slot, places)}")
         publishHost()
         // Called from the UI (X): socket writes go off the main thread (StrictMode killed the launcher).
         scope.launch { sendPlayers() }

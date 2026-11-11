@@ -868,7 +868,13 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     /** The library's game with [md5], or null. */
     fun gameByMd5(md5: String): LibraryGame? = _all.value?.firstOrNull { it.md5.equals(md5, ignoreCase = true) }
 
-    private fun netGame(g: LibraryGame) = com.joeysretro.joey64.netplay.PlayTogether.Game(g.title, g.md5.lowercase(), g.title)
+    private fun netGame(g: LibraryGame) = com.joeysretro.joey64.netplay.PlayTogether.Game(g.title, g.md5.lowercase(), g.title, netPlaces(g))
+
+    /** A room's places: the game's most players (n64-players.tsv), 2-4; 4 when the game isn't known. */
+    fun netPlaces(g: LibraryGame): Int = (playersOf(g) ?: 4).coerceIn(2, 4)
+
+    /** The same for a room's game by its MD5: 4 when it isn't in this library. */
+    fun netPlaces(md5: String): Int = _all.value?.firstOrNull { it.md5.equals(md5, true) }?.let { netPlaces(it) } ?: 4
 
     /** Host a room for [game]: false when no room port could be opened. */
     fun netplayHost(game: LibraryGame): Boolean {

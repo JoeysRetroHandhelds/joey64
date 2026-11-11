@@ -51,15 +51,16 @@ object LobbyLines {
     }
 
     /** The next number for X (approved mockup 2026-11-10 screen 3): 1 -> 2 -> 3 -> 4 -> 1. */
-    fun nextSlot(slot: Int) = slot % 4 + 1
+    /** The next player number in a room of [places] (the game's most players, 2-4), round to 1 after the last. */
+    fun nextSlot(slot: Int, places: Int = 4) = slot % places.coerceIn(1, 4) + 1
 
     /** Moves [slot]'s player to the next number, swapping with whoever has it. [slots]: player key -> slot. */
-    fun <K> move(slots: Map<K, Int>, who: K): Map<K, Int> {
+    fun <K> move(slots: Map<K, Int>, who: K, places: Int = 4): Map<K, Int> {
         val from = slots[who] ?: return slots
-        val to = nextSlot(from)
+        val to = nextSlot(from, places)
         return slots.mapValues { (k, s) -> when { k == who -> to; s == to -> from; else -> s } }
     }
 
-    /** The lowest number nobody has, or null when all four are taken. */
-    fun freeSlot(taken: Collection<Int>) = (1..4).firstOrNull { it !in taken }
+    /** The lowest number nobody has, or null when all [places] are taken. */
+    fun freeSlot(taken: Collection<Int>, places: Int = 4) = (1..places.coerceIn(1, 4)).firstOrNull { it !in taken }
 }

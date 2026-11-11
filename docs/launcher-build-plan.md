@@ -631,7 +631,7 @@ Checked on the Thor against a local server (2026-11-08): the question, What's se
 
 ## Waiting on Joey (asked from this chat; kept until answered)
 
-- Room size for 2-player games ASKED 2026-11-10: should a room for a game with fewer than 4 players offer only the game's count (n64-players.tsv)? Today it has 4 places and says "x of 4 players" (Cruis'n USA, Body Harvest).
+- Room size for 2-player games DECIDED (Joey 2026-11-10: "Yes, cap it"): a room has the game's most players as places (n64-players.tsv, 2-4). Built; Thor: Cruis'n USA's room lists 2 places, X wraps 2 to 1. Spectators: future roadmap (README Later).
 - Precompiled block lists DECIDED (Joey 2026-11-08: "(b) only, for now"): stage (b), lists per ROM MD5 shipped from the data repo like the cheat lists, yes; stage (c), lists collected from players, not now (it would need a consent switch Joey designs, an upload server and the Play Store data-safety entry). Stage (a), local lists, is on the emulator chat's queue.
 - Netplay online server DECIDED (Joey 2026-11-08: "Still leave it, but add to queue to test back of queue is fine"): no Joey64 relay server is built now; trying one is queued as the last item (a test of a Joey64-run relay, for example on the Joey64 Cloudflare account, once netplay itself works).
 - Email history CLOSED (Joey 2026-11-08: "Move on from this"): the GitHub settings and the Support purge of PR refs are left to Joey; not asked again.

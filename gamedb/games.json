@@ -127,7 +127,7 @@
       ],
       "issues": [
         {"status": "open", "devices": "Flip", "what": "first launch stutters while shaders compile: 93-108 ms worst frames, 40 slow frames per window (warm 40-43 ms)", "evidence": "hitch bench; shader pre-build list is item 20"},
-        {"status": "open", "devices": "Flip", "what": "white glow over the floor in one of two runs with the new parallel-RDP; check in the next Flip screenshots", "evidence": "screenshot review 2026-11-04"}
+        {"status": "parked", "devices": "Flip", "what": "white glow over the floor in one of two runs with the new parallel-RDP (2026-11-04); not seen since: 2 runs from Joey's MM state (Majora's Wrath fight), 6 screenshots, floor drawn normally (core audit3-1, 2026-11-11); parked until it shows again", "evidence": "screenshot review 2026-11-04; flip-lists1-mm (next128)"}
       ],
       "notes": ["HLE audio: +14-19% on the Flip", "mixes louder than SM64, as on hardware", "intro at ~30 s: a short burst of audio underruns on the Duo, 12-13 with the smoothed audio wait (default above 60 Hz since 6de8bb8) vs 5-6 without (chain72)"]
     },

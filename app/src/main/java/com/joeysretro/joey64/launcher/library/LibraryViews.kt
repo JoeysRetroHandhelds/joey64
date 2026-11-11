@@ -69,11 +69,17 @@ object LibraryViews {
     fun search(games: List<LibraryGame>, query: String): List<LibraryGame> {
         val words = fold(query).split(' ').filter { it.isNotEmpty() }
         if (words.isEmpty()) return emptyList()
-        return games.filter { g -> val t = fold(g.title); words.all { it in t } }
+        return games.filter { g -> val t = folded.getOrPut(g.title) { fold(g.title) }; words.all { it in t } }
     }
 
+    // Each key typed searches every title: with 1,231 games (2026-11-11) folding them all again, with a new Regex for
+    // each, made about 30% of frames late while typing on the Odin 3. The pattern is made once, and a title's folded
+    // form kept (a title changes only with a rename, which is a new key).
+    private val MARKS = Regex("\\p{M}+")
+    private val folded = java.util.concurrent.ConcurrentHashMap<String, String>()
+
     private fun fold(s: String): String =
-        java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "").lowercase()
+        java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replace(MARKS, "").lowercase()
 
     /** assets/n64-players.tsv (devtools/make-players.py): CRC32 (or "@" + a game code's first 3 characters), a tab, the most players. */
     fun parsePlayers(text: String): Map<String, Int> {

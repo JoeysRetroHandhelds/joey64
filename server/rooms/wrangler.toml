@@ -10,11 +10,11 @@ account_id = "f59e0cc0aa0d2f4f5c99f0659d1fb57e"
 workers_dev = true
 preview_urls = false
 
-# The rooms database. Not created yet: `wrangler d1 create joey64-rooms` (needs Joey's go), then put its id here.
+# The rooms database (created 2026-11-10 in the Joey64 account, Joey's go).
 [[d1_databases]]
 binding = "DB"
 database_name = "joey64-rooms"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "1be857c6-947e-4d4c-8568-11073b8c36f6"
 
 # Per IP address, counted only: a listed room posts every 30 s, the Netplay page reads every 10 s.
 [[ratelimits]]

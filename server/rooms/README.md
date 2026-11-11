@@ -1,8 +1,8 @@
 # joey64-rooms
 
 The worldwide list of public Netplay rooms (Joey 2026-11-10: "Our Cloudflare Worker"): a Cloudflare Worker with a
-D1 database, in the Joey64 account like `server/reports`. **Not deployed yet**: the deploy and the D1 database
-need Joey's go (`wrangler.toml` still has a placeholder `database_id`).
+D1 database, in the Joey64 account like `server/reports`. Deployed 2026-11-10 (Joey's go) at
+`https://joey64-rooms.joeysretrohandhelds.workers.dev`, D1 `joey64-rooms` (region WNAM).
 
 Only public rooms that can be reached from anywhere are listed. Private rooms are never sent here; rooms on the
 same Wi-Fi are found by the app's own UDP beacons, not through this Worker.
@@ -42,10 +42,16 @@ adb shell run-as com.joeysretro.joey64 sh -c 'echo http://127.0.0.1:8798 > files
 Remove `files/dev_rooms_base` and the reverse afterwards. Release builds use
 `https://joey64-rooms.joeysretrohandhelds.workers.dev`.
 
-## Deploying (after Joey's go)
+## Deploying
+
+This PC's default wrangler login is another account; Joey64's lives in its own folder (as `server/reports`):
 
 ```
-wrangler d1 create joey64-rooms          # put the id in wrangler.toml
-wrangler d1 execute joey64-rooms --remote --file schema.sql
+export XDG_CONFIG_HOME='C:\Users\Joey\.joey64-cloudflare'
+wrangler whoami   # the Joey64 account, f59e0cc0...
+npm test
 wrangler deploy
 ```
+
+Schema changes: steps that can run twice in `schema.sql`, run with
+`wrangler d1 execute joey64-rooms --remote --file schema.sql` before the deploy.

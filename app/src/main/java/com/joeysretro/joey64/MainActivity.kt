@@ -2157,9 +2157,35 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         focusRequest = null
     }
 
+    // In a netplay room (2026-11-10, Joey: "Wi-Fi lock first"): a low-latency Wi-Fi lock while the game is on screen,
+    // so Wi-Fi power saving doesn't hold packets back (Android applies it only in the foreground with the screen on).
+    // Dev: --es env N64_NETPLAY_WIFILOCK=0 leaves it off, for the before/after.
+    private var netWifiLock: android.net.wifi.WifiManager.WifiLock? = null
+    private fun netWifiLockSet(on: Boolean) {
+        val inRoom = android.system.Os.getenv("N64_NETPLAY") != null || android.system.Os.getenv("N64_NETPLAY_SERVE") != null
+        if (on && (!inRoom || android.system.Os.getenv("N64_NETPLAY_WIFILOCK") == "0")) return
+        runCatching {
+            if (on && netWifiLock == null) {
+                val wm = applicationContext.getSystemService(android.net.wifi.WifiManager::class.java) ?: return
+                netWifiLock = wm.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "joey64:netplay").apply {
+                    setReferenceCounted(false)
+                }
+            }
+            val l = netWifiLock ?: return
+            if (on && !l.isHeld) {
+                l.acquire()
+                JLog.i(TAG, "netplay: low-latency Wi-Fi lock on (held ${l.isHeld})")
+            } else if (!on && l.isHeld) {
+                l.release()
+                JLog.i(TAG, "netplay: low-latency Wi-Fi lock off")
+            }
+        }.onFailure { JLog.e(TAG, "netplay: Wi-Fi lock: $it") }
+    }
+
     override fun onPause() {
         super.onPause()
         if (!mine) return
+        netWifiLockSet(false)
         sessionMark(); session?.writeOpen()
         NativeBridge.pause(true)
         abandonAudioFocus()
@@ -2185,6 +2211,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (started) { reportGameState(loading = false); requestAudioFocus() }
         session?.tick(false, NativeBridge.framesRun(), NativeBridge.framesDrawn(), android.os.SystemClock.elapsedRealtime())
         resumed = true
+        netWifiLockSet(true)
         stats?.start()
         setRumbling(NativeBridge.rumble())
         if (!rumbleWatcher.isAlive) rumbleWatcher.start()

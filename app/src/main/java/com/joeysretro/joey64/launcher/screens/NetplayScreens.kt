@@ -411,7 +411,7 @@ private fun ReachLine(reach: PlayTogether.Reach) {
         PlayTogether.Reach.Anywhere -> Triple(R.drawable.ic_world_check, c.good, "Players anywhere can join with the code")
         PlayTogether.Reach.RouterSaidNo -> Triple(R.drawable.ic_world_off, c.warn, "Only players on this Wi-Fi can join. Your router didn't let Joey64 open a way in")
         PlayTogether.Reach.SharedAddress -> Triple(R.drawable.ic_world_off, c.warn, "Only players on this Wi-Fi can join. Your internet provider shares your address, so players outside can't reach you")
-        // Not drawn in a mockup: wording to be approved by Joey (2026-11-10).
+        // Not drawn in a mockup; wording approved by Joey 2026-11-10 ("Keep it").
         PlayTogether.Reach.AllPortsTaken -> Triple(R.drawable.ic_world_off, c.warn, "Only players on this Wi-Fi can join. Eight rooms on this Wi-Fi are already open to players outside")
     }
     Row(Modifier.padding(horizontal = JoeyTheme.spacing.rowPadH).padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {

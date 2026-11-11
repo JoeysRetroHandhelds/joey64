@@ -220,7 +220,8 @@ object PlayTogether {
         while (true) {
             val (st, outside) = NativeBridge.netplayOutside().split(' ', limit = 2).let { (it.getOrNull(0)?.toIntOrNull() ?: 0) to it.getOrNull(1).orEmpty().trim() }
             val r = when (st) { 1 -> Reach.Looking; 2 -> Reach.Anywhere; 5 -> Reach.SharedAddress; 0 -> Reach.Looking; else -> Reach.RouterSaidNo }
-            if (r == Reach.Anywhere) outsideCode = outside.substringBeforeLast(':').let { RoomCode.encode(it, hostPort) }
+            // The router may give another outside port than the room's own (another room on this network holds it).
+            if (r == Reach.Anywhere) outsideCode = RoomCode.encode(outside.substringBeforeLast(':'), outside.substringAfterLast(':').toIntOrNull() ?: hostPort)
             if (r != reach) { reach = r; JLog.i(TAG, "the router: $r" + if (r == Reach.Anywhere) " ($outside)" else ""); publishHost() }
             if (st != 1 && st != 0) return
             delay(250)
@@ -496,9 +497,11 @@ object PlayTogether {
                         "START" -> { JLog.i(TAG, "$hostName is starting the game"); sock.soTimeout = (SERVER_WAIT_MS + 5000).toInt() }
                         "GO" -> {
                             val s = f.getOrNull(1)?.toIntOrNull() ?: slot
-                            val port = f.getOrNull(2)?.toIntOrNull() ?: target.port
+                            // The game's room server takes over the room's port, so the game goes where the lobby was
+                            // reached: from outside that is the router's outside port, which can differ from the host's own.
+                            val port = target.port
                             val g = game ?: break
-                            JLog.i(TAG, "go: player $s on port $port")
+                            JLog.i(TAG, "go: player $s on port $port (the host's own ${f.getOrNull(2) ?: "?"})")
                             _state.value = Idle
                             _go.value = Go(g.md5, "${target.ip}:$port:$s", me.name)
                             gone = false; break

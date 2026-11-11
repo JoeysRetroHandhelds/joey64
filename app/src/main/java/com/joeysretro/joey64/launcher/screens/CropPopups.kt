@@ -182,7 +182,7 @@ internal fun CropPanel(saveName: String, onDone: () -> Unit) {
     }
     fun save(n: Int) {
         val change = mapOf(VideoKey.Crop to n.toString())
-        if (allGames) store.saveAll(all + change) else store.saveGame(saveName, own + change)
+        if (allGames) store.saveAll(store.all() + change) else store.saveGame(saveName, (store.game(saveName) ?: emptyMap()) + change)
         version++
         show(n)
     }

@@ -1,3 +1,4 @@
+import java.security.MessageDigest
 import java.util.Properties
 
 plugins {
@@ -35,7 +36,46 @@ fun ssScramble(s: String): String {
 }
 val copyCoreVersion by tasks.registering(Copy::class) {
     from(rootProject.file("core-version.txt"))
+    // The bundled drivers' names for the stats overlay (BundledDrivers.kt; code audit 3, p7 L2).
+    from(rootProject.file("devtools/drivers/bundled.json")) { rename { "bundled-drivers.json" } }
     into(buildInfoAssets)
+}
+
+// Release check (code audit 3, p7 L1): the core and the bundled drivers aren't committed (*.so), so a release build from
+// a clean checkout packed an APK that runs no game, and a hand-copied core named the wrong commit in About, the reports
+// and the source offer. Fails on a missing file or one whose md5 isn't the one core-version.txt or
+// devtools/drivers/bundled.json records; librashader and libc++_shared only have to be there. Runs before preReleaseBuild.
+val checkBundledFiles by tasks.registering {
+    val jni = file("src/main/jniLibs/arm64-v8a")
+    val drivers = file("src/main/assets/drivers")
+    val coreVersion = rootProject.file("core-version.txt")
+    val bundledJson = rootProject.file("devtools/drivers/bundled.json")
+    doLast {
+        fun md5(f: File): String {
+            val md = MessageDigest.getInstance("MD5")
+            f.inputStream().use { i ->
+                val buf = ByteArray(1 shl 16)
+                while (true) { val n = i.read(buf); if (n < 0) break; md.update(buf, 0, n) }
+            }
+            return md.digest().joinToString("") { "%02x".format(it) }
+        }
+        val problems = mutableListOf<String>()
+        fun expect(f: File, want: String?, from: String) {
+            if (!f.isFile) { problems += "missing: $f"; return }
+            if (want == null) { problems += "$from has no md5 for ${f.name}"; return }
+            val got = md5(f)
+            if (got != want.lowercase()) problems += "$f: md5 $got, $from says $want"
+        }
+        expect(File(jni, "libjoey64_libretro_android.so"),
+            Regex("(?m)^md5: *([0-9a-fA-F]{32})").find(coreVersion.readText())?.groupValues?.get(1), "core-version.txt")
+        @Suppress("UNCHECKED_CAST")
+        val list = (groovy.json.JsonSlurper().parse(bundledJson) as Map<String, Any?>)["drivers"] as List<Map<String, Any?>>
+        for (d in list) expect(File(drivers, d["file"] as String), d["md5"] as String?, "bundled.json")
+        for (name in listOf("liblibrashader_capi.so", "libc++_shared.so"))
+            if (!File(jni, name).isFile) problems += "missing: ${File(jni, name)}"
+        if (problems.isNotEmpty()) throw GradleException("Release check:\n  " + problems.joinToString("\n  "))
+        logger.lifecycle("Release check: the core and ${list.size} drivers are the recorded ones")
+    }
 }
 
 android {
@@ -120,3 +160,4 @@ dependencies {
 }
 
 tasks.named("preBuild") { dependsOn(copyCoreVersion) }
+afterEvaluate { tasks.named("preReleaseBuild") { dependsOn(checkBundledFiles) } }

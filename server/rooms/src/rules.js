@@ -5,6 +5,11 @@ import { decode } from "./code.js";
 export const TTL_MS = 75_000;
 export const MAX_ROOMS = 300;
 export const MAX_PER_ADDRESS = 4;
+/**
+ * Rooms posted over IPv6, whose code's IPv4 address can't be checked against the poster's (code audit 3, M24): at most
+ * this many in all and one per /64, and they never replace another room's code, so a verified host keeps its place.
+ */
+export const MAX_UNVERIFIED = 50;
 const HEX32 = /^[0-9a-f]{32}$/;
 
 export class Invalid extends Error {}

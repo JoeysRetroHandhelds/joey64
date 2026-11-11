@@ -69,8 +69,10 @@ class ControlsStore(private val dir: File) {
         val all = profiles()
         val p = all.firstOrNull { it.name == old } ?: return false
         if (new.isBlank() || all.any { it.name != old && it.name.equals(new, ignoreCase = true) }) return false
-        removeProfile(old)
-        write(profileFile(new), p.copy(name = new).toJson())
+        // The new file first and the old one after: a failed write keeps the profile (code audit 3, p4 L8). Names that
+        // differ only in case share one file.
+        if (!written(profileFile(new), p.copy(name = new).toJson())) return false
+        if (profileFile(new) != profileFile(old)) removeProfile(old)
         return true
     }
 
@@ -86,15 +88,17 @@ class ControlsStore(private val dir: File) {
         return try { JSONObject(f.readText()) } catch (e: Exception) { JLog.e(TAG, "can't read ${f.name}: $e"); null }
     }
 
-    private fun write(f: File, o: JSONObject) {
-        try {
-            f.parentFile?.mkdirs()
-            val part = File(f.parentFile, f.name + ".part")
-            part.writeText(o.toString(1))
-            if (!part.renameTo(f)) { f.delete(); if (!part.renameTo(f)) throw java.io.IOException("can't rename ${part.name}") }
-        } catch (e: Exception) {
-            JLog.e(TAG, "can't write ${f.name}: $e")
-        }
+    private fun write(f: File, o: JSONObject) { written(f, o) }
+
+    /** Writes [o] to [f] whole (a part file renamed in); false, logged, when it couldn't. */
+    private fun written(f: File, o: JSONObject): Boolean = try {
+        f.parentFile?.mkdirs()
+        val part = File(f.parentFile, f.name + ".part")
+        part.writeText(o.toString(1))
+        if (!part.renameTo(f)) { f.delete(); if (!part.renameTo(f)) throw java.io.IOException("can't rename ${part.name}") }
+        true
+    } catch (e: Exception) {
+        JLog.e(TAG, "can't write ${f.name}: $e"); false
     }
 
     companion object {

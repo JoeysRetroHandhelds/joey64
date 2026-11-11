@@ -13,6 +13,14 @@ CREATE TABLE IF NOT EXISTS rooms (
   players  INTEGER NOT NULL,  -- 1-4 in the room now
   code     TEXT NOT NULL UNIQUE,  -- the room code ("K7Q4MD2X"): address and port
   created  INTEGER NOT NULL,  -- ms, first post
-  seen     INTEGER NOT NULL   -- ms, last post
+  seen     INTEGER NOT NULL,  -- ms, last post
+  verified INTEGER NOT NULL DEFAULT 0,  -- 1: posted over IPv4 from the code's own address (code audit 3, M24)
+  via      TEXT               -- posted over IPv6: SHA-256 of the day's salt and the poster's /64 (one room each)
 );
 CREATE INDEX IF NOT EXISTS rooms_seen ON rooms (seen);
+
+-- The salt for the day's IPv6 /64 hashes, made by the day's first such post; earlier days' are deleted then.
+CREATE TABLE IF NOT EXISTS salts (
+  day   TEXT PRIMARY KEY,  -- yyyy-mm-dd, UTC
+  salt  TEXT NOT NULL
+) WITHOUT ROWID;

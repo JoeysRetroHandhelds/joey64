@@ -145,8 +145,9 @@ object LogFiles {
 
     private fun logIntent(intent: Intent?) {
         if (intent == null) return
-        val extras = intent.extras?.keySet()?.joinToString { k -> "$k=${@Suppress("DEPRECATION") intent.extras?.get(k)}" } ?: "none"
-        JLog.i(TAG, "intent: action ${intent.action}, data ${intent.data}, type ${intent.type}, extras $extras")
+        // Share logs sends these: folder names and other players' addresses stay out (code audit 3, p1 L4).
+        val extras = intent.extras?.keySet()?.joinToString { k -> "$k=${LogMask.extra(k, @Suppress("DEPRECATION") intent.extras?.get(k))}" } ?: "none"
+        JLog.i(TAG, "intent: action ${intent.action}, data ${intent.data?.let { LogMask.uri(it.toString()) }}, type ${intent.type}, extras $extras")
     }
 
     private fun cpuMaxFreqs(): String {

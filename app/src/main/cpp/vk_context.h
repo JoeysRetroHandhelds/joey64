@@ -36,6 +36,12 @@ public:
     void attachWindow(ANativeWindow* win); // nullptr detaches (swapchain + surface destroyed)
     void resizeSwapchain();                // rebuild at the window's current size
     bool hasWindow() const { return swapchain_ != VK_NULL_HANDLE; }
+    // A window without a swapchain (its create failed) or whose surface was lost: the run loop calls retrySwapchain
+    // every 250 ms, or for a lost surface attaches the window again (code audit 3, p5 L1). Before, the screen stayed
+    // black until the next surface change.
+    bool needsSwapchain() const { return surface_ != VK_NULL_HANDLE && swapchain_ == VK_NULL_HANDLE && !lost_; }
+    bool surfaceLost() const { return surfaceLost_; }
+    void retrySwapchain();
     uint64_t refreshNs() const { return refreshNs_; } // panel refresh period (display timing), 0 = unknown
 
     // Around retro_run: acquire a swapchain image (= sync index) and present it afterwards.
@@ -48,6 +54,10 @@ public:
     void showAgain();
     // Fast-forward: present without vsync. Applied (swapchain rebuilt) at the next beginFrame.
     void setUnthrottled(bool on) { wantUnthrottled_ = on; }
+    // The GPU stopped answering: a submit failed, VK_ERROR_DEVICE_LOST, or a frame's work wasn't done in 5 s (code audit
+    // 3, M12: the next frame waited for its fence for good, then the main thread's stop for the emulation thread).
+    // beginFrame then refuses every frame; the host stops the game.
+    bool lost() const { return lost_; }
     // The game's frame rate (60, or 50 for PAL), for the swap interval on fast screens.
     void setContentRate(double fps) { contentHz_ = fps; }
     // Sharp display: scale the core's image up by whole numbers with nearest filtering first, then
@@ -72,9 +82,15 @@ public:
     void destroy();
 
 private:
+    void markLost(const char* what, VkResult r);
+    bool waitFrameFence(uint32_t i);
+    std::atomic<bool> lost_{false};
     bool createSwapchain();
     void startSwapchain();
     void destroySwapchain();
+    void loseSurface(const char* where);
+    bool surfaceLost_ = false;
+    uint32_t swapFails_ = 0; // failed creates in a row (their log lines are thinned out)
     void present(bool newImage);
     bool acquireImage();
     void submitSkipped(bool newImage);

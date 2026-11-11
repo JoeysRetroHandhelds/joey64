@@ -1,5 +1,5 @@
 {
-  "_comment": "Vulkan drivers the app bundles (app/src/main/assets/drivers) and the GitHub releases they come from. devtools/check-drivers.py compares each watched repo's newest matching release with 'release' here. After bundling a newer one, update release/md5 and the date.",
+  "_comment": "Vulkan drivers the app bundles (app/src/main/assets/drivers) and the GitHub releases they come from. devtools/check-drivers.py compares each watched repo's newest matching release with 'release' here. After bundling a newer one, update release, md5, shown (the stats overlay's name, read by the app) and the date, and the names in app/src/main/assets/licenses/mesa.txt. A release build checks every driver's md5 (checkBundledFiles in app/build.gradle.kts).",
   "drivers": [
     {
       "name": "Turnip Gen8 (StevenMXZ)",
@@ -8,6 +8,7 @@
       "repo": "StevenMXZ/Adreno-Tools-Drivers",
       "match": "Turnip Gen8",
       "release": "Turnip Gen8 V38 / Turnip v27.0.0-R1",
+      "shown": "Turnip Gen8 V38",
       "tag": "v27.0.0-R1",
       "md5": "61baaeaf2e4ed17ff9523da6ab820490",
       "bundled": "2026-11-02"
@@ -19,6 +20,7 @@
       "repo": "faux123/turnip-faux123-driver",
       "match": "",
       "release": "turnip_faux123 v1.2.7",
+      "shown": "Turnip faux123 v1.2.7",
       "tag": "v1.2.7",
       "md5": "46e1676b1edac4bcc23280a47d2c7a61",
       "bundled": "2026-11-06",

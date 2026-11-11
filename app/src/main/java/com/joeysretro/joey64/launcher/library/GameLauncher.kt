@@ -9,6 +9,7 @@ import android.util.Log
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import com.joeysretro.joey64.MainActivity
+import com.joeysretro.joey64.ZipNames
 import com.joeysretro.joey64.launcher.data.GameFile
 import com.joeysretro.joey64.launcher.data.LibraryDb
 import com.joeysretro.joey64.launcher.data.LibraryGame
@@ -114,12 +115,16 @@ class GameLauncher(private val context: Context, private val db: LibraryDb) {
         } else {
             val input = context.contentResolver.openInputStream(f.uri.toUri()) ?: return null
             var out: File? = null
-            ZipInputStream(input.buffered(256 * 1024)).use { zip ->
-                while (out == null) {
-                    val e = zip.nextEntry ?: break
-                    if (e.isDirectory || ArchiveReader.skip(e.name)) continue
-                    out = unpackEntry(e.name, zip, dir, f)
+            try {
+                ZipInputStream(input.buffered(256 * 1024), ZipNames).use { zip ->
+                    while (out == null) {
+                        val e = zip.nextEntry ?: break
+                        if (e.isDirectory || ArchiveReader.skip(e.name)) continue
+                        out = unpackEntry(e.name, zip, dir, f)
+                    }
                 }
+            } catch (e: IllegalArgumentException) {   // an entry flagged UTF-8 whose name isn't (code audit 3, p3 L2)
+                JLog.w(TAG, "can't read ${f.name}: $e")
             }
             out
         } ?: return null

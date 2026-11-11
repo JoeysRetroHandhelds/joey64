@@ -52,6 +52,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.platform.LocalContext
@@ -304,18 +308,20 @@ private fun GameTile(game: LibraryGame, cover: File?, names: com.joeysretro.joey
             .aspectRatio(1.45f)
             .coverSelection(focused)
             .background(c.chip, shape)
-            .pressable(source, onLongClick = onOptions, onClick = onClick),
+            .pressable(source, onLongClick = onOptions, onClick = onClick)
+            // TalkBack (code audit 3, M33): the game's name, picture or not, and why it's greyed.
+            .semantics { contentDescription = name; if (greyed) stateDescription = "Its ROMs folder can't be reached" },
         contentAlignment = Alignment.Center,
     ) {
         val p = picture
         when {
             // Greyed while its ROMs folder can't be reached (approved problem screens 2026-11-08, screen 3).
-            p != null -> Image(p, contentDescription = game.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(shape),
+            p != null -> Image(p, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(shape),
                 alpha = if (greyed) 0.35f else 1f,
                 colorFilter = if (greyed) androidx.compose.ui.graphics.ColorFilter.colorMatrix(androidx.compose.ui.graphics.ColorMatrix().apply { setToSaturation(0f) }) else null)
             cover == null && names == com.joeysretro.joey64.launcher.library.NamesMode.NoArt ->
                 Text(name, style = JoeyTheme.type.tile, color = if (greyed) c.textFaint else c.textSecondary, textAlign = TextAlign.Center,
-                    maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(10.dp))
+                    maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(10.dp).clearAndSetSemantics { })
         }
     }
     if (names == com.joeysretro.joey64.launcher.library.NamesMode.Under) {
@@ -323,7 +329,7 @@ private fun GameTile(game: LibraryGame, cover: File?, names: com.joeysretro.joey
         // the others end in "...".
         Text(name, style = JoeyTheme.type.note, color = if (focused) c.gold else if (greyed) c.textFaint else c.textSecondary, maxLines = 1,
             overflow = if (focused) TextOverflow.Clip else TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 6.dp, start = 2.dp, end = 2.dp)
+            modifier = Modifier.padding(top = 6.dp, start = 2.dp, end = 2.dp).clearAndSetSemantics { }
                 .then(if (focused) Modifier.basicMarquee(iterations = Int.MAX_VALUE, animationMode = MarqueeAnimationMode.Immediately,
                     initialDelayMillis = 900, repeatDelayMillis = 1_500) else Modifier))
     }

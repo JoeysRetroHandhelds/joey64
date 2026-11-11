@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import com.joeysretro.joey64.JLog
+import com.joeysretro.joey64.ZipNames
 import com.joeysretro.joey64.launcher.library.ArchiveReader
 import java.io.InputStream
 import java.security.MessageDigest
@@ -125,7 +126,7 @@ object BiosImport {
                 } else {
                     r.openInputStream(uri)?.use { input ->
                         if (ArchiveReader.isZip(name)) {
-                            val zip = ZipInputStream(input.buffered())
+                            val zip = ZipInputStream(input.buffered(), ZipNames)
                             while (true) {
                                 val e = zip.nextEntry ?: break
                                 if (!e.isDirectory && !ArchiveReader.skip(e.name)) take(zip, found)
@@ -163,6 +164,7 @@ object BiosImport {
             out.write(buf, 0, k)
             if (out.size() > MAX_SIZE) return
         }
-        identify(out.toByteArray())?.let { found += it }
+        // One copy of each IPL: a folder of BIOS dumps can hold the same one many times, 4 MB each (code audit 3, p3 L1).
+        identify(out.toByteArray())?.let { got -> if (found.none { it.first == got.first }) found += got }
     }
 }

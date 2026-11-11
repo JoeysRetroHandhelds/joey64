@@ -34,6 +34,7 @@ import com.joeysretro.joey64.launcher.library.GameLauncher
 import com.joeysretro.joey64.launcher.theme.JoeyTheme
 import com.joeysretro.joey64.states.GameStates
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -56,14 +57,22 @@ fun GamesForPopup(
 ) {
     val context = LocalContext.current
     var games by remember { mutableStateOf(gamesWithOwn()) }
-    var titles by remember { mutableStateOf(emptyMap<String, String>()) }
+    // A game's own file is named by its save name made safe (ControlsStore.safe: reserved characters replaced, cut at
+    // 150): the library is asked by that form, and a pick passes on the game's real save name, so its tick and title
+    // show for such a name too (code audit 3, p2 L10). The counts are read here once, off the main thread (p2 L8).
+    var info by remember { mutableStateOf(emptyMap<String, OwnGame>()) }
     LaunchedEffect(games) {
-        titles = withContext(Dispatchers.IO) {
+        info = withContext(Dispatchers.IO) {
+            val db = LibraryDb.get(context)
             games.associateWith { g ->
-                try { LibraryDb.get(context).gameWithFile(g, GameStates::saveNameOf)?.title ?: g } catch (e: Exception) { g }
+                val save = try { db.fileNameWith(g) { com.joeysretro.joey64.controls.ControlsStore.safe(GameStates.saveNameOf(it)) } } catch (e: Exception) { null }
+                    ?.let(GameStates::saveNameOf) ?: g
+                val title = try { db.gameWithFile(save, GameStates::saveNameOf)?.title } catch (e: Exception) { null } ?: g
+                OwnGame(save, title, try { changeCount(g) } catch (e: Exception) { 0 })
             }
         }
     }
+    val chosen = { g: String -> g == target || (target != null && g == com.joeysretro.joey64.controls.ControlsStore.safe(target)) }
     var focusedGame by remember { mutableStateOf<String?>(null) }
     JoeyDialog(onDismiss = onDismiss, width = 470.dp,
         hints = if (focusedGame != null) listOf(Hint("A", "Select"), Hint("X", removeLabel), Hint("B", "Back"))
@@ -72,7 +81,7 @@ fun GamesForPopup(
             val g = focusedGame
             if (code == KeyEvent.KEYCODE_BUTTON_X && g != null) {
                 onRemoved(g); games = gamesWithOwn(); focusedGame = null
-                if (g == target) onPick(null, null)
+                if (chosen(g)) onPick(null, null)
             }
         }) {
         Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
@@ -81,10 +90,11 @@ fun GamesForPopup(
                 trailing = if (target == null) { _ -> PickerTick() } else null) { onPick(null, null) }
             if (games.isNotEmpty()) PopupDivider()
             for (g in games) {
-                val n = changeCount(g)
-                JoeyRow(titles[g] ?: g, Modifier.initialFocus(g == target), detail = if (n == 1) "1 change" else "$n changes",
+                val own = info[g]
+                // "" until the count is read: the row keeps its height.
+                JoeyRow(own?.title ?: g, Modifier.initialFocus(chosen(g)), detail = own?.changes?.let { n -> if (n == 1) "1 change" else "$n changes" } ?: "",
                     onFocused = { if (it) focusedGame = g else if (focusedGame == g) focusedGame = null },
-                    trailing = if (g == target) { _ -> PickerTick() } else null) { onPick(g, titles[g] ?: g) }
+                    trailing = if (chosen(g)) { _ -> PickerTick() } else null) { onPick(own?.save ?: g, own?.title ?: g) }
             }
             PopupDivider()
             JoeyRow("Pick a game", value = "›") { onPickGame() }
@@ -96,13 +106,19 @@ fun GamesForPopup(
 @Composable
 fun PickGamePopup(subtitle: String, onDismiss: () -> Unit, exclude: String? = null, onPick: (String, String) -> Unit) {
     val context = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     var games by remember { mutableStateOf<List<LibraryGame>?>(null) }
+    // A game whose files can't be read now (its ROMs folder can't be reached): said under the title, where A did
+    // nothing before; the look-up runs off the main thread, one at a time (code audit 3, p2 L9).
+    var cantRead by remember { mutableStateOf<String?>(null) }
+    var looking by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         games = withContext(Dispatchers.IO) { try { LibraryDb.get(context).libraryGames().filter { it.title != exclude } } catch (e: Exception) { JLog.e(TAG, "library: $e"); emptyList() } }
     }
     JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Back")), width = 470.dp) {
         Column {
             PopupTitle("Pick a game", subtitle)
+            cantRead?.let { PopupNote("$it: its ROMs folder can't be reached") }
             val list = games
             when {
                 list == null -> PopupNote("Reading the library")
@@ -110,9 +126,15 @@ fun PickGamePopup(subtitle: String, onDismiss: () -> Unit, exclude: String? = nu
                 else -> LazyColumn(Modifier.heightIn(max = 380.dp)) {
                     items(list, key = { it.id }) { g ->
                         JoeyRow(g.title, if (g == list.first()) Modifier.initialFocus() else Modifier) {
-                            val db = LibraryDb.get(context)
-                            val save = GameLauncher(context, db).saveNameFor(g)
-                            if (save != null) onPick(save, g.title) else JLog.e(TAG, "no readable file for ${g.title}")
+                            if (looking) return@JoeyRow
+                            looking = true
+                            scope.launch {
+                                val save = withContext(Dispatchers.IO) {
+                                    try { GameLauncher(context, LibraryDb.get(context)).saveNameFor(g) } catch (e: Exception) { JLog.e(TAG, "${g.title}: $e"); null }
+                                }
+                                looking = false
+                                if (save != null) onPick(save, g.title) else { JLog.e(TAG, "no readable file for ${g.title}"); cantRead = g.title }
+                            }
                         }
                     }
                 }
@@ -125,5 +147,8 @@ fun PickGamePopup(subtitle: String, onDismiss: () -> Unit, exclude: String? = nu
 fun PickerTick() {
     Icon(painterResource(R.drawable.ic_tick), contentDescription = "Chosen", tint = JoeyTheme.colors.gold, modifier = Modifier.size(18.dp))
 }
+
+/** A game with its own settings in a "<what> for" list: its real save name, title and how many rows it changes. */
+private data class OwnGame(val save: String, val title: String, val changes: Int)
 
 private const val TAG = "Joey64Games"

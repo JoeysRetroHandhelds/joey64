@@ -11,7 +11,8 @@ import java.io.File
  * When it trips, use the shared element it names (or grow that element), rather than deleting
  * the check.
  *
- * Covers the launcher package only (the emulator's MainActivity is its own thing).
+ * Covers the launcher package only (the emulator's MainActivity is its own thing); the in-game overlays drawn outside
+ * it with their own colours and sizes are listed, deliberately, in [overlaysOutside].
  */
 class SharedElementsTest {
 
@@ -32,6 +33,30 @@ class SharedElementsTest {
 
     private fun offenders(pattern: Regex, allowed: (String) -> Boolean) =
         sources.filter { !allowed(it.path) && pattern.containsMatchIn(it.code) }.map { it.path }
+
+    /**
+     * Drawn outside launcher/ with their own colours and sizes, on purpose (code audit 3, p8 L6): over any game picture
+     * they keep light text on a dark panel, so they don't follow Appearance's light mode or the type scale. A new file
+     * outside launcher/ that draws with Paint, its own sp sizes or plain white has to be added here, deliberately.
+     */
+    private val overlaysOutside = mapOf(
+        "StatsOverlay.kt" to "the stats overlay",
+        "netplay/NetChip.kt" to "the netplay players chip",
+        "touch/TouchDraw.kt" to "the touch controls",
+        "touch/TouchLayer.kt" to "the touch controls' window",
+        "video/PictureImages.kt" to "draws the Joey64 frame picture, not UI",
+    )
+
+    @Test fun overlaysOutsideTheLauncherAreDeliberate() {
+        val app = File("src/main/java/com/joeysretro/joey64")
+        val drawing = Regex("""override fun onDraw\(|\bPaint\(|TypedValue\.COMPLEX_UNIT_SP|setTextSize\(|Color\.WHITE""")
+        val found = app.walkTopDown().filter { it.isFile && it.extension == "kt" && !it.startsWith(root) }
+            .filter { drawing.containsMatchIn(it.readText()) }.map { it.relativeTo(app).invariantSeparatorsPath }.toSet()
+        assertTrue("draws its own UI outside launcher/ but isn't in overlaysOutside: ${found - overlaysOutside.keys}",
+            (found - overlaysOutside.keys).isEmpty())
+        assertTrue("in overlaysOutside but draws nothing of its own now: ${overlaysOutside.keys - found}",
+            (overlaysOutside.keys - found).isEmpty())
+    }
 
     @Test fun onePopupWindow() {
         // Every popup is JoeyDialog with its own contents; nothing opens another kind of window.

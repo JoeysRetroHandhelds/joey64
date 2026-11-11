@@ -43,12 +43,18 @@ may be missing. `underruns` is a count for the session. A crash `summary` for wh
 read: signal, fault address, abort message, the crashing thread's frames (library names, offsets, functions).
 
 `src/validate.js` checks every field and rejects the whole report on anything unexpected. Answers:
-204 stored, 400 bad report, 413 too big, 429 too many (10 posts a minute per IP address, 6 reports a day
-per install), 404/405 anything else. `GET /health` says `ok`.
+204 stored, 400 bad report, 413 too big, 429 too many (10 posts a minute per IP address, an IPv6 address by
+its /64; 6 reports a day per install; 3,000 rows written or 1 MB posted a day per address block, an IPv4 /24
+or an IPv6 /64; 80,000 rows written a day in all, under D1's free 100,000), 404/405 anything else.
+`GET /health` says `ok`. The daily caps came with code audit 3 (M3): before them one address could post about
+250 full reports in 25 minutes, use up D1's day, and every real report failed until 00:00 UTC.
 
 ## What is kept out
 
-- No IP address: the rate limiter counts by it, nothing stores it.
+- No IP address: the rate limiter counts by it, nothing stores it. An address block's share of the day (the
+  /24 or /64 above) is counted under a hash of the block and a random salt made for that day (tables `days`
+  and `posters`); the next day's first post deletes those counts and the salt, so no stored hash can be
+  matched to an address after its day.
 - No time finer than the day (UTC) a report arrived.
 - No account names (RetroAchievements or other), no folder or file paths, no ROM data. A title is the
   file name without its folder.
@@ -56,12 +62,13 @@ per install), 404/405 anything else. `GET /health` says `ok`.
 
 ## Files
 
-- `schema.sql`: the tables (reports, sessions, covers, crashes), as a new database gets them.
+- `schema.sql`: the tables (reports, sessions, covers, crashes; days and posters, the daily caps' counts), as a
+  new database gets them.
 - `migrations/`: changes for a database made before them, each run once (`0002-session-details.sql`: the
   session details, 2026-11-08; `0003-screen.sql`: the screen size, 2026-11-08; `0004-gpu-rules.sql`: Auto's driver and
   renderer rules, the start-up trial's level and who picked, 2026-11-09, read by `queries/rules.sql`). Run a migration before deploying the Worker that writes its columns.
 - `src/index.js`: the Worker (handlers only: a Worker's main module may export nothing else).
-- `src/validate.js`, `src/store.js`: checking and storing.
+- `src/validate.js`, `src/store.js`: checking and storing; `src/address.js`: address blocks and their hashes.
 - `queries/`: `missing-covers.sql` (covers to make for joey64-data), `replaced-covers.sql` (wrong
   downloads, for the app's `fixes.tsv`), `drivers.sql` (fps, underruns and crashes per GPU, driver,
   game and renderer, 3 sessions or more), `failed-boots.sql`, `crashes.sql`.
@@ -94,13 +101,17 @@ wrangler d1 execute joey64-reports --remote --file queries/missing-covers.sql
 `schema.sql` as steps that can run twice (`IF NOT EXISTS`); new columns go in `schema.sql` and a new
 `migrations/` file, which is run once with `--remote` before the deploy.
 
+The daily caps (code audit 3, not deployed yet) need their two tables first:
+`wrangler d1 execute joey64-reports --remote --file schema.sql` (the rest of it is already there and is left
+as it is), then `wrangler deploy`.
+
 ## Free plan limits (checked 2026-11-08, Cloudflare's pages of 2026-10-29/30)
 
 | Limit (free) | What one report uses | Room |
 |---|---|---|
 | Workers: 100,000 requests a day (reset 00:00 UTC; over it, error 1027) | 1 request | 100,000 reports a day; an install sends 1 a day (3 at most) |
 | Workers: 10 ms CPU a request | parsing and checking: a 263 KB report (4x the 64 KB cap) took 1.7 ms in node on JoeyPC | a full report is well inside it |
-| D1: 100,000 rows written a day | 2 for the report (row + index), 2 a session or cover (md5 index), 1 a crash | about 16,000 reports a day at 2 sessions each; a first report with 150 covers writes about 300 once |
+| D1: 100,000 rows written a day | 2 for the report (row + index), 2 a session or cover (md5 index), 1 a crash, 2 for the day's counts (`rowsOf`) | the Worker stops at 80,000 (about 10,000 reports a day at 2 sessions each); a first report with 150 covers writes about 300 once |
 | D1: 5 million rows read a day | the per-install count uses its index: a few rows | not a concern |
 | D1: 500 MB a database | about 450 bytes a report with one session (measured: 20,000 in SQLite, schema of 2026-11-08) | about 1.1 million sessions |
 | D1: 50 queries a request | 3 (the count, the report row, one batch) | fine |

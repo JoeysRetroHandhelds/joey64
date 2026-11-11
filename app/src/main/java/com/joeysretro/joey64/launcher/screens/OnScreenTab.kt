@@ -17,6 +17,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRestorer
@@ -80,8 +81,10 @@ fun OnScreenTab(onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean
     }
     val custom = o.stats == StatsMode.Custom
 
+    // Set once; it calls this composition's Y through rememberUpdatedState (the first one's `custom` was stale; code audit 3, M26).
+    val onY by rememberUpdatedState { if (popup == null) { if (focused != "what" || custom) reset(focused); true } else false }
     LaunchedEffect(Unit) {
-        onControl { ctl -> if (ctl == Control.Search && popup == null) { if (focused != "what" || custom) reset(focused); true } else false }
+        onControl { ctl -> if (ctl == Control.Search) onY() else false }
     }
     LaunchedEffect(focused, custom) {
         val y = Hint("Y", "Reset to default")

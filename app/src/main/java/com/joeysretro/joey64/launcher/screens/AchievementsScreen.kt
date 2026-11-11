@@ -360,10 +360,17 @@ private fun badgeFile(url: String): File? {
     val context = LocalContext.current
     var f by remember(url) { mutableStateOf(if (url.isEmpty()) null else RaBadges.kept(context, url)) }
     if (f == null && url.isNotEmpty()) LaunchedEffect(url) {
-        f = withContext(Dispatchers.IO) { RaBadges.await(context, url, 30_000) }
+        f = withContext(badgeWaits) { RaBadges.await(context, url, 30_000) }
     }
     return f
 }
+
+/**
+ * Badge waits get four threads of their own: each row whose badge isn't kept waits up to 30 s, and a long list scrolled
+ * offline held one IO thread per row, so the page's other reads waited behind them (code audit 3, p2 L13).
+ */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+private val badgeWaits = Dispatchers.IO.limitedParallelism(4)
 
 @Composable
 private fun gold(text: String) = buildAnnotatedString {

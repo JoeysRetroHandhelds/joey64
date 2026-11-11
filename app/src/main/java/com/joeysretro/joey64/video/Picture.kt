@@ -265,8 +265,10 @@ class PictureStore(private val dir: File) {
     fun rename(old: String, new: String, video: VideoStore): Boolean {
         val p = preset(old) ?: return false
         if (new.isBlank() || presets().any { it.name != p.name && it.name.equals(new, ignoreCase = true) }) return false
-        remove(p.name)
-        save(ShaderPreset(new, p.setup))
+        // The new file first and the old one after: a failed write (a full disk) keeps the preset and its Shader rows as
+        // they were (code audit 3, p4 L8). Names that differ only in case share one file.
+        if (!written(file(new), p.setup.toJson(new))) return false
+        if (file(new) != file(p.name)) remove(p.name)
         val from = Picture.PRESET + p.name
         val to = Picture.PRESET + new
         video.all().let { if (it[VideoKey.Shader] == from) video.saveAll(it + (VideoKey.Shader to to)) }
@@ -278,15 +280,17 @@ class PictureStore(private val dir: File) {
 
     private fun read(f: File): JSONObject? = try { JSONObject(f.readText()) } catch (e: Exception) { JLog.e(TAG, "can't read ${f.name}: $e"); null }
 
-    private fun write(f: File, o: JSONObject) {
-        try {
-            f.parentFile?.mkdirs()
-            val part = File(f.parentFile, f.name + ".part")
-            part.writeText(o.toString(1))
-            if (!part.renameTo(f)) { f.delete(); if (!part.renameTo(f)) throw java.io.IOException("can't rename ${part.name}") }
-        } catch (e: Exception) {
-            JLog.e(TAG, "can't write ${f.name}: $e")
-        }
+    private fun write(f: File, o: JSONObject) { written(f, o) }
+
+    /** Writes [o] to [f] whole (a part file renamed in); false, logged, when it couldn't. */
+    private fun written(f: File, o: JSONObject): Boolean = try {
+        f.parentFile?.mkdirs()
+        val part = File(f.parentFile, f.name + ".part")
+        part.writeText(o.toString(1))
+        if (!part.renameTo(f)) { f.delete(); if (!part.renameTo(f)) throw java.io.IOException("can't rename ${part.name}") }
+        true
+    } catch (e: Exception) {
+        JLog.e(TAG, "can't write ${f.name}: $e"); false
     }
 
     private companion object { const val TAG = "Joey64Video" }

@@ -5,7 +5,9 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
 import android.provider.OpenableColumns
+import com.joeysretro.joey64.Capped
 import com.joeysretro.joey64.JLog
+import com.joeysretro.joey64.ZipNames
 import java.io.File
 import java.util.zip.ZipInputStream
 
@@ -145,7 +147,7 @@ object GameBoyFiles {
 
     private fun zipHasGame(context: Context, uri: Uri): Boolean = try {
         context.contentResolver.openInputStream(uri)?.use { s ->
-            ZipInputStream(s.buffered()).use { z ->
+            ZipInputStream(s.buffered(), ZipNames).use { z ->
                 generateSequence { z.nextEntry }.any { !it.isDirectory && it.name.substringAfterLast('.', "").lowercase() in GAME_EXTENSIONS }
             }
         } ?: false
@@ -158,13 +160,19 @@ object GameBoyFiles {
     fun copyGame(context: Context, uri: String, name: String, outDir: File): File? = try {
         outDir.mkdirs(); outDir.listFiles()?.forEach { it.delete() }
         context.contentResolver.openInputStream(Uri.parse(uri))?.use { s ->
-            if (name.endsWith(".zip", true)) ZipInputStream(s.buffered()).use { z ->
+            if (name.endsWith(".zip", true)) ZipInputStream(s.buffered(), ZipNames).use { z ->
                 var e = z.nextEntry
                 while (e != null && (e.isDirectory || e.name.substringAfterLast('.', "").lowercase() !in GAME_EXTENSIONS)) e = z.nextEntry
-                e?.let { entry -> File(outDir, entry.name.substringAfterLast('/')).also { f -> f.outputStream().use { z.copyTo(it) } } }
-            } else File(outDir, name).also { f -> f.outputStream().use { s.copyTo(it) } }
+                e?.let { entry -> File(outDir, leaf(entry.name)).also { f -> f.outputStream().use { Capped.copy(z, it, Capped.PICKED_FILE, "The Game Boy game") } } }
+            } else File(outDir, leaf(name)).also { f -> f.outputStream().use { Capped.copy(s, it, Capped.PICKED_FILE, "The Game Boy game") } }
         }
     } catch (e: Exception) { JLog.e(TAG, "can't copy the Game Boy game $name: $e"); null }
+
+    /**
+     * The last part of [name] (from the controls file, or a zip entry's), so the copy stays in its folder: a hand-edited
+     * or restored controls file can hold any name (code audit 3, p4 L6).
+     */
+    private fun leaf(name: String) = name.substringAfterLast('/').substringAfterLast('\\').takeIf { it.isNotEmpty() && it != "." && it != ".." } ?: "game.gb"
 
     /** The Game Boy save copy's name in `saves/` for a play of [saveName]. */
     fun saveFileName(saveName: String) = "$saveName.gb.sav"
@@ -173,9 +181,11 @@ object GameBoyFiles {
      * Joey64's own copy of the Game Boy save for a play of [saveName] (the N64 game): files/saves/<saveName>.gb.sav, with
      * the save RAM, so it goes with the data folder (SrmSync), its moves and backups. The picked save ([save], a document
      * URI) is copied in when it isn't the one copied last (files/transferpak/<saveName>.source says which); none picked
-     * keeps whatever copy there is, or the core starts a new one. Returns the copy's path.
+     * keeps whatever copy there is, or the core starts a new one. Returns the copy's path, or null when the picked save
+     * couldn't be read or the copy written (code audit 3, M8: it was marked copied anyway, and the old copy played, another
+     * game's save maybe, with no word): then nothing changed, and the next start tries again.
      */
-    fun saveCopy(context: Context, saveName: String, save: String?): File {
+    fun saveCopy(context: Context, saveName: String, save: String?): File? = try {
         val dir = File(context.filesDir, "transferpak").apply { mkdirs() }
         val copy = File(File(context.filesDir, "saves").apply { mkdirs() }, saveFileName(saveName))
         // Built 2026-11-08 with the copy in files/transferpak/<saveName>.sav: moved once.
@@ -183,19 +193,23 @@ object GameBoyFiles {
         val source = File(dir, "$saveName.source")
         val from = save ?: "new"
         if (source.takeIf { it.exists() }?.readText() != from) {
+            // The picked save is read whole first, so one that can't be read changes nothing.
+            val tmp = File(dir, "$saveName.sav.tmp")
+            if (save != null) {
+                val input = context.contentResolver.openInputStream(Uri.parse(save)) ?: throw java.io.IOException("no stream")
+                input.use { s -> tmp.outputStream().use { s.copyTo(it) } }
+            }
             // The copy played until now isn't lost: it stays as <saveName>.prev.sav (one back).
             if (copy.exists()) copy.copyTo(File(dir, "$saveName.prev.sav"), true)
             if (save == null) copy.delete()
-            else try {
-                context.contentResolver.openInputStream(Uri.parse(save))?.use { s ->
-                    val tmp = File(dir, "$saveName.sav.tmp")
-                    tmp.outputStream().use { s.copyTo(it) }
-                    if (!tmp.renameTo(copy)) { tmp.copyTo(copy, true); tmp.delete() }
-                }
-            } catch (e: Exception) { JLog.e(TAG, "can't copy the Game Boy save $save: $e") }
+            else if (!tmp.renameTo(copy)) { tmp.copyTo(copy, true); tmp.delete() }
             source.writeText(from)
         }
-        return copy
+        copy
+    } catch (e: Exception) {
+        JLog.e(TAG, "can't copy the Game Boy save $save: $e")
+        File(File(context.filesDir, "transferpak"), "$saveName.sav.tmp").delete()
+        null
     }
 
     /** "Takes effect when the game next starts": a note for the log. */

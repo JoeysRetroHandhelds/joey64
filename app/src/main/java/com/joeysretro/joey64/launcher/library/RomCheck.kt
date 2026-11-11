@@ -3,6 +3,7 @@ package com.joeysretro.joey64.launcher.library
 import java.nio.channels.SeekableByteChannel
 import com.joeysretro.joey64.launcher.storage.FileCopy.readNBytesCompat
 import java.io.InputStream
+import com.joeysretro.joey64.ZipNames
 import java.util.zip.ZipInputStream
 
 /**
@@ -29,7 +30,7 @@ object RomCheck {
     }
 
     private fun zipHoldsRom(input: InputStream): Boolean = try {
-        val zip = ZipInputStream(input)
+        val zip = ZipInputStream(input, ZipNames)
         var found = false
         while (!found) {
             val e = zip.nextEntry ?: break
@@ -39,6 +40,8 @@ object RomCheck {
         }
         found
     } catch (e: java.util.zip.ZipException) {
+        false
+    } catch (e: IllegalArgumentException) {   // an entry flagged UTF-8 whose name isn't (code audit 3, p3 L2)
         false
     }
 }

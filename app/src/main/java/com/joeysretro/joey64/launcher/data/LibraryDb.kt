@@ -469,6 +469,17 @@ class LibraryDb private constructor(context: Context) :
         writableDatabase.delete("files", "tree_uri = ?", arrayOf(treeUri))
     }
 
+    /** Removes the files of every folder but [trees] (nothing when [trees] is empty); how many went. */
+    fun forgetFoldersBut(trees: Set<String>): Int {
+        if (trees.isEmpty()) return 0
+        val known = readableDatabase.rawQuery("SELECT DISTINCT tree_uri FROM files", null).use { c ->
+            buildList { while (c.moveToNext()) if (!c.isNull(0)) add(c.getString(0)) }
+        }
+        var n = 0
+        for (t in known) if (t !in trees) n += writableDatabase.delete("files", "tree_uri = ?", arrayOf(t))
+        return n
+    }
+
     fun forgetFiles(uris: Collection<String>) {
         if (uris.isEmpty()) return
         writableDatabase.transaction {
@@ -568,6 +579,14 @@ class LibraryDb private constructor(context: Context) :
         ).use { c -> if (c.moveToFirst()) LibraryGame(c.getLong(0), c.getString(1), c.getString(2), ArtKind.of(c.getString(3))) else null }
 
     /** The library game with a file whose [nameOf] (its save name) is [saveName]: whose recovery state it is. */
+    /** The newest file name (of a game) whose [nameOf] is [key], or null. */
+    fun fileNameWith(key: String, nameOf: (String) -> String): String? =
+        readableDatabase.rawQuery("SELECT name FROM files WHERE game_id IS NOT NULL ORDER BY seen_at DESC", null).use { c ->
+            var found: String? = null
+            while (found == null && c.moveToNext()) c.getString(0).let { if (nameOf(it) == key) found = it }
+            found
+        }
+
     fun gameWithFile(saveName: String, nameOf: (String) -> String): LibraryGame? {
         val id = readableDatabase.rawQuery("SELECT name, game_id FROM files WHERE game_id IS NOT NULL ORDER BY seen_at DESC", null).use { c ->
             var found: Long? = null

@@ -40,6 +40,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.onSizeChanged
@@ -267,6 +269,7 @@ internal fun SettingsTabs(
                 .onSizeChanged { sizes[i] = it.width }
                 .onFocusChanged { if (it.isFocused) scope.launch { show(i) } }
                 .then(m)
+                .then(if (i in dots) Modifier.semantics { stateDescription = "Active challenge" } else Modifier)
                 .then(if (i == on) Modifier.background(c.chip, RoundedCornerShape(6.dp)) else Modifier)
                 .padding(horizontal = 12.dp, vertical = 4.dp)) {
                 val count = counts.getOrNull(i)
@@ -380,7 +383,8 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
             "dev" -> "Device" to info.deviceDetail
             "rep" -> "Send reports" to "Off: Joey64 sends nothing. On: how games run on this device, games with no cover, and crashes, to help make Joey64 better."
             "gpl" -> "Joey64 is free software" to "Under the GNU General Public License 3.0 or later: use it, share it, change it. Select to read it."
-            "src" -> "Source code" to "The code this build is made from: ${JOEY64_LICENCE.url}."
+            // The core is GPL code we changed, so its source is named too (code audit 3, M25).
+            "src" -> "Source code" to "The code this build is made from: ${JOEY64_LICENCE.url}, and its emulator core: ${info.coreSource}."
             "oss" -> "Open-source licences" to "The projects Joey64 is built from, and the licence each one is under."
             "art" -> "Box art" to "Covers come from ScreenScraper (screenscraper.fr), downloaded once per game. A hack without a cover of its own gets the original game's."
             "db" -> "Game list" to "Game names from No-Intro's lists, through libretro-database."
@@ -400,19 +404,30 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
     }
 }
 
-/** Zips the kept session logs off the main thread and hands the zip to Android's share sheet. */
+/**
+ * Zips the kept session logs off the main thread and hands the zip to Android's share sheet. A press while one is being
+ * made is ignored: two zipped into the same file at once could share a broken zip (code audit 3, p2 L12).
+ */
+private var sharingLogs = false
+
 private fun shareLogs(context: Context, scope: kotlinx.coroutines.CoroutineScope) {
+    if (sharingLogs) return
+    sharingLogs = true
     scope.launch {
-        val uri = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            runCatching {
-                val zip = com.joeysretro.joey64.LogFiles.zip(context)
-                androidx.core.content.FileProvider.getUriForFile(context, context.packageName + ".launch", zip)
-            }.getOrNull()
-        } ?: return@launch
-        val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("application/zip")
-            .putExtra(android.content.Intent.EXTRA_STREAM, uri).putExtra(android.content.Intent.EXTRA_SUBJECT, "Joey64 logs")
-            .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        runCatching { context.startActivity(android.content.Intent.createChooser(send, null).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)) }
+        try {
+            val uri = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    val zip = com.joeysretro.joey64.LogFiles.zip(context)
+                    androidx.core.content.FileProvider.getUriForFile(context, context.packageName + ".launch", zip)
+                }.getOrNull()
+            } ?: return@launch
+            val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("application/zip")
+                .putExtra(android.content.Intent.EXTRA_STREAM, uri).putExtra(android.content.Intent.EXTRA_SUBJECT, "Joey64 logs")
+                .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            runCatching { context.startActivity(android.content.Intent.createChooser(send, null).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)) }
+        } finally {
+            sharingLogs = false
+        }
     }
 }
 
@@ -478,7 +493,7 @@ private fun checkText(row: RowState, testing: Boolean, installed: String) = when
 }
 
 /** What About shows about this build and device. */
-private data class AboutInfo(val core: String, val coreDetail: String, val device: String, val deviceDetail: String) {
+private data class AboutInfo(val core: String, val coreDetail: String, val coreSource: String, val device: String, val deviceDetail: String) {
     companion object {
         fun read(context: Context): AboutInfo {
             val lines = try { context.assets.open("core-version.txt").bufferedReader().readLines() } catch (e: Exception) { emptyList() }
@@ -487,11 +502,15 @@ private data class AboutInfo(val core: String, val coreDetail: String, val devic
             val repo = field("repo").substringAfterLast('/').ifEmpty { "joey64-core" }
             val core = if (commit.isEmpty()) repo else "$repo $commit"
             val branch = field("branch")
+            // The bundled core's source: its repo at the commit bundle-core.sh wrote down.
+            val coreRepo = "github.com/" + field("repo").ifEmpty { "JoeysRetroHandhelds/joey64-core" }
+            val coreSource = if (commit.isEmpty()) coreRepo else "$coreRepo, commit ${commit.take(7)}"
             val soc = if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL.takeIf { it.isNotBlank() && it != Build.UNKNOWN } else null
             val device = "${name()} · Android ${Build.VERSION.RELEASE}"
             return AboutInfo(
                 core = core,
                 coreDetail = if (branch.isEmpty()) core else "$core, branch $branch",
+                coreSource = coreSource,
                 device = device,
                 deviceDetail = listOfNotNull(name(), soc, "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})").joinToString(", ") + ".",
             )

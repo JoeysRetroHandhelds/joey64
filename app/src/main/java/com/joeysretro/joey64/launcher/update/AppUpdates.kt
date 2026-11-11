@@ -10,6 +10,7 @@ import android.util.Log
 import android.view.Display
 import androidx.core.content.FileProvider
 import com.joeysretro.joey64.BuildConfig
+import com.joeysretro.joey64.Capped
 import com.joeysretro.joey64.JLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -148,9 +149,12 @@ object AppUpdates {
         val dir = File(context.cacheDir, DIR).apply { mkdirs() }
         dir.listFiles()?.forEach { it.delete() }  // older downloads
         val target = File(dir, "Joey64-${release.version}.apk")
-        val part = File(dir, target.name + ".part")
+        // Its own name each run: a run cancelled while it waited on the network removes its part file once it wakes, and
+        // that was the next run's when they shared a name (Cancel, then Update again; code audit 3, p3 L4).
+        val part = File(dir, "${target.name}.${System.nanoTime()}.part")
         try {
             val conn = open(release.url, "application/octet-stream")
+            val sha = java.security.MessageDigest.getInstance("SHA-256")
             try {
                 if (conn.responseCode !in 200..299) throw IOException("HTTP ${conn.responseCode}")
                 var written = 0L
@@ -163,6 +167,7 @@ object AppUpdates {
                             val n = input.read(buf)
                             if (n < 0) break
                             out.write(buf, 0, n)
+                            sha.update(buf, 0, n)
                             written += n
                             if (written - lastReport >= 256 * 1024) { lastReport = written; onBytes(written) }
                         }
@@ -170,6 +175,11 @@ object AppUpdates {
                 }
                 onBytes(written)
                 if (release.bytes > 0 && written != release.bytes) throw IOException("expected ${release.bytes} bytes, got $written")
+                // GitHub gives each asset's SHA-256 (its "digest"): checked when the release has one (code audit 3, p3 L5).
+                release.sha256?.let { want ->
+                    val got = sha.digest().joinToString("") { "%02x".format(it) }
+                    if (got != want) throw IOException("SHA-256 $got, the release says $want")
+                }
             } finally { conn.disconnect() }
             val pkg = context.packageManager.getPackageArchiveInfo(part.path, 0)?.packageName
             if (pkg != context.packageName) throw IOException("not a Joey64 APK ($pkg)")
@@ -243,7 +253,8 @@ object AppUpdates {
         val conn = open(url, "application/vnd.github+json")
         try {
             if (conn.responseCode !in 200..299) throw IOException("HTTP ${conn.responseCode} from $url")
-            return conn.inputStream.bufferedReader().use { it.readText() }
+            // 20 releases with their notes, a few KB each: capped as any reply (code audit 3, p3 L10).
+            return conn.inputStream.use { Capped.text(it, 4 * Capped.MB, "The release list") }
         } finally { conn.disconnect() }
     }
 }

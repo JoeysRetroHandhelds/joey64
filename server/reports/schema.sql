@@ -75,3 +75,23 @@ CREATE TABLE IF NOT EXISTS crashes (
   where_   TEXT NOT NULL,  -- "core", "launcher", "host"
   summary  TEXT NOT NULL   -- the first lines of the error, at most 2,000 characters
 );
+
+-- The day's totals (code audit 3, M23): rows written, kept under D1's free plan (store.js DAY_ROWS), bytes posted, and
+-- the random salt the day's address counts are hashed with. The day's first post makes the row; the next day's first
+-- post sets its salt to NULL, so the day's hashes can't be matched to an address after it.
+CREATE TABLE IF NOT EXISTS days (
+  day      TEXT PRIMARY KEY,  -- yyyy-mm-dd, UTC
+  written  INTEGER NOT NULL,  -- rows written by the day's reports, as D1 counts them (store.js rowsOf)
+  bytes    INTEGER NOT NULL,  -- the reports' size as posted
+  salt     TEXT               -- NULL once the day is over
+) WITHOUT ROWID;
+
+-- One address block's share of the day (an IPv4 /24 or an IPv6 /64), under its hash with the day's salt, never the
+-- address. Rows of earlier days are deleted by the next day's first post.
+CREATE TABLE IF NOT EXISTS posters (
+  day      TEXT NOT NULL,
+  who      TEXT NOT NULL,     -- SHA-256 of the day's salt and the block, first 16 bytes in hex
+  written  INTEGER NOT NULL,
+  bytes    INTEGER NOT NULL,
+  PRIMARY KEY (day, who)
+) WITHOUT ROWID;

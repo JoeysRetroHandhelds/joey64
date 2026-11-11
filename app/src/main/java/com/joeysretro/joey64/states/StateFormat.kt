@@ -128,7 +128,9 @@ object StateFormat {
             while (filled < out.size && at + 4 <= bytes.size) {
                 val n = le32(bytes, at).toInt()
                 at += 4
-                if (n <= 0 || at + n > bytes.size) return null
+                // As Long: a length near 2 GB made at + n wrap below the file's size, and setInput then threw
+                // ArrayIndexOutOfBounds on the state thread (code audit 3, p1 L1).
+                if (n <= 0 || at.toLong() + n > bytes.size) return null
                 inflater.reset()
                 inflater.setInput(bytes, at, n)
                 while (!inflater.finished() && filled < out.size) {
@@ -138,7 +140,8 @@ object StateFormat {
                 }
                 at += n
             }
-        } catch (e: java.util.zip.DataFormatException) {
+        } catch (e: Exception) {
+            // A damaged or made-up state: bad deflate data (DataFormatException) or anything else the reader trips on.
             return null
         } finally {
             inflater.end()

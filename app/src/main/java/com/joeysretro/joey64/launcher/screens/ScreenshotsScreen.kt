@@ -29,9 +29,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -39,6 +43,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -137,10 +143,12 @@ fun ScreenshotsScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onClose: () -
                 }
                 Column(Modifier.padding(4.dp)) {
                     Box(Modifier.fillMaxWidth().aspectRatio(4f / 3f).initialFocus(i == at).coverSelection(isFocused, 6.dp)
-                        .clip(RoundedCornerShape(6.dp)).background(c.chip).pressable(source) { viewing = i }) {
+                        .clip(RoundedCornerShape(6.dp)).background(c.chip).pressable(source) { viewing = i }
+                        .semantics { contentDescription = "Screenshot, " + SlotDates.withTime(shot.takenAt, now) }) {
                         picture?.let { Image(it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
                     }
-                    Text(SlotDates.withTime(shot.takenAt, now), style = JoeyTheme.type.thumbLabel, color = c.textSecondary, modifier = Modifier.padding(top = 5.dp))
+                    Text(SlotDates.withTime(shot.takenAt, now), style = JoeyTheme.type.thumbLabel, color = c.textSecondary,
+                        modifier = Modifier.padding(top = 5.dp).clearAndSetSemantics { })
                 }
             }
         }
@@ -191,10 +199,17 @@ private fun ShotViewer(g: SavesGame, shots: GameScreenshots, shot: GameScreensho
         value = withContext(Dispatchers.IO) { shots.picture(shot.name, 1920)?.first?.asImageBitmap() }
     }
     val focus = remember { FocusRequester() }
+    val move by rememberUpdatedState(onMove) // the swipe's handler outlives a recomposition
     JoeyDialog(onDismiss = onClose, fullScreen = true, onOptions = onOptions,
         hints = listOf(Hint("◀ ▶", "Previous, next"), Hint("Start", "Share, delete"), Hint("B", "Back")),
         hintEnd = "${g.game.title.substringBefore(" (").ifBlank { g.game.title }} · ${SlotDates.withTime(shot.takenAt, now)} · ${index + 1} of $count") {
         Box(Modifier.fillMaxSize().background(Color.Black).focusRequester(focus).focusable()
+            // Touch: a swipe moves to the next or previous picture (code audit 3, p8 L3; only the keys did).
+            .pointerInput(Unit) {
+                var dx = 0f
+                detectHorizontalDragGestures(onDragStart = { dx = 0f }, onDragCancel = { dx = 0f },
+                    onDragEnd = { if (kotlin.math.abs(dx) > 48.dp.toPx()) move(if (dx < 0) 1 else -1) }) { _, amount -> dx += amount }
+            }
             .onPreviewKeyEvent { e ->
                 val k = e.nativeKeyEvent
                 val d = when (k.keyCode) {

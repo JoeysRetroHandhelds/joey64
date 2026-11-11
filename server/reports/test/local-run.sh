@@ -19,7 +19,7 @@ import("./test/fixture.js").then(async ({ good }) => {
   const codes = []; for (let i = 0; i < 12; i++) codes.push((await post(good())).status); console.log("repeats", codes.join(" "));
 })'
 kill $DEV 2>/dev/null; sleep 2
-for t in reports sessions covers crashes; do
+for t in reports sessions covers crashes days posters; do
   echo "$t: $($W d1 execute joey64-reports --local --json --command "select count(*) n from $t" 2>/dev/null | grep -o '"n": [0-9]*')"
 done
 $W d1 execute joey64-reports --local --json --command "select md5, kind, title, cover from covers limit 2" 2>/dev/null | grep -E '"(md5|kind|title|cover)"'

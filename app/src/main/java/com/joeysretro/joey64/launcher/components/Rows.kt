@@ -18,10 +18,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.focusRestorer
@@ -37,7 +43,9 @@ import com.joeysretro.joey64.launcher.theme.JoeyTheme
 @Composable
 fun SectionLabel(text: String, modifier: Modifier = Modifier) {
     Text(text, style = JoeyTheme.type.label, color = JoeyTheme.colors.textDim,
-        modifier = modifier.padding(start = JoeyTheme.spacing.rowPadH, top = 8.dp, bottom = 3.dp))
+        modifier = modifier.padding(start = JoeyTheme.spacing.rowPadH, top = 8.dp, bottom = 3.dp)
+            // TalkBack moves by headings (code audit 3, M33); a blank one only makes room.
+            .then(if (text.isNotBlank()) Modifier.semantics { heading() } else Modifier))
 }
 
 /**
@@ -82,6 +90,8 @@ fun JoeyRow(
             .rowSelection(focused, shape)
             // Locked rows stay a focus stop (enabled = true) but ignore the press.
             .pressable(source, onLongClick = if (enabled) onLongClick else null, onClick = { if (enabled) onClick() })
+            // TalkBack (code audit 3, M33): a locked row is read as disabled, the yellow dot as the row's state.
+            .semantics { if (!enabled) disabled(); if (dot) stateDescription = "This game's own setting" }
             .padding(horizontal = JoeyTheme.spacing.rowPadH, vertical = JoeyTheme.spacing.rowPadV),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -155,17 +165,34 @@ fun InfoRow(
     onTap: (() -> Unit)? = null,
 ) {
     val c = JoeyTheme.colors
-    Row(
+    // Label and value side by side (code audit 3, p8 L7): when both fit, the value takes the rest of the row, end aligned,
+    // as before; when not, the label keeps what it needs up to 60% of the row (more when the value is short) and the one
+    // cut ends in "…". A long label at a large font squeezed the value to nothing.
+    Layout(
+        content = {
+            Text(label, style = JoeyTheme.type.row, color = labelColor ?: c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(value, style = valueStyle ?: JoeyTheme.type.rowValue, color = valueColor ?: c.value, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                textAlign = androidx.compose.ui.text.style.TextAlign.End)
+        },
         modifier = modifier
             .fillMaxWidth()
             .then(if (onTap == null) Modifier else Modifier.pointerInput(Unit) { detectTapGestures { onTap() } })
             .padding(horizontal = JoeyTheme.spacing.rowPadH, vertical = JoeyTheme.spacing.rowPadV),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text(label, style = JoeyTheme.type.row, color = labelColor ?: c.text, maxLines = 1)
-        Text(value, style = valueStyle ?: JoeyTheme.type.rowValue, color = valueColor ?: c.value, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            textAlign = androidx.compose.ui.text.style.TextAlign.End, modifier = Modifier.weight(1f))
+    ) { measurables, constraints ->
+        val (l, v) = measurables
+        val gap = 12.dp.roundToPx()
+        val lw = l.maxIntrinsicWidth(Constraints.Infinity)
+        val vw = v.maxIntrinsicWidth(Constraints.Infinity)
+        val w = (if (constraints.hasBoundedWidth) constraints.maxWidth else lw + gap + vw).coerceAtLeast(constraints.minWidth)
+        val avail = (w - gap).coerceAtLeast(0)
+        val labelW = if (lw + vw <= avail) lw else minOf(lw, maxOf(avail * 3 / 5, avail - vw))
+        val lp = l.measure(Constraints.fixedWidth(labelW))
+        val vp = v.measure(Constraints.fixedWidth(avail - labelW))
+        val h = maxOf(lp.height, vp.height).coerceIn(constraints.minHeight, constraints.maxHeight)
+        layout(w, h) {
+            lp.placeRelative(0, (h - lp.height) / 2)
+            vp.placeRelative(labelW + gap, (h - vp.height) / 2)
+        }
     }
 }
 

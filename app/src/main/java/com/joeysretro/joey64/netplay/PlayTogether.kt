@@ -233,7 +233,7 @@ object PlayTogether {
             val r = when (st) { 1 -> Reach.Looking; 2 -> Reach.Anywhere; 5 -> Reach.SharedAddress; 6 -> Reach.AllPortsTaken; 0 -> Reach.Looking; else -> Reach.RouterSaidNo }
             // The router may give another outside port than the room's own (another room on this network holds it).
             if (r == Reach.Anywhere) outsideCode = RoomCode.encode(outside.substringBeforeLast(':'), outside.substringAfterLast(':').toIntOrNull() ?: hostPort)
-            if (r != reach) { reach = r; JLog.i(TAG, "the router: $r" + if (r == Reach.Anywhere) " ($outside)" else ""); publishHost() }
+            if (r != reach) { reach = r; JLog.i(TAG, "the router: $r" + if (r == Reach.Anywhere) " (${com.joeysretro.joey64.LogMask.addresses(outside)})" else ""); publishHost() }
             if (st != 1 && st != 0) return
             delay(250)
         }
@@ -474,7 +474,8 @@ object PlayTogether {
     fun join(me: Me, target: Target, mine: Game, findGame: (String) -> Game?) {
         leave()
         _state.value = Connecting(target.hostName)
-        JLog.i(TAG, "joining ${target.hostName ?: "a room"} at ${target.ip}:${target.port}")
+        // Another player's public address stays out of the session log (Share logs; code audit 3, p1 L4).
+        JLog.i(TAG, com.joeysretro.joey64.LogMask.addresses("joining ${target.hostName ?: "a room"} at ${target.ip}:${target.port}"))
         joinJob = scope.launch {
             val sock = Socket()
             joinSocket = sock
@@ -528,6 +529,8 @@ object PlayTogether {
                         "START" -> { JLog.i(TAG, "$hostName is starting the game"); sock.soTimeout = (SERVER_WAIT_MS + 5000).toInt() }
                         "GO" -> {
                             val s = f.getOrNull(1)?.toIntOrNull() ?: slot
+                            // It goes to the game as the player number: only 1 to 4 (code audit 3, p3 L7).
+                            if (s !in 1..4) { JLog.w(TAG, "go: player $s isn't 1 to 4, leaving the room"); break }
                             // The game's room server takes over the room's port, so the game goes where the lobby was
                             // reached: from outside that is the router's outside port, which can differ from the host's own.
                             val port = target.port
@@ -543,7 +546,7 @@ object PlayTogether {
                 if (gone && joinSocket === sock) { JLog.i(TAG, "${hostName ?: "the host"} closed the room"); _state.value = Closed(hostName ?: "The host") }
             } catch (e: Exception) {
                 if (joinSocket !== sock) return@launch // left
-                JLog.i(TAG, "can't reach ${target.ip}:${target.port}: $e")
+                JLog.i(TAG, com.joeysretro.joey64.LogMask.addresses("can't reach ${target.ip}:${target.port}: $e"))
                 _state.value = if (game == null) Unreachable(hostName, target.fromCode) else Closed(hostName ?: "The host")
             } finally {
                 pinger?.cancel()

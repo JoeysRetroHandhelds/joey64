@@ -187,7 +187,12 @@ class RaOverlayStore(private val context: Context) {
         val o = readJson(indexFile) ?: return null
         if (o.optString("uri") != f.uri) return null
         val a = o.optJSONArray("overlays") ?: return null
-        return (0 until a.length()).map { a.getJSONObject(it).let { e -> Entry(e.getString("rel"), e.optBoolean("touch")) } }
+        // An entry that isn't an overlay (a damaged file) is left out: this runs as a game starts (code audit 3, p4 L4).
+        return (0 until a.length()).mapNotNull { i ->
+            val e = a.optJSONObject(i) ?: return@mapNotNull null
+            val rel = e.optString("rel").takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+            Entry(rel, e.optBoolean("touch"))
+        }
     }
 
     /** Reads every .cfg in the folder (slow on a big folder: off the main thread). */
@@ -217,7 +222,7 @@ class RaOverlayStore(private val context: Context) {
     }
 
     /** The copy of the .cfg the host's image is read from. */
-    fun localCfg(value: String): File = File(dir, value.removePrefix(RaOverlay.PREFIX))
+    fun localCfg(value: String): File = Slang.under(dir, value.removePrefix(RaOverlay.PREFIX))
 
     /** The overlays in the folder named like games (Match each game): for [names] of one game, its overlay's value. */
     fun matchFor(names: List<String>): String? {
@@ -260,8 +265,7 @@ class RaOverlayStore(private val context: Context) {
         val rel = value.removePrefix(RaOverlay.PREFIX).substringAfter('/')
         val cfg = try { RaOverlay.parse(cfgFile.readText(), rel) } catch (e: Exception) { return null }
         val img = RaOverlay.pick(cfg, portrait) ?: return null
-        val root = File(dir, value.removePrefix(RaOverlay.PREFIX).substringBefore('/'))
-        return File(root, img.path).takeIf { it.isFile }
+        return Slang.under(dir, value.removePrefix(RaOverlay.PREFIX).substringBefore('/') + "/" + img.path).takeIf { it.isFile }
     }
 
     /** The hole in [image] (found once, kept by the image's size and date), and the image's size. */

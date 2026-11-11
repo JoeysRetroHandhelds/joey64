@@ -23,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -377,7 +378,8 @@ private fun NetplayPopup(screen: PauseScreen, actions: PauseActions) {
                     append(w.PAUSED_TEXT)
                 })
                 // Something has to hold focus so B reaches the dialog; nothing to press.
-                Box(Modifier.size(1.dp).initialFocus().pressable(rememberFocusState().first, onClick = {}))
+                // TalkBack skips it: the clear comes before pressable, so pressable's button goes too (code audit 3, M33).
+                Box(Modifier.size(1.dp).initialFocus().clearAndSetSemantics { }.pressable(rememberFocusState().first, onClick = {}))
             }
         }
         is PauseScreen.NetOutOfStep -> JoeyDialog(onDismiss = {}, hints = listOf(Hint("A", "Select")), width = 470.dp) {

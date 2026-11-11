@@ -61,11 +61,14 @@ object LobbyLines {
 
     fun beacon(b: Beacon) = line("J64ROOM", PROTO, b.port, b.hostName, b.device, b.game, b.md5, b.players, b.code)
 
+    /** 32 lower-case hex digits: a game's MD5, which names files (a room's cover, boxart/rooms/<md5>.jpg). */
+    fun isMd5(s: String) = s.length == 32 && s.all { it in '0'..'9' || it in 'a'..'f' }
+
     fun parseBeacon(s: String): Beacon? {
         val f = split(s)
         if (f.size < 9 || f[0] != "J64ROOM" || f[1].toIntOrNull() != PROTO) return null
         val port = f[2].toIntOrNull()?.takeIf { it in 1..65535 } ?: return null
-        val md5 = f[6].lowercase().takeIf { it.length == 32 && it.all { c -> c in '0'..'9' || c in 'a'..'f' } } ?: return null
+        val md5 = f[6].lowercase().takeIf { isMd5(it) } ?: return null
         return Beacon(port, f[3].ifEmpty { "Someone" }, f[4], f[5], md5, f[7].toIntOrNull()?.coerceIn(1, 4) ?: 1, f[8])
     }
 

@@ -136,7 +136,7 @@ object NativeBridge {
      * The core shut down, so no frames come: 0 it didn't, 1 it couldn't start the game (a damaged disk or disk save),
      * 2 it couldn't load the 64DD IPL BIOS (none for the disk's region), 3 netplay lost its connection to the room,
      * and a netplay join that failed before the game started (the game is never played alone): 4 the room can't be
-     * reached (or isn't a Joey64 room), 5 the room turned the player down (taken or full), 6 this ROM isn't the host's.
+     * reached (or isn't a Joey64 room), 5 the room turned the player down (taken or full), 6 this ROM isn't the host's; 7 the GPU stopped answering mid-game (VkContext::lost, code audit 3, M12).
      */
     external fun coreShutDown(): Int
     /** Bytes of save RAM the last write couldn't put on disk (a full disk, or another write error); 0 once one is written. */

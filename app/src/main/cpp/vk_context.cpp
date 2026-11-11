@@ -143,6 +143,7 @@ bool VkContext::loadLibrary() {
 
 bool VkContext::init(const retro_hw_render_context_negotiation_interface_vulkan* negotiation) {
     negotiation_ = negotiation;
+    lost_ = false;
     if (!loadLibrary()) return false;
 
     VkApplicationInfo defaultApp{VK_STRUCTURE_TYPE_APPLICATION_INFO};
@@ -315,6 +316,8 @@ bool VkContext::init(const retro_hw_render_context_negotiation_interface_vulkan*
 }
 
 void VkContext::attachWindow(ANativeWindow* win) {
+    surfaceLost_ = false;
+    swapFails_ = 0;
     if (surface_) {
         vkDeviceWaitIdle(device_);
         destroySwapchain();
@@ -346,12 +349,21 @@ void VkContext::resizeSwapchain() {
 }
 
 bool VkContext::createSwapchain() {
-    VkSurfaceCapabilitiesKHR caps;
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(gpu_, surface_, &caps);
+    // A failure leaves no swapchain, and the run loop tries again every 250 ms (code audit 3, p5 L1): only the first
+    // three failures in a row and then one in 40 are logged.
+    auto failed = [this](const char* what, VkResult r) {
+        if (r == VK_ERROR_SURFACE_LOST_KHR) surfaceLost_ = true;
+        if (++swapFails_ <= 3 || swapFails_ % 40 == 0) LOGE("vulkan: %s (%d), no swapchain (try %u)", what, (int)r, swapFails_);
+        swapchain_ = VK_NULL_HANDLE;
+        return false;
+    };
+    VkSurfaceCapabilitiesKHR caps{};
+    if (VkResult r = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(gpu_, surface_, &caps); r != VK_SUCCESS)
+        return failed("vkGetPhysicalDeviceSurfaceCapabilitiesKHR", r);
 
     uint32_t fn = 0;
-    vkGetPhysicalDeviceSurfaceFormatsKHR(gpu_, surface_, &fn, nullptr);
-    if (fn == 0) { LOGE("vulkan: the surface has no formats, no swapchain"); return false; } // formats[0] below
+    VkResult fr = vkGetPhysicalDeviceSurfaceFormatsKHR(gpu_, surface_, &fn, nullptr);
+    if (fr != VK_SUCCESS || fn == 0) return failed("the surface has no formats", fr); // formats[0] below
     std::vector<VkSurfaceFormatKHR> formats(fn);
     vkGetPhysicalDeviceSurfaceFormatsKHR(gpu_, surface_, &fn, formats.data());
     VkSurfaceFormatKHR fmt = formats[0];
@@ -402,9 +414,8 @@ bool VkContext::createSwapchain() {
     }
     unthrottled_ = wantUnthrottled_;
     ci.clipped = VK_TRUE;
-    if (vkCreateSwapchainKHR(device_, &ci, nullptr, &swapchain_) != VK_SUCCESS) {
-        LOGE("vkCreateSwapchainKHR failed"); swapchain_ = VK_NULL_HANDLE; return false;
-    }
+    if (VkResult r = vkCreateSwapchainKHR(device_, &ci, nullptr, &swapchain_); r != VK_SUCCESS)
+        return failed("vkCreateSwapchainKHR", r);
 
     uint32_t n = 0;
     vkGetSwapchainImagesKHR(device_, swapchain_, &n, nullptr);
@@ -417,6 +428,8 @@ bool VkContext::createSwapchain() {
     for (auto& s : acquireSems_) vkCreateSemaphore(device_, &sci, nullptr, &s);
     acquireSlot_ = 0;
     repaint_ = true; // the last image isn't on the new swapchain yet
+    if (swapFails_) LOGI("vulkan: swapchain made after %u failed tries", swapFails_);
+    swapFails_ = 0;
     LOGI("vulkan: swapchain %ux%u, %u images, format %d, present mode %d", extent_.width, extent_.height,
          n, fmt.format, ci.presentMode);
     updateSwapInterval();
@@ -458,13 +471,30 @@ void VkContext::destroySwapchain() {
     acquired_ = false;
 }
 
+void VkContext::markLost(const char* what, VkResult r) {
+    if (lost_.exchange(true)) return;
+    LOGE("Vulkan: %s (%d): the GPU stopped answering, the game stops", what, (int)r);
+}
+
+// A frame's fence: 5 s at most, far past any frame's GPU work (Odin 3 at 8x: under 20 ms).
+bool VkContext::waitFrameFence(uint32_t i) {
+    if (lost_) return false;
+    VkResult r = vkWaitForFences(device_, 1, &frameFences_[i], VK_TRUE, 5000000000ull);
+    if (r == VK_SUCCESS) return true;
+    markLost(r == VK_TIMEOUT ? "a frame's GPU work wasn't done in 5 s" : "vkWaitForFences", r);
+    return false;
+}
+
 bool VkContext::beginFrame(bool show) {
-    if (!swapchain_) return false;
-    if (wantUnthrottled_ != unthrottled_) { vkDeviceWaitIdle(device_); destroySwapchain(); createSwapchain(); }
+    if (!swapchain_ || lost_) return false;
+    if (wantUnthrottled_ != unthrottled_) { // a failed rebuild leaves no swapchain to acquire from (run loop retries)
+        vkDeviceWaitIdle(device_); destroySwapchain();
+        if (!createSwapchain()) return false;
+    }
     skip_ = !show;
     if (skip_) { // run the core's work without touching the swapchain
         sync_ = (sync_ + 1) % kSyncFrames;
-        vkWaitForFences(device_, 1, &frameFences_[sync_], VK_TRUE, UINT64_MAX);
+        if (!waitFrameFence(sync_)) return false;
         acquired_ = true;
         presented_ = false;
         return true;
@@ -474,14 +504,14 @@ bool VkContext::beginFrame(bool show) {
         // every-frame stretch: acquire before the run, so a full swapchain is waited on before the input poll
         if (!acquireImage()) return false;
         sync_ = (sync_ + 1) % kSyncFrames;
-        vkWaitForFences(device_, 1, &frameFences_[sync_], VK_TRUE, UINT64_MAX);
+        if (!waitFrameFence(sync_)) return false;
         acquired_ = true;
         presented_ = false;
         return true;
     }
     if (skipDupes_) { // acquire once the core reports a new frame (present), so repeats cost nothing
         sync_ = (sync_ + 1) % kSyncFrames;
-        vkWaitForFences(device_, 1, &frameFences_[sync_], VK_TRUE, UINT64_MAX);
+        if (!waitFrameFence(sync_)) return false;
         if (frameStartNs_ == -1) frameStartNs_ = monoNs(); // the pacing budget includes the run
         needAcquire_ = true;
         acquired_ = true;
@@ -490,7 +520,7 @@ bool VkContext::beginFrame(bool show) {
     }
     if (!acquireImage()) return false;
     sync_ = (sync_ + 1) % kSyncFrames;
-    vkWaitForFences(device_, 1, &frameFences_[sync_], VK_TRUE, UINT64_MAX);
+    if (!waitFrameFence(sync_)) return false;
     acquired_ = true;
     presented_ = false;
     return true;
@@ -504,6 +534,8 @@ bool VkContext::acquireImage() {
         vkDeviceWaitIdle(device_); destroySwapchain(); createSwapchain();
         return false;
     }
+    if (r == VK_ERROR_SURFACE_LOST_KHR) { loseSurface("vkAcquireNextImageKHR"); return false; }
+    if (r == VK_ERROR_DEVICE_LOST) { markLost("vkAcquireNextImageKHR", r); return false; }
     if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) { LOGE("vkAcquireNextImageKHR: %d", r); return false; }
     if (frameStartNs_ == -1) frameStartNs_ = monoNs();
     return true;
@@ -582,6 +614,7 @@ void VkContext::endFrame() {
 }
 
 void VkContext::present(bool newImage) {
+    if (lost_) { presented_ = true; return; } // nothing more goes to a GPU that stopped answering
     if (skip_) { submitSkipped(newImage); return; }
     if (needAcquire_) {
         // N64_SKIP_DUPES: a repeat frame leaves the last image up (FIFO keeps showing it); presenting
@@ -845,9 +878,12 @@ void VkContext::present(bool newImage) {
     VkResult r;
     {
         std::lock_guard<std::mutex> lk(queueMutex_);
-        vkQueueSubmit(queue_, 1, &si, frameFences_[sync_]);
-        r = vkQueuePresentKHR(queue_, &pi);
+        // A failed submit signals neither the fence nor the semaphore the present would wait for.
+        VkResult s = vkQueueSubmit(queue_, 1, &si, frameFences_[sync_]);
+        if (s != VK_SUCCESS) { markLost("vkQueueSubmit", s); r = s; }
+        else r = vkQueuePresentKHR(queue_, &pi);
     }
+    if (r == VK_ERROR_DEVICE_LOST && !lost_) markLost("vkQueuePresentKHR", r);
     waitSems_.clear(); coreCmds_.clear(); signalSem_ = VK_NULL_HANDLE;
     presented_ = true;
     collectTiming();
@@ -856,7 +892,21 @@ void VkContext::present(bool newImage) {
     // (we pick identity on purpose), so only OUT_OF_DATE triggers a rebuild.
     if (r == VK_ERROR_OUT_OF_DATE_KHR) {
         vkDeviceWaitIdle(device_); destroySwapchain(); createSwapchain();
-    }
+    } else if (r == VK_ERROR_SURFACE_LOST_KHR) loseSurface("vkQueuePresentKHR");
+}
+
+// The window's surface stopped working (presents to it were ignored before): no swapchain until the host makes the
+// surface again from the window it holds, every 250 ms while that fails (code audit 3, p5 L1).
+void VkContext::loseSurface(const char* where) {
+    LOGE("vulkan: %s: the surface was lost, making it again", where);
+    vkDeviceWaitIdle(device_);
+    destroySwapchain();
+    surfaceLost_ = true;
+}
+
+// A window whose swapchain couldn't be made: another try (the run loop, every 250 ms; code audit 3, p5 L1).
+void VkContext::retrySwapchain() {
+    if (needsSwapchain() && !surfaceLost_) createSwapchain();
 }
 
 void VkContext::collectTiming() {
@@ -945,7 +995,8 @@ void VkContext::submitSkipped(bool newImage) {
     si.signalSemaphoreCount = signalSem_ ? 1 : 0; si.pSignalSemaphores = &signalSem_;
     {
         std::lock_guard<std::mutex> lk(queueMutex_);
-        vkQueueSubmit(queue_, 1, &si, frameFences_[sync_]);
+        VkResult s = vkQueueSubmit(queue_, 1, &si, frameFences_[sync_]);
+        if (s != VK_SUCCESS) markLost("vkQueueSubmit (skipped frame)", s);
     }
     waitSems_.clear(); coreCmds_.clear(); signalSem_ = VK_NULL_HANDLE;
     presented_ = true;
@@ -1207,7 +1258,7 @@ void VkContext::setCommandBuffers(void* h, uint32_t n, const VkCommandBuffer* cm
 }
 void VkContext::waitSyncIndex(void* h) {
     auto* self = static_cast<VkContext*>(h);
-    vkWaitForFences(self->device_, 1, &self->frameFences_[self->sync_], VK_TRUE, UINT64_MAX);
+    self->waitFrameFence(self->sync_);
 }
 void VkContext::lockQueue(void* h) { static_cast<VkContext*>(h)->queueMutex_.lock(); }
 void VkContext::unlockQueue(void* h) { static_cast<VkContext*>(h)->queueMutex_.unlock(); }

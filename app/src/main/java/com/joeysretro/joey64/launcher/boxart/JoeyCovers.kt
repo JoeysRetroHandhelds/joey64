@@ -2,6 +2,7 @@ package com.joeysretro.joey64.launcher.boxart
 
 import android.content.Context
 import com.joeysretro.joey64.BuildConfig
+import com.joeysretro.joey64.Capped
 import com.joeysretro.joey64.JLog
 import java.io.File
 import java.io.FileNotFoundException
@@ -56,7 +57,7 @@ class JoeyCovers(private val context: Context) {
             val code = c.responseCode
             if (code == 404) throw FileNotFoundException(url)
             if (code != 200) throw IOException("HTTP $code from $url")
-            return c.inputStream.use { it.readBytes() }
+            return c.inputStream.use { Capped.bytes(it, MAX_REPLY, url.substringAfterLast('/')) }
         } finally {
             c.disconnect()
         }
@@ -68,6 +69,8 @@ class JoeyCovers(private val context: Context) {
         private const val INDEX = "index.tsv"
         private const val INDEX_FILE = "joey64-covers.tsv"
         private const val INDEX_DAYS = 7
+        /** Our covers are a few hundred KB and the index less: past this a reply isn't one (code audit 3, p3 L10). */
+        private const val MAX_REPLY = 16 * Capped.MB
         /** What `box_art.cover` says for one of ours: "joey64:<picture md5>". */
         const val PREFIX = "joey64:"
         private val MD5 = Regex("[0-9a-f]{32}")

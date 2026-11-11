@@ -1,7 +1,9 @@
 #include "rewind.h"
 #include "joeylog.h"
 #include <android/log.h>
+#include <algorithm>
 #include <cstring>
+#include <unistd.h>
 #include <zlib.h>
 
 // Packed moment: u32 RLE size, then the RLE stream deflated. RLE stream: records of u32 equal words,
@@ -88,7 +90,12 @@ void Rewind::configure(bool on, int every, int maxMoments) {
     on_ = on;
     every_ = every < 1 ? 1 : every;
     max_ = maxMoments < 1 ? 1 : maxMoments;
-    joeyLog(ANDROID_LOG_INFO, "joey64host", "rewind: %s, a moment every %d frames, %d kept", on ? "on" : "off", every_, max_);
+    const long pages = sysconf(_SC_PHYS_PAGES), page = sysconf(_SC_PAGE_SIZE);
+    const uint64_t total = pages > 0 && page > 0 ? (uint64_t)pages * (uint64_t)page : 0;
+    capBytes_ = total ? std::min<uint64_t>(total / 8, 1ull << 30) : 256ull << 20;
+    capHit_ = false;
+    joeyLog(ANDROID_LOG_INFO, "joey64host", "rewind: %s, a moment every %d frames, %d kept, at most %llu MB", on ? "on" : "off", every_, max_,
+            (unsigned long long)(capBytes_ >> 20));
 }
 
 void Rewind::drain() {
@@ -135,7 +142,12 @@ void Rewind::work() {
                 heldBytes_ += m.packed.size() + m.progress.size();
                 statPacked_++; statPackMs_ += ms; statBytes_ += m.packed.size();
                 moments_.push_back(std::move(m));
-                while ((int)moments_.size() > max_) {
+                while ((int)moments_.size() > max_ || (heldBytes_ > capBytes_ && moments_.size() > 1)) {
+                    if (heldBytes_ > capBytes_ && (int)moments_.size() <= max_ && !capHit_) {
+                        capHit_ = true;
+                        joeyLog(ANDROID_LOG_INFO, "joey64host", "rewind: %llu MB reached, keeping %d moments, not %d",
+                                (unsigned long long)(capBytes_ >> 20), (int)moments_.size() - 1, max_);
+                    }
                     heldBytes_ -= moments_.front().packed.size() + moments_.front().progress.size();
                     moments_.pop_front();
                 }

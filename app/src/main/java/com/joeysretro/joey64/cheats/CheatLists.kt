@@ -115,17 +115,21 @@ class CheatLists(private val context: Context) {
     /** The kept index while it's fresh; else a new one (kept when it parses), else the stale one. Null: none, and not allowed to fetch. */
     private fun index(download: Boolean): Map<String, Map<String, Int>>? {
         val kept = File(dir, INDEX)
-        val keptAt = if (kept.exists()) kept.lastModified() else 0L
+        var keptAt = if (kept.exists()) kept.lastModified() else 0L
         cached?.let { (at, m) -> if (at == keptAt && (fresh(at) || !download)) return m }
-        if (keptAt > 0 && (fresh(keptAt) || !download)) return read(kept)
+        if (keptAt > 0 && (fresh(keptAt) || !download)) {
+            read(kept)?.let { return it }
+            keptAt = 0L // it didn't parse and is gone: downloaded again
+            if (!download) return null
+        }
         if (!download) return null
         val text = try { String(get(base() + INDEX), Charsets.UTF_8) } catch (e: IOException) {
-            if (keptAt > 0) return read(kept)
+            if (keptAt > 0) read(kept)?.let { return it }
             throw e
         }
         val parsed = try { CheatLogic.parseIndex(text) } catch (e: Exception) {
             JLog.e(TAG, "the cheat index doesn't parse" + "\n" + Log.getStackTraceString(e))
-            if (keptAt > 0) return read(kept)
+            if (keptAt > 0) read(kept)?.let { return it }
             throw IOException("bad index")
         }
         val changed = keptAt == 0L || kept.readText() != text
@@ -136,7 +140,17 @@ class CheatLists(private val context: Context) {
         return parsed
     }
 
-    private fun read(f: File) = CheatLogic.parseIndex(f.readText()).also { cached = f.lastModified() to it }
+    /**
+     * The kept index, or null when it doesn't parse: it's deleted then, so the next look downloads it again. Its
+     * JSONException reached the Cheats page and Settings › Video and ended the launcher (code audit 3, p2 L2).
+     */
+    private fun read(f: File): Map<String, Map<String, Int>>? = try {
+        CheatLogic.parseIndex(f.readText()).also { cached = f.lastModified() to it }
+    } catch (e: IOException) {
+        throw e
+    } catch (e: Exception) {
+        JLog.e(TAG, "the kept cheat index doesn't parse, dropped: $e"); f.delete(); null
+    }
 
     private fun list(src: String, key: String, download: Boolean): String? {
         val f = File(dir, "$src/$key.json")
@@ -165,7 +179,8 @@ class CheatLists(private val context: Context) {
             val code = c.responseCode
             if (code == 404) throw FileNotFoundException(url)
             if (code != 200) throw IOException("HTTP $code from $url")
-            return c.inputStream.use { it.readBytes() }
+            // The index is 91 KB and the biggest list 466 KB today (code audit 3, p1 L2: no cap before).
+            return c.inputStream.use { com.joeysretro.joey64.Capped.bytes(it, 8 * com.joeysretro.joey64.Capped.MB, "A cheat list") }
         } finally {
             c.disconnect()
         }

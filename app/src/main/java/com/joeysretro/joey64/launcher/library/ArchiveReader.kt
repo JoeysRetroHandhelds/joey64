@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher.library
 
+import com.joeysretro.joey64.ZipNames
 import org.apache.commons.compress.archivers.sevenz.SevenZFile
 import java.io.IOException
 import java.io.InputStream
@@ -25,7 +26,7 @@ object ArchiveReader {
 
     /** Reads [input] as a zip. Null when no entry is an N64 ROM (or the zip is damaged). Doesn't close [input]. */
     fun readZip(input: InputStream): ArchivedRom? = try {
-        val zip = ZipInputStream(input)
+        val zip = ZipInputStream(input, ZipNames)
         var found: ArchivedRom? = null
         while (found == null) {
             val e = zip.nextEntry ?: break
@@ -34,6 +35,8 @@ object ArchiveReader {
         }
         found
     } catch (e: java.util.zip.ZipException) {
+        null
+    } catch (e: IllegalArgumentException) {   // an entry flagged UTF-8 whose name isn't (code audit 3, p3 L2)
         null
     }
 

@@ -2,6 +2,7 @@
 #include "netplay_server.h"
 #include "joeylog.h"
 #include "upnp.h"
+#include "utf16.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -232,9 +233,10 @@ struct Room {
         uint8_t out[512]; size_t k = 2; uint8_t cnt = 0;
         for (int i = 0; i < 4; i++) {
             if (!reg[i].id || disconnected[i]) continue;
-            size_t l = std::min<size_t>(rosterName[i].size(), 40);
+            const std::string name = cutUtf8(rosterName[i], 40);
+            size_t l = name.size();
             out[k++] = (uint8_t)i; out[k++] = rosterPing[i] >> 8; out[k++] = (uint8_t)rosterPing[i];
-            out[k++] = (uint8_t)l; memcpy(out + k, rosterName[i].data(), l); k += l; cnt++;
+            out[k++] = (uint8_t)l; memcpy(out + k, name.data(), l); k += l; cnt++;
         }
         out[0] = 7; out[1] = cnt;
         out[k++] = (uint8_t)delay; // after the players: the room's input delay now (Joey64 2026-11-10)

@@ -20,7 +20,9 @@ import javax.crypto.spec.GCMParameterSpec
 /** A RetroAchievements sign-in: the user name and the token the login returned (never the password). */
 data class SignIn(val user: String, val token: String)
 
-private val Context.signInStore: DataStore<Preferences> by preferencesDataStore(name = "signin")
+// A damaged file reads as signed out instead of throwing on every read and write (code audit 3, M10).
+private val Context.signInStore: DataStore<Preferences> by preferencesDataStore(name = "signin",
+    corruptionHandler = androidx.datastore.core.handlers.ReplaceFileCorruptionHandler { androidx.datastore.preferences.core.emptyPreferences() })
 
 /**
  * Keeps the sign-in key encrypted with the Android Keystore (plan, Phase 0): an AES-256/GCM key

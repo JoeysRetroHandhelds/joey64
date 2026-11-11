@@ -108,7 +108,12 @@ internal fun RaOverlayPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
     var version by remember { mutableIntStateOf(0) }
     var folder by remember { mutableStateOf(store.folder()) }
     @Suppress("UNUSED_EXPRESSION") version
-    val index by produceState(store.index(), folder, version) {
+    // Read once per folder and change, not again on every recomposition (code audit 3, p4 L5).
+    val kept = remember(folder, version) { store.index() }
+    val index by produceState(kept, folder, version) {
+        // produceState keeps its value when the keys change: start from the store's index again, so a new folder
+        // (setFolder dropped the index) is read instead of the old folder's list staying (code audit 3, M27).
+        value = kept
         if (folder != null && value == null) value = withContext(Dispatchers.IO) { store.scan() }
     }
     val games by produceState<List<List<String>>?>(null) { value = withContext(Dispatchers.IO) { libraryNames(context) } }
@@ -127,7 +132,14 @@ internal fun RaOverlayPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
     var otherOpen by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
-        if (uri != null) { store.setFolder(uri); folder = store.folder(); version++ }
+        if (uri != null) {
+            val old = store.folder()?.uri
+            store.setFolder(uri); folder = store.folder(); version++
+            // The folder before gives its read grant back unless another setting still uses it (Android caps them).
+            if (old != null && old != uri.toString()) scope.launch(Dispatchers.IO) {
+                com.joeysretro.joey64.launcher.storage.RomFolders.releaseIfUnused(context.applicationContext, old)
+            }
+        }
     }
     val state = rememberLazyListState()
     // Each row keyed by what it is, so focus stays on its row when rows arrive above it (Match each game comes once

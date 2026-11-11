@@ -316,8 +316,9 @@ private fun GamePopupsFor(game: GameRef, summary: GameSummary, model: GameSettin
                     PopupTitle("Replace ${popup.title}'s ${clash.joinToString(" and ") { it.label }}?",
                         "${popup.title} has $counts $rowWord of its own. They're replaced by ${game.title}'s." +
                             if (rest.isEmpty()) "" else " Its ${rest.joinToString(" and ") { it.label }} ${if (rest.size == 1) "is" else "are"} copied as well.")
-                    JoeyOption("Replace and copy", Modifier.initialFocus()) { copyTo(popup.to) }
-                    JoeyOption("Cancel") { onPopup(null) }
+                    // Cancel focused: Replace overwrites another game's own settings (code audit 3, p2 L4), as Reset and Delete focus Keep.
+                    JoeyOption("Replace and copy") { copyTo(popup.to) }
+                    JoeyOption("Cancel", Modifier.initialFocus()) { onPopup(null) }
                 }
             }
         }

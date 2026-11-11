@@ -410,7 +410,8 @@ fun NetplayRoomPopups(model: LibraryModel) {
         is PlayTogether.Hosting -> YourRoom(model, state)
         is PlayTogether.InRoom -> TheirRoom(state, model.netPlaces(state.game.md5))
         // Joey 2026-11-10: a popup while a join connects (up to 5 s), B Cancel.
-        is PlayTogether.Connecting -> JoeyDialog(onDismiss = { PlayTogether.leave() }, hints = listOf(Hint("B", "Cancel")), width = 470.dp) {
+        is PlayTogether.Connecting -> JoeyDialog(onDismiss = { PlayTogether.leave() }, hints = listOf(Hint("B", "Cancel")), width = 470.dp,
+            tapOutsideCloses = false) {
             Column {
                 LandAgain()
                 com.joeysretro.joey64.launcher.components.PromptHeader(R.drawable.ic_loader, state.hostName?.let { "Joining $it's room…" } ?: "Joining the room…")
@@ -471,7 +472,10 @@ private fun YourRoom(model: LibraryModel, s: PlayTogether.Hosting) {
     LaunchedEffect(followTo, s.players) {
         if (followTo in 1..s.game.places) { try { slotFocus[followTo].requestFocus() } catch (e: IllegalStateException) { }; followTo = 0 }
     }
-    JoeyDialog(onDismiss = { PlayTogether.leave() }, hints = listOf(Hint("A", "Select"), Hint("X", "Move a player"), Hint("B", "Back")), width = 640.dp,
+    // B and a tap outside closed the room for everyone, the hint saying "Back" (code audit 3, M31): the room closes
+    // only from its Close the room row now.
+    JoeyDialog(onDismiss = { PlayTogether.leave() }, hints = listOf(Hint("A", "Select"), Hint("X", "Move a player")), width = 640.dp,
+        dismissible = false,
         onPadButton = { k ->
             if (k == KeyEvent.KEYCODE_BUTTON_X && focusedSlot in 1..s.game.places && PlayTogether.movePlayer(focusedSlot))
                 followTo = com.joeysretro.joey64.netplay.LobbyLines.nextSlot(focusedSlot, s.game.places)
@@ -522,7 +526,8 @@ private fun YourRoom(model: LibraryModel, s: PlayTogether.Hosting) {
 private fun TheirRoom(s: PlayTogether.InRoom, places: Int) {
     val c = JoeyTheme.colors
     val host = s.hostName.ifEmpty { "The host" }
-    JoeyDialog(onDismiss = { PlayTogether.leave() }, hints = listOf(Hint("A", "Select"), Hint("B", "Leave")), width = 640.dp) {
+    JoeyDialog(onDismiss = { PlayTogether.leave() }, hints = listOf(Hint("A", "Select"), Hint("B", "Leave")), width = 640.dp,
+        tapOutsideCloses = false) {
         Column {
             LandAgain()
             PopupTitle("$host's room", shortGame(s.game.title))

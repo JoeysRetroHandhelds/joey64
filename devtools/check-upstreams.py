@@ -48,9 +48,15 @@ def commits_since(src, since_sha):
     return out, False  # since_sha not found (history rewritten, or older than 300 commits)
 
 
+def subject(c):
+    """A commit's first line as a code span: an @name in it would notify that user, and markdown in it would render
+    (code audit 3, p7 L7). Backticks inside become quotes, so the span can't end early."""
+    first = (c["commit"]["message"].splitlines() or [""])[0][:120].replace("`", "'")
+    return f"`{first}`" if first.strip() else "(no subject)"
+
+
 def lines(src, commits, found):
-    rows = [f"- {c['commit']['committer']['date'][:10]} [`{c['sha'][:7]}`]({c['html_url']}) "
-            f"{c['commit']['message'].splitlines()[0][:120]}" for c in commits]
+    rows = [f"- {c['commit']['committer']['date'][:10]} [`{c['sha'][:7]}`]({c['html_url']}) {subject(c)}" for c in commits]
     if not found:
         rows.append("- (the starting commit was not found in the last 300; the list may be incomplete)")
     return rows

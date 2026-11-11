@@ -33,6 +33,16 @@ class ReleasesTest {
         assertFalse(r.testing)
     }
 
+    @Test fun theAssetsDigestIsKeptWhenThere() {
+        val hex = "ab".repeat(32)
+        val json = """{"tag_name":"v0.3.0","assets":[{"name":"Joey64-0.3.0.apk","size":1,"digest":"sha256:${hex.uppercase()}","browser_download_url":"https://example.test/a.apk"}]}"""
+        assertEquals(hex, Releases.newer(json, "0.2.0", testing = false)!!.sha256)
+        // Older uploads have none (null), and anything but a SHA-256 counts as none.
+        assertNull(Releases.newer(release("0.3.0", "Joey64-0.3.0.apk"), "0.2.0", testing = false)!!.sha256)
+        assertNull(Releases.newer(json.replace("sha256:${hex.uppercase()}", "md5:00"), "0.2.0", testing = false)!!.sha256)
+        assertNull(Releases.newer(json.replace("\"sha256:${hex.uppercase()}\"", "null"), "0.2.0", testing = false)!!.sha256)
+    }
+
     @Test fun nothingWhenInstalledIsTheSameOrNewer() {
         assertNull(Releases.newer(release("0.3.0", "Joey64-0.3.0.apk"), "0.3.0", testing = false))
         assertNull(Releases.newer(release("0.3.0", "Joey64-0.3.0.apk"), "0.3.0.2", testing = false))

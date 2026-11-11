@@ -1,4 +1,6 @@
-import { Invalid, MAX_PER_ADDRESS, MAX_ROOMS, TTL_MS, validate } from "./rules.js";
+import { Invalid, MAX_PER_ADDRESS, MAX_ROOMS, MAX_UNVERIFIED, TTL_MS, validate } from "./rules.js";
+import { blockOf, ipv4, limiterKeyOf, newSalt, scramble } from "./address.js";
+import { decode } from "./code.js";
 
 /**
  * Joey64's public Netplay rooms (Joey 2026-11-10: "public vs private rooms, with a lobby browser to see open
@@ -12,9 +14,12 @@ import { Invalid, MAX_PER_ADDRESS, MAX_ROOMS, TTL_MS, validate } from "./rules.j
  *   GET    /health           ok
  *
  * The app is open source, so anyone can post. So: every field is checked; the address in the code has to be the
- * one the post comes from when that is IPv4 (nobody can list someone else's address); a room is changed or
- * removed only with the secret it was first posted with; posts and reads are rate limited per IP address, which
- * is never stored. What is stored is what the list shows, plus the secret and the time of the last post.
+ * one the post comes from when that is IPv4 (nobody can list someone else's address); a post over IPv6 can't show
+ * that, so such rooms are capped (50 in all, one per /64) and never take another room's code (code audit 3, M24);
+ * a room is changed or removed only with the secret it was first posted with; posts and reads are rate limited per
+ * IP address (an IPv6 address by its /64), which is never stored. What is stored is what the list shows, plus the
+ * secret, the time of the last post, whether the code's address was the poster's, and for a room posted over IPv6 a
+ * hash of its /64 with a salt made for the day (both go with the room and the day).
  */
 
 export default {
@@ -34,11 +39,14 @@ export default {
 
     if (url.pathname === "/rooms" && request.method === "POST") {
       if (!(await allowed(env.POSTS, ip))) return text(429, "slow down");
+      // The header's size first, as reports does: a big body isn't read only to be refused (code audit 3, p7 L6).
+      if (Number(request.headers.get("content-length") || "0") > 2048) return text(413, "too big");
       const raw = await request.text();
       if (raw.length > 2048) return text(413, "too big");
+      const from = env.LOCAL_TEST === "1" ? "" : ipv4(ip) ?? ip;
       let room;
       try {
-        room = validate(JSON.parse(raw), env.LOCAL_TEST === "1" ? "" : ip);
+        room = validate(JSON.parse(raw), from);
       } catch (e) {
         if (e instanceof SyntaxError) return text(400, "not JSON");
         if (e instanceof Invalid) return text(400, e.message);
@@ -48,6 +56,15 @@ export default {
       await env.DB.prepare("DELETE FROM rooms WHERE seen <= ?").bind(now - TTL_MS).run();
       const had = await env.DB.prepare("SELECT secret FROM rooms WHERE id = ?").bind(room.id).first();
       if (had && had.secret !== room.secret) return text(403, "not your room");
+      // validate() refused an IPv4 post whose code is another address, so an IPv4 post's code is its own; an IPv6
+      // post's code can't be checked (the host's game is reached over IPv4).
+      const verified = from === "" || decode(room.code).ip === from ? 1 : 0;
+      let via = null;
+      if (!verified) {
+        const taken = await env.DB.prepare("SELECT 1 AS x FROM rooms WHERE code = ? AND id != ?").bind(room.code, room.id).first();
+        if (taken) return text(409, "code in use");
+        via = await scramble(await saltOf(env.DB, new Date(now).toISOString().slice(0, 10)), blockOf(ip));
+      }
       if (!had) {
         // The first six characters are the address's top 30 bits: at most a few rooms from one small block.
         const same = await env.DB.prepare("SELECT count(*) AS n FROM rooms WHERE substr(code, 1, 6) = ? AND id != ?")
@@ -55,17 +72,26 @@ export default {
         if (same >= MAX_PER_ADDRESS) return text(429, "enough rooms from this address");
         const all = await env.DB.prepare("SELECT count(*) AS n FROM rooms").first("n");
         if (all >= MAX_ROOMS) return text(503, "list full");
+        if (!verified) {
+          const mine = await env.DB.prepare("SELECT count(*) AS n FROM rooms WHERE verified = 0 AND via = ?").bind(via).first("n");
+          if (mine >= 1) return text(429, "enough rooms from this address");
+          const unverified = await env.DB.prepare("SELECT count(*) AS n FROM rooms WHERE verified = 0").first("n");
+          if (unverified >= MAX_UNVERIFIED) return text(503, "list full");
+        }
       }
-      // One room per code: a new room on the same address and port replaces the old one (the host restarted).
-      await env.DB.batch([
-        env.DB.prepare("DELETE FROM rooms WHERE code = ? AND id != ?").bind(room.code, room.id),
-        env.DB.prepare(
-          `INSERT INTO rooms (id, secret, name, device, game, md5, players, code, created, seen)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT (id) DO UPDATE SET name = excluded.name, device = excluded.device, game = excluded.game,
-             md5 = excluded.md5, players = excluded.players, code = excluded.code, seen = excluded.seen`)
-          .bind(room.id, room.secret, room.name, room.device, room.game, room.md5, room.players, room.code, now, now),
-      ]);
+      // One room per code: a new room on the same address and port, posted from that address, replaces the old one
+      // (the host restarted). A room stays verified while its code stays the one that was checked.
+      const upsert = env.DB.prepare(
+        `INSERT INTO rooms (id, secret, name, device, game, md5, players, code, created, seen, verified, via)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET name = excluded.name, device = excluded.device, game = excluded.game,
+           md5 = excluded.md5, players = excluded.players, seen = excluded.seen, via = excluded.via,
+           verified = CASE WHEN code = excluded.code THEN max(verified, excluded.verified) ELSE excluded.verified END,
+           code = excluded.code`)
+        .bind(room.id, room.secret, room.name, room.device, room.game, room.md5, room.players, room.code, now, now, verified, via);
+      await env.DB.batch(verified
+        ? [env.DB.prepare("DELETE FROM rooms WHERE code = ? AND id != ?").bind(room.code, room.id), upsert]
+        : [upsert]);
       return text(204, null);
     }
 
@@ -84,8 +110,20 @@ export default {
 
 async function allowed(limiter, ip) {
   if (!limiter) return true;
-  const { success } = await limiter.limit({ key: ip || "unknown" });
+  const { success } = await limiter.limit({ key: limiterKeyOf(ip || "unknown") });
   return success;
+}
+
+/** Today's salt for an IPv6 poster's /64 hash: made by the day's first such post; the days before's are deleted. */
+async function saltOf(db, day) {
+  const read = () => db.prepare("SELECT salt FROM salts WHERE day = ?").bind(day).first("salt");
+  const salt = await read();
+  if (salt) return salt;
+  await db.batch([
+    db.prepare("INSERT INTO salts (day, salt) VALUES (?, ?) ON CONFLICT (day) DO NOTHING").bind(day, newSalt()),
+    db.prepare("DELETE FROM salts WHERE day < ?").bind(day),
+  ]);
+  return await read();
 }
 
 function text(status, body) {

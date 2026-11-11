@@ -10,6 +10,7 @@ import android.graphics.Shader
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.core.content.res.ResourcesCompat
+import com.joeysretro.joey64.Capped
 import com.joeysretro.joey64.JLog
 import com.joeysretro.joey64.R
 import java.io.File
@@ -68,21 +69,50 @@ object PictureImages {
         JLog.e(TAG, "${file.name} is too big"); null
     }
 
-    /** Copies a picked image into images/ under its own name; returns that name, or null if it isn't a picture. */
-    fun copyIn(context: Context, uri: Uri, store: PictureStore): String? = try {
-        val name = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cur ->
-            if (cur.moveToFirst()) cur.getString(0) else null
-        }?.let { com.joeysretro.joey64.controls.ControlsStore.safe(it) }?.ifBlank { null } ?: "image.png"
-        store.imagesDir.mkdirs()
-        val f = File(store.imagesDir, name)
-        val part = File(store.imagesDir, "$name.part")
-        context.contentResolver.openInputStream(uri)?.use { input -> part.outputStream().use { input.copyTo(it) } } ?: throw java.io.IOException("can't open")
-        val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(part.path, o)
-        if (o.outWidth <= 0 || o.outHeight <= 0) { part.delete(); null }
-        else { f.delete(); if (!part.renameTo(f)) throw java.io.IOException("can't rename"); name }
-    } catch (e: Exception) {
-        JLog.e(TAG, "can't copy the picked image: $e"); null
+    /**
+     * Copies a picked image into images/ and returns its name there, or null if it isn't a picture. It reads the whole
+     * pick: call it off the main thread. An image already there under the same name stays (another game may show it):
+     * the new one becomes "name (2).png" and on, unless it is the same picture (code audit 3, M20).
+     */
+    fun copyIn(context: Context, uri: Uri, store: PictureStore): String? {
+        var part: File? = null
+        return try {
+            val picked = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cur ->
+                if (cur.moveToFirst()) cur.getString(0) else null
+            }?.let { com.joeysretro.joey64.controls.ControlsStore.safe(it) }?.takeIf { it.isNotBlank() && it != "." && it != ".." } ?: "image.png"
+            store.imagesDir.mkdirs()
+            val tmp = File.createTempFile("pick", ".part", store.imagesDir).also { part = it }
+            // Capped: a huge file picked as an image isn't copied in whole (code audit 3, p4 L7).
+            context.contentResolver.openInputStream(uri)?.use { input -> tmp.outputStream().use { Capped.copy(input, it, Capped.PICKED_FILE, "The picked image") } } ?: throw java.io.IOException("can't open")
+            val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(tmp.path, o)
+            if (o.outWidth <= 0 || o.outHeight <= 0) { tmp.delete(); return null }
+            val name = freeName(store.imagesDir, picked, tmp)
+            val f = File(store.imagesDir, name)
+            if (f.exists()) { tmp.delete(); return name } // the same picture is there already
+            // No delete first: the name is free, so a failed rename leaves nothing lost (p4 L9).
+            if (!tmp.renameTo(f)) throw java.io.IOException("can't rename")
+            name
+        } catch (e: Exception) {
+            part?.delete()
+            JLog.e(TAG, "can't copy the picked image: $e"); null
+        }
+    }
+
+    /** [want] or "want (2).ext" and on: the first name in [dir] that is free or already holds [data]'s bytes. */
+    internal fun freeName(dir: File, want: String, data: File): String {
+        val dot = want.lastIndexOf('.').takeIf { it > 0 } ?: want.length
+        val stem = want.substring(0, dot)
+        val ext = want.substring(dot)
+        val here = com.joeysretro.joey64.launcher.storage.DirSpace(dir)
+        var n = 1
+        while (true) {
+            val name = if (n == 1) want else "$stem ($n)$ext"
+            val f = File(dir, name)
+            if (!f.exists()) return name
+            if (f.isFile && com.joeysretro.joey64.launcher.storage.FileCopy.sameContent(here, listOf(name), here, listOf(data.name))) return name
+            n++
+        }
     }
 
     private const val TAG = "Joey64Video"

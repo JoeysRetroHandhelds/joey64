@@ -70,7 +70,7 @@ object RomFiles {
         }
         if (!isZip(head)) return null
         return try {
-            val zip = ZipInputStream(pb)
+            val zip = ZipInputStream(pb, ZipNames)
             while (true) {
                 val e = zip.nextEntry ?: return null
                 val name = e.name.substringAfterLast('/')
@@ -83,6 +83,8 @@ object RomFiles {
             @Suppress("UNREACHABLE_CODE") null
         } catch (e: java.util.zip.ZipException) {
             null
+        } catch (e: IllegalArgumentException) {   // an entry flagged UTF-8 whose name isn't (code audit 3, p3 L2)
+            null
         }
     }
 
@@ -92,7 +94,7 @@ object RomFiles {
     }
 
     private fun extract7z(archive: File, out: File): String? = try {
-        SevenZFile.builder().setFile(archive).get().use { sz ->
+        SevenZFile.builder().setFile(archive).setMaxMemoryLimitKb(MAX_7Z_MEMORY_KB).get().use { sz ->
             var found: String? = null
             while (found == null) {
                 val e = sz.nextEntry ?: break
@@ -108,9 +110,19 @@ object RomFiles {
         null
     }
 
+    /**
+     * The biggest file unpacked: a cartridge is at most 64 MB, a 64DD disk image 64.9 MB. A file handed over that's
+     * bigger filled the cache, and a made-up 7z could ask for more memory than the app has (code audit 3, p1 L6):
+     * 7-Zip's Ultra (a 64 MB dictionary) needs about 70 MB.
+     */
+    const val MAX_FILE = 128L * 1024 * 1024
+    private const val MAX_7Z_MEMORY_KB = 256 * 1024
+
     private fun write(input: InputStream, out: File) {
         val tmp = File(out.parentFile, out.name + ".part")
-        tmp.outputStream().use { input.copyTo(it, 1 shl 16) }
+        try {
+            tmp.outputStream().use { Capped.copy(input, it, MAX_FILE, "The game file") }
+        } catch (e: java.io.IOException) { tmp.delete(); throw e }
         if (!tmp.renameTo(out)) { out.delete(); tmp.renameTo(out) }
     }
 }

@@ -150,11 +150,17 @@ object SrmSync {
         if (!f.isFile) return
         val at = f.lastModified()
         if (st.get(key(name)) == at) return
+        val size = f.length()
         try {
             // Checked and renamed into place: a push cut off leaves the folder's last whole copy, which another
-            // device would otherwise pull over its own save.
-            if (!f.inputStream().use { FileCopy.writeChecked(it, space, listOf(DataKind.Saves.dir, name)) })
+            // device would otherwise pull over its own save. A disk save the core wrote to while it was read is a torn
+            // copy: it's dropped, and the next push (30 s) takes it again (code audit 3, p1 L9).
+            var torn = false
+            if (!f.inputStream().use { FileCopy.writeChecked(it, space, listOf(DataKind.Saves.dir, name)) {
+                    (f.lastModified() == at && f.length() == size).also { same -> if (!same) torn = true } } }) {
+                if (torn) { JLog.i(TAG, "$name: written while it was copied, pushed next time"); return }
                 throw IOException("can't write $name")
+            }
             st.put(key(name), at)
             noteFolder(space, name, st)
             JLog.i(TAG, "$name: pushed ${f.length()} bytes to the data folder")

@@ -298,7 +298,15 @@ class BoxArt(private val context: Context, private val db: LibraryDb) {
 
     /** Keeps the picture [bytes] as a JPEG at [to], written whole or not at all. */
     private fun keep(bytes: ByteArray, to: File) {
-        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: throw NotAnImage(bytes.size)
+        // Its size first: a picture many times a cover's size is read at a fraction of it, so it can't take all the
+        // memory there is (that ends the launcher; code audit 3, p3 L9). Covers come 640 wide or less.
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw NotAnImage(bytes.size)
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > KEEP_MAX_SIDE) sample *= 2
+        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+            ?: throw NotAnImage(bytes.size)
         val part = File(to.parentFile, to.name + ".part")
         try {
             part.outputStream().use { if (!bmp.compress(Bitmap.CompressFormat.JPEG, 90, it)) throw IOException("can't encode") }
@@ -316,6 +324,8 @@ class BoxArt(private val context: Context, private val db: LibraryDb) {
     }
 
     companion object {
+        /** A downloaded picture's longest side past this is read at a half, a quarter...: [keep]. */
+        private const val KEEP_MAX_SIDE = 2048
         /** Settings › Library › Box art quality: High (the default) and Low, covers' widths in pixels. */
         const val HIGH_WIDTH = 640
         const val LOW_WIDTH = 320

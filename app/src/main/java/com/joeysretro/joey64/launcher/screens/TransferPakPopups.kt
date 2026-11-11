@@ -277,19 +277,26 @@ private fun TickMark() {
     Icon(painterResource(R.drawable.ic_tick), contentDescription = "Chosen", tint = JoeyTheme.colors.gold, modifier = Modifier.size(18.dp))
 }
 
-/** Choose a file: Android's picker; a file that isn't a Game Boy game (or save) is left out, with a log line. */
+/**
+ * Choose a file: Android's picker; a file that isn't a Game Boy game (or save) is left out, and the row says so under
+ * it (code audit 3, p2 L11: the popup looked as if nothing happened).
+ */
 @Composable
 private fun ChooseFileRow(games: Boolean, onPicked: (GameBoyFiles.Found) -> Unit) {
     val context = LocalContext.current
+    var wrong by remember { mutableStateOf<String?>(null) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         val name = GameBoyFiles.nameOf(context, uri) ?: return@rememberLauncherForActivityResult
         if (if (games) !GameBoyFiles.isGame(name) else !GameBoyFiles.isSave(name)) {
-            JLog.w("Joey64GameBoy", "picked $name: not a Game Boy ${if (games) "game" else "save"}"); return@rememberLauncherForActivityResult
+            JLog.w("Joey64GameBoy", "picked $name: not a Game Boy ${if (games) "game" else "save"}")
+            wrong = name
+            return@rememberLauncherForActivityResult
         }
+        wrong = null
         try { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
         catch (e: Exception) { JLog.w("Joey64GameBoy", "no lasting permission for $name: $e") }
         onPicked(GameBoyFiles.Found(uri.toString(), name))
     }
-    JoeyRow("Choose a file") { picker.launch(arrayOf("*/*")) }
+    JoeyRow("Choose a file", detail = wrong?.let { "$it isn't a Game Boy ${if (games) "game" else "save"}" }, detailWarn = true) { picker.launch(arrayOf("*/*")) }
 }

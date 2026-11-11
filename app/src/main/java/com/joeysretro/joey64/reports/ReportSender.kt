@@ -53,8 +53,9 @@ object ReportSender {
         val covers = db.coverReports().map { it to "${it.md5} ${it.kind} ${it.cover ?: ""}" }.filter { it.second !in sentCovers }.take(MAX_COVERS)
         val coverEvents = covers.mapNotNull { (c, key) -> ReportJson.cover(c.md5, c.kind, c.header, c.title, c.cover)?.let { it to key } }
 
-        val crashEvents = exits.filter { it.crash && it.timestamp > ReportPrefs.exitsAfter(ctx) }
-            .map { ReportJson.crash(it.md5, it.where, it.summary) }
+        // Oldest first: when the report is too big for all of them, the newest wait (and stay after exitsAfter).
+        val crashes = exits.filter { it.crash && it.timestamp > ReportPrefs.exitsAfter(ctx) }.sortedBy { it.timestamp }
+            .map { it to ReportJson.crash(it.md5, it.where, it.summary) }
 
         // Sessions by (gpu, driver), newest group first; covers and crashes ride with the first report.
         val groups = sessions.groupBy { it.second.optString("gpu") to it.second.optString("driver") }
@@ -71,31 +72,58 @@ object ReportSender {
         var maxExit = 0L
         for ((i, step) in plan.withIndex()) {
             val (gpuDriver, group) = step
-            val extra = if (i == 0) crashEvents + coverEvents.map { it.first } else emptyList()
+            val crashesHere = if (i == 0) crashes else emptyList()
+            val coversHere = if (i == 0) coverEvents else emptyList()
             val sessionEvents = group.mapNotNull { (f, o) -> ReportJson.session(o, headers[o.optString("md5")])?.let { f to it } }
-                .take(ReportJson.MAX_EVENTS - extra.size)
-            val events = sessionEvents.map { it.second } + extra
+                .take(ReportJson.MAX_EVENTS - crashesHere.size - coversHere.size)
+            // Crashes, then sessions oldest first, then covers: what doesn't fit waits for the next report, from the end.
+            val events = crashesHere.map { it.second } + sessionEvents.map { it.second } + coversHere.map { it.first }
             if (events.isEmpty()) continue
             val screen = mainScreen(ctx)
             val device = ReportJson.Device(Build.MANUFACTURER, Build.MODEL, if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL else null,
                 gpuDriver.first.ifEmpty { null }, gpuDriver.second.ifEmpty { null }, Build.VERSION.SDK_INT,
                 screen?.first, screen?.second, screen?.third)
-            val body = ReportJson.report(install, app, core, device, events).toString()
+            val keep = fitting(ReportJson.report(install, app, core, device, emptyList()).toString(), events)
+            val sentCrashes = crashesHere.take(keep)
+            val sentSessions = sessionEvents.take((keep - crashesHere.size).coerceAtLeast(0))
+            val sentCovers = coversHere.take((keep - crashesHere.size - sessionEvents.size).coerceAtLeast(0))
+            val body = ReportJson.report(install, app, core, device, events.take(keep)).toString()
             val code = post(ctx, body)
-            JLog.i(TAG, "reports: sent ${sessionEvents.size} sessions" + (if (i == 0) ", ${coverEvents.size} covers, ${crashEvents.size} crashes" else "") + ": $code")
-            if (code == 204 || code == 400) {
-                // 400: the server can't read it, and it won't later either: dropped, not sent every day.
-                if (code == 400) JLog.e(TAG, "reports: the server refused the report: ${lastError ?: ""}")
-                sessionEvents.forEach { it.first.delete() }
+            JLog.i(TAG, "reports: sent ${sentSessions.size} sessions" + (if (i == 0) ", ${sentCovers.size} covers, ${sentCrashes.size} crashes" else "") +
+                (if (keep < events.size) " (${events.size - keep} more wait: over ${MAX_BODY / 1024} KB)" else "") + ": $code")
+            if (code == 204 || code == 400 || code == 413) {
+                // 400: the server can't read it, and it won't later either: dropped, not sent every day. 413 (too big even
+                // after the cut above) the same, so one report can't hold up the ones after it for good (code audit 3, M22).
+                if (code != 204) JLog.e(TAG, "reports: the server refused the report ($code): ${lastError ?: ""}")
+                sentSessions.forEach { it.first.delete() }
                 if (i == 0) {
-                    ReportFiles.coversSent(ctx).appendText(coverEvents.joinToString("") { it.second + "\n" })
-                    maxExit = exits.maxOfOrNull { it.timestamp } ?: 0L
+                    ReportFiles.coversSent(ctx).appendText(sentCovers.joinToString("") { it.second + "\n" })
+                    // Every crash went: past every exit so far. Some wait: past the newest that went, so the rest go next.
+                    maxExit = if (sentCrashes.size == crashesHere.size) exits.maxOfOrNull { it.timestamp } ?: 0L
+                    else sentCrashes.lastOrNull()?.first?.timestamp ?: 0L
                 }
                 anySent = anySent || code == 204
             } else break
         }
         if (maxExit > 0) ReportPrefs.setExitsAfter(ctx, maxOf(maxExit, ReportPrefs.exitsAfter(ctx).takeIf { it != Long.MAX_VALUE } ?: 0L))
-        if (anySent || (plan.all { it.second.isEmpty() } && crashEvents.isEmpty() && coverEvents.isEmpty())) ReportPrefs.setLastSentDay(ctx, today())
+        if (anySent || (plan.all { it.second.isEmpty() } && crashes.isEmpty() && coverEvents.isEmpty())) ReportPrefs.setLastSentDay(ctx, today())
+    }
+
+    /** The server takes at most 64 KB a report (server/reports/src/validate.js, MAX_BYTES); a report stays under this. */
+    const val MAX_BODY = 60 * 1024
+
+    /**
+     * How many of [events], from the start, fit in one report whose body without events is [empty]. At least one, so a
+     * single event too big even alone goes once and is dropped (413) instead of holding the queue (code audit 3, M22:
+     * a report over 64 KB got 413 every day, and nothing from that install was sent again).
+     */
+    internal fun fitting(empty: String, events: List<JSONObject>, max: Int = MAX_BODY): Int {
+        var total = empty.toByteArray().size
+        for ((n, e) in events.withIndex()) {
+            total += e.toString().toByteArray().size + 1 // and the comma before the next
+            if (total > max) return maxOf(n, 1)
+        }
+        return events.size
     }
 
     private var lastError: String? = null
@@ -179,10 +207,20 @@ object ReportSender {
         return out.toByteArray()
     }
 
-    /** Paths and content addresses out of crash text (a file name in an exception's message can name the user's folders). */
+    /**
+     * Paths and content addresses out of crash text (a file name in an exception's message can name the user's folders).
+     * A path runs to the end of its line, a quote or ": " (folder names have spaces: "/storage/.../John Smith/Zelda.z64"
+     * left " Smith/Zelda.z64" behind), and SAF document ids ("primary:ROMs/...", an SD card's "1A2B-3C4D:...") go too
+     * (code audit 3, p7 L3). Content URIs have no spaces (they're percent-encoded).
+     */
     fun scrub(s: String): String = s
-        .replace(Regex("""(content|file)://\S+"""), "<path>")
-        .replace(Regex("""/(storage|sdcard|mnt|data/user|data/data)/\S+"""), "<path>")
+        .replace(Regex("""content://\S+"""), "<path>")
+        .replace(Regex("""file://$PATH_REST"""), "<path>")
+        .replace(Regex("""/(storage|sdcard|mnt|data/user|data/data)/$PATH_REST"""), "<path>")
+        .replace(Regex("""\b(primary|[0-9A-F]{4}-[0-9A-F]{4}):[^\s"']$PATH_REST"""), "<path>")
+
+    /** The rest of a path: up to the end of its line, a quote or ": ". */
+    private const val PATH_REST = """(?:(?!: )[^\n"'])*"""
 
     /**
      * Sessions left in open/ by a process that is gone: they didn't end with a quit. One whose process

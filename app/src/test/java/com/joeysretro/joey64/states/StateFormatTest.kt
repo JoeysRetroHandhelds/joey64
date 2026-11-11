@@ -85,6 +85,13 @@ class StateFormatTest {
         assertNull(StateFormat.unwrap(file))
     }
 
+    @Test fun aChunkLengthNearTwoGigabytesGivesNull() {
+        // The first chunk's length at 0x7FFFFFF0: at + n wrapped below the file's size and the reader threw (code audit 3, p1 L1).
+        val file = StateFormat.wrap(coreData(1000))
+        for (i in 0 until 4) file[20 + i] = ((0x7FFFFFF0L ushr (8 * i)) and 0xFF).toByte()
+        assertNull(StateFormat.unwrap(file))
+    }
+
     @Test fun ourStatesAreFoundByTheImport() {
         // The import's reader (RetroArch's files) takes what we write as an N64 state.
         assertTrue(RetroArchImport.isN64State(StateFormat.wrap(coreData(300_000)).inputStream()))

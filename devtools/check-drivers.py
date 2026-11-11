@@ -12,6 +12,7 @@ Usage: python devtools/check-drivers.py [--json] [--issues [--dry-run]]
 import json
 import os
 import sys
+import urllib.parse
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -30,25 +31,33 @@ def releases(repo):
     return api(f"/repos/{repo}/releases?per_page=30")
 
 
+def reported(repo, title):
+    """Whether an issue (open or closed) has exactly this title. GitHub's issue search, so older issues count too: listing
+    only the newest 300 opened a duplicate every day once more were filed (code audit 3, p7 L7)."""
+    q = 'repo:%s is:issue in:title "%s"' % (repo, title.replace('"', ""))
+    res = api("/search/issues?" + urllib.parse.urlencode({"q": q, "per_page": "100"}))
+    return any(i.get("title") == title for i in res.get("items", []))
+
+
 def open_issues(results, dry_run):
     repo = os.environ.get("GITHUB_REPOSITORY", "JoeysRetroHandhelds/joey64")
     owner = repo.split("/")[0]
-    existing = set()
-    if not dry_run:
-        for page in range(1, 4):
-            batch = api(f"/repos/{repo}/issues?state=all&per_page=100&page={page}")
-            existing |= {i["title"] for i in batch}
-            if len(batch) < 100:
-                break
     for r in results:
         if not r.get("new"):
             continue
         title = f"Driver update: {r['name']} {r['latest']}"
-        if title in existing:
-            print(f"already reported: {title}")
-            continue
+        if not dry_run:
+            try:
+                if reported(repo, title):
+                    print(f"already reported: {title}")
+                    continue
+            except Exception as e:  # rate limit, network: no issue today rather than a duplicate
+                print(f"could not look for {title!r} ({e}), not opened")
+                continue
+        # The release's own title as a code span: an @name in it would notify that user (code audit 3, p7 L7).
+        name = (r.get("title") or r["latest"]).replace("`", "'")
         body = "\n".join([
-            f"{r['title']} was published {r['published'][:10]} in {r['repo']}.",
+            f"`{name}` was published {(r.get('published') or '')[:10]} in {r['repo']}.",
             "",
             f"We bundle {r['have']}{'' if r['bundled'] else ' (watched only, not bundled)'}.",
             f"Release: {r['url']}",

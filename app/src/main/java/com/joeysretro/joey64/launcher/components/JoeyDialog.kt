@@ -31,6 +31,8 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
@@ -80,6 +82,11 @@ fun JoeyDialog(
     hints: List<Hint>,
     /** False for a popup that must be answered: Back, B and a tap outside do nothing. */
     dismissible: Boolean = true,
+    /**
+     * False: a tap outside does nothing, Back and B still close it (a netplay room, where a stray tap beside the card
+     * left the room; code audit 3, M31).
+     */
+    tapOutsideCloses: Boolean = true,
     /** Start / Menu: the focused item's options, where the popup has any. */
     onOptions: (() -> Unit)? = null,
     /** Offered every B / Back before the popup closes; return true to consume it. */
@@ -191,7 +198,7 @@ fun JoeyDialog(
         // The dialog window's own insets: the keyboard opens over this window, not the activity's.
         @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
         val atTop = atTop || (riseWithKeyboard && androidx.compose.foundation.layout.WindowInsets.Companion.isImeVisible)
-        val tapOutside by rememberUpdatedState { if (dismissible) requestClose() }
+        val tapOutside by rememberUpdatedState { if (dismissible && tapOutsideCloses) requestClose() }
         // Its own window: laid out at the launcher's debug size too, and measured for its own
         // ScreenLayout (in a game, the game's window provides none: its pages were always two columns).
         val isTv = remember { com.joeysretro.joey64.launcher.layout.Tv.isTv(view.context) }
@@ -314,7 +321,7 @@ fun JoeyDialog(
 @Composable
 fun PopupTitle(title: String, subtitle: String? = null) {
     Column(Modifier.padding(horizontal = JoeyTheme.spacing.rowPadH).padding(bottom = 6.dp)) {
-        Text(title, style = JoeyTheme.type.popupTitle, color = JoeyTheme.colors.text)
+        Text(title, style = JoeyTheme.type.popupTitle, color = JoeyTheme.colors.text, modifier = Modifier.semantics { heading() })
         if (subtitle != null) Text(subtitle, style = JoeyTheme.type.note, color = JoeyTheme.colors.textDim)
     }
 }

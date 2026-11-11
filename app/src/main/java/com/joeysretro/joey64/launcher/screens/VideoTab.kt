@@ -27,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -98,14 +99,16 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
         else -> null
     }) }
 
+    // From the store, not this composition's maps: the Y handler and popups can hold an older composition's
+    // functions, which wrote the tab as it was then and undid the changes since (code audit 3, M26).
     fun set(changes: Map<VideoKey, String>) {
-        if (target == null) store.saveAll(all + changes) else store.saveGame(target, own + changes)
+        if (target == null) store.saveAll(store.all() + changes) else store.saveGame(target, (store.game(target) ?: emptyMap()) + changes)
         version++
     }
     fun set(k: VideoKey, value: String) = set(mapOf(k to value))
     /** Y: the focused row back to All games (a game) or to its default (All games). */
     fun reset(keys: Collection<VideoKey>) {
-        if (target == null) store.saveAll(all - keys.toSet()) else store.saveGame(target, own - keys.toSet())
+        if (target == null) store.saveAll(store.all() - keys.toSet()) else store.saveGame(target, (store.game(target) ?: emptyMap()) - keys.toSet())
         version++
     }
     fun dot(vararg keys: VideoKey) = target != null && keys.any { it in own }
@@ -123,13 +126,19 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
     // shows how many games have them. Null while loading.
     val extras by androidx.compose.runtime.produceState<GameExtras?>(null, target) {
         value = if (target == null) GameExtras.NONE else withContext(Dispatchers.IO) {
-            val game = com.joeysretro.joey64.launcher.data.LibraryDb.get(context).gameWithFile(target, com.joeysretro.joey64.states.GameStates::saveNameOf)
-            val keys = com.joeysretro.joey64.cheats.CheatLogic.keys(game?.headerKey)
-            val lists = com.joeysretro.joey64.cheats.CheatLists(context).sourcesForGame(keys, download = true)
-            if (lists == null) GameExtras.NONE else GameExtras.from(lists, keys.firstOrNull())
+            // A library error leaves the game without versions, as Emulation's look-up does (code audit 3, p2 L3).
+            try {
+                val game = com.joeysretro.joey64.launcher.data.LibraryDb.get(context).gameWithFile(target, com.joeysretro.joey64.states.GameStates::saveNameOf)
+                val keys = com.joeysretro.joey64.cheats.CheatLogic.keys(game?.headerKey)
+                val lists = com.joeysretro.joey64.cheats.CheatLists(context).sourcesForGame(keys, download = true)
+                if (lists == null) GameExtras.NONE else GameExtras.from(lists, keys.firstOrNull())
+            } catch (e: Exception) { com.joeysretro.joey64.JLog.e("Joey64Video", "can't look up $target's versions: $e"); GameExtras.NONE }
         }
     }
-    val counts = remember(target) { if (target == null) com.joeysretro.joey64.cheats.CheatLists(context).extrasCounts() else null }
+    // The cheat index (91 KB) is read off the main thread: only the popup shows it (code audit 3, p2 L8).
+    val counts by androidx.compose.runtime.produceState<Pair<Int, Int>?>(null, target) {
+        value = if (target == null) withContext(Dispatchers.IO) { com.joeysretro.joey64.cheats.CheatLists(context).extrasCounts() } else null
+    }
     val hardcore = com.joeysretro.joey64.achievements.RaHardcore.on()
     val fpsTitle = if (extras?.pal == true) "50 fps" else "60 fps"
     /** The row's value, and whether it can be changed (greyed: Hardcore, or no code for this game). */
@@ -152,8 +161,10 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
         "ws" to listOf(VideoKey.Widescreen), "fps" to listOf(VideoKey.Fps),
         "shp" to listOf(VideoKey.Sharpen, VideoKey.SharpenStrength), "bfi" to listOf(VideoKey.Bfi), "adv" to ADVANCED_KEYS)
 
+    // The handler is set once per target; it calls this composition's Y through rememberUpdatedState.
+    val onY by rememberUpdatedState { if (popup == null) { rowKeys[focused]?.let { reset(it) }; true } else false }
     LaunchedEffect(target) {
-        onControl { ctl -> if (ctl == Control.Search && popup == null) { rowKeys[focused]?.let { reset(it) }; true } else false }
+        onControl { ctl -> if (ctl == Control.Search) onY() else false }
     }
     LaunchedEffect(target) {
         onHints(listOf(Hint("A", "Change"), Hint("Y", if (target == null) "Reset to default" else "Use All games"), Hint("L/R", "Tab"), Hint("B", "Back")))

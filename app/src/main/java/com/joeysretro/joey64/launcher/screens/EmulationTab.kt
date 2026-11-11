@@ -12,6 +12,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -68,12 +69,14 @@ fun EmulationTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((C
     val smoother = remember { context.getSharedPreferences("device", android.content.Context.MODE_PRIVATE).let { p ->
         if (p.contains("smoother")) p.getBoolean("smoother", false) else null } }
 
+    // From the store, not this composition's maps: the Y handler and popups can hold an older composition's
+    // functions, which wrote the tab as it was then and undid the changes since (code audit 3, M26).
     fun set(k: EmuKey, value: String) {
-        if (target == null) store.saveAll(all + (k to value)) else store.saveGame(target, own + (k to value))
+        if (target == null) store.saveAll(store.all() + (k to value)) else store.saveGame(target, (store.game(target) ?: emptyMap()) + (k to value))
         version++
     }
     fun reset(k: EmuKey) {
-        if (target == null) store.saveAll(all - k) else store.saveGame(target, own - k)
+        if (target == null) store.saveAll(store.all() - k) else store.saveGame(target, (store.game(target) ?: emptyMap()) - k)
         version++
     }
     // Greyed: the Expansion Pak on All games, or for a game that needs it.
@@ -86,8 +89,11 @@ fun EmulationTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((C
         else -> null
     }
 
+    // The handler is set once per target; it calls this composition's Y (with the game's needs list as loaded since)
+    // through rememberUpdatedState.
+    val onY by rememberUpdatedState { if (popup == null && !fixed(focused)) { reset(focused); true } else false }
     LaunchedEffect(target) {
-        onControl { ctl -> if (ctl == Control.Search && popup == null && !fixed(focused)) { reset(focused); true } else false }
+        onControl { ctl -> if (ctl == Control.Search) onY() else false }
     }
     LaunchedEffect(target, focused, needsPak) {
         val y = Hint("Y", if (target == null) "Reset to default" else "Use All games")

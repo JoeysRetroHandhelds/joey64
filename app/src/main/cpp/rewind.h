@@ -47,6 +47,10 @@ private:
     bool unpack(const std::vector<uint8_t>& packed, uint8_t* dst, size_t n);
     bool on_ = false;
     int every_ = 2, max_ = 1800, tick_ = 0;
+    // The packed moments' memory, at most an eighth of the device's memory and 1 GB (code audit 3, M15: 5 minutes at
+    // every frame was up to ~1.4 GB, past what a 4 GB handheld keeps a game alive with). Past it the oldest go.
+    uint64_t capBytes_ = 256ull << 20; // set by configure
+    bool capHit_ = false;
     std::atomic<int> count_{0};
     // The worker's (and, once drained, the emulation thread's).
     std::vector<uint8_t> base_, baseProg_;
@@ -99,7 +103,9 @@ bool Rewind::stepBack(Unser unser) {
     std::lock_guard<std::mutex> lk(m_);
     if (moments_.empty() || !hasBase_) return false;
     const size_t held = moments_.back().packed.size() + moments_.back().progress.size();
-    if (!unpackInto(moments_.back())) { moments_.clear(); count_ = 0; heldBytes_ = 0; return false; }
+    // A failed unpack has XORed part of the moment into base_, which every newer moment is the difference from: start
+    // the recording over (code audit 3, p5 L4).
+    if (!unpackInto(moments_.back())) { moments_.clear(); count_ = 0; heldBytes_ = 0; hasBase_ = false; return false; }
     heldBytes_ -= held;
     moments_.pop_back();
     count_ = (int)moments_.size();

@@ -13,12 +13,16 @@ import org.json.JSONObject
  */
 object Releases {
     private val ASSET = Regex("""Joey64-v?(\d+(?:\.\d+)*)\.apk""", RegexOption.IGNORE_CASE)
+    /** An asset's `digest` (GitHub since 2025; older uploads have none). */
+    private val DIGEST = Regex("sha256:([0-9a-fA-F]{64})")
 
     data class Release(
         val version: String,
         val notes: String,
         val url: String,
         val bytes: Long,
+        /** The APK's SHA-256 in lower-case hex, from the asset's digest; null when it has none. */
+        val sha256: String? = null,
     ) {
         /** A testing build: a fourth version number. */
         val testing: Boolean get() = isTesting(version)
@@ -34,7 +38,8 @@ object Releases {
             val a = assets.optJSONObject(i) ?: continue
             val v = ASSET.matchEntire(a.optString("name"))?.groupValues?.get(1) ?: continue
             val url = a.optString("browser_download_url").ifEmpty { continue }
-            return Release(v, release.optString("body").trim(), url, a.optLong("size"))
+            return Release(v, release.optString("body").trim(), url, a.optLong("size"),
+                DIGEST.matchEntire(a.optString("digest"))?.groupValues?.get(1)?.lowercase())
         }
         return null
     }

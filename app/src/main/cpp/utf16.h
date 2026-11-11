@@ -24,3 +24,12 @@ inline std::u16string utf8To16(const char* s) {
     }
     return out;
 }
+
+// At most [max] bytes of [s], never cutting a UTF-8 character in two (code audit 3, M14: names cut at 40 bytes could
+// end in half a character, which isn't modified UTF-8 for JNI).
+inline std::string cutUtf8(const std::string& s, size_t max) {
+    if (s.size() <= max) return s;
+    size_t n = max;
+    while (n > 0 && (static_cast<unsigned char>(s[n]) & 0xC0) == 0x80) --n;
+    return s.substr(0, n);
+}

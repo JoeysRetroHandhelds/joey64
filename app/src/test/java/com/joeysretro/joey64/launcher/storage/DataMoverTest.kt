@@ -41,6 +41,27 @@ class DataMoverTest {
         assertFalse(File(from.root, "screenshots").exists())
     }
 
+    @Test fun putsBackAFileACutOffReplaceLeftAside() {
+        // FileCopy.swapIn cut off between its renames: the old copy aside, none under the real name (code audit 3, p3 L3).
+        val from = space("internal")
+        val to = space("picked")
+        from.put("saves/Zelda.srm" + FileCopy.OLD_SUFFIX, "old")
+        from.put("saves/Zelda.srm" + FileCopy.PART_SUFFIX, "new")
+        // A whole swap whose old copy wasn't removed: junk.
+        from.put("saves/Mario.srm", "mario")
+        from.put("saves/Mario.srm" + FileCopy.OLD_SUFFIX, "older")
+
+        val r = DataMover.move(from, to)
+
+        assertTrue(r.complete)
+        assertEquals(2, r.moved)
+        assertEquals("old", to.read("saves/Zelda.srm"))
+        assertEquals("mario", to.read("saves/Mario.srm"))
+        assertEquals(null, to.read("saves/Mario.srm" + FileCopy.OLD_SUFFIX))
+        assertEquals(null, to.read("saves/Zelda.srm" + FileCopy.PART_SUFFIX))
+        assertFalse(File(from.root, "saves").exists())
+    }
+
     @Test fun leavesOtherAppFilesAlone() {
         // The app's files dir also holds the core's system folder and GPU drivers.
         val from = space("internal")

@@ -106,6 +106,9 @@ internal fun SlangPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
     var folder by remember { mutableStateOf(store.folder()) }
     @Suppress("UNUSED_EXPRESSION") version
     val index by produceState(store.index(), folder, version) {
+        // produceState keeps its value when the keys change: start from the store's index again, so a new folder
+        // (setFolder dropped the index) is read instead of the old folder's list staying (code audit 3, M27).
+        value = store.index()
         if (folder != null && value == null) value = withContext(Dispatchers.IO) { store.scan() }
     }
     val recent = remember(version) { store.recent() }
@@ -116,7 +119,14 @@ internal fun SlangPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
     var previewErr by remember { mutableStateOf<Pair<String, String>?>(null) }
     val scope = rememberCoroutineScope()
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
-        if (uri != null) { store.setFolder(uri); folder = store.folder(); version++ }
+        if (uri != null) {
+            val old = store.folder()?.uri
+            store.setFolder(uri); folder = store.folder(); version++
+            // The folder before gives its read grant back unless another setting still uses it (Android caps them).
+            if (old != null && old != uri.toString()) scope.launch(Dispatchers.IO) {
+                com.joeysretro.joey64.launcher.storage.RomFolders.releaseIfUnused(context.applicationContext, old)
+            }
+        }
     }
     val state = rememberLazyListState()
     val requesters = remember { HashMap<Int, FocusRequester>() }

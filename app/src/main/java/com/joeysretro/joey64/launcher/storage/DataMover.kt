@@ -64,8 +64,23 @@ object DataMover {
         val conflicts = ArrayList<String>()
         val failed = ArrayList<String>()
 
+        fun moveFile(path: List<String>, shown: String) {
+            when {
+                to.exists(path) -> {
+                    if (FileCopy.sameContent(from, path, to, path)) {
+                        if (from.delete(path)) already++ else failed += shown
+                    } else conflicts += shown
+                }
+                else -> if (FileCopy.copyChecked(from, path, to, path)) {
+                    if (from.delete(path)) moved++ else failed += shown
+                } else failed += shown
+            }
+        }
+
         fun walk(dir: List<String>) {
-            for (e in from.list(dir)) {
+            val entries = from.list(dir)
+            val names = entries.mapTo(HashSet()) { it.name }
+            for (e in entries) {
                 val path = dir + e.name
                 val shown = path.joinToString("/")
                 when {
@@ -75,14 +90,18 @@ object DataMover {
                     }
                     // A copy this move left half done in the old place is junk.
                     e.name.endsWith(PART_SUFFIX) -> from.delete(path)
-                    to.exists(path) -> {
-                        if (FileCopy.sameContent(from, path, to, path)) {
-                            if (from.delete(path)) already++ else failed += shown
-                        } else conflicts += shown
+                    // The old copy a replace set aside (FileCopy.swapIn). Cut off between its two renames, the file had no
+                    // copy under its own name: this one goes back under it and moves; after a whole swap it's junk (code
+                    // audit 3, p3 L3). By the names listed, as the file under the real name may have moved already.
+                    e.name.endsWith(FileCopy.OLD_SUFFIX) -> {
+                        val real = e.name.removeSuffix(FileCopy.OLD_SUFFIX)
+                        when {
+                            real in names -> from.delete(path)
+                            from.rename(path, real) -> moveFile(dir + real, (dir + real).joinToString("/"))
+                            else -> failed += shown
+                        }
                     }
-                    else -> if (FileCopy.copyChecked(from, path, to, path)) {
-                        if (from.delete(path)) moved++ else failed += shown
-                    } else failed += shown
+                    else -> moveFile(path, shown)
                 }
             }
         }

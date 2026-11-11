@@ -36,8 +36,10 @@ object FileCopy {
      * Puts the rest of [input] (read to its end, left open: a zip entry) at [toPath], a new file or in place
      * of the one there, the same checked way: a restore or a folder copy cut off leaves the old file whole.
      */
-    fun writeChecked(input: InputStream, to: FileSpace, toPath: List<String>): Boolean {
+    fun writeChecked(input: InputStream, to: FileSpace, toPath: List<String>, stillGood: (() -> Boolean)? = null): Boolean {
         val part = writePartFrom(input, to, toPath) ?: return false
+        // [stillGood]: asked once the copy is written and read back; false (its source changed while it was read) drops it.
+        if (stillGood != null && !stillGood()) { to.delete(part); return false }
         if (!to.exists(toPath)) return to.rename(part, toPath.last()) || run { to.delete(part); false }
         return swapIn(to, part, toPath)
     }

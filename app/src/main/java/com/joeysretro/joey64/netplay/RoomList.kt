@@ -1,6 +1,7 @@
 package com.joeysretro.joey64.netplay
 
 import android.content.Context
+import com.joeysretro.joey64.Capped
 import com.joeysretro.joey64.JLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -66,7 +67,7 @@ object RoomList {
     private fun fetch(): List<Room>? = try {
         val c = URL("$base/rooms").openConnection() as HttpURLConnection
         c.connectTimeout = 5000; c.readTimeout = 5000
-        val text = c.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
+        val text = c.inputStream.use { Capped.text(it, Capped.MB, "The rooms list") }   // code audit 3, p3 L10
         parse(text)
     } catch (e: Exception) { JLog.i(TAG, "public rooms: can't reach the list: $e"); null }
 
@@ -77,30 +78,40 @@ object RoomList {
             val o = a.optJSONObject(i) ?: return@mapNotNull null
             val code = o.optString("code")
             val room = RoomCode.decode(code) ?: return@mapNotNull null
+            // It names its cover's file: only an MD5, as the Worker and the Wi-Fi beacons check (code audit 3, p3 L6).
+            val md5 = o.optString("md5").lowercase().takeIf { LobbyLines.isMd5(it) } ?: return@mapNotNull null
             Room(o.optString("id"), o.optString("name").take(48), o.optString("device").take(48), o.optString("game").take(80),
-                o.optString("md5").lowercase(), o.optInt("players", 1).coerceIn(1, 4), room.ip, room.port, RoomCode.clean(code))
+                md5, o.optInt("players", 1).coerceIn(1, 4), room.ip, room.port, RoomCode.clean(code))
         }
     }
 
     // ---- this device's public room ----
 
-    private var listing: Listing? = null
+    @Volatile private var listing: Listing? = null
+    /** The post loop, or the DELETE that took the room off the list. */
     private var postJob: Job? = null
     private val id = java.util.UUID.randomUUID().toString().replace("-", "")
     private val secret = java.util.UUID.randomUUID().toString().replace("-", "")
 
-    /** The room to list (null: none). Posted at once when it changes, then every 30 s; null takes it off the list. */
-    fun hosting(l: Listing?) {
+    /**
+     * The room to list (null: none). Posted at once when it changes, then every 30 s; null takes it off the list.
+     * Called from the main thread and the lobby's IO threads, so synchronized; and each request waits for the one before
+     * it (a send can't be stopped part-way), so a POST still on its way can't land after the DELETE and leave a closed
+     * room listed (code audit 3, p3 L8). A DELETE that hasn't gone yet may be dropped: the next POST, under the same id,
+     * replaces what's listed.
+     */
+    @Synchronized fun hosting(l: Listing?) {
         if (l == listing) return
         val was = listing
         listing = l
+        val before = postJob?.also { it.cancel() }
+        postJob = null
         if (l == null) {
-            postJob?.cancel(); postJob = null
-            if (was != null) scope.launch { send("DELETE", "$base/rooms/$id", null) }
+            if (was != null) postJob = scope.launch { before?.join(); send("DELETE", "$base/rooms/$id", null) }
             return
         }
-        postJob?.cancel()
         postJob = scope.launch {
+            before?.join()
             while (isActive) {
                 val now = listing ?: break
                 send("POST", "$base/rooms", JSONObject().put("id", id).put("secret", secret).put("name", now.name).put("device", now.device)

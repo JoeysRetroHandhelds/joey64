@@ -10,6 +10,7 @@
 #include "libra.h"
 #include "rewind_test.h"
 #include "rewind.h"
+#include "utf16.h"
 #include <jni.h>
 #include <dlfcn.h>
 #include <android/log.h>
@@ -65,10 +66,16 @@ static std::mutex g_npRosterMutex;
 static std::string g_npRoster;
 // The name the others see: N64_NETPLAY_NAME, else the device model (Build.MODEL's ro.product.model).
 static std::string npName() {
-    if (const char* n = getenv("N64_NETPLAY_NAME")) if (*n) return std::string(n).substr(0, 40);
+    if (const char* n = getenv("N64_NETPLAY_NAME")) if (*n) return cutUtf8(n, 40);
     char m[PROP_VALUE_MAX] = "";
     __system_property_get("ro.product.model", m);
-    return *m ? std::string(m).substr(0, 40) : "Player";
+    return *m ? cutUtf8(m, 40) : "Player";
+}
+// A Java string from bytes that should be UTF-8 but may not be (a room's player names, a preset's text, librashader's
+// errors, a driver's name): through UTF-16 (utf16.h), since NewStringUTF takes only modified UTF-8 (code audit 3, M14).
+static jstring toJava(JNIEnv* env, const std::string& s) {
+    std::u16string out = utf8To16(s.c_str());
+    return env->NewString(reinterpret_cast<const jchar*>(out.data()), (jsize)out.size());
 }
 static void npPauseStop();
 static void npPauseStart(const char* np) {
@@ -123,7 +130,11 @@ static void npPauseStart(const char* np) {
                             int p = r[k], ping = r[k + 1] << 8 | r[k + 2]; size_t l = r[k + 3];
                             if (k + 4 + l > (size_t)n) break;
                             if (!out.empty()) out += ';';
-                            out += std::to_string(p + 1) + "|" + std::string((const char*)r + k + 4, l) + "|" + std::to_string(ping);
+                            // The name as the room sent it, with the list's own separators and control bytes made spaces
+                            // (code audit 3, M14: "x;3|Name|5" would read as another player).
+                            std::string name((const char*)r + k + 4, l);
+                            for (char& ch : name) if (ch == ';' || ch == '|' || (unsigned char)ch < 0x20) ch = ' ';
+                            out += std::to_string(p + 1) + "|" + name + "|" + std::to_string(ping);
                             k += 4 + l;
                         }
                         if (k < (size_t)n) { // after the players: the room's input delay (rooms from 2026-11-10 on)
@@ -239,6 +250,10 @@ std::mutex g_surfaceMutex;
 ANativeWindow* g_pendingWindow = nullptr;
 std::atomic<bool> g_surfaceChanged{false};
 std::atomic<bool> g_surfaceResized{false};
+// setSurface(null) waits (bounded) until the emulation thread has let go of the old window (code audit 3, p5 L2):
+// asked counts setSurface calls, done is the last one applySurfaceIfChanged attached; both under g_surfaceMutex.
+uint64_t g_surfaceAsked = 0, g_surfaceDone = 0;
+std::condition_variable g_surfaceCv;
 
 std::thread g_thread;
 std::atomic<bool> g_running{false}, g_paused{false};
@@ -475,6 +490,8 @@ std::atomic<bool> g_ddIplMissing{false};
 // Netplay as the core reports it (a joining player has no room server here): the connection was lost (the core then
 // stops), and the room's status byte as last heard (bit 0 de-synced, bits 1-4 player 1-4 left).
 std::atomic<bool> g_netplayLost{false};
+// The GPU stopped answering mid-game (VkContext::lost; code audit 3, M12): coreShutDown says 7 and the game screen closes.
+std::atomic<bool> g_gpuLost{false};
 std::atomic<uint8_t> g_netplayStatus{0};
 // The player this game has waited for over 1 s (the core's "waiting for player N" / "player N is back"), 0 = none.
 std::atomic<int> g_netplayWaitingFor{0};
@@ -518,8 +535,29 @@ retro_proc_address_t hw_get_proc_address(const char* name) {
     return reinterpret_cast<retro_proc_address_t>(eglGetProcAddress(name));
 }
 
+// The core's netplay lines name the room's address: another player's public one when joined by code. Session logs go
+// out with Share logs, so public IPv4 addresses are left out; this Wi-Fi's stay (code audit 3, p1 L4; as LogMask.kt).
+static std::string maskPublicAddresses(const char* line) {
+    std::string out;
+    for (const char* p = line; *p;) {
+        unsigned b[4]; int len = 0;
+        const bool starts = isdigit((unsigned char)*p) &&
+            (p == line || (!isdigit((unsigned char)p[-1]) && !(p[-1] == '.' && p - 1 > line && isdigit((unsigned char)p[-2]))));
+        if (starts && sscanf(p, "%3u.%3u.%3u.%3u%n", &b[0], &b[1], &b[2], &b[3], &len) == 4 && len > 0 &&
+            !isdigit((unsigned char)p[len]) && !(p[len] == '.' && isdigit((unsigned char)p[len + 1])) &&
+            b[0] < 256 && b[1] < 256 && b[2] < 256 && b[3] < 256) {
+            const bool notPublic = b[0] == 0 || b[0] == 10 || b[0] == 127 || (b[0] == 172 && b[1] >= 16 && b[1] <= 31) ||
+                (b[0] == 192 && b[1] == 168) || (b[0] == 169 && b[1] == 254) || (b[0] == 100 && b[1] >= 64 && b[1] <= 127);
+            out.append(notPublic ? std::string(p, len) : std::string("<public address>"));
+            p += len;
+        } else out.push_back(*p++);
+    }
+    return out;
+}
+
 void log_cb(enum retro_log_level level, const char* fmt, ...) {
     va_list ap; va_start(ap, fmt);
+    const int prio = level >= RETRO_LOG_ERROR ? ANDROID_LOG_ERROR : level == RETRO_LOG_WARN ? ANDROID_LOG_WARN : ANDROID_LOG_INFO;
     {   // any level: the core sends its errors at a lower one than RETRO_LOG_ERROR
         char line[512];
         va_list cp; va_copy(cp, ap);
@@ -538,8 +576,12 @@ void log_cb(enum retro_log_level level, const char* fmt, ...) {
         unsigned wp;
         if (sscanf(line, "Netplay: waiting for player %u", &wp) == 1 && wp >= 1 && wp <= 4) g_netplayWaitingFor = (int)wp;
         if (strstr(line, "Netplay: player ") && strstr(line, " is back after ")) g_netplayWaitingFor = 0;
+        if (strncmp(line, "Netplay:", 8) == 0) {
+            const std::string masked = maskPublicAddresses(line);
+            if (masked != line) { joeyLog(prio, "core", "%s", masked.c_str()); va_end(ap); return; }
+        }
     }
-    joeyLogV(level >= RETRO_LOG_ERROR ? ANDROID_LOG_ERROR : level == RETRO_LOG_WARN ? ANDROID_LOG_WARN : ANDROID_LOG_INFO, "core", fmt, ap);
+    joeyLogV(prio, "core", fmt, ap);
     va_end(ap);
 }
 
@@ -836,9 +878,13 @@ int16_t input_state(unsigned port, unsigned device, unsigned index, unsigned id)
 void applySurfaceIfChanged() {
     bool resized = g_surfaceResized.exchange(false);
     if (g_surfaceChanged.exchange(false)) { // attaching builds the swapchain at the current size
-        std::lock_guard<std::mutex> lk(g_surfaceMutex);
-        if (g_vulkan) g_vk.attachWindow(g_pendingWindow);
-        else g_egl.attachWindow(g_pendingWindow);
+        {
+            std::lock_guard<std::mutex> lk(g_surfaceMutex);
+            if (g_vulkan) g_vk.attachWindow(g_pendingWindow);
+            else g_egl.attachWindow(g_pendingWindow);
+            g_surfaceDone = g_surfaceAsked;
+        }
+        g_surfaceCv.notify_all();
     } else if (resized && g_vulkan) {
         // Android doesn't report OUT_OF_DATE for a resized window (only SUBOPTIMAL, which we
         // ignore), so a swapchain built before the system bars were hidden kept their size and
@@ -846,6 +892,19 @@ void applySurfaceIfChanged() {
         // window size by itself.
         g_vk.resizeSwapchain();
     }
+}
+
+// A window whose swapchain couldn't be made, or whose surface was lost, gets another try every 250 ms (code audit 3,
+// p5 L1: the screen stayed black until the next surface change). A lost surface is made again from the window held
+// here. Emulation thread only.
+void retrySwapchainIfDue() {
+    static std::chrono::steady_clock::time_point next{};
+    if (!g_vulkan || !g_vk.needsSwapchain()) return;
+    const auto now = std::chrono::steady_clock::now();
+    if (now < next) return;
+    next = now + std::chrono::milliseconds(250);
+    if (g_vk.surfaceLost()) { std::lock_guard<std::mutex> lk(g_surfaceMutex); g_vk.attachWindow(g_pendingWindow); }
+    else g_vk.retrySwapchain();
 }
 
 std::string gpuClockText();
@@ -1238,12 +1297,20 @@ void runLoop() {
     bool rewindStepped = false;
     if (!g_vulkan) g_egl.makeCurrent();
     while (g_running) {
+        // The GPU stopped answering: the save RAM is written, the game screen is told (coreShutDown 7) and closes, and this
+        // thread fails any state request at once and waits for the stop instead of running frames.
+        if (g_vulkan && g_vk.lost()) {
+            if (!g_gpuLost.exchange(true)) { flushSave(); g_coreShutDown = true; LOGE("the GPU stopped answering: save RAM written, the game stops"); }
+            serveStateRequest(false, true);
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            continue;
+        }
         if (g_paused) flushSave();
         {
             std::unique_lock<std::mutex> lk(g_pauseMutex);
             for (;;) {
                 // Wakes once a second while paused so rc_client can keep the session alive (pings, retries).
-                if (!g_pauseCv.wait_for(lk, std::chrono::seconds(1), [] { return !g_paused || !g_running || g_statePending || g_stepFrames > 0 || g_showAgain; })) {
+                if (!g_pauseCv.wait_for(lk, std::chrono::seconds(1), [] { return !g_paused || !g_running || g_statePending || g_stepFrames > 0 || g_showAgain || g_surfaceChanged; })) {
                     lk.unlock(); Cheevos::idle(); lk.lock();
                     continue;
                 }
@@ -1253,8 +1320,17 @@ void runLoop() {
                 if (g_showAgain.exchange(false)) {
                     lk.unlock();
                     applySurfaceIfChanged();
+                    retrySwapchainIfDue();
                     if (g_vulkan) g_vk.showAgain();
                     else if (g_egl.hasWindow() && g_lastW && g_lastH) g_egl.present((int)g_lastW, (int)g_lastH, g_hw.bottom_left_origin);
+                    lk.lock();
+                    continue;
+                }
+                // The window went (the app went to the background) or came back: taken at once, so the old one is let
+                // go of before surfaceDestroyed returns (code audit 3, p5 L2).
+                if (g_surfaceChanged) {
+                    lk.unlock();
+                    applySurfaceIfChanged();
                     lk.lock();
                     continue;
                 }
@@ -1271,7 +1347,7 @@ void runLoop() {
         if (g_liveOptionsChanged.exchange(false)) applyLiveOptions(); // Game settings, from the pause menu
         applySurfaceIfChanged();
         bool hasWindow = g_vulkan ? g_vk.hasWindow() : g_egl.hasWindow();
-        if (!hasWindow) { std::this_thread::sleep_for(std::chrono::milliseconds(16)); continue; }
+        if (!hasWindow) { retrySwapchainIfDue(); std::this_thread::sleep_for(std::chrono::milliseconds(16)); continue; }
         if (g_bench && !benchApplied) {
             benchApplied = true;
             if (g_vulkan) g_vk.setUnthrottled(true);
@@ -1768,10 +1844,25 @@ JNIEXPORT jboolean JNICALL JNI(loadCore)(JNIEnv* env, jobject, jstring path, jst
 }
 
 JNIEXPORT void JNICALL JNI(setSurface)(JNIEnv* env, jobject, jobject surface) {
-    std::lock_guard<std::mutex> lk(g_surfaceMutex);
-    if (g_pendingWindow) ANativeWindow_release(g_pendingWindow);
-    g_pendingWindow = surface ? ANativeWindow_fromSurface(env, surface) : nullptr;
-    g_surfaceChanged = true;
+    uint64_t asked;
+    {
+        std::lock_guard<std::mutex> lk(g_surfaceMutex);
+        if (g_pendingWindow) ANativeWindow_release(g_pendingWindow);
+        g_pendingWindow = surface ? ANativeWindow_fromSurface(env, surface) : nullptr;
+        g_surfaceChanged = true;
+        asked = ++g_surfaceAsked;
+    }
+    // A paused game takes the change at once (its loop wakes for it), not at its next frame.
+    { std::lock_guard<std::mutex> pl(g_pauseMutex); }
+    g_pauseCv.notify_all();
+    // surfaceDestroyed: nothing may draw to the surface once it returns (Android's contract). The emulation thread lets
+    // go of it at its next pass, between frames or at once while paused; this waits for that, at most 500 ms, so a
+    // stuck thread can't hold the main thread (code audit 3, p5 L2). No game running, or a GPU that stopped answering
+    // (nothing is drawn): nothing to wait for.
+    if (surface || !g_running || !g_thread.joinable() || (g_vulkan && g_vk.lost())) return;
+    std::unique_lock<std::mutex> lk(g_surfaceMutex);
+    if (!g_surfaceCv.wait_for(lk, std::chrono::milliseconds(500), [&] { return g_surfaceDone >= asked; }))
+        LOGI("surface: the game hadn't let go of the window after 500 ms");
 }
 
 JNIEXPORT void JNICALL JNI(surfaceResized)(JNIEnv*, jobject) { g_surfaceResized = true; }
@@ -1784,7 +1875,7 @@ JNIEXPORT void JNICALL JNI(setVulkanDriver)(JNIEnv* env, jobject, jstring dir, j
 }
 
 JNIEXPORT jstring JNICALL JNI(probeVulkan)(JNIEnv* env, jobject, jboolean custom) {
-    return env->NewStringUTF(VkContext::probe(custom).c_str());
+    return toJava(env, VkContext::probe(custom));
 }
 
 // Settings › Video (display_opts.h): the picture's shape (0:0 = stretch), integer scaling, black frames.
@@ -1838,7 +1929,8 @@ JNIEXPORT void JNICALL JNI(setLook)(JNIEnv* env, jobject, jintArray ids, jintArr
 // The sides (slot 0) or overlay (slot 1) image: RGBA8, top row first; null clears it. Any time.
 JNIEXPORT void JNICALL JNI(setLookImage)(JNIEnv* env, jobject, jint slot, jbyteArray rgba, jint w, jint h) {
     Display::Image& img = slot == 0 ? Display::sidesImage() : Display::overlayImage();
-    if (!rgba || w <= 0 || h <= 0 || env->GetArrayLength(rgba) < (jsize)w * h * 4) { img.set(nullptr, 0, 0); return; }
+    // In 64 bits: w * h * 4 overflowed an int for huge sizes, and Image::set then copied past the array (code audit 3, p5 L6).
+    if (!rgba || w <= 0 || h <= 0 || (int64_t)env->GetArrayLength(rgba) < (int64_t)w * h * 4) { img.set(nullptr, 0, 0); return; }
     jbyte* p = env->GetByteArrayElements(rgba, nullptr);
     img.set(reinterpret_cast<const uint8_t*>(p), w, h);
     env->ReleaseByteArrayElements(rgba, p, JNI_ABORT);
@@ -1872,7 +1964,7 @@ std::vector<std::pair<std::string, float>> jparams(JNIEnv* env, jobjectArray nam
 jobjectArray jstrings(JNIEnv* env, const std::vector<std::string>& v) {
     jobjectArray a = env->NewObjectArray((jsize)v.size(), env->FindClass("java/lang/String"), nullptr);
     for (size_t i = 0; i < v.size(); ++i) {
-        jstring s = env->NewStringUTF(v[i].c_str());
+        jstring s = toJava(env, v[i]);
         env->SetObjectArrayElement(a, (jsize)i, s);
         env->DeleteLocalRef(s);
     }
@@ -1887,7 +1979,7 @@ JNIEXPORT void JNICALL JNI(setSlang)(JNIEnv* env, jobject, jstring path, jobject
 
 // How the newest chain went: "ok\n<path>", "error\n<path>\n<message>", or "" before it was tried.
 JNIEXPORT jstring JNICALL JNI(slangStatus)(JNIEnv* env, jobject) {
-    return env->NewStringUTF(Libra::status().c_str());
+    return toJava(env, Libra::status());
 }
 
 JNIEXPORT jboolean JNICALL JNI(slangAvailable)(JNIEnv*, jobject) {
@@ -1912,7 +2004,9 @@ JNIEXPORT jobjectArray JNICALL JNI(slangParams)(JNIEnv* env, jobject, jstring pa
 // The preset drawn on argb (w x h, top row first) at outW x outH, as ARGB; null on failure with err[0] the message.
 JNIEXPORT jintArray JNICALL JNI(slangPreview)(JNIEnv* env, jobject, jstring path, jobjectArray names, jfloatArray values,
                                               jintArray argb, jint w, jint h, jint outW, jint outH, jobjectArray err) {
-    if (!argb || w <= 0 || h <= 0 || outW <= 0 || outH <= 0 || env->GetArrayLength(argb) < w * h) return nullptr;
+    // In 64 bits (w * h overflowed an int for huge sizes; code audit 3, p5 L6), and a preview of at most 64 M pixels.
+    if (!argb || w <= 0 || h <= 0 || outW <= 0 || outH <= 0 || (int64_t)env->GetArrayLength(argb) < (int64_t)w * h ||
+        (int64_t)outW * outH > (1 << 26)) return nullptr;
     std::vector<jint> px((size_t)w * h);
     env->GetIntArrayRegion(argb, 0, w * h, px.data());
     std::vector<uint8_t> rgba((size_t)w * h * 4);
@@ -1923,14 +2017,15 @@ JNIEXPORT jintArray JNICALL JNI(slangPreview)(JNIEnv* env, jobject, jstring path
     std::vector<uint8_t> out;
     std::string e;
     if (!Libra::preview(jstr(env, path).c_str(), jparams(env, names, values), rgba.data(), w, h, outW, outH, out, e)) {
-        if (err && env->GetArrayLength(err) > 0) { jstring s = env->NewStringUTF(e.c_str()); env->SetObjectArrayElement(err, 0, s); env->DeleteLocalRef(s); }
+        if (err && env->GetArrayLength(err) > 0) { jstring s = toJava(env, e); env->SetObjectArrayElement(err, 0, s); env->DeleteLocalRef(s); }
         return nullptr;
     }
     std::vector<jint> res((size_t)outW * outH);
+    if (out.size() < res.size() * 4) return nullptr;
     for (size_t i = 0; i < res.size(); ++i)
         res[i] = (jint)(0xFF000000u | ((uint32_t)out[i * 4] << 16) | ((uint32_t)out[i * 4 + 1] << 8) | out[i * 4 + 2]);
     jintArray a = env->NewIntArray((jsize)res.size());
-    env->SetIntArrayRegion(a, 0, (jsize)res.size(), res.data());
+    if (a) env->SetIntArrayRegion(a, 0, (jsize)res.size(), res.data());
     return a;
 }
 
@@ -1964,6 +2059,7 @@ JNIEXPORT void JNICALL JNI(setTransferPak)(JNIEnv* env, jobject, jstring rom, js
 JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstring saveName) {
     g_loadStart = std::chrono::steady_clock::now();
     g_coreShutDown = false;
+    g_gpuLost = false;
     g_ddIplMissing = false;
     g_netplayLost = false;
     g_netplayStatus = 0;
@@ -2030,7 +2126,10 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
         }
     }
     { const char* np = getenv("N64_NETPLAY"); g_netplay = np && *np; }
-    if (g_netplay) LOGI("netplay: on (%s): state loads, Reset, rewind, fast-forward, slow motion, frame advance and cheat changes are off", getenv("N64_NETPLAY"));
+    // The room's address stays out of the session log (code audit 3, p1 L4): its port and this player's number.
+    if (g_netplay) { const char* np = getenv("N64_NETPLAY"); const char* tail = strchr(np, ':');
+        LOGI("netplay: on (port and player %s): state loads, Reset, rewind, fast-forward, slow motion, frame advance and cheat changes are off",
+             tail ? tail + 1 : "?"); }
     if (g_netplay) { g_npPausedNow = false; g_netplayPausedBy = 0; npPauseStart(getenv("N64_NETPLAY")); }
     // A start that fails from here on undoes what it started (code audit 3, M11: the room, its router mapping and the
     // pause notices ran on, and the next netplay start in this process ended the app assigning to the joinable pause
@@ -2265,7 +2364,7 @@ JNIEXPORT jint JNICALL JNI(waitRumble)(JNIEnv*, jobject, jint wasMask, jint time
 
 // 0 running, 1 the core shut down, 2 it shut down after it could not load the 64DD IPL.
 JNIEXPORT jint JNICALL JNI(coreShutDown)(JNIEnv*, jobject) {
-    return !g_coreShutDown ? 0 : g_ddIplMissing ? 2 : g_netplayJoinFailed ? g_netplayJoinFailed.load() : g_netplayLost ? 3 : 1;
+    return !g_coreShutDown ? 0 : g_gpuLost ? 7 : g_ddIplMissing ? 2 : g_netplayJoinFailed ? g_netplayJoinFailed.load() : g_netplayLost ? 3 : 1;
 }
 
 JNIEXPORT jlong JNICALL JNI(saveRamFailed)(JNIEnv*, jobject) { return (jlong)g_saveFailedBytes.load(); }
@@ -2277,7 +2376,7 @@ JNIEXPORT jlong JNICALL JNI(saveRamFailed)(JNIEnv*, jobject) { return (jlong)g_s
 // 5 opened but behind another NAT), then "ip:port" others outside use (empty until 2 or 5).
 JNIEXPORT jstring JNICALL JNI(netplayOutside)(JNIEnv* env, jobject) {
     std::string s = std::to_string((int)Upnp::state()) + " " + Upnp::outside();
-    return env->NewStringUTF(s.c_str());
+    return toJava(env, s); // the router's answer: not trusted to be UTF-8
 }
 
 // Play together's room screen (before the game): the room's port on the router, kept for the game's room server.
@@ -2304,7 +2403,7 @@ JNIEXPORT jintArray JNICALL JNI(netplayInfo)(JNIEnv* env, jobject) {
 // empty until the room's first list arrives. A player who left is not listed.
 JNIEXPORT jstring JNICALL JNI(netplayPlayers)(JNIEnv* env, jobject) {
     std::lock_guard<std::mutex> rl(g_npRosterMutex);
-    return env->NewStringUTF(g_npRoster.c_str());
+    return toJava(env, g_npRoster);
 }
 
 JNIEXPORT jint JNICALL JNI(framesRun)(JNIEnv*, jobject) {

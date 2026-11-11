@@ -64,12 +64,15 @@ object CheatLogic {
     fun keyOf(header: RomHeader): String =
         "%08X-%08X-%02X".format(header.crc1, header.crc2, header.region.code.code and 0xFF)
 
+    /** A source is a folder in files/cheatlists/: only a plain name, so an index can't put a list outside it (code audit 3, p1 L2). */
+    private val SOURCE_NAME = Regex("[A-Za-z0-9_-]+")
+
     fun parseIndex(text: String): Map<String, Map<String, Int>> {
         val games = JSONObject(text).getJSONObject("games")
         val out = HashMap<String, Map<String, Int>>(games.length() * 2)
         for (k in games.keys()) {
             val src = games.getJSONObject(k).getJSONObject("sources")
-            out[k] = src.keys().asSequence().associateWith { src.getInt(it) }
+            out[k] = src.keys().asSequence().filter { SOURCE_NAME.matches(it) }.associateWith { src.getInt(it) }
         }
         return out
     }

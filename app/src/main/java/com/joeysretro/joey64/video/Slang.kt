@@ -3,6 +3,7 @@ package com.joeysretro.joey64.video
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
+import com.joeysretro.joey64.Capped
 import com.joeysretro.joey64.JLog
 import org.json.JSONArray
 import org.json.JSONObject
@@ -41,6 +42,16 @@ object Slang {
         }
         return parts.joinToString("/").ifEmpty { null }
     }
+
+    /**
+     * [path] under [root]: a copy's place, from a settings value such as "slang:<folder>/<path>". One with a ".." part,
+     * from a hand-edited or restored settings file, names a file that is never there (code audit 3, p4 L6).
+     */
+    fun under(root: File, path: String): File {
+        val parts = path.split('/').filter { it.isNotEmpty() && it != "." }
+        return if (parts.isEmpty() || ".." in parts) File(root, NOWHERE) else File(root, parts.joinToString("/"))
+    }
+    private const val NOWHERE = ".not-a-copy"
 
     private fun unquote(s: String): String {
         val t = s.trim()
@@ -233,7 +244,7 @@ class SlangStore(private val context: Context) {
     }
 
     /** The copy the host reads. */
-    fun localFile(value: String): File = File(dir, value.removePrefix(Slang.PREFIX))
+    fun localFile(value: String): File = Slang.under(dir, value.removePrefix(Slang.PREFIX))
 
     /**
      * Copies the preset and every file it uses from the picked folder (again, so changes there come along).
@@ -333,7 +344,8 @@ internal class TreeReader(private val context: Context, private val tree: Uri) {
     fun readText(rel: String): String? {
         val e = find(rel)?.takeIf { !it.dir } ?: return null
         return try {
-            context.contentResolver.openInputStream(DocumentsContract.buildDocumentUriUsingTree(tree, e.id))?.use { it.readBytes().toString(Charsets.UTF_8) }
+            // Presets, .cfg files and shaders are text of a few hundred KB at most (code audit 3, p4 L7).
+            context.contentResolver.openInputStream(DocumentsContract.buildDocumentUriUsingTree(tree, e.id))?.use { Capped.text(it, 4 * Capped.MB, rel) }
         } catch (ex: Exception) { null }
     }
 
@@ -342,9 +354,10 @@ internal class TreeReader(private val context: Context, private val tree: Uri) {
         return try {
             out.parentFile?.mkdirs()
             context.contentResolver.openInputStream(DocumentsContract.buildDocumentUriUsingTree(tree, e.id))?.use { i ->
-                out.outputStream().use { o -> i.copyTo(o) }
+                // A huge file named like a texture or an overlay image isn't copied in whole (code audit 3, p4 L7).
+                out.outputStream().use { o -> Capped.copy(i, o, Capped.PICKED_FILE, rel) }
             } != null
-        } catch (ex: Exception) { false }
+        } catch (ex: Exception) { out.delete(); false }
     }
 
     /** Every file under [rel], depth first. */

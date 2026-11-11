@@ -32,6 +32,7 @@ import com.joeysretro.joey64.launcher.storage.FolderNames
 import com.joeysretro.joey64.launcher.storage.RomFolders
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -263,6 +264,13 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                 // Covers appear as they come, a few at a time.
                 if (++got % 4 == 0) _all.value = db.libraryGames()
             } }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // A full disk (setArt's SQLiteFullException) or the like: the run stops as if ScreenScraper were busy and
+                // the launcher stays up (code audit 3, p3 L9).
+                JLog.w(TAG, "box art: the run stopped" + "\n" + Log.getStackTraceString(e))
+                BoxArt.Outcome.Done(got, 0, 1, busy = true)
             } finally {
                 _art.value = null
             }
@@ -478,8 +486,11 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
      * stay, and the folder's files find them again if it comes back.
      */
     fun removeFolder(tree: String) {
-        scan?.cancel()
+        val reading = scan
         viewModelScope.launch {
+            // Waits for the files being read to finish (code audit 3, M2: a cancel alone let them write their rows
+            // after the folder's were removed, and its games stayed in the grid for good, never playable).
+            reading?.cancelAndJoin()
             _all.value = withContext(Dispatchers.IO) { db.forgetFolder(tree); db.libraryGames() }
         }
     }
@@ -536,6 +547,10 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         scan = viewModelScope.launch {
             var newGames = false
             try {
+                // Files of folders that are no ROM folder any more go first (code audit 3, M2): one a removed folder's
+                // read left behind, or one from before that fix, would keep its game in the grid with nothing to play.
+                val keep = settings.settings.first().romFolders.toSet() + folders.map { it.toString() }
+                withContext(Dispatchers.IO) { db.forgetFoldersBut(keep) }.let { if (it > 0) JLog.i(TAG, "library: $it files of folders no longer listed removed") }
                 val started = android.os.SystemClock.elapsedRealtime()
                 newGames = scanner.scan(folders) { done, total ->
                     _reading.value = Progress(done, total, started)
@@ -917,13 +932,19 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
      */
     fun lookUpRoomCover(md5: String, title: String) {
         val key = md5.lowercase()
-        if (key.isEmpty() || !roomCoversAsked.add(key)) return
+        // It names the cover's file: only an MD5 (code audit 3, p3 L6).
+        if (!com.joeysretro.joey64.netplay.LobbyLines.isMd5(key) || !roomCoversAsked.add(key)) return
         viewModelScope.launch(Dispatchers.IO) {
             val kept = boxArt.roomCoverFile(key)
-            val f = if (kept.exists()) kept else {
+            val f = if (kept.exists()) kept else try {
                 val s = settings.settings.first()
                 if (!s.downloadBoxArt) return@launch
                 screenScraperOne.withLock { boxArt.roomCover(key, title, if (s.boxArtLow) BoxArt.LOW_WIDTH else BoxArt.HIGH_WIDTH) } ?: return@launch
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // As the box-art run: the room goes without a cover, the launcher stays up (code audit 3, p3 L9).
+                JLog.w(TAG, "room cover for $key" + "\n" + Log.getStackTraceString(e)); return@launch
             }
             _roomCovers.value = _roomCovers.value + (key to f)
         }

@@ -93,6 +93,15 @@ class ReportsTest {
         assertFalse(s.contains("emulated")); assertFalse(s.contains("content://"))
     }
 
+    @Test fun crashTextLosesFolderNamesWithSpacesAndDocumentIds() {
+        assertEquals("java.io.FileNotFoundException: <path>: open failed: ENOENT (No such file or directory)",
+            ReportSender.scrub("java.io.FileNotFoundException: /storage/emulated/0/ROMs/John Smith/Zelda.z64: open failed: ENOENT (No such file or directory)"))
+        val t = ReportSender.scrub("Missing file for primary:ROMs/John Smith/N64 at \"1A2B-3C4D:Games/My Roms\"\n\tat com.x.Y.z(Y.kt:3)")
+        assertFalse(t, t.contains("Smith")); assertFalse(t, t.contains("My Roms")); assertFalse(t, t.contains("primary:"))
+        assertTrue(t, t.endsWith("\n\tat com.x.Y.z(Y.kt:3)")) // the next line stays
+        assertEquals("<path> crashed", ReportSender.scrub("file:///sdcard/My Folder/a.z64\" crashed").replace("\"", ""))
+    }
+
     // ---- SessionTracker ----
 
     private fun tracker(): Triple<SessionTracker, File, File> {
@@ -193,5 +202,21 @@ class ReportsTest {
             .put("pickedBy", "dev"), null)!!
         assertEquals(120, odd.getString("driverRule").length)
         assertFalse(odd.has("trialLevel")); assertFalse(odd.has("pickedBy")); assertFalse(odd.has("rendererRule"))
+    }
+
+    // Code audit 3, M22: a report over the server's 64 KB got 413 every day; the end waits for the next report instead.
+    @Test fun reportStaysUnderTheServersSize() {
+        val d = ReportJson.Device("AYN", "Thor", "SM8550", "Adreno 740", "Turnip Gen8 V38", 34)
+        val empty = ReportJson.report("id", "1", null, d, emptyList()).toString()
+        val events = List(200) { n -> JSONObject().put("type", "session").put("n", n).put("pad", "é".repeat(300)) }
+        val keep = ReportSender.fitting(empty, events)
+        assertTrue(keep in 1 until events.size)
+        val body = ReportJson.report("id", "1", null, d, events.take(keep)).toString().toByteArray()
+        assertTrue(body.size <= ReportSender.MAX_BODY)
+        val oneMore = ReportJson.report("id", "1", null, d, events.take(keep + 1)).toString().toByteArray()
+        assertTrue(oneMore.size > ReportSender.MAX_BODY - 1)
+        assertEquals(3, ReportSender.fitting(empty, events.take(3)))
+        // One event too big even alone still goes (and the 413 drops it), so it can't hold up the rest.
+        assertEquals(1, ReportSender.fitting(empty, listOf(JSONObject().put("pad", "x".repeat(70_000)), JSONObject())))
     }
 }

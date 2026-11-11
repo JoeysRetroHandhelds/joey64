@@ -192,6 +192,7 @@ class GameOverlay(private val activity: Activity, private val actions: PauseActi
         val place = onScreen.popupSpot(o.popPlace)
         placeWindow(popupView, popupAdded, popupSpot, place)?.let { popupAdded = it; if (it) popupSpot = place }
         popups.add(p, SystemClock.uptimeMillis())
+        announce(p)
         popup = popups.current
         handler.removeCallbacks(popupTick)
         handler.postAtTime(popupTick, popups.until)
@@ -208,9 +209,40 @@ class GameOverlay(private val activity: Activity, private val actions: PauseActi
             return
         }
         popups.remove(key, SystemClock.uptimeMillis())
+        if (key == saidKey) { handler.removeCallbacks(sayLater); toSay = null }
         popup = popups.current
         handler.removeCallbacks(popupTick)
         if (popups.current != null) handler.postAtTime(popupTick, popups.until)
+    }
+
+    // TalkBack (code audit 3, M33): Android lists no window that can't be touched for a screen reader, so the pop-up
+    // window's words are never read; the game's own window says each pop-up instead (announceForAccessibility does
+    // nothing while no accessibility service is on). One that changes while it shows (Rewinding, the volume) is said
+    // at most once a second, its newest words last.
+    private var saidKey: String? = null
+    private var saidAt = 0L
+    private var toSay: String? = null
+    private val sayLater = Runnable { sayPending() }
+
+    private fun announce(p: InGamePopup) {
+        val words = listOf(p.label.replace("*", ""), p.name, p.line, p.extra.orEmpty()).filter { it.isNotBlank() }.joinToString(", ")
+        if (words.isEmpty()) return
+        if (p.key != saidKey) sayPending()
+        val wait = if (p.key == saidKey) saidAt + 1_000 - SystemClock.uptimeMillis() else 0L
+        saidKey = p.key
+        handler.removeCallbacks(sayLater)
+        if (wait <= 0) { toSay = null; say(words) } else { toSay = words; handler.postDelayed(sayLater, wait) }
+    }
+
+    private fun sayPending() {
+        handler.removeCallbacks(sayLater)
+        toSay?.let { say(it) }
+        toSay = null
+    }
+
+    private fun say(words: String) {
+        saidAt = SystemClock.uptimeMillis()
+        activity.window?.decorView?.announceForAccessibility(words)
     }
 
     /** The challenge badges at Badge place, newest last; an empty list takes them away. Main thread. */

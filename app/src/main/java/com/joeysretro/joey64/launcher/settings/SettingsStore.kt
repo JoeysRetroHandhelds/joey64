@@ -53,7 +53,13 @@ data class LauncherSettings(
     val lastLookDay: Long? = null,
 )
 
-private val Context.settingsStore: DataStore<Preferences> by preferencesDataStore(name = "launcher_settings")
+// A damaged file starts over from the defaults instead of throwing on every read (the launcher would close at each start;
+// code audit 3, M10 found it for the sign-in file). The data folder's settings copy is untouched.
+private val Context.settingsStore: DataStore<Preferences> by preferencesDataStore(name = "launcher_settings",
+    corruptionHandler = androidx.datastore.core.handlers.ReplaceFileCorruptionHandler {
+        com.joeysretro.joey64.JLog.e("Joey64Settings", "launcher settings were damaged: starting from the defaults ($it)")
+        androidx.datastore.preferences.core.emptyPreferences()
+    })
 
 /**
  * Settings in DataStore (plan: built the way JoeyOS is built). One DataStore per file per

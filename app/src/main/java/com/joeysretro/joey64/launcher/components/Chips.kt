@@ -16,6 +16,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.res.painterResource
@@ -85,7 +90,9 @@ fun TabRow(
     ) {
         for (i in 0 until count) {
             val (source, focused) = rememberFocusState()
-            tab(i, Modifier.focusRequester(req[i]).coverSelection(focused, corner = 7.dp).pressable(source) { onPick(i) })
+            // TalkBack (code audit 3, M33): a tab, and whether it's the one in use.
+            tab(i, Modifier.focusRequester(req[i]).coverSelection(focused, corner = 7.dp).pressable(source) { onPick(i) }
+                .semantics { role = Role.Tab; selected = i == on })
         }
     }
 }
@@ -132,7 +139,8 @@ fun PageHeader(title: String, sub: String? = null, chips: @Composable androidx.c
     val below = com.joeysretro.joey64.launcher.layout.LocalScreenLayout.current.widthDp < 520f
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(title, style = JoeyTheme.type.pageTitle, color = c.text, maxLines = 1, softWrap = false,
-            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(end = if (sub == null) 12.dp else 8.dp))
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(end = if (sub == null) 12.dp else 8.dp)
+                .semantics { heading() })
         // A page inside a page: "Controls › Touch controls" (approved touch controls mockup 2026-11-09, screen 8).
         if (sub != null) Text(sub, style = JoeyTheme.type.heading, color = c.textDim, maxLines = 1, softWrap = false,
             modifier = Modifier.padding(end = 12.dp))

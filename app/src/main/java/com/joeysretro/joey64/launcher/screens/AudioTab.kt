@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRestorer
@@ -55,20 +56,24 @@ fun AudioTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
     var popup by remember { mutableStateOf<AudioKey?>(null) }
     val game = target != null
 
+    // From the store, not this composition's maps: the Y handler and popups can hold an older composition's
+    // functions, which wrote the tab as it was then and undid the changes since (code audit 3, M26).
     fun set(k: AudioKey, value: String) {
-        if (target == null) store.saveAll(all + (k to value)) else store.saveGame(target, own + (k to value))
+        if (target == null) store.saveAll(store.all() + (k to value)) else store.saveGame(target, (store.game(target) ?: emptyMap()) + (k to value))
         version++
     }
     fun reset(k: AudioKey) {
-        if (target == null) store.saveAll(all - k) else store.saveGame(target, own - k)
+        if (target == null) store.saveAll(store.all() - k) else store.saveGame(target, (store.game(target) ?: emptyMap()) - k)
         version++
     }
     fun dot(k: AudioKey) = game && k in own
     // A game's greyed rows: the same for every game, so nothing to change or reset here.
     fun fixed(k: AudioKey) = game && k !in AudioKey.PER_GAME
 
+    // The handler is set once per target; it calls this composition's Y through rememberUpdatedState.
+    val onY by rememberUpdatedState { if (popup == null && !fixed(focused)) { reset(focused); true } else false }
     LaunchedEffect(target) {
-        onControl { ctl -> if (ctl == Control.Search && popup == null && !fixed(focused)) { reset(focused); true } else false }
+        onControl { ctl -> if (ctl == Control.Search) onY() else false }
     }
     LaunchedEffect(target, focused) {
         val y = Hint("Y", if (target == null) "Reset to default" else "Use All games")

@@ -81,5 +81,7 @@ class RoomCodeTest {
         assertNotNull(rooms[0])
         assertEquals("203.0.113.7", rooms[0].ip); assertEquals(45000, rooms[0].port)
         assertEquals("abcdef0123456789abcdef0123456789", rooms[0].md5)
+        // Only an MD5 (it names the cover's file): a room with anything else is left out (code audit 3, p3 L6).
+        assertEquals(0, RoomList.parse("""{"rooms":[{"id":"a","md5":"../../shared_prefs/x","code":"$code"}]}""").size)
     }
 }

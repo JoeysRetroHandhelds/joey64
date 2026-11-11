@@ -21,6 +21,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -73,6 +76,9 @@ fun JoeyToast(
     val picture = rememberBadge(badge)
     Row(
         modifier = modifier
+            // TalkBack (code audit 3, M33): read as one, and said when it shows, as a Material snackbar is. The game's
+            // pop-up window can't be touched, so Android doesn't list it for TalkBack: GameOverlay says those itself.
+            .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }
             .padding(12.dp)
             .widthIn(max = 400.dp)
             .background(c.surface, shape)

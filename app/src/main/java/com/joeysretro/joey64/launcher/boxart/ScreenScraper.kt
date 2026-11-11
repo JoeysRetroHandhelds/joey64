@@ -1,6 +1,7 @@
 package com.joeysretro.joey64.launcher.boxart
 
 import com.joeysretro.joey64.BuildConfig
+import com.joeysretro.joey64.Capped
 import org.json.JSONObject
 import java.io.FileNotFoundException
 import java.io.IOException
@@ -77,7 +78,7 @@ object ScreenScraper {
             if (code == 404 || code == 400) throw FileNotFoundException(what)
             if (code in BUSY) throw Busy(code)
             if (code != 200) throw IOException("HTTP $code from $what")
-            return c.inputStream.use { it.readBytes() }
+            return c.inputStream.use { Capped.bytes(it, MAX_REPLY, what) }
         } finally {
             c.disconnect()
         }
@@ -86,6 +87,9 @@ object ScreenScraper {
     // 401 closed to accountless callers, 403 login refused, 423 API closed, 426 this app refused,
     // 429 too many at once, 430 today's quota used, 431 too many unknown ROMs today.
     private val BUSY = setOf(401, 403, 423, 426, 429, 430, 431)
+
+    /** Covers come 640 wide and the answers a few hundred KB: past this a reply isn't one (code audit 3, p3 L10). */
+    private const val MAX_REPLY = 16 * Capped.MB
 }
 
 /** What a ScreenScraper answer means for a cover. Pure, so it's tested on the JVM (ScreenScraperPickTest). */

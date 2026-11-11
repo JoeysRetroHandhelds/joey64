@@ -12,7 +12,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
@@ -70,7 +69,9 @@ object RaBridge {
         private set
 
     private val http = Executors.newFixedThreadPool(2) { r -> Thread(r, "ra-http").apply { isDaemon = true } }
-    private val io = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // An exception in one of these jobs is logged, not left to end the app (code audit 3, M10: a keystore that misbehaves
+    // or a damaged sign-in file made signing in or out crash every time).
+    private val io = CoroutineScope(SupervisorJob() + Dispatchers.IO + kotlinx.coroutines.CoroutineExceptionHandler { _, e -> JLog.e(TAG, "achievements job failed: $e") })
     @Volatile private var ready = false
     @Volatile private var appContext: Context? = null
     @Volatile private var richPresence = true
@@ -98,7 +99,6 @@ object RaBridge {
         if (p.contains("token") || p.contains("user")) p.edit().remove("token").remove("user").apply()
         _proxyHost.value = p.getString("host", null)?.takeIf { isLocalHost(it) }
         optionsChanged(RaSettings.current(app)) // sets the route too
-        val kept = try { runBlocking { SignInStore(app).load() } } catch (e: Exception) { JLog.e(TAG, "kept sign-in unreadable: $e"); null }
         // Back online: the waiting unlocks go (sendUnsent checks there's an account and no game).
         try {
             val cm = app.getSystemService(android.net.ConnectivityManager::class.java)
@@ -106,7 +106,10 @@ object RaBridge {
                 override fun onAvailable(network: android.net.Network) { sendLater(5_000) }
             })
         } catch (e: Exception) { JLog.w(TAG, "no network callback: $e") }
-        if (kept != null) {
+        // The kept account, read off the main thread: a DataStore read and a Keystore decrypt (code audit 3, p4 L1). A game
+        // that starts first loads its set once this sign-in is done (achievements.cpp, g_loadAgain).
+        io.launch {
+            val kept = try { SignInStore(app).load() } catch (e: Exception) { JLog.e(TAG, "kept sign-in unreadable: $e"); null } ?: return@launch
             _account.value = Account(kept.user, kept.user, null, null, avatarFile(app).takeIf { it.exists() })
             JLog.i(TAG, "signing in as ${kept.user} (kept account)")
             login = Login.Token
@@ -140,7 +143,8 @@ object RaBridge {
         _expired.value = false
         // The progress cache was that account's (LibrarySchema.RA_CACHE).
         appContext?.let { ctx -> io.launch {
-            SignInStore(ctx).clear(); avatarFile(ctx).delete()
+            try { SignInStore(ctx).clear() } catch (e: Exception) { JLog.e(TAG, "sign-in not cleared: $e") }
+            avatarFile(ctx).delete()
             if (user != null) queue?.clear(user)
             try { com.joeysretro.joey64.launcher.data.LibraryDb.get(ctx).clearAchievementCache() } catch (e: Exception) { JLog.e(TAG, "progress cache not cleared: $e") }
         } }
@@ -338,34 +342,44 @@ object RaBridge {
             var status = -2 // RC_API_SERVER_RESPONSE_RETRYABLE_CLIENT_ERROR: rc_client retries (offline queue)
             var body: ByteArray? = null
             try {
-                val c = URL(url).openConnection() as HttpURLConnection
-                c.connectTimeout = 15_000
-                c.readTimeout = 30_000
-                c.setRequestProperty("User-Agent", userAgent)
-                if (post != null) {
-                    c.requestMethod = "POST"
-                    c.doOutput = true
-                    c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-                    val form = if (richPresence) post else withoutRichPresence(post)
-                    c.outputStream.use { it.write(form.toByteArray()) }
-                }
                 try {
-                    status = c.responseCode
-                    body = (if (status >= 400) c.errorStream else c.inputStream)?.use { it.readBytes() }
-                } finally {
-                    c.disconnect()
+                    val c = URL(url).openConnection() as HttpURLConnection
+                    c.connectTimeout = 15_000
+                    c.readTimeout = 30_000
+                    c.setRequestProperty("User-Agent", userAgent)
+                    if (post != null) {
+                        c.requestMethod = "POST"
+                        c.doOutput = true
+                        c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+                        val form = if (richPresence) post else withoutRichPresence(post)
+                        c.outputStream.use { it.write(form.toByteArray()) }
+                    }
+                    try {
+                        status = c.responseCode
+                        body = (if (status >= 400) c.errorStream else c.inputStream)?.use { it.readBytes() }
+                    } finally {
+                        c.disconnect()
+                    }
+                } catch (e: Throwable) {
+                    // Offline or the server didn't answer, or anything else the HTTP stack throws (code audit 3, p4 L2):
+                    // rc_client retries. Not logged with the request: it can hold the token.
+                    JLog.w(TAG, "server call failed (${e.javaClass.simpleName}): ${endpoint(url, post)}")
+                    status = -2; body = null
                 }
-            } catch (e: IOException) {
-                // Offline or the server didn't answer. Not logged with the request: it can hold the token.
-                JLog.w(TAG, "server call failed (${e.javaClass.simpleName}): ${endpoint(url, post)}")
+                RaUnlockQueue.parseAward(post)?.let { award ->
+                    val q = queue ?: return@let
+                    // With RAOfflineProxy picked, it keeps them: Joey64's queue only takes its own (Offline unlocks). One the
+                    // proxy never answered is kept here too (code audit 3, M9: Android closed the proxy mid-game, and every
+                    // unlock after that was lost); it goes once the proxy, or RetroAchievements itself, answers.
+                    if (RaUnlockQueue.settled(status, body)) q.remove(award.user, award.id)
+                    else if (route.queue || (status == -2 && body == null)) { q.add(award, System.currentTimeMillis()); sendLater() }
+                }
+            } catch (e: Throwable) {
+                JLog.e(TAG, "unlock queue: ${e.javaClass.simpleName}: ${e.message}")
+            } finally {
+                // rc_client waits for this answer (a sign-in, a game's set): it always gets one (code audit 3, p4 L2).
+                serverResponse(handle, status, body)
             }
-            RaUnlockQueue.parseAward(post)?.let { award ->
-                val q = queue ?: return@let
-                // With RAOfflineProxy picked, it keeps them: Joey64's queue only takes its own (Offline unlocks).
-                if (RaUnlockQueue.settled(status, body)) q.remove(award.user, award.id)
-                else if (route.queue) { q.add(award, System.currentTimeMillis()); sendLater() }
-            }
-            serverResponse(handle, status, body)
         }
     }
 

@@ -28,6 +28,11 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -141,6 +146,18 @@ fun ControllerTextField(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
+                    // Back while the keyboard is up goes to the keyboard, which hides itself and doesn't tell us
+                    // (Thor release pass 2026-11-10: typing stayed on, Down only brought the cursor back, so focus
+                    // stayed here until Enter). A D-pad Up or Down while typing ends it: Down moves on as Enter
+                    // does, Up stays on the box. Not in the code box, where they move between lines.
+                    .onPreviewKeyEvent { e ->
+                        if (!typing || code || e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        when (e.key) {
+                            Key.DirectionDown -> { stopTyping(moveOn = true); true }
+                            Key.DirectionUp -> { stopTyping(moveOn = false); true }
+                            else -> false
+                        }
+                    }
                     .focusRequester(fieldFocus)
                     .focusProperties { canFocus = typing },
             )

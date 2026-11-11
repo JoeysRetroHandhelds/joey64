@@ -67,6 +67,10 @@ class UpdateModel(app: Application) : AndroidViewModel(app) {
                 else _prompt.value = Prompt.Available(r.release)
             }
             if (r is AppUpdates.Check.UpToDate && _row.value == RowState.Failed) _row.value = RowState.Idle
+            // Never reached the feed: About said "Not checked yet" while every background check failed (the
+            // release pass, 2026-11-10: the repo is private, so each one 404s). Say so as Check for updates
+            // does. After a check that got through, "Checked N minutes ago" stays: still true.
+            if (r is AppUpdates.Check.Failed && _row.value == RowState.Idle && AppUpdates.lastCheck(context) <= 0) _row.value = RowState.Failed
         }
     }
 

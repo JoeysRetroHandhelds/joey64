@@ -122,8 +122,10 @@ fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher
         val handler: (Control) -> Boolean = { ctl ->
             val tabs = SettingsTab.entries
             when (ctl) {
-                Control.TabPrev -> { tab = tabs[(tab.ordinal + tabs.size - 1) % tabs.size]; true }
-                Control.TabNext -> { tab = tabs[(tab.ordinal + 1) % tabs.size]; true }
+                // Armed here, at the press: by the time LaunchedEffect(tab) runs, the old page's focused row is gone
+                // and focus may have fallen onto the tab row, which skipped the landing (outline left on the tabs).
+                Control.TabPrev -> { if (!onTabs) landing?.arm(); tab = tabs[(tab.ordinal + tabs.size - 1) % tabs.size]; true }
+                Control.TabNext -> { if (!onTabs) landing?.arm(); tab = tabs[(tab.ordinal + 1) % tabs.size]; true }
                 Control.Options -> { if (tab in RESETTABLE && !(tab == SettingsTab.Saves && savesBusy)) resetAsk = true; true }
                 else -> tabControl?.invoke(ctl) ?: false
             }

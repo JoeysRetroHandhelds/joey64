@@ -72,9 +72,12 @@ fun TabRow(
 ) {
     val req = androidx.compose.runtime.remember(count) { List(count) { androidx.compose.ui.focus.FocusRequester() } }
     val current = androidx.compose.runtime.rememberUpdatedState(on)
+    // L1 / R1 while a tab has focus: the outline follows to the tab in use (it stayed on the old one, Joey 2026-11-10).
+    val rowFocused = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(on) { if (rowFocused.value) req.getOrNull(on)?.requestFocus() }
     Row(
         modifier = modifier
-            .then(if (onFocused != null) Modifier.onFocusChanged { onFocused(it.hasFocus) } else Modifier)
+            .onFocusChanged { rowFocused.value = it.hasFocus; onFocused?.invoke(it.hasFocus) }
             .focusProperties { onEnter = { req.getOrNull(current.value)?.requestFocus() } }
             .focusGroup(),
         horizontalArrangement = Arrangement.spacedBy(6.dp),

@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher.screens
 
+import androidx.compose.foundation.basicMarquee
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -271,8 +272,13 @@ private fun PickTile(model: LibraryModel, game: LibraryGame, modifier: Modifier,
             if (pic != null) androidx.compose.foundation.Image(pic, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             else Text(shortGame(game.title), style = JoeyTheme.type.small, color = c.textSecondary, modifier = Modifier.padding(6.dp))
         }
-        Text(shortGame(game.title), style = JoeyTheme.type.small, color = c.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 3.dp))
+        // Like the library's tiles (Joey 2026-11-10): the focused game's name is gold and scrolls when it doesn't fit.
+        Text(shortGame(game.title), style = JoeyTheme.type.small, color = if (focused) c.gold else c.textSecondary, maxLines = 1,
+            overflow = if (focused) TextOverflow.Clip else TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 3.dp)
+                .then(if (focused) Modifier.basicMarquee(iterations = Int.MAX_VALUE,
+                    animationMode = androidx.compose.foundation.MarqueeAnimationMode.Immediately,
+                    initialDelayMillis = 900, repeatDelayMillis = 1_500) else Modifier))
     }
 }
 

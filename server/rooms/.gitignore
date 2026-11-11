@@ -1,0 +1,3 @@
+.wrangler/
+.wrangler-dev.log
+node_modules/

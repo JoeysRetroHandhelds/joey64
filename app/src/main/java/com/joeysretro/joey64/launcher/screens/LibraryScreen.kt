@@ -96,6 +96,9 @@ fun LibraryScreen(model: LibraryModel, onSearch: () -> Unit) {
     if (model.askReports.collectAsStateWithLifecycle().value && !askingSomething) AskReportsPopup(model::reportsAnswered)
     NeedsBiosPopup(model) { context.startActivity(it) }
     NeedsCartPopup(model) { context.startActivity(it) }
+    StartFailedPopup(model)
+    NetEndedPopup(model)
+    LostFolderPopup(model)
     var showing by remember { mutableStateOf(false) }
     if (showing) ShowPopup(model) { showing = false }
 
@@ -158,6 +161,7 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
     val size = look?.coverSize ?: com.joeysretro.joey64.launcher.library.CoverSize.Medium
     val names = look?.names ?: com.joeysretro.joey64.launcher.library.NamesMode.DEFAULT
     val style = look?.nameStyle ?: com.joeysretro.joey64.launcher.library.NameStyle.Short
+    val greyed by model.greyed.collectAsStateWithLifecycle()
     // The game whose tile has focus, for Start; null while focus is elsewhere.
     var focusedGame by remember { mutableStateOf<LibraryGame?>(null) }
     var popup by remember { mutableStateOf<Pair<Long, GamePopup>?>(null) }
@@ -195,7 +199,8 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
             modifier = Modifier.fillMaxSize().focusRestorer().focusGroup(),
         ) {
             itemsIndexed(list, key = { _, g -> g.id }) { i, g ->
-                GameTile(g, model.cover(g), names, com.joeysretro.joey64.launcher.library.LibraryArrange.title(g, style), Modifier.initialFocus(firstFocus && i == 0)
+                GameTile(g, model.cover(g), names, com.joeysretro.joey64.launcher.library.LibraryArrange.title(g, style), greyed = g.id in greyed,
+                    modifier = Modifier.initialFocus(firstFocus && i == 0)
                     .then(if (i == 0 && firstTile != null) Modifier.focusRequester(firstTile) else Modifier),
                     onFocus = { on -> if (on) focusedGame = g else if (focusedGame?.id == g.id) focusedGame = null },
                     onOptions = { popup = g.id to GamePopup.Options }) { model.playAsked(g) { context.startActivity(it) } }
@@ -227,7 +232,7 @@ private class RowGapSpec(private val margin: Float) : BringIntoViewSpec {
  */
 @Composable
 private fun GameTile(game: LibraryGame, cover: File?, names: com.joeysretro.joey64.launcher.library.NamesMode, name: String,
-                     modifier: Modifier = Modifier, onFocus: (Boolean) -> Unit,
+                     greyed: Boolean = false, modifier: Modifier = Modifier, onFocus: (Boolean) -> Unit,
                      onOptions: () -> Unit, onClick: () -> Unit) {
     val c = JoeyTheme.colors
     val (source, focused) = rememberFocusState()
@@ -246,14 +251,17 @@ private fun GameTile(game: LibraryGame, cover: File?, names: com.joeysretro.joey
     ) {
         val p = picture
         when {
-            p != null -> Image(p, contentDescription = game.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(shape))
+            // Greyed while its ROMs folder can't be reached (approved problem screens 2026-11-08, screen 3).
+            p != null -> Image(p, contentDescription = game.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(shape),
+                alpha = if (greyed) 0.35f else 1f,
+                colorFilter = if (greyed) androidx.compose.ui.graphics.ColorFilter.colorMatrix(androidx.compose.ui.graphics.ColorMatrix().apply { setToSaturation(0f) }) else null)
             cover == null && names == com.joeysretro.joey64.launcher.library.NamesMode.NoArt ->
-                Text(name, style = JoeyTheme.type.tile, color = c.textSecondary, textAlign = TextAlign.Center,
+                Text(name, style = JoeyTheme.type.tile, color = if (greyed) c.textFaint else c.textSecondary, textAlign = TextAlign.Center,
                     maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(10.dp))
         }
     }
     if (names == com.joeysretro.joey64.launcher.library.NamesMode.Under) {
-        Text(name, style = JoeyTheme.type.note, color = if (focused) c.gold else c.textSecondary, maxLines = 1,
+        Text(name, style = JoeyTheme.type.note, color = if (focused) c.gold else if (greyed) c.textFaint else c.textSecondary, maxLines = 1,
             overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp, start = 2.dp, end = 2.dp))
     }
     }

@@ -32,6 +32,8 @@ enum class RailPlace(@DrawableRes val icon: Int, val label: String) {
     Continue(R.drawable.ic_rail_continue, "Continue"),
     Library(R.drawable.ic_rail_library, "Library"),
     Search(R.drawable.ic_rail_search, "Search"),
+    /** Every open Netplay room (approved netplay6 mockup 2026-11-10, Joey: "home screen, lobbies icon on the left"). */
+    Netplay(R.drawable.ic_rail_netplay, "Netplay"),
     /** Only while signed in to RetroAchievements (approved: no signed-out state). */
     Achievements(R.drawable.ic_trophy, "Achievements"),
     Controls(R.drawable.ic_rail_controls, "Controls"),

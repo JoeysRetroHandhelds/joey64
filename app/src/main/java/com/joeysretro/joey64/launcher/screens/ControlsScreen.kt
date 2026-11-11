@@ -41,6 +41,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.joeysretro.joey64.launcher.components.tabScroll
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalContext
@@ -60,6 +61,8 @@ import com.joeysretro.joey64.controls.N64Button
 import com.joeysretro.joey64.controls.PadDevices
 import com.joeysretro.joey64.controls.PadInput
 import com.joeysretro.joey64.controls.Pak
+import com.joeysretro.joey64.controls.GameBoyFiles
+import com.joeysretro.joey64.controls.RumbleOn
 import com.joeysretro.joey64.controls.PakDb
 import com.joeysretro.joey64.controls.PlayerSetup
 import com.joeysretro.joey64.controls.QuitTo
@@ -169,11 +172,30 @@ private sealed interface Popup {
     data class StickFeel(val row: String = com.joeysretro.joey64.controls.StickFeel.RANGE) : Popup
     data class FeelChoice(val row: String) : Popup
     data object PakChoice : Popup
+    /** Approved paks mockup 2026-11-08 (scratchpad build_paks2.py): Rumble on, the Transfer Pak setup and its lists. */
+    data object RumbleOnChoice : Popup
+    data class TransferSetup(val row: String = "game") : Popup
+    data object GbGame : Popup
+    data object GbSave : Popup
+    /** Game Boy folders (approved Game Boy folder mockup 2026-11-08); B goes back to the list it came from. */
+    data class GbFolders(val games: Boolean) : Popup
     data object Games : Popup
     data object PickGame : Popup
     data object Diagram : Popup
     /** Start: Reset tab for the player on screen (approved mockup B, 2026-11-07). */
     data object ResetPlayer : Popup
+    /** Controls extras (approved mockup 2026-11-08): Tap to hold, Macros, Profiles. */
+    data object Tap : Popup
+    /** Turbo (approved mockup 2026-11-08, scratchpad build_turbo.py). */
+    data object Turbo : Popup
+    data object Macros : Popup
+    data object Profiles : Popup
+    /** Touch controls (approved mockup 2026-11-09): a row's choices (Show, Hide when not touched, Stick), the resets, All games ›. */
+    data class TouchChoice(val row: String) : Popup
+    data object TouchResetLayouts : Popup
+    data object TouchResetPage : Popup
+    data object TouchGames : Popup
+    data object TouchPickGame : Popup
 }
 
 /** What a remap popup sets. */
@@ -187,6 +209,7 @@ private const val DPAD = "DPad"
 private val DPAD_KEYS = setOf(KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT)
 private const val CGROUP = "C"
 private val DEAD_ZONES = listOf(0, 5, 10, 15, 20, 25, 30)
+private val STRENGTHS = PlayerSetup.RUMBLE_STRENGTHS
 
 @Composable
 private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, sink: ControlsSink, onHints: (List<Hint>) -> Unit, startPlayer: Int = 0) {
@@ -194,7 +217,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
     val c = JoeyTheme.colors
     val s = JoeyTheme.spacing
     val store = remember { ControlsStore(context) }
-    LaunchedEffect(Unit) { if (!store.hasAll()) store.saveAll(PadDevices.firstSet()) }
+    LaunchedEffect(Unit) { if (!store.hasAll()) store.saveAll(PadDevices.firstSet(com.joeysretro.joey64.launcher.layout.Tv.isTv(context))) }
     var target by remember { mutableStateOf(game) }
     var targetTitle by remember { mutableStateOf(gameTitle) }
     val editor = remember(target) {
@@ -204,6 +227,14 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
     fun edit(block: () -> Unit) { block(); version++ }
     var player by remember { mutableIntStateOf(startPlayer) }
     var hotkeysOpen by remember { mutableStateOf(false) }
+    // Controls › Touch controls (approved mockup 2026-11-09): a page of its own from Player 1's chip, and its layout editor.
+    var touchOpen by remember { mutableStateOf(false) }
+    var touchEdit by remember { mutableStateOf<Boolean?>(null) }
+    val touchStore = remember { com.joeysretro.joey64.touch.TouchStore(context) }
+    var touchVer by remember { mutableIntStateOf(0) }
+    val touchNow = remember(target, touchVer) { touchStore.forGame(target) }
+    val touchBase = remember(target, touchVer) { if (target == null) com.joeysretro.joey64.touch.TouchSettings() else touchStore.all() }
+    fun setTouch(t: com.joeysretro.joey64.touch.TouchSettings) { touchStore.save(target, t); touchVer++ }
     var popup by remember { mutableStateOf<Popup?>(null) }
     var focused by remember { mutableStateOf("Controller") }
     var open by remember { mutableStateOf(setOf<String>()) }
@@ -232,43 +263,81 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
 
     // ---- the launcher's buttons ----
     val current by rememberUpdatedState(Triple(focused, player, hotkeysOpen))
+    val touchPage by rememberUpdatedState(touchOpen)
     sink.onControl = { control ->
         val (row, p, hk) = current
-        when (control) {
+        if (touchPage) when (control) {
+            Control.TabPrev, Control.TabNext, Control.Extra -> true
+            Control.Search -> {
+                when (row) {
+                    "Tap", "Macros" -> if (target != null) edit { resetRow(editor, 0, row) }
+                    "tResetLayouts", "tChipGame", "tChipEdit" -> {}
+                    else -> setTouch(touchNow.rowFrom(row, touchBase))
+                }
+                true
+            }
+            Control.Options -> { popup = Popup.TouchResetPage; true }
+            else -> false
+        } else when (control) {
             Control.TabPrev -> { if (!hk) { player = (p + 3) % 4; open = emptySet() }; true }
             Control.TabNext -> { if (!hk) { player = (p + 1) % 4; open = emptySet() }; true }
             Control.Extra -> { edit { if (hk) clearHotkey(editor, row) else clearRow(editor, p, row) }; true }
-            Control.Search -> { edit { if (hk) resetHotkey(editor, row) else resetRow(editor, p, row) }; true }
+            // Tap to hold and Macros: Y is Use All games on a game; on All games they have no default but none.
+            Control.Search -> { if (!(row in EXTRA_ROWS && target == null)) edit { if (hk) resetHotkey(editor, row) else resetRow(editor, p, row) }; true }
             Control.Options -> { if (!hk && editor.shown.players[p].device != DeviceChoice.None) popup = Popup.ResetPlayer; true }
             else -> false
         }
     }
-    sink.onBack = { if (hotkeysOpen) { hotkeysOpen = false; focused = "chipHotkeys"; true } else false }
+    sink.onBack = {
+        if (hotkeysOpen) { hotkeysOpen = false; focused = "chipHotkeys"; true }
+        else if (touchOpen) { touchOpen = false; focused = "chipTouch"; true }
+        else false
+    }
 
     // ---- hints ----
     val backLabel = if (inGame) "Back to the pause menu" else "Back"
-    LaunchedEffect(focused, hotkeysOpen, target, off) {
+    LaunchedEffect(focused, hotkeysOpen, touchOpen, target, off) {
+        if (touchOpen) { onHints(touchPageHints(focused, target != null, backLabel)); return@LaunchedEffect }
         onHints((when {
+            focused == "chipTouch" -> listOf(Hint("A", "Open"), Hint("L/R", "Player"), Hint("B", backLabel))
+            focused == "tabs" -> listOf(Hint("A", "Open"), Hint("L/R", "Player"), Hint("B", backLabel))
             hotkeysOpen -> listOf(Hint("A", if (focused == "hkFastForward" || focused == "hkQuit") "Open" else "Change"), Hint("X", "Clear"),
                 Hint("Y", "Reset to default"), Hint("B", "Back"))
             focused.startsWith("chip") -> listOf(Hint("A", "Select"), Hint("L/R", "Player"), Hint("B", backLabel))
-            focused == "DeadZone" -> listOf(Hint("◀▶", "Adjust"), Hint("Y", if (target == null) "Reset to default" else "Use All games"),
+            focused == "DeadZone" || (focused == "RumbleStrength" && !off) -> listOf(Hint("◀▶", "Adjust"), Hint("Y", if (target == null) "Reset to default" else "Use All games"),
                 Hint("L/R", "Player"), Hint("B", backLabel))
             focused == "Controller" -> listOf(Hint("A", "Change"), Hint("L/R", "Player"), Hint("B", backLabel))
+            // Pak and Rumble on: nothing for X to clear (approved paks mockup screen 1's hints).
+            (focused == "Pak" || focused == "RumbleOn") && !off -> listOf(Hint("A", "Change"),
+                Hint("Y", if (target == null) "Reset to default" else "Use All games"), Hint("L/R", "Player"), Hint("B", backLabel))
             focused == "StickFeel" && !off -> listOf(Hint("A", "Open"), Hint("Y", if (target == null) "Reset to default" else "Use All games"),
                 Hint("L/R", "Player"), Hint("B", backLabel))
             off -> listOf(Hint("L/R", "Player"), Hint("B", backLabel))
+            focused in EXTRA_ROWS -> listOfNotNull(Hint("A", "Change"), if (target == null) null else Hint("Y", "Use All games"),
+                Hint("L/R", "Player"), Hint("B", backLabel))
             else -> listOf(Hint("A", "Change"), Hint("X", "Clear"), Hint("Y", if (target == null) "Reset to default" else "Use All games"),
                 Hint("L/R", "Player"), Hint("B", backLabel))
         }).let { if (hotkeysOpen || off) it else withResetHint(it) })
     }
 
     val landing = LocalFocusLanding.current
-    LaunchedEffect(hotkeysOpen) { landing?.arm() }
+    LaunchedEffect(hotkeysOpen, touchOpen) { landing?.arm() }
 
+    // "Mario Kart loaded" after a profile loads (mockup 9), for 3 seconds.
+    var loaded by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(loaded) { if (loaded != null) { kotlinx.coroutines.delay(3_000L); loaded = null } }
+
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().padding(horizontal = s.margin).padding(top = 14.dp, bottom = 6.dp)) {
         if (hotkeysOpen) {
             HotkeysPage(editor, version, focused, onFocused = { focused = it }, onOpen = { popup = it }) { popup = Popup.Remap(it) }
+        } else if (touchOpen) {
+            TouchControlsPage(touchNow, shown.players[0], targetTitle, if (target == null) emptySet() else touchNow.changedFrom(touchBase),
+                editor.changed(0), focused, onFocused = { focused = it }, onGames = { popup = Popup.TouchGames },
+                onEdit = { touchEdit = it },
+                onPopup = { row -> popup = when (row) { "Tap" -> Popup.Tap; "Macros" -> Popup.Macros; "tResetLayouts" -> Popup.TouchResetLayouts
+                    else -> Popup.TouchChoice(row) } },
+                onSet = { setTouch(it) }, modifier = Modifier.weight(1f))
         } else {
             @Composable
             fun headerChips() {
@@ -280,12 +349,18 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             }
             com.joeysretro.joey64.launcher.components.PageHeader("Controls") { headerChips() }
             // Scrolls sideways on a narrow screen rather than wrapping "Player 4".
-            Row(Modifier.padding(top = 6.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                for (i in 0..3) TabChip("Player ${i + 1}", i == player)
+            // A focus stop too (Joey 2026-11-09): Up from the chips, ◀ ▶, A picks the player.
+            com.joeysretro.joey64.launcher.components.TabRow(4, player, Modifier.padding(top = 6.dp).tabScroll(rememberScrollState()),
+                onFocused = { if (it) focused = "tabs" }, onPick = { i -> if (i != player) { player = i; open = emptySet() } }) { i, m ->
+                TabChip("Player ${i + 1}", i == player, m)
             }
             Row(Modifier.padding(top = 6.dp, bottom = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 PageChip("Auto map", R.drawable.ic_wand, onFocused = { if (it) focused = "chipAuto" }) { if (!off) popup = Popup.AutoConfirm }
                 PageChip("View controller", R.drawable.ic_eye, onFocused = { if (it) focused = "chipView" }) { popup = Popup.Diagram }
+                PageChip("Profiles", R.drawable.ic_bookmark, onFocused = { if (it) focused = "chipProfiles" }) { if (!off) popup = Popup.Profiles }
+                // Touch controls are Player 1's (approved mockup 2026-11-09, screen 7).
+                if (player == 0 && remember { com.joeysretro.joey64.launcher.layout.Tv.hasTouch(context) }) PageChip("Touch controls", R.drawable.ic_hand_click, modifier = Modifier.initialFocus(focused == "chipTouch"),
+                    onFocused = { if (it) focused = "chipTouch" }) { touchOpen = true; focused = com.joeysretro.joey64.touch.TouchSettings.ROW_SHOW }
             }
             TwoColumns(Modifier.weight(1f), left = {
                 SectionLabel("Controller")
@@ -325,11 +400,41 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
                     dot = changed.any { it.startsWith("Feel.") },
                     onFocused = { if (it) focused = "StickFeel" }) { popup = Popup.StickFeel() }
                 SectionLabel("Pak")
-                JoeyRow("Pak", value = pakValue(setup.pak, autoPak) + "  ›", enabled = !off, sideways = true,
+                JoeyRow("Pak", value = pakValue(setup.pak, autoPak, setup) + "  ›", enabled = !off, sideways = true,
                     dot = "Pak" in changed,
                     onFocused = { if (it) focused = "Pak" }) { popup = Popup.PakChoice }
+                // Greyed when the pak can't be a Rumble Pak (approved paks mockup 2026-11-08, screens 1 and 4a).
+                val rumble = !off && when (setup.pak) { Pak.Rumble -> true; Pak.Auto -> autoPak == null || autoPak == Pak.Rumble; else -> false }
+                JoeyRow("Rumble on", value = setup.rumbleOn.label + "  ›", enabled = rumble, sideways = true,
+                    dot = "RumbleOn" in changed,
+                    onFocused = { if (it) focused = "RumbleOn" }) { if (rumble) popup = Popup.RumbleOnChoice }
+                val strengthWorks = remember(setup.device, setup.rumbleOn, pads) { rumbleStrengthWorks(context, dev, setup) }
+                JoeyRow("Rumble strength", Modifier.onPreviewKeyEvent { e ->
+                    val n = e.nativeKeyEvent
+                    val step = when (n.keyCode) { KeyEvent.KEYCODE_DPAD_LEFT -> -1; KeyEvent.KEYCODE_DPAD_RIGHT -> 1; else -> 0 }
+                    if (step == 0) return@onPreviewKeyEvent false
+                    if (rumble && strengthWorks && n.action == KeyEvent.ACTION_DOWN) {
+                        val i = (STRENGTHS.indexOfFirst { it >= setup.rumbleStrength }.takeIf { it >= 0 } ?: STRENGTHS.lastIndex) + step
+                        edit { editor.set(player, setup.copy(rumbleStrength = STRENGTHS[i.coerceIn(0, STRENGTHS.lastIndex)])) }
+                    }
+                    true
+                }, value = if (strengthWorks) "◀ ${setup.rumbleStrength}% ▶" else "Full only", enabled = rumble, sideways = true,
+                    dot = "RumbleStrength" in changed,
+                    onFocused = { if (it) focused = "RumbleStrength" })
+                SectionLabel("Extras")
+                JoeyRow("Tap to hold", value = com.joeysretro.joey64.controls.latchLabel(setup.latch) + "  ›", enabled = !off, sideways = true,
+                    dot = "Tap" in changed, onFocused = { if (it) focused = "Tap" }) { popup = Popup.Tap }
+                JoeyRow("Turbo", value = com.joeysretro.joey64.controls.turboLabel(setup.turbo) + "  ›", enabled = !off, sideways = true,
+                    dot = "Turbo" in changed, onFocused = { if (it) focused = "Turbo" }) { popup = Popup.Turbo }
+                JoeyRow("Macros", value = macrosValue(setup.macros.size) + "  ›", enabled = !off, sideways = true,
+                    dot = "Macros" in changed, onFocused = { if (it) focused = "Macros" }) { popup = Popup.Macros }
             }
         }
+    }
+    loaded?.let { name ->
+        com.joeysretro.joey64.launcher.components.JoeyToast(R.drawable.ic_circle_check, "Profiles", "$name loaded",
+            "Player ${player + 1}, ${targetTitle ?: "All games"}", Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 16.dp))
+    }
     }
 
     // ---- popups ----
@@ -413,9 +518,37 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             }
         }
         Popup.PakChoice -> ChoicePopup("Player ${player + 1} pak", "What's in the back of the controller.",
-            Pak.entries.map { Choice(pakValue(it, autoPak), pakDetail(it), it == setup.pak) }, close) { i ->
-            edit { editor.set(player, setup.copy(pak = Pak.entries[i])) }; close()
+            Pak.entries.map {
+                // Transfer Pak is set for one game: each game needs its own Game Boy game (screen 2).
+                val oneGame = it == Pak.Transfer && target == null
+                Choice(pakValue(it, autoPak), if (oneGame) "For one game: pick it in the chip" else pakDetail(it), it == setup.pak,
+                    enabled = !oneGame)
+            }, close) { i ->
+            val pak = Pak.entries[i]
+            edit { editor.set(player, setup.copy(pak = pak)) }
+            // Transfer Pak opens its setup (screen 4), also when it was already the pak.
+            popup = if (pak == Pak.Transfer) Popup.TransferSetup() else null
         }
+        Popup.RumbleOnChoice -> {
+            // A TV has no motor of its own: no This device (Android TV mockup 2026-11-09, screen 7).
+            val motor = com.joeysretro.joey64.launcher.layout.Tv.hasVibrator(context)
+            val ons = if (motor) RumbleOn.entries else RumbleOn.entries.filter { it != RumbleOn.Device }
+            ChoicePopup("Player ${player + 1} rumble", "Where the Rumble Pak's shaking goes.",
+                ons.map { Choice(it.label, if (!motor && it == RumbleOn.Controller) "Its own motor" else it.detail, it == setup.rumbleOn) }, close) { i ->
+                edit { editor.set(player, setup.copy(rumbleOn = ons[i])) }; close()
+            }
+        }
+        is Popup.TransferSetup -> TransferSetupPopup(targetTitle ?: target ?: "", setup, p.row, close,
+            onGame = { popup = Popup.GbGame }, onSave = { popup = Popup.GbSave })
+        Popup.GbGame -> GameBoyListPopup(games = true, setup = setup, onDismiss = { popup = Popup.TransferSetup("game") },
+            onFolders = { popup = Popup.GbFolders(true) }) { game, save ->
+            edit { editor.set(player, setup.copy(gbGame = game, gbSave = save)) }; popup = Popup.TransferSetup("game")
+        }
+        Popup.GbSave -> GameBoyListPopup(games = false, setup = setup, onDismiss = { popup = Popup.TransferSetup("save") },
+            onFolders = { popup = Popup.GbFolders(false) }, onDefaultSave = { save -> edit { editor.set(player, setup.copy(gbSave = save)) } }) { save, _ ->
+            edit { editor.set(player, setup.copy(gbSave = save)) }; popup = Popup.TransferSetup("save")
+        }
+        is Popup.GbFolders -> GameBoyFoldersPopup { popup = if (p.games) Popup.GbGame else Popup.GbSave }
         Popup.Games -> GamesForPopup("Controls for", "A game's own controls are used instead of All games when it starts.", target,
             gamesWithOwn = { editor.gamesWithOwn() }, changeCount = { editor.changeCount(it) }, removeLabel = "Remove the game's controls",
             onDismiss = close, onPick = { save, title -> target = save; targetTitle = title; close() },
@@ -424,6 +557,45 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
         Popup.Diagram -> JoeyDialog(onDismiss = close, hints = listOf(Hint("B", "Close")), width = 760.dp) {
             ControllerDiagram(player, deviceName(setup.device), setup, face)
         }
+        Popup.Tap -> TapToHoldPopup(player, setup.latch, { l -> edit { editor.set(player, setup.copy(latch = l)) } }, close)
+        Popup.Turbo -> TurboPopup(player, setup.turbo, setup.turboSpeed, setup.latch,
+            { t, s -> edit { editor.set(player, setup.copy(turbo = t, turboSpeed = s)) } }, close)
+        Popup.Macros -> MacrosPopup(player, setup.macros, editor.hotkeys, { m -> edit { editor.set(player, setup.copy(macros = m)) } }, close)
+        Popup.Profiles -> ProfilesPopup(player, deviceName(setup.device), targetTitle ?: target, editor, version,
+            onChanged = { version++ }, onLoaded = { name -> loaded = name; close() }, onDismiss = close)
+        is Popup.TouchChoice -> when (p.row) {
+            com.joeysretro.joey64.touch.TouchSettings.ROW_SHOW -> ChoicePopup("Show touch controls", null,
+                com.joeysretro.joey64.touch.TouchShow.entries.map { Choice(it.label, it.detail, it == touchNow.show) }, close) { i ->
+                setTouch(touchNow.copy(show = com.joeysretro.joey64.touch.TouchShow.entries[i])); close() }
+            com.joeysretro.joey64.touch.TouchSettings.ROW_HIDE -> ChoicePopup("Hide when not touched", "Touch the screen to bring them back.",
+                com.joeysretro.joey64.touch.TouchSettings.HIDE_STEPS.map { Choice(com.joeysretro.joey64.touch.TouchSettings.hideLabel(it), null, it == touchNow.hideAfter) }, close) { i ->
+                setTouch(touchNow.copy(hideAfter = com.joeysretro.joey64.touch.TouchSettings.HIDE_STEPS[i])); close() }
+            else -> ChoicePopup("Stick", "How the on-screen stick follows your thumb.",
+                com.joeysretro.joey64.touch.TouchStick.entries.map { Choice(it.label, it.detail, it == touchNow.stick) }, close) { i ->
+                setTouch(touchNow.copy(stick = com.joeysretro.joey64.touch.TouchStick.entries[i])); close() }
+        }
+        Popup.TouchResetLayouts -> ResetTabPopup("Reset layouts?",
+            "Landscape and portrait go back to " + (if (target == null) "the layouts Joey64 starts with." else "All games' layouts."),
+            "Keep my layouts", "Reset layouts", close) {
+            setTouch(touchNow.copy(landscape = touchBase.landscape, portrait = touchBase.portrait)); close()
+        }
+        Popup.TouchResetPage -> {
+            val g = targetTitle ?: target
+            if (target == null) ResetTabPopup("Reset touch controls?", "Every row on this page and both layouts go back to their defaults. " +
+                "Tap to hold and Macros stay: they're Player 1's Controls rows.", "Keep my settings", "Reset to defaults", close) {
+                setTouch(com.joeysretro.joey64.touch.TouchSettings()); JLog.i(TAG, "reset page: touch controls, All games"); close()
+            } else if (touchNow.changedFrom(touchBase).isEmpty()) NothingToResetPopup("$g uses All games' touch controls", "It has none of its own.", close)
+            else ResetTabPopup("Use All games for touch controls?", "$g's own touch controls go, and it uses All games' again.",
+                "Keep its settings", "Use All games", close) {
+                touchStore.removeGame(target!!); touchVer++; JLog.i(TAG, "reset page: touch controls, a game"); close()
+            }
+        }
+        Popup.TouchGames -> GamesForPopup("Touch controls for", "A game's own touch controls are used instead of All games when it starts.", target,
+            gamesWithOwn = { touchStore.gamesWithOwn() }, changeCount = { touchStore.changeCount(it) }, removeLabel = "Remove the game's touch controls",
+            onDismiss = close, onPick = { save, title -> target = save; targetTitle = title; close() },
+            onPickGame = { popup = Popup.TouchPickGame }, onRemoved = { save -> touchStore.removeGame(save); touchVer++ })
+        Popup.TouchPickGame -> PickGamePopup("Its touch controls start as a copy of All games.", { popup = Popup.TouchGames }) { save, title ->
+            target = save; targetTitle = title; close() }
         Popup.ResetPlayer -> {
             val who = "Player ${player + 1}"
             val g = targetTitle ?: target
@@ -437,9 +609,27 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             }
         }
     }
+
+    // The layout editor (approved mockup screens 3-6), over the paused game or, in the launcher, a screenshot.
+    touchEdit?.let { portrait ->
+        val p1 = editor.shown.players[0]
+        TouchEditor(portrait, touchNow.layout(portrait), touchBase.layout(portrait), touchNow.opacity, p1.macros, inGame,
+            macrosPopup = { onClose -> MacrosPopup(0, editor.shown.players[0].macros, editor.hotkeys,
+                { m -> edit { editor.set(0, editor.shown.players[0].copy(macros = m)) } }, onClose) }) { list ->
+            touchEdit = null
+            // Back to the starting layout on All games: kept as "the approved one", so a later default change reaches it.
+            val keep = if (target == null && list == com.joeysretro.joey64.touch.TouchSettings().layout(portrait)) null else list
+            setTouch(touchNow.withLayout(portrait, keep))
+            JLog.i(TAG, "touch controls: ${if (portrait) "portrait" else "landscape"} layout saved, ${list.count { !it.hidden }} controls shown")
+        }
+    }
 }
 
 private const val TAG = "Joey64Controls"
+private val EXTRA_ROWS = setOf("Tap", "Turbo", "Macros")
+
+/** The Macros row's value: "None", "1 macro", "2 macros". */
+private fun macrosValue(n: Int) = when (n) { 0 -> "None"; 1 -> "1 macro"; else -> "$n macros" }
 
 @Composable
 private fun BindingRow(b: N64Button, label: String, setup: PlayerSetup, face: AutoMap.FaceCodes?, off: Boolean, changed: Boolean,
@@ -467,12 +657,33 @@ private fun deviceName(d: DeviceChoice) = when (d) {
     is DeviceChoice.Pad -> d.name
 }
 
-private fun pakValue(p: Pak, auto: Pak?) = if (p == Pak.Auto && auto != null) "Auto · ${auto.label}" else p.label
+private fun pakValue(p: Pak, auto: Pak?, setup: PlayerSetup? = null) = when {
+    p == Pak.Auto && auto != null -> "Auto · ${auto.label}"
+    // "Transfer Pak · Pokémon Gold (USA)" on the page (approved paks mockup screen 4a).
+    p == Pak.Transfer && setup != null -> "Transfer Pak · " + (setup.gbGame?.let { GameBoyFiles.title(it.name) } ?: "No game")
+    else -> p.label
+}
+
+/**
+ * Whether Rumble strength can do anything for [setup]'s motor: Android sets the strength only on motors with amplitude
+ * control; the others shake at full (the row says "Full only").
+ */
+private fun rumbleStrengthWorks(context: android.content.Context, dev: android.view.InputDevice?, setup: PlayerSetup): Boolean {
+    val pad = if (setup.rumbleOn == RumbleOn.Device || dev == null || setup.device == DeviceChoice.BuiltIn) null
+        else (if (android.os.Build.VERSION.SDK_INT >= 31) dev.vibratorManager.defaultVibrator else @Suppress("DEPRECATION") dev.vibrator)
+            .takeIf { it.hasVibrator() }
+    val sys = if (android.os.Build.VERSION.SDK_INT >= 31)
+        (context.getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE) as android.os.VibratorManager).defaultVibrator
+        else @Suppress("DEPRECATION") context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as android.os.Vibrator
+    val v = pad ?: sys.takeIf { it.hasVibrator() } ?: return true
+    return v.hasAmplitudeControl()
+}
 
 private fun pakDetail(p: Pak) = when (p) {
     Pak.Auto -> "The Rumble Pak for games that use one, else the Controller Pak"
     Pak.Controller -> "For games that save to the pak"
     Pak.Rumble -> "Vibrates the controller, or this device"
+    Pak.Transfer -> "Reads a Game Boy game, for the Pokémon Stadium games"
     Pak.None -> "Nothing in the back of the controller"
 }
 
@@ -545,14 +756,14 @@ private fun HotkeysPage(editor: ControlsEditor, version: Int, focused: String, o
             JoeyRow("Hotkey button", Modifier.initialFocus(), value = hotkeyKey(h.button) + "  ›", sideways = true,
                 onFocused = { if (it) onFocused("hkButton") }) { onChange(Target.HotkeyButton) }
             SectionLabel("States")
-            for (a in listOf(HotkeyAction.Save, HotkeyAction.Load, HotkeyAction.NextSlot, HotkeyAction.PrevSlot)) row(a)
+            for (a in listOf(HotkeyAction.Save, HotkeyAction.Load, HotkeyAction.NextSlot, HotkeyAction.PrevSlot, HotkeyAction.UndoLoad, HotkeyAction.UndoSave)) row(a)
             SectionLabel("Sound")
             for (a in listOf(HotkeyAction.VolumeUp, HotkeyAction.VolumeDown, HotkeyAction.Mute)) row(a)
             SectionLabel("Picture")
-            for (a in listOf(HotkeyAction.UpscaleUp, HotkeyAction.UpscaleDown)) row(a)
+            for (a in listOf(HotkeyAction.UpscaleUp, HotkeyAction.UpscaleDown, HotkeyAction.NextShader, HotkeyAction.ShaderToggle)) row(a)
     }) {
             SectionLabel("Game")
-            for (a in listOf(HotkeyAction.PauseMenu, HotkeyAction.Pause, HotkeyAction.FrameAdvance, HotkeyAction.FastForward, HotkeyAction.SlowMotion, HotkeyAction.Rewind, HotkeyAction.Screenshot, HotkeyAction.Stats,
+            for (a in listOf(HotkeyAction.PauseMenu, HotkeyAction.Pause, HotkeyAction.FrameAdvance, HotkeyAction.FastForward, HotkeyAction.SlowMotion, HotkeyAction.Rewind, HotkeyAction.Turbo, HotkeyAction.Screenshot, HotkeyAction.Stats,
                 HotkeyAction.Achievements, HotkeyAction.GameShark, HotkeyAction.Reset, HotkeyAction.Quit)) row(a)
     }
     Spacer(Modifier.height(6.dp))
@@ -561,7 +772,7 @@ private fun HotkeysPage(editor: ControlsEditor, version: Int, focused: String, o
 }
 
 /** A hotkey's value on the page and in its popup: "Select + R1", just "Back" on its own, or Not set. */
-private fun hotkeyValue(h: Hotkeys, a: HotkeyAction): String {
+internal fun hotkeyValue(h: Hotkeys, a: HotkeyAction): String {
     val k = h.keys[a] ?: return InputNames.NOT_SET
     return if (h.isAlone(a)) hotkeyKey(k) else hotkeyKey(h.button) + " + " + hotkeyKey(k)
 }
@@ -581,6 +792,11 @@ private fun hotkeyDescription(a: HotkeyAction): String? = when (a) {
     HotkeyAction.Pause -> "Stops the game where it is, with no menu, until you press it again."
     HotkeyAction.FrameAdvance -> "Paused, each press runs the game one frame, without sound. Playing, it pauses."
     HotkeyAction.Achievements -> "Opens the pause menu's Achievements page. B goes back to the game."
+    HotkeyAction.UndoLoad -> "Goes back to where you were just before the last load state, if it was the wrong slot."
+    HotkeyAction.UndoSave -> "Puts back the slot the last save state wrote over, with its picture and date."
+    HotkeyAction.Turbo -> "Turns turbo off for this play, and on again. Which buttons repeat is set in Controls › Turbo."
+    HotkeyAction.NextShader -> "Steps through the shaders and your presets for this play. Settings › Video keeps its own."
+    HotkeyAction.ShaderToggle -> "Turns the shader off for this play, and on again. Settings › Video keeps its own."
     else -> null
 }
 
@@ -603,6 +819,11 @@ private fun hotkeyPopupLine(a: HotkeyAction): String = when (a) {
     HotkeyAction.Achievements -> "Opens the Achievements page."
     HotkeyAction.GameShark -> "The GameShark's button, held for as long as you hold it."
     HotkeyAction.Reset -> "Starts the game over, as the console's Reset."
+    HotkeyAction.UndoLoad -> "Back to just before the last load state."
+    HotkeyAction.UndoSave -> "Puts back the slot the last save wrote over."
+    HotkeyAction.Turbo -> "Turbo off for this play, and on again."
+    HotkeyAction.NextShader -> "The next shader, for this play only."
+    HotkeyAction.ShaderToggle -> "The shader off, and on again, for this play only."
     HotkeyAction.FastForward, HotkeyAction.SlowMotion, HotkeyAction.Rewind, HotkeyAction.Quit -> ""
 }
 
@@ -804,7 +1025,8 @@ private fun QuitGamePopup(editor: ControlsEditor, version: Int, startRow: String
 
 // ---- popups ----
 
-internal data class Choice(val label: String, val detail: String?, val on: Boolean, val value: String? = null, val experimental: Boolean = false)
+internal data class Choice(val label: String, val detail: String?, val on: Boolean, val value: String? = null, val experimental: Boolean = false,
+                            /** False: greyed, A does nothing (Transfer Pak on All games). */ val enabled: Boolean = true)
 
 @Composable
 private fun Tick() {
@@ -812,13 +1034,13 @@ private fun Tick() {
 }
 
 @Composable
-private fun ChoicePopup(title: String, subtitle: String?, choices: List<Choice>, onDismiss: () -> Unit, onPick: (Int) -> Unit) {
+internal fun ChoicePopup(title: String, subtitle: String?, choices: List<Choice>, onDismiss: () -> Unit, onPick: (Int) -> Unit) {
     JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Back")), width = 470.dp) {
         Column {
             PopupTitle(title, subtitle)
             choices.forEachIndexed { i, ch ->
                 JoeyRow(ch.label, Modifier.initialFocus(ch.on), value = ch.value, detail = ch.detail, experimental = ch.experimental,
-                    trailing = if (ch.on) { _ -> Tick() } else null) { onPick(i) }
+                    enabled = ch.enabled, trailing = if (ch.on) { _ -> Tick() } else null) { if (ch.enabled) onPick(i) }
             }
         }
     }
@@ -876,7 +1098,7 @@ private fun AutoMapConfirm(player: Int, name: String, dev: android.view.InputDev
 
 /** The 5 s bar: runs down, then [onTimeout]. */
 @Composable
-private fun TimeBar(onTimeout: () -> Unit) {
+internal fun TimeBar(onTimeout: () -> Unit) {
     val c = JoeyTheme.colors
     val left = remember { Animatable(1f) }
     val timeout by rememberUpdatedState(onTimeout)
@@ -890,7 +1112,7 @@ private fun TimeBar(onTimeout: () -> Unit) {
 }
 
 @Composable
-private fun PressBody(title: String, line: String, note: String) {
+internal fun PressBody(title: String, line: String, note: String) {
     val c = JoeyTheme.colors
     PopupTitle(title)
     Text(line, style = JoeyTheme.type.body, color = c.text, modifier = Modifier.padding(horizontal = 10.dp).padding(top = 6.dp, bottom = 12.dp))

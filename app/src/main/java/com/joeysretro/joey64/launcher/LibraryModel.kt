@@ -6,6 +6,7 @@ import com.joeysretro.joey64.JLog
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
+import androidx.core.net.toUri
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -17,6 +18,7 @@ import com.joeysretro.joey64.states.StateSlots
 import com.joeysretro.joey64.launcher.data.LibraryDb
 import com.joeysretro.joey64.launcher.settings.SettingsStore
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
@@ -48,6 +50,8 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     private val scanner = LibraryScanner(app, db)
     private val launcher = GameLauncher(app, db)
     private val boxArt = BoxArt(app, db)
+    /** ScreenScraper takes one request at a time from an app without a user account: the box-art run and room covers. */
+    private val screenScraperOne = kotlinx.coroutines.sync.Mutex()
     private val settings = SettingsStore(app)
 
     private val _debugSetup = MutableStateFlow<String?>(null)
@@ -209,10 +213,35 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                 } else if (failed.need == GameStartFailed.Need.Bios) {
                     JLog.i(TAG, "${game.title} didn't start (no IPL for its region): asking for the 64DD BIOS")
                     _needsBios.value = NeedsBios(game, failed.intent, failedStart = true)
+                } else if (failed.need in NET_ENDS) {
+                    JLog.i(TAG, "${game.title}: netplay ended (${failed.need.name}): saying so")
+                    _netEnded.value = NetEnded(failed.need, game,
+                        failed.intent.getStringExtra(com.joeysretro.joey64.MainActivity.EXTRA_SOURCE_NAME) ?: game.title, failed.intent)
+                } else if (failed.need == GameStartFailed.Need.Rom) {
+                    _startFailed.value = withContext(Dispatchers.IO) { startFailedOf(game, failed) }
+                    JLog.i(TAG, "${game.title} didn't start (${failed.why?.name}): saying so" + if (_startFailed.value?.damaged == true) ", the file looks damaged" else "")
                 }
             }
         }
         app.getSystemService(ConnectivityManager::class.java)?.registerDefaultNetworkCallback(network)
+        com.joeysretro.joey64.netplay.RoomList.init(app)
+        // Netplay: a join that ended before the game (full, another copy, can't reach) is said by the library's popups.
+        // Dispatchers.Main, not the scope's Main.immediate: the first value comes at once, and the fields it reads
+        // (netplayFor, _netEnded) are set further down this class, after this init block.
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+            com.joeysretro.joey64.netplay.PlayTogether.state.collect { s ->
+                val mine = netplayFor.value ?: netplayGame
+                val e = when (s) {
+                    is com.joeysretro.joey64.netplay.PlayTogether.Full -> NetEnded(GameStartFailed.Need.NetTurnedDown, mine, mine?.title ?: "", hostName = s.hostName, retry = s.again)
+                    is com.joeysretro.joey64.netplay.PlayTogether.Mismatch -> NetEnded(GameStartFailed.Need.NetMismatch, mine?.takeIf { s.mine.md5.isNotEmpty() }, mine?.title ?: "",
+                        hostName = s.hostName, hostGame = s.hostGame.title.ifEmpty { null })
+                    is com.joeysretro.joey64.netplay.PlayTogether.Unreachable -> NetEnded(GameStartFailed.Need.NetUnreachable, mine, "", hostName = s.hostName, fromCode = s.fromCode)
+                    else -> null
+                } ?: return@collect
+                com.joeysretro.joey64.netplay.PlayTogether.endedSeen()
+                _netEnded.value = e
+            }
+        }
     }
 
     override fun onCleared() {
@@ -228,11 +257,12 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
             val started = android.os.SystemClock.elapsedRealtime()
             _artPaused.value = false
             val outcome = try {
-                boxArt.fetch(maxWidth = if (settings.settings.first().boxArtLow) BoxArt.LOW_WIDTH else BoxArt.HIGH_WIDTH,
+                // One ScreenScraper request at a time (no user account): room covers wait for this run.
+                screenScraperOne.withLock { boxArt.fetch(maxWidth = if (settings.settings.first().boxArtLow) BoxArt.LOW_WIDTH else BoxArt.HIGH_WIDTH,
                     onProgress = { done, total -> _art.value = Progress(done, total, started) }) {
                 // Covers appear as they come, a few at a time.
                 if (++got % 4 == 0) _all.value = db.libraryGames()
-            }
+            } }
             } finally {
                 _art.value = null
             }
@@ -369,6 +399,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
      * quit save starts from the beginning (Never), goes on from it (Always) or asks ([askContinue]).
      */
     fun playAsked(game: LibraryGame, start: (Intent) -> Unit) {
+        if (game.id in _greyed.value) { askAboutFolderOf(game); return }
         if (starting) return
         viewModelScope.launch {
             val app = getApplication<Application>()
@@ -569,6 +600,41 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
 
     fun closeGameSettings() { _gameSettingsFor.value = null }
 
+    private val _savesFor = MutableStateFlow<com.joeysretro.joey64.launcher.screens.SavesGame?>(null)
+    /** The game whose Saves page is open in the library's place (a game's options › Saves, approved mockup 2026-11-08), or null. */
+    val savesFor: StateFlow<com.joeysretro.joey64.launcher.screens.SavesGame?> = _savesFor
+    private val _screenshotsFor = MutableStateFlow<com.joeysretro.joey64.launcher.screens.SavesGame?>(null)
+    /** The game whose Screenshots page is open in the library's place (a game's options › Screenshots), or null. */
+    val screenshotsFor: StateFlow<com.joeysretro.joey64.launcher.screens.SavesGame?> = _screenshotsFor
+
+    private fun openWithSaveName(game: LibraryGame, what: String, to: MutableStateFlow<com.joeysretro.joey64.launcher.screens.SavesGame?>) {
+        viewModelScope.launch {
+            // The files are named after the game's save.
+            val saveName = withContext(Dispatchers.IO) { launcher.saveNameFor(game) } ?: run {
+                JLog.e(TAG, "$what: no readable file for ${game.title}"); return@launch
+            }
+            to.value = com.joeysretro.joey64.launcher.screens.SavesGame(game, saveName)
+        }
+    }
+
+    fun openSaves(game: LibraryGame) = openWithSaveName(game, "saves", _savesFor)
+    fun closeSaves() { _savesFor.value = null }
+    fun openScreenshots(game: LibraryGame) = openWithSaveName(game, "screenshots", _screenshotsFor)
+    fun closeScreenshots() { _screenshotsFor.value = null }
+
+    /** The options' Saves and Screenshots values: the game's states ("3 states") and its screenshots; null when it has no readable file. */
+    data class SavesCounts(val states: Int, val screenshots: Int) {
+        val statesLabel get() = when (states) { 0 -> "No states"; 1 -> "1 state"; else -> "$states states" }
+    }
+
+    suspend fun savesCounts(game: LibraryGame): SavesCounts? = withContext(Dispatchers.IO) {
+        val app = getApplication<Application>()
+        launcher.saveNameFor(game)?.let { name ->
+            SavesCounts(com.joeysretro.joey64.saves.SaveManager(app, name).states().size,
+                com.joeysretro.joey64.saves.GameScreenshots(app, name).list().size)
+        }
+    }
+
     /** The options' Game settings value: "3 changed" or "Same as All games"; null when the game has no readable file. */
     suspend fun gameSettingsLabel(game: LibraryGame): String? = withContext(Dispatchers.IO) {
         launcher.saveNameFor(game)?.let { com.joeysretro.joey64.launcher.gamesettings.GameSettingsModel(getApplication<Application>()).summary(it).label }
@@ -622,7 +688,32 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         if (code != null) {
             JLog.i(TAG, "${game.title} needs the $code cartridge, which isn't in the library: asking for it")
             _needsCart.value = NeedsCart(game, code, intent.getStringExtra(com.joeysretro.joey64.MainActivity.EXTRA_LOAD_STATE))
+        } else startNow(game, intent, start)
+    }
+
+    /** A game ready to go: started, unless it's a TV with no controller connected (then [needsController] asks for one). */
+    private fun startNow(game: LibraryGame, intent: Intent, start: (Intent) -> Unit) {
+        val app = getApplication<Application>()
+        if (com.joeysretro.joey64.launcher.layout.Tv.isTv(app) && !com.joeysretro.joey64.launcher.layout.Tv.controllerConnected(app)) {
+            JLog.i(TAG, "${game.title}: a TV with no controller connected, asking for one")
+            _needsController.value = NeedsController(game, intent)
         } else { started(game); start(intent) }
+    }
+
+    /** Android TV (approved mockup 2026-11-09, screen 6): Play on a TV with only the remote. */
+    data class NeedsController(val game: LibraryGame, val intent: Intent)
+    private val _needsController = MutableStateFlow<NeedsController?>(null)
+    val needsController: StateFlow<NeedsController?> = _needsController
+
+    /** Not now (or B): nothing starts. */
+    fun controllerCancelled() { _needsController.value = null }
+
+    /** A controller is connected while the question is up: the game starts. */
+    fun controllerConnected(start: (Intent) -> Unit) {
+        val ask = _needsController.value ?: return
+        _needsController.value = null
+        JLog.i(TAG, "${ask.game.title}: a controller connected, starting")
+        started(ask.game); start(ask.intent)
     }
 
     /**
@@ -653,14 +744,14 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                 } else {
                     if (!listed) {
                         db.forgetFolder(tree)
-                        if (tree != com.joeysretro.joey64.launcher.storage.DataFolders.treeUri(app)) try { RomFolders.release(app, folder) } catch (e: Exception) {}
+                        if (tree != com.joeysretro.joey64.launcher.storage.DataFolders.treeUri(app) && tree !in settings.settings.first().gbFolders) try { RomFolders.release(app, folder) } catch (e: Exception) {}
                     }
                     null
                 }
             }
             _all.value = withContext(Dispatchers.IO) { db.libraryGames() }
             if (intent != null) {
-                _needsCart.value = null; started(ask.game); start(intent)
+                _needsCart.value = null; startNow(ask.game, intent, start)
             } else _needsCart.value = ask.copy(missed = true)
         }
     }
@@ -669,6 +760,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
 
     /** Gets [game] ready and hands [start] its intent. One at a time: a second press while a zip unpacks does nothing. */
     fun play(game: LibraryGame, loadState: String? = null, start: (Intent) -> Unit) {
+        if (game.id in _greyed.value) { askAboutFolderOf(game); return }
         if (starting) return
         starting = true
         viewModelScope.launch {
@@ -683,6 +775,291 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
             } finally {
                 starting = false
             }
+        }
+    }
+
+    // ---- Problem screens (approved 2026-11-08, scratchpad build_problems2.py / problems2_mock.png) ----------------
+
+    /**
+     * Screens 1-2, "<game> won't start" and its Details: [damaged] when the file has a No-Intro name but not that copy's
+     * MD5; [folders] the folders it's in ("ROMs", "n64") on [place] ("SD card").
+     */
+    data class StartFailed(
+        val game: LibraryGame, val damaged: Boolean, val file: String, val place: String?, val folders: List<String>,
+        val size: Long?, val why: GameStartFailed.Why,
+    )
+
+    private val _startFailed = MutableStateFlow<StartFailed?>(null)
+    val startFailed: StateFlow<StartFailed?> = _startFailed
+    fun startFailedSeen() { _startFailed.value = null }
+
+    private fun startFailedOf(game: LibraryGame, failed: GameStartFailed.Failed): StartFailed {
+        val app = getApplication<Application>()
+        val src = failed.intent.getStringExtra(com.joeysretro.joey64.MainActivity.EXTRA_SOURCE_URI)
+        val row = db.filesOf(game.id).let { files -> files.firstOrNull { it.uri == src } ?: files.firstOrNull() }
+        val name = failed.intent.getStringExtra(com.joeysretro.joey64.MainActivity.EXTRA_SOURCE_NAME) ?: row?.name ?: game.title
+        val table = com.joeysretro.joey64.launcher.boxart.BoxArtTable.get(app)
+        val folders = try { (src ?: row?.uri)?.let { com.joeysretro.joey64.launcher.library.StartProblems.foldersOf(android.provider.DocumentsContract.getDocumentId(it.toUri())) } } catch (e: Exception) { null }
+        val place = try { row?.treeUri?.let { FolderNames.of(app, it.toUri()).place } } catch (e: Exception) { null }
+        return StartFailed(game,
+            damaged = com.joeysretro.joey64.launcher.library.StartProblems.looksDamaged(game.md5, name, table.keys, table.values.toHashSet()),
+            file = name, place = place, folders = folders.orEmpty(), size = db.details(game.id)?.romSize,
+            why = failed.why ?: GameStartFailed.Why.Refused)
+    }
+
+    /**
+     * Netplay's library popups (approved: room lost 2026-11-10 "OK only"; Couldn't reach the room and Your copy doesn't
+     * match the host's in Play together v2, 2026-11-06). [file]: this player's copy, for the mismatch's Details.
+     */
+    /**
+     * [game]: this player's game (null: a Netplay join from the page for a game not in the library); [hostName] and
+     * [hostGame] when the room said them; [retry]: Try again joins that room again (a Netplay room screen join).
+     */
+    data class NetEnded(val need: GameStartFailed.Need, val game: LibraryGame?, val file: String, val intent: Intent? = null,
+                        val hostName: String? = null, val hostGame: String? = null, val retry: com.joeysretro.joey64.netplay.PlayTogether.Target? = null,
+                        /** Couldn't reach a room whose code was typed (else picked from a list). */
+                        val fromCode: Boolean = false)
+
+    private val _netEnded = MutableStateFlow<NetEnded?>(null)
+    val netEnded: StateFlow<NetEnded?> = _netEnded
+    fun netEndedSeen() { _netEnded.value = null }
+    /** Turned down's Try again: the same join, started again at once. */
+    fun netTryAgain(start: (Intent) -> Unit) {
+        val n = _netEnded.value ?: return
+        _netEnded.value = null
+        n.retry?.let { netplayJoin(it); return }
+        val intent = n.intent ?: return
+        val game = n.game ?: return
+        JLog.i(TAG, "${game.title}: netplay, trying to join again")
+        startNow(game, intent, start)
+    }
+
+    // ---- Netplay (approved v2 2026-11-06; netplay5 and netplay6 mockups 2026-11-10) ----
+
+    private val _netplayFor = MutableStateFlow<LibraryGame?>(null)
+    /** The game whose Netplay popup is open (a game's options › Netplay), or null. */
+    val netplayFor: StateFlow<LibraryGame?> = _netplayFor
+    /** The game of the room this device hosts or joined, for its start. */
+    private var netplayGame: LibraryGame? = null
+    private var netplayLooking = 0
+
+    /** While the Netplay page or popup is open: this Wi-Fi's rooms and the public list. */
+    fun netplayLook(on: Boolean) {
+        if (on) {
+            if (netplayLooking++ == 0) { com.joeysretro.joey64.netplay.PlayTogether.browse(getApplication()); com.joeysretro.joey64.netplay.RoomList.watch() }
+        } else if (netplayLooking > 0 && --netplayLooking == 0) {
+            com.joeysretro.joey64.netplay.PlayTogether.stopBrowsing(); com.joeysretro.joey64.netplay.RoomList.unwatch()
+        }
+    }
+
+    fun openNetplay(game: LibraryGame) { _netplayFor.value = game }
+    fun closeNetplay() { _netplayFor.value = null }
+
+    /** This player in a room: the RetroAchievements name when signed in, else the device's own name; the model under it. */
+    fun netplayMe(): com.joeysretro.joey64.netplay.PlayTogether.Me {
+        val app = getApplication<Application>()
+        val m = android.os.Build.MODEL.orEmpty(); val maker = android.os.Build.MANUFACTURER.orEmpty()
+        val model = if (m.startsWith(maker, ignoreCase = true) || maker.isBlank()) m else "$maker $m"
+        val ra = com.joeysretro.joey64.achievements.RaBridge.account.value?.display?.takeIf { it.isNotBlank() }
+        val named = try { android.provider.Settings.Global.getString(app.contentResolver, "device_name") } catch (e: Exception) { null }
+        return com.joeysretro.joey64.netplay.PlayTogether.Me(ra ?: named?.takeIf { it.isNotBlank() } ?: model, model)
+    }
+
+    /** The library's game with [md5], or null. */
+    fun gameByMd5(md5: String): LibraryGame? = _all.value?.firstOrNull { it.md5.equals(md5, ignoreCase = true) }
+
+    private fun netGame(g: LibraryGame) = com.joeysretro.joey64.netplay.PlayTogether.Game(g.title, g.md5.lowercase(), g.title, netPlaces(g))
+
+    /** A room's places: the game's most players (n64-players.tsv), 2-4; 4 when the game isn't known. */
+    fun netPlaces(g: LibraryGame): Int = (playersOf(g) ?: 4).coerceIn(2, 4)
+
+    /** The same for a room's game by its MD5: 4 when it isn't in this library. */
+    fun netPlaces(md5: String): Int = _all.value?.firstOrNull { it.md5.equals(md5, true) }?.let { netPlaces(it) } ?: 4
+
+    /** Host a room for [game]: false when no room port could be opened. */
+    fun netplayHost(game: LibraryGame): Boolean {
+        netplayGame = game
+        return com.joeysretro.joey64.netplay.PlayTogether.host(getApplication(), netplayMe(), netGame(game))
+    }
+
+    fun netplayJoin(target: com.joeysretro.joey64.netplay.PlayTogether.Target) {
+        netplayGame = null
+        val mine = _netplayFor.value
+        com.joeysretro.joey64.netplay.PlayTogether.join(netplayMe(), target, mine?.let { netGame(it) } ?: com.joeysretro.joey64.netplay.PlayTogether.Game("", "", "")) { md5 ->
+            gameByMd5(md5)?.also { netplayGame = it }?.let { netGame(it) }
+        }
+    }
+
+    /** Join by code's Start: false when the code isn't right (its check doesn't add up). */
+    fun netplayJoinCode(code: String): Boolean {
+        if (com.joeysretro.joey64.netplay.RoomCode.decode(code) == null) return false
+        viewModelScope.launch {
+            val t = withContext(Dispatchers.IO) { com.joeysretro.joey64.netplay.PlayTogether.targetForCode(code) } ?: return@launch
+            netplayJoin(t.copy(fromCode = true))
+        }
+        return true
+    }
+
+    /** The most players [game] takes (the 4 players filter's table), or null when it isn't known. */
+    fun playersOf(game: LibraryGame): Int? = _facts.value?.let { com.joeysretro.joey64.launcher.library.LibraryViews.playersOf(game, it) }
+
+    /** A game Netplay can't host: one known to take only 1 player (Joey 2026-11-10). */
+    fun onePlayerOnly(game: LibraryGame) = playersOf(game) == 1
+
+    private val _roomCovers = MutableStateFlow<Map<String, java.io.File>>(emptyMap())
+    /** Covers for rooms of games not in this library, by MD5 ([lookUpRoomCover]). */
+    val roomCovers: StateFlow<Map<String, java.io.File>> = _roomCovers
+    private val roomCoversAsked = java.util.Collections.synchronizedSet(HashSet<String>())
+
+    /**
+     * The cover of a room's game this library doesn't have (Joey 2026-11-10: greyed covers as drawn), looked up by its
+     * MD5 once per launcher run when Download box art is on; kept apart from the library's covers (boxart/rooms).
+     */
+    fun lookUpRoomCover(md5: String, title: String) {
+        val key = md5.lowercase()
+        if (key.isEmpty() || !roomCoversAsked.add(key)) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val kept = boxArt.roomCoverFile(key)
+            val f = if (kept.exists()) kept else {
+                val s = settings.settings.first()
+                if (!s.downloadBoxArt) return@launch
+                screenScraperOne.withLock { boxArt.roomCover(key, title, if (s.boxArtLow) BoxArt.LOW_WIDTH else BoxArt.HIGH_WIDTH) } ?: return@launch
+            }
+            _roomCovers.value = _roomCovers.value + (key to f)
+        }
+    }
+
+    /** Start the game (the host): this device's game starts hosting the room's server; the others follow once it's open. */
+    fun netplayStartHosted(start: (Intent) -> Unit) {
+        val game = netplayGame ?: return
+        val hs = com.joeysretro.joey64.netplay.PlayTogether.startGame() ?: return
+        _netplayFor.value = null
+        viewModelScope.launch {
+            val intent = withContext(Dispatchers.IO) { launcher.intentFor(game) } ?: run { JLog.w(TAG, "no readable file for ${game.title}"); return@launch }
+            intent.putExtra(com.joeysretro.joey64.MainActivity.EXTRA_NETPLAY_HOST, hs.serve)
+                .putExtra(com.joeysretro.joey64.MainActivity.EXTRA_NETPLAY_JOIN, hs.join)
+                .putExtra(com.joeysretro.joey64.MainActivity.EXTRA_NETPLAY_NAME, hs.name)
+            JLog.i(TAG, "${game.title}: Netplay, hosting (${hs.serve})")
+            startNow(game, intent, start)
+        }
+    }
+
+    /** The host said go (the joiner): this device's game joins the room. */
+    fun netplayGo(go: com.joeysretro.joey64.netplay.PlayTogether.Go, start: (Intent) -> Unit) {
+        com.joeysretro.joey64.netplay.PlayTogether.goTaken()
+        val game = gameByMd5(go.md5) ?: return
+        _netplayFor.value = null
+        viewModelScope.launch {
+            val intent = withContext(Dispatchers.IO) { launcher.intentFor(game) } ?: run { JLog.w(TAG, "no readable file for ${game.title}"); return@launch }
+            intent.putExtra(com.joeysretro.joey64.MainActivity.EXTRA_NETPLAY_JOIN, go.join)
+                .putExtra(com.joeysretro.joey64.MainActivity.EXTRA_NETPLAY_NAME, go.name)
+            JLog.i(TAG, "${game.title}: Netplay, joining (${go.join})")
+            startNow(game, intent, start)
+        }
+    }
+
+    /** Debug (SHOW --es what net-lost|net-unreach|net-mismatch): the popup for the first game in the library. */
+    fun debugNetEnded(what: String) {
+        val need = when (what) { "net-lost" -> GameStartFailed.Need.NetLost; "net-unreach" -> GameStartFailed.Need.NetUnreachable; "net-full" -> GameStartFailed.Need.NetTurnedDown; else -> GameStartFailed.Need.NetMismatch }
+        val game = _all.value?.firstOrNull() ?: return
+        _netEnded.value = NetEnded(need, game, game.title + ".z64")
+    }
+
+    /** Screen 3: a ROM folder that can't be reached ([path]: "SD card › ROMs › n64"). */
+    data class LostFolder(val tree: String, val path: String)
+
+    private val _lostFolder = MutableStateFlow<LostFolder?>(null)
+    /** The Can't reach your ROMs folder popup, or null. */
+    val lostFolder: StateFlow<LostFolder?> = _lostFolder
+    private val _greyed = MutableStateFlow<Set<Long>>(emptySet())
+    /** Games whose every file is in a folder that can't be reached: greyed in the grid, A asks about their folder. */
+    val greyed: StateFlow<Set<Long>> = _greyed
+    /** Asked once when the library opens (this model lives as long as the launcher); A on a greyed game asks again. */
+    private var lostAsked = false
+
+    private fun lostOf(tree: String): LostFolder {
+        val app = getApplication<Application>()
+        val path = try { FolderNames.of(app, tree.toUri()).let { (listOf(it.place) + it.folders).joinToString(" › ") } } catch (e: Exception) { "your ROMs folder" }
+        return LostFolder(tree, path)
+    }
+
+    /** Which folders can be read now; greys the games only in the others, and asks about the first once. */
+    fun checkFolders(folders: List<Uri>) {
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            val lost = withContext(Dispatchers.IO) { folders.filter { !RomFolders.readableNow(app, it) }.map { it.toString() }.toSet() } +
+                (debugLost?.takeIf { d -> folders.any { it.toString() == d } }?.let { setOf(it) } ?: emptySet())
+            _greyed.value = if (lost.isEmpty()) emptySet() else withContext(Dispatchers.IO) { db.gamesOnlyInAny(lost) }
+            if (lost.isEmpty()) { _lostFolder.value = null; return@launch }
+            JLog.w(TAG, "${lost.size} ROM folder(s) can't be reached, ${_greyed.value.size} games greyed")
+            if (!lostAsked) { lostAsked = true; _lostFolder.value = lostOf(lost.first()) }
+        }
+    }
+
+    /** Debug builds (SHOW --es what lost-folder): the first ROM folder counts as one that can't be reached. */
+    private var debugLost: String? = null
+    private var debugFolders: List<Uri> = emptyList()
+
+    fun debugLostFolder(on: Boolean) {
+        viewModelScope.launch {
+            val folders = settings.settings.first().romFolders.sorted().map { it.toUri() }
+            debugLost = if (on) folders.firstOrNull()?.toString() else null
+            if (on) lostAsked = false
+            checkFolders(folders)
+        }
+    }
+
+    /** A on a greyed game: asks about its folder again. */
+    private fun askAboutFolderOf(game: LibraryGame) {
+        viewModelScope.launch {
+            val tree = withContext(Dispatchers.IO) { db.filesOf(game.id).firstOrNull()?.treeUri } ?: return@launch
+            _lostFolder.value = lostOf(tree)
+        }
+    }
+
+    fun lostNotNow() { _lostFolder.value = null }
+
+    /** Try again: reads the folder again when it's back (its games come back); else the popup stays. */
+    fun lostTryAgain(folders: List<Uri>) {
+        val ask = _lostFolder.value ?: return
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            if (ask.tree == debugLost) debugLost = null
+            if (!withContext(Dispatchers.IO) { RomFolders.readableNow(app, ask.tree.toUri()) }) {
+                JLog.i(TAG, "ROM folder still can't be reached: ${ask.path}"); return@launch
+            }
+            JLog.i(TAG, "ROM folder back: ${ask.path}")
+            _lostFolder.value = null
+            checkFolders(folders)
+            scan?.cancel()
+            refresh(folders)
+        }
+    }
+
+    /**
+     * Choose the folder again: the same folder gets its permission back and is read again; another folder with N64 games
+     * takes the lost one's place in the list (its games' rows stay and find their files again). A pick without games, or
+     * no pick, leaves the popup up.
+     */
+    fun lostChosen(uri: Uri, folders: List<Uri>) {
+        val ask = _lostFolder.value ?: return
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            if (uri.toString() == ask.tree) {
+                try { RomFolders.keep(app, uri, write = false) } catch (e: SecurityException) { JLog.w(TAG, "can't keep $uri: $e") }
+                lostTryAgain(folders)
+                return@launch
+            }
+            val look = try { look(uri) } catch (e: Exception) { JLog.e(TAG, "can't look in $uri: $e"); null }
+            if (look == null || look.roms == 0) { JLog.i(TAG, "Choose the folder again: no N64 games in $uri"); return@launch }
+            RomFolders.keep(app, uri, write = false)
+            settings.addRomFolder(uri.toString())
+            settings.removeRomFolder(ask.tree)
+            withContext(Dispatchers.IO) { db.forgetFolder(ask.tree) }
+            try { RomFolders.release(app, ask.tree.toUri()) } catch (e: Exception) { JLog.w(TAG, "can't release ${ask.tree}: $e") }
+            JLog.i(TAG, "ROM folder ${ask.path} replaced by a picked one with ${look.roms} games")
+            _lostFolder.value = null
+            _greyed.value = emptySet()
         }
     }
 
@@ -717,3 +1094,6 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
         const val TAG = "Joey64Library"
     }
 }
+
+/** The netplay ends the library says (LibraryModel.netEnded). */
+private val NET_ENDS = setOf(GameStartFailed.Need.NetLost, GameStartFailed.Need.NetUnreachable, GameStartFailed.Need.NetMismatch, GameStartFailed.Need.NetTurnedDown)

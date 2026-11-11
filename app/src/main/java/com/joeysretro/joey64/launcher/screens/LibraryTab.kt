@@ -56,6 +56,7 @@ import com.joeysretro.joey64.launcher.storage.FolderNames
 import com.joeysretro.joey64.launcher.storage.RomFolders
 import com.joeysretro.joey64.launcher.theme.JoeyTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -274,8 +275,8 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
                             store.removeRomFolder(tree)
                             addStatus = null
                             library.removeFolder(tree)
-                            // The data folder may be the same folder: its grant stays.
-                            if (tree != DataFolders.treeUri(context)) try { RomFolders.release(context, tree.toUri()) } catch (e: Exception) {}
+                            // The data folder or a Game Boy folder may be the same folder: its grant stays.
+                            if (tree != DataFolders.treeUri(context) && tree !in store.settings.first().gbFolders) try { RomFolders.release(context, tree.toUri()) } catch (e: Exception) {}
                             JLog.i(TAG, "ROM folder removed")
                         }
                     }
@@ -308,7 +309,7 @@ private fun HiddenPopup(hidden: List<LibraryGame>, onDismiss: () -> Unit, onShow
 
 /** The Regions popup's tick box: gold and ticked when on. */
 @Composable
-private fun TickBox(on: Boolean) {
+internal fun TickBox(on: Boolean) {
     val c = JoeyTheme.colors
     val shape = RoundedCornerShape(4.dp)
     Box(Modifier.padding(end = 10.dp).size(18.dp).then(if (on) Modifier.background(c.gold, shape) else Modifier.border(2.dp, c.textDim, shape)),

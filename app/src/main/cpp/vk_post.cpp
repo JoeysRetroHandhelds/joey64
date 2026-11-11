@@ -125,7 +125,8 @@ bool VkPost::ensureImages(uint32_t w, uint32_t h) {
     if (out_ && w == w_ && h == h_) return true;
     if (out_ && idle_) idle_(); // earlier frames may still use them (the window or the shape changed)
     destroyImages();
-    if (!makeImage(w, h, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, out_, outMem_, outView_) ||
+    if (!makeImage(w, h, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                   out_, outMem_, outView_) ||
         !makeImage(w, h, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, mid_, midMem_, midView_)) {
         LOGE("vulkan: present pass images %ux%u failed", w, h);
         destroyImages();
@@ -154,9 +155,9 @@ void VkPost::record(VkCommandBuffer cmd, uint32_t frame, VkImageView src, VkImag
     float on = Post::colour(p.colour);
     p.extra[0] = iw; p.extra[1] = ih; p.extra[2] = (float)sharpK; p.extra[3] = on;
 
-    // The previous frame's copy may still read out_, and RCAS mid_: wait for those before writing.
+    // The previous frame's copy (or the Picture pass) may still read out_, and RCAS mid_: wait for those before writing.
     barrier(vkCmdPipelineBarrier, cmd, out_, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_ACCESS_SHADER_WRITE_BIT,
-            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+            VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
     if (mode == 2)
         barrier(vkCmdPipelineBarrier, cmd, mid_, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_ACCESS_SHADER_WRITE_BIT,
                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);

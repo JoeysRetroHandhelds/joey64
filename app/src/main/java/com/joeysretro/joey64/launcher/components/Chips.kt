@@ -2,6 +2,10 @@ package com.joeysretro.joey64.launcher.components
 
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
@@ -12,6 +16,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.layout
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.joeysretro.joey64.launcher.theme.JoeyTheme
@@ -43,14 +49,56 @@ fun PageChip(text: String, @DrawableRes icon: Int?, modifier: Modifier = Modifie
     }
 }
 
-/** A tab that L1 / R1 move between (Player 1-4), not a focus stop. */
+/** A tab of Controls' Player 1-4 row ([TabRow] makes it a focus stop). */
 @Composable
-fun TabChip(text: String, on: Boolean) {
+fun TabChip(text: String, on: Boolean, modifier: Modifier = Modifier) {
     val c = JoeyTheme.colors
     Text(text, style = JoeyTheme.type.tab, color = if (on) c.text else c.textDim, maxLines = 1, softWrap = false,
-        modifier = Modifier.then(if (on) Modifier.background(c.chip, RoundedCornerShape(7.dp)) else Modifier)
+        modifier = modifier.then(if (on) Modifier.background(c.chip, RoundedCornerShape(7.dp)) else Modifier)
             .padding(horizontal = 13.dp, vertical = 6.dp))
 }
+
+/**
+ * A row of tabs: Settings' tabs, Controls' players, Game settings' parts, a game's achievement sets. L1 / R1 move along
+ * it, and the D-pad reaches it too (Joey 2026-11-09: tabs only L1 / R1 could change left a TV remote, and any D-pad
+ * alone, unable to change them; "That needs to be fixed for all versions"). Up from the page lands on the tab in use,
+ * ◀ ▶ move along the row, A opens the focused tab. [tab] draws tab i with the modifier it's given (focus, outline, press).
+ * [onFocused] says whether a tab has focus, for the hint row.
+ */
+@Composable
+fun TabRow(
+    count: Int, on: Int, modifier: Modifier = Modifier, onFocused: ((Boolean) -> Unit)? = null, onPick: (Int) -> Unit,
+    tab: @Composable (i: Int, m: Modifier) -> Unit,
+) {
+    val req = androidx.compose.runtime.remember(count) { List(count) { androidx.compose.ui.focus.FocusRequester() } }
+    val current = androidx.compose.runtime.rememberUpdatedState(on)
+    Row(
+        modifier = modifier
+            .then(if (onFocused != null) Modifier.onFocusChanged { onFocused(it.hasFocus) } else Modifier)
+            .focusProperties { onEnter = { req.getOrNull(current.value)?.requestFocus() } }
+            .focusGroup(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        for (i in 0 until count) {
+            val (source, focused) = rememberFocusState()
+            tab(i, Modifier.focusRequester(req[i]).coverSelection(focused, corner = 7.dp).pressable(source) { onPick(i) })
+        }
+    }
+}
+
+/**
+ * A tab row's sideways scroll: the scroll area reaches 6 dp past each end, so a focused tab's outline isn't cut off
+ * there, and the tabs stay where they were.
+ */
+fun Modifier.tabScroll(state: androidx.compose.foundation.ScrollState): Modifier = this
+    .layout { m, c ->
+        val extra = 12.dp.roundToPx()
+        val p = m.measure(c.copy(minWidth = c.minWidth + extra, maxWidth = if (c.hasBoundedWidth) c.maxWidth + extra else c.maxWidth))
+        layout(p.width - extra, p.height) { p.place(-extra / 2, 0) }
+    }
+    .horizontalScroll(state)
+    .padding(horizontal = 6.dp)
 
 /**
  * A chip that's read, not pressed, never a focus stop: Game settings' game name (approved mockup
@@ -76,12 +124,15 @@ fun InfoChip(text: String, @DrawableRes icon: Int?, on: Boolean = false) {
  * line under it. Chips beside the title get the room the title leaves, a long game name ending in "...".
  */
 @Composable
-fun PageHeader(title: String, chips: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {}) {
+fun PageHeader(title: String, sub: String? = null, chips: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {}) {
     val c = JoeyTheme.colors
     val below = com.joeysretro.joey64.launcher.layout.LocalScreenLayout.current.widthDp < 520f
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(title, style = JoeyTheme.type.pageTitle, color = c.text, maxLines = 1, softWrap = false,
-            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(end = 12.dp))
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(end = if (sub == null) 12.dp else 8.dp))
+        // A page inside a page: "Controls › Touch controls" (approved touch controls mockup 2026-11-09, screen 8).
+        if (sub != null) Text(sub, style = JoeyTheme.type.heading, color = c.textDim, maxLines = 1, softWrap = false,
+            modifier = Modifier.padding(end = 12.dp))
         if (!below) androidx.compose.foundation.layout.Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
             Row(verticalAlignment = Alignment.CenterVertically, content = chips)
         }

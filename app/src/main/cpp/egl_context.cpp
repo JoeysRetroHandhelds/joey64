@@ -3,10 +3,12 @@
 #include "display_opts.h"
 #include "post_consts.h"
 #include "shaders/post_gl.h"
+#include "shaders/look_gl.h"
 #include <android/log.h>
 #include <initializer_list>
 #include <cstring>
 #define LOGE(...) joeyLog(ANDROID_LOG_ERROR, "joey64host", __VA_ARGS__)
+#define LOGI(...) joeyLog(ANDROID_LOG_INFO, "joey64host", __VA_ARGS__)
 
 bool EglContext::init() {
     display_ = eglGetDisplay(EGL_DEFAULT_DISPLAY);
@@ -89,6 +91,20 @@ void EglContext::present(int srcW, int srcH, bool bottomLeftOrigin) {
     eglQuerySurface(display_, window_, EGL_WIDTH, &winW);
     eglQuerySurface(display_, window_, EGL_HEIGHT, &winH);
 
+    // Crop edges (Settings › Video): the kept part becomes the picture for everything below, the core's own
+    // framebuffer swapped back in when this returns. Paused, showAgain draws it again with a new amount at once.
+    int cx = 0, cy = 0;
+    bool crop = fbo_ && srcW <= fboW_ && srcH <= fboH_ && Display::cropOf(srcW, srcH, cx, cy) &&
+                ensureCrop(srcW - 2 * cx, srcH - 2 * cy);
+    if (crop) {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo_);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, cropFbo_);
+        glBlitFramebuffer(cx, cy, srcW - cx, srcH - cy, 0, 0, srcW - 2 * cx, srcH - 2 * cy, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        srcW -= 2 * cx; srcH -= 2 * cy;
+        swapCrop();
+    }
+    struct Back { EglContext* e; bool on; ~Back() { if (on) e->swapCrop(); } } back{this, crop};
+
     // Settings › Video: the shape and integer scaling (display_opts.h), as the Vulkan path.
     int x, y, dstW, dstH;
     Display::fit(winW, winH, srcW, srcH, x, y, dstW, dstH);
@@ -100,7 +116,24 @@ void EglContext::present(int srcW, int srcH, bool bottomLeftOrigin) {
     // Colour or sharpening changed: draw through the shaders (the core's GL state is its own again
     // at its next frame, glsm rebinds it); else the plain blit.
     const Display::Opts& o = Display::opts();
-    if (o.postOn() && dstW > 0 && dstH > 0 && ensurePost() && (o.sharpen != 2 || ensureMid(dstW, dstH))) {
+    if (drawLibra(srcW, srcH, bottomLeftOrigin, winW, winH, x, y, dstW, dstH)) {
+        if (!eglSwapBuffers(display_, window_) && swapFails++ % 600 == 0)
+            LOGE("egl: swap failed: 0x%x (%d times)", eglGetError(), swapFails);
+        return;
+    }
+    bool post = o.postOn() && dstW > 0 && dstH > 0 && ensurePost() && (o.sharpen != 2 || ensureMid(dstW, dstH));
+    // Shader, sides, overlay or colour-blind help: the Picture pass draws the whole window; colour and
+    // sharpening then draw the picture into pic (GL rows, so rows go up) for it.
+    // Sharp pixels with colour only: the colour pass keeps the picture's own size, so the Picture pass can
+    // still draw sharp pixels from it (CAS and FSR scale it, so they draw at the shown size).
+    bool keepSize = o.has(1) && o.sharpen == 0;
+    int picW = keepSize ? srcW : dstW, picH = keepSize ? srcH : dstH;
+    bool look = o.lookOn() && dstW > 0 && dstH > 0 && ensureLook() && ensureLookTargets(winW, winH) &&
+                (!post || ensurePic(picW, picH));
+    if (post) {
+        GLuint target = look ? picFbo_ : 0;
+        int px = look ? 0 : x, py = look ? 0 : y;
+        int pw = look ? picW : dstW, ph = look ? picH : dstH;
         uint32_t c[16] = {};
         float colour[4], extra[4] = {(float)srcW, (float)srcH, 0.0f, 0.0f};
         extra[3] = Post::colour(colour);
@@ -109,14 +142,22 @@ void EglContext::present(int srcW, int srcH, bool bottomLeftOrigin) {
             Post::easu(c, (float)srcW, (float)srcH, (float)fboW_, (float)fboH_, (float)dstW, (float)dstH);
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, midFbo_);
             drawPost(2, color_, 0, 0, dstW, dstH, false, c, colour, extra);
-            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, target);
             memset(c, 0, sizeof(c));
             Post::rcas(c);
-            drawPost(3, midTex_, x, y, dstW, dstH, flip, c, colour, extra);
+            drawPost(3, midTex_, px, py, dstW, dstH, flip, c, colour, extra);
         } else {
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, target);
             if (o.sharpen == 1) Post::cas(c, (float)srcW, (float)srcH, (float)dstW, (float)dstH);
-            drawPost(o.sharpen == 1 ? 1 : 0, color_, x, y, dstW, dstH, flip, c, colour, extra);
+            drawPost(o.sharpen == 1 ? 1 : 0, color_, px, py, pw, ph, flip, c, colour, extra);
         }
+        if (look) {
+            const float uv[4] = {1.0f, 1.0f, 1.0f, 0.0f};
+            drawLook(picTex_, uv, picW, picH, srcH, winW, winH, x, y, dstW, dstH);
+        }
+    } else if (look) {
+        const float uv[4] = {(float)srcW / (float)fboW_, (float)srcH / (float)fboH_, bottomLeftOrigin ? 1.0f : 0.0f, 0.0f};
+        drawLook(color_, uv, srcW, srcH, srcH, winW, winH, x, y, dstW, dstH);
     } else if (bottomLeftOrigin)
         glBlitFramebuffer(0, 0, srcW, srcH, x, y, x + dstW, y + dstH, GL_COLOR_BUFFER_BIT, GL_LINEAR);
     else
@@ -182,7 +223,7 @@ bool EglContext::ensurePost() {
         pp.src = glGetUniformLocation(p, "imgSrc");
     }
     glDeleteShader(v);
-    glGenVertexArrays(1, &postVao_);
+    if (!postVao_) glGenVertexArrays(1, &postVao_); // the Picture pass may have made it
     postFailed_ = false;
     LOGE("egl: colour/sharpening present pass ready");
     return true;
@@ -237,6 +278,263 @@ void EglContext::destroyPost() {
     postVao_ = midFbo_ = midTex_ = 0; midW_ = midH_ = 0;
 }
 
+// ---- Settings › Video's Picture rows (shader, sides, overlay) --------------
+
+bool EglContext::ensureLook() {
+    if (look_.prog) return true;
+    if (lookFailed_) return false;
+    lookFailed_ = true;
+    static const char* vs = "#version 310 es\n"
+        "void main() { vec2 p = vec2(float((gl_VertexID & 1) << 2), float((gl_VertexID & 2) << 1)) - 1.0;"
+        " gl_Position = vec4(p, 0.0, 1.0); }\n";
+    GLuint v = compile(GL_VERTEX_SHADER, vs);
+    if (!v) return false;
+    GLuint f = compile(GL_FRAGMENT_SHADER, k_look_gl_frag);
+    if (!f) { glDeleteShader(v); return false; }
+    GLuint p = glCreateProgram();
+    glAttachShader(p, v); glAttachShader(p, f);
+    glLinkProgram(p);
+    glDeleteShader(v); glDeleteShader(f);
+    GLint ok = 0;
+    glGetProgramiv(p, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        char log[1024] = {};
+        glGetProgramInfoLog(p, sizeof(log), nullptr, log);
+        LOGE("egl: picture pass link failed: %s", log);
+        glDeleteProgram(p);
+        return false;
+    }
+    look_.prog = p;
+    look_.rect = glGetUniformLocation(p, "rect");
+    look_.src = glGetUniformLocation(p, "src");
+    look_.misc = glGetUniformLocation(p, "misc");
+    look_.ids = glGetUniformLocation(p, "ids");
+    look_.pa = glGetUniformLocation(p, "pa");
+    look_.pb = glGetUniformLocation(p, "pb");
+    look_.mode = glGetUniformLocation(p, "mode");
+    look_.picUv = glGetUniformLocation(p, "picUv");
+    look_.pic = glGetUniformLocation(p, "imgPicture");
+    look_.sides = glGetUniformLocation(p, "imgSides");
+    look_.overlay = glGetUniformLocation(p, "imgOverlay");
+    look_.prev = glGetUniformLocation(p, "imgPrevious");
+    if (!postVao_) glGenVertexArrays(1, &postVao_);
+    // A 1x1 clear texture for a missing sides or overlay image.
+    const uint8_t none[4] = {0, 0, 0, 0};
+    glGenTextures(1, &dummyTex_);
+    glBindTexture(GL_TEXTURE_2D, dummyTex_);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, 1, 1);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, none);
+    lookFailed_ = false;
+    LOGI("egl: picture pass (shader, sides, overlay) ready");
+    return true;
+}
+
+namespace {
+// A w x h RGBA8 texture with an FBO on it, cleared to black; filter for sampling.
+bool makeTarget(GLuint& tex, GLuint& fbo, int w, int h, GLint filter) {
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, w, h);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glGenFramebuffers(1, &fbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbo);
+    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
+    bool ok = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    if (ok) {
+        glDisable(GL_SCISSOR_TEST);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        glClearColor(0, 0, 0, 1);
+        glClear(GL_COLOR_BUFFER_BIT);
+    }
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    return ok;
+}
+void freeTarget(GLuint& tex, GLuint& fbo) {
+    if (fbo) glDeleteFramebuffers(1, &fbo);
+    if (tex) glDeleteTextures(1, &tex);
+    tex = fbo = 0;
+}
+} // namespace
+
+bool EglContext::ensureLookTargets(int w, int h) {
+    if (lookFbo_[0] && w == lookW_ && h == lookH_) return true;
+    for (int i = 0; i < 2; ++i) freeTarget(lookTex_[i], lookFbo_[i]);
+    lookW_ = lookH_ = 0;
+    if (!makeTarget(lookTex_[0], lookFbo_[0], w, h, GL_NEAREST) || !makeTarget(lookTex_[1], lookFbo_[1], w, h, GL_NEAREST)) {
+        LOGE("egl: picture pass FBO %dx%d incomplete", w, h);
+        for (int i = 0; i < 2; ++i) freeTarget(lookTex_[i], lookFbo_[i]);
+        return false;
+    }
+    lookW_ = w; lookH_ = h;
+    LOGE("egl: picture pass %dx%d", w, h);
+    return true;
+}
+
+bool EglContext::ensurePic(int w, int h) {
+    if (picFbo_ && w == picW_ && h == picH_) return true;
+    freeTarget(picTex_, picFbo_);
+    picW_ = picH_ = 0;
+    if (!makeTarget(picTex_, picFbo_, w, h, GL_LINEAR)) { freeTarget(picTex_, picFbo_); return false; }
+    picW_ = w; picH_ = h;
+    return true;
+}
+
+bool EglContext::ensureCrop(int w, int h) {
+    if (cropFbo_ && w == cropW_ && h == cropH_) return true;
+    freeTarget(cropTex_, cropFbo_);
+    cropW_ = cropH_ = 0;
+    if (!makeTarget(cropTex_, cropFbo_, w, h, GL_LINEAR)) { freeTarget(cropTex_, cropFbo_); return false; }
+    cropW_ = w; cropH_ = h;
+    return true;
+}
+
+void EglContext::swapCrop() {
+    std::swap(fbo_, cropFbo_); std::swap(color_, cropTex_);
+    std::swap(fboW_, cropW_); std::swap(fboH_, cropH_);
+}
+
+// A new sides or overlay image from the UI thread (display_opts.h), uploaded once.
+void EglContext::uploadLookImage(GLuint& tex, uint32_t& seen, bool sides) {
+    Display::Image& src = sides ? Display::sidesImage() : Display::overlayImage();
+    uint32_t gen = src.gen;
+    if (gen == seen) return;
+    seen = gen;
+    std::vector<uint8_t> px;
+    int w, h;
+    { std::lock_guard<std::mutex> l(src.m); px = src.rgba; w = src.w; h = src.h; }
+    if (tex) { glDeleteTextures(1, &tex); tex = 0; }
+    if (px.empty() || w <= 0 || h <= 0) return;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, w, h);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    LOGE("egl: picture pass image %dx%d", w, h);
+}
+
+void EglContext::drawLook(GLuint picTex, const float* picUv, int imgW, int imgH, int coreH, int winW, int winH,
+                          int x, int y, int w, int h) {
+    uploadLookImage(sidesTex_, sidesSeen_, true);
+    uploadLookImage(overlayTex_, overlaySeen_, false);
+    Display::LookPush lp = Display::lookPush(winW, winH, imgW, imgH, coreH, x, y, w, h, 1.0f);
+    int cur = lookCur_;
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, lookFbo_[cur]);
+    glDisable(GL_BLEND); glDisable(GL_DEPTH_TEST); glDisable(GL_STENCIL_TEST); glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_CULL_FACE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glViewport(0, 0, winW, winH);
+    glUseProgram(look_.prog);
+    const GLuint tex[4] = {picTex, sidesTex_ ? sidesTex_ : dummyTex_, overlayTex_ ? overlayTex_ : dummyTex_, lookTex_[cur ^ 1]};
+    const GLint loc[4] = {look_.pic, look_.sides, look_.overlay, look_.prev};
+    for (int i = 0; i < 4; ++i) {
+        glActiveTexture(GL_TEXTURE0 + i);
+        glBindTexture(GL_TEXTURE_2D, tex[i]);
+        glBindSampler(i, 0);
+        glUniform1i(loc[i], i);
+    }
+    glUniform4i(look_.rect, lp.rect[0], lp.rect[1], lp.rect[2], lp.rect[3]);
+    glUniform4fv(look_.src, 1, lp.src);
+    glUniform4fv(look_.misc, 1, lp.misc);
+    glUniform4uiv(look_.ids, 1, lp.ids);
+    glUniform4uiv(look_.pa, 1, lp.pa);
+    glUniform4uiv(look_.pb, 1, lp.pb);
+    glUniform4uiv(look_.mode, 1, lp.mode);
+    glUniform4fv(look_.picUv, 1, picUv);
+    glBindVertexArray(postVao_);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glBindVertexArray(0);
+    glUseProgram(0);
+    for (int i = 3; i >= 0; --i) { glActiveTexture(GL_TEXTURE0 + i); glBindTexture(GL_TEXTURE_2D, 0); }
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, lookFbo_[cur]);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    glBlitFramebuffer(0, 0, winW, winH, 0, 0, winW, winH, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    lookCur_ = cur ^ 1;
+}
+
+void EglContext::destroyLook() {
+    if (look_.prog) glDeleteProgram(look_.prog);
+    look_.prog = 0;
+    for (int i = 0; i < 2; ++i) freeTarget(lookTex_[i], lookFbo_[i]);
+    freeTarget(picTex_, picFbo_);
+    for (GLuint* t : {&sidesTex_, &overlayTex_, &dummyTex_}) if (*t) { glDeleteTextures(1, t); *t = 0; }
+    if (postVao_) { glDeleteVertexArrays(1, &postVao_); postVao_ = 0; }
+    lookW_ = lookH_ = picW_ = picH_ = 0; lookCur_ = 0;
+    sidesSeen_ = overlaySeen_ = 0;
+}
+
+bool EglContext::drawLibra(int srcW, int srcH, bool bottomLeftOrigin, int winW, int winH, int x, int y, int dstW, int dstH) {
+    if (dstW <= 0 || dstH <= 0 || srcW <= 0 || srcH <= 0 || !libra_.ready()) return false;
+    if (!libraInFbo_ || srcW != libraInW_ || srcH != libraInH_) {
+        freeTarget(libraInTex_, libraInFbo_);
+        libraInW_ = libraInH_ = 0;
+        if (!makeTarget(libraInTex_, libraInFbo_, srcW, srcH, GL_NEAREST)) { freeTarget(libraInTex_, libraInFbo_); return false; }
+        libraInW_ = srcW; libraInH_ = srcH;
+    }
+    if (!libraOutFbo_ || dstW != libraOutW_ || dstH != libraOutH_) {
+        freeTarget(libraOutTex_, libraOutFbo_);
+        libraOutW_ = libraOutH_ = 0;
+        if (!makeTarget(libraOutTex_, libraOutFbo_, dstW, dstH, GL_NEAREST)) { freeTarget(libraOutTex_, libraOutFbo_); return false; }
+        libraOutW_ = dstW; libraOutH_ = dstH;
+        LOGI("librashader: gl picture %dx%d -> %dx%d", srcW, srcH, dstW, dstH);
+    }
+    glDisable(GL_SCISSOR_TEST);
+    const Display::Opts& o = Display::opts();
+    // GL rows (bottom first), upright: the core's frame flipped when it is top-left origin. Colour (no
+    // Sharpening with a preset) draws it there instead of the copy.
+    if (o.colourOn() && ensurePost()) {
+        uint32_t c[16] = {};
+        float colour[4], extra[4] = {(float)srcW, (float)srcH, 0.0f, 0.0f};
+        extra[3] = Post::colour(colour);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, libraInFbo_);
+        drawPost(0, color_, 0, 0, srcW, srcH, !bottomLeftOrigin, c, colour, extra);
+    } else {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo_);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, libraInFbo_);
+        if (bottomLeftOrigin)
+            glBlitFramebuffer(0, 0, srcW, srcH, 0, 0, srcW, srcH, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        else
+            glBlitFramebuffer(0, srcH, srcW, 0, 0, 0, srcW, srcH, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    }
+    glDisable(GL_BLEND); glDisable(GL_DEPTH_TEST); glDisable(GL_STENCIL_TEST); glDisable(GL_CULL_FACE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    libra_.frame(libraInTex_, srcW, srcH, libraOutTex_, dstW, dstH);
+    // What librashader leaves bound, cleared before the core's next frame (glsm rebinds its own).
+    for (int i = 15; i >= 0; --i) { glActiveTexture(GL_TEXTURE0 + i); glBindTexture(GL_TEXTURE_2D, 0); glBindSampler(i, 0); }
+    glBindVertexArray(0);
+    glUseProgram(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+    glDisable(GL_SCISSOR_TEST);
+    if (o.lookOn() && ensureLook() && ensureLookTargets(winW, winH)) {
+        // Sides and Overlay around and over the preset's picture (GL rows, upright).
+        const float uv[4] = {1.0f, 1.0f, 1.0f, 0.0f};
+        drawLook(libraOutTex_, uv, dstW, dstH, srcH, winW, winH, x, y, dstW, dstH);
+    } else {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, libraOutFbo_);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        glBlitFramebuffer(0, 0, dstW, dstH, x, y, x + dstW, y + dstH, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    }
+    static bool told = false;
+    if (GLenum e = glGetError(); e && !told) { told = true; LOGE("librashader: gl error 0x%x after a frame", e); }
+    return true;
+}
+
+void EglContext::destroyLibra() {
+    libra_.destroy();
+    freeTarget(libraInTex_, libraInFbo_);
+    freeTarget(libraOutTex_, libraOutFbo_);
+    libraInW_ = libraInH_ = libraOutW_ = libraOutH_ = 0;
+}
+
 bool EglContext::capture(int srcW, int srcH, bool bottomLeftOrigin, std::vector<uint8_t>& rgba) {
     if (!fbo_ || srcW <= 0 || srcH <= 0 || srcW > fboW_ || srcH > fboH_) return false;
     std::vector<uint8_t> raw((size_t)srcW * srcH * 4);
@@ -258,7 +556,12 @@ bool EglContext::capture(int srcW, int srcH, bool bottomLeftOrigin, std::vector<
 void EglContext::destroy() {
     if (display_ == EGL_NO_DISPLAY) return;
     destroyPost(); // the context is still current here
+    destroyLook();
+    destroyLibra();
+    freeTarget(cropTex_, cropFbo_);
+    cropW_ = cropH_ = 0;
     postFailed_ = false;
+    lookFailed_ = false;
     eglMakeCurrent(display_, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     if (window_) eglDestroySurface(display_, window_);
     if (pbuffer_) eglDestroySurface(display_, pbuffer_);

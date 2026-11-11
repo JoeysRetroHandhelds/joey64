@@ -27,6 +27,12 @@ object NativeBridge {
      */
     external fun setDdCart(path: String)
 
+    /**
+     * Before loadGame: the Transfer Pak's Game Boy game and save (files the core opens itself), "" for none. The core
+     * starts a cartridge with them through its Transfer Pak subsystem (one Game Boy game for every port with a Transfer Pak).
+     */
+    external fun setTransferPak(gbRom: String, gbSave: String)
+
     /** Before loadGame: true = Vulkan (parallel-RDP/RSP), false = GLES3 (GLideN64). */
     external fun setRenderer(vulkan: Boolean)
 
@@ -46,11 +52,57 @@ object NativeBridge {
     /** Settings › Video: the picture's shape W:H (0:0 = stretch), integer scaling, black frame insertion. Before the surface. */
     external fun setDisplay(aspW: Int, aspH: Int, integer: Boolean, bfi: Boolean)
 
+    /** Touch controls in portrait: the picture's top in per mille of the screen's height (-1: centred, as without them). Any time. */
+    external fun setPortraitTop(perMille: Int)
+
+    /** Settings › Video › Crop edges: lines of the N64's 240 off every edge (0 off); the next present shows it. */
+    external fun setCrop(lines: Int)
+
     /** Settings › Video › Colour: brightness, contrast, saturation in percent (-50..50), gamma in tenths (5..20). Any time. */
     external fun setColour(brightness: Int, contrast: Int, saturation: Int, gamma: Int)
 
     /** Settings › Video › Sharpening: 0 off, 1 CAS, 2 FSR; strength in percent. Any time. */
     external fun setSharpen(mode: Int, strength: Int)
+
+    /**
+     * Settings › Video's Shader, Sides of the picture, Overlay and Colour's colour-blind help (look.glsl):
+     * [ids] up to four shaders in order (0 none, 1 sharp pixels, 2 smooth, 3 CRT light, 4 CRT heavy,
+     * 5 LCD grid, 6 NTSC composite), [params] 8 settings (0..255) per shader; scale 0 Auto, 1 the game's
+     * size, 2 2x, 3 3x, 4 the screen's; sides 0 none, 1 blurred game, 2 Joey64 frame, 3 your image;
+     * colourBlind 0 off, 1 red-, 2 green-, 3 blue-weak; overlay opacity in percent (0 off); place in
+     * tenths of a percent of the window (placeW 0 = centred). Any time.
+     */
+    external fun setLook(ids: IntArray, params: IntArray, scale: Int, sides: Int, colourBlind: Int, overlay: Int,
+                         placeX: Int, placeY: Int, placeW: Int)
+
+    /** Paused: draws the last picture again with the display settings as they are now (the in-game Picture panel). */
+    external fun showAgain()
+
+    /** The sides (slot 0) or overlay (slot 1) image as RGBA8, top row first; null clears it. Any time. */
+    external fun setLookImage(slot: Int, rgba: ByteArray?, w: Int, h: Int)
+
+    /**
+     * Your own RetroArch preset (video/Slang.kt): the .slangp the game draws with (null: none) and the settings
+     * changed from the preset's own ([names] with [values]). Colour goes before it, Sides and Overlay after;
+     * Sharpening is off. Any time.
+     */
+    external fun setSlang(path: String?, names: Array<String>, values: FloatArray)
+
+    /** How the newest preset loaded: "ok\n<path>", "error\n<path>\n<message>", or "" before it was tried. */
+    external fun slangStatus(): String
+
+    /** False when librashader isn't in this build (its .so is built separately, devtools/build-librashader.sh). */
+    external fun slangAvailable(): Boolean
+
+    /** A preset's settings, six strings each: name, description, the preset's value, minimum, maximum, step. {"!", message} on failure. */
+    external fun slangParams(path: String): Array<String>
+
+    /** The preset drawn on [argb] (w x h) at outW x outH, on a context of its own; null with err[0] the message. */
+    external fun slangPreview(path: String, names: Array<String>, values: FloatArray, argb: IntArray, w: Int, h: Int,
+                              outW: Int, outH: Int, err: Array<String?>): IntArray?
+
+    /** Frees the previews' context (the popups closed). */
+    external fun slangPreviewClose()
 
     external fun setSurface(surface: Surface?)
     /** The surface set by setSurface changed size (e.g. once the system bars are hidden). */
@@ -87,8 +139,10 @@ object NativeBridge {
      * reached (or isn't a Joey64 room), 5 the room turned the player down (taken or full), 6 this ROM isn't the host's.
      */
     external fun coreShutDown(): Int
+    /** Bytes of save RAM the last write couldn't put on disk (a full disk, or another write error); 0 once one is written. */
+    external fun saveRamFailed(): Long
     /**
-     * Netplay (dev env N64_NETPLAY / N64_NETPLAY_SERVE until the Play together screens): [in a room 1/0, hosting it 1/0,
+     * Netplay (Play together's extras, or dev env N64_NETPLAY / N64_NETPLAY_SERVE): [in a room 1/0, hosting it 1/0,
      * players joined (bit per player, the host only), status (bit 0 de-synced, bits 1-4 player 1-4 left), the paused
      * player 1-4 or 0, the player this game waits for 1-4 or 0, this game's own player 1-4 (0 = not in a room),
      * the room's input delay in frames now (0 = not known yet; with N64_NETPLAY_SERVE=port:players:auto it moves
@@ -107,6 +161,12 @@ object NativeBridge {
      * another NAT (players outside still can't reach it). The address is empty until 2 or 5.
      */
     external fun netplayOutside(): String
+    /**
+     * Play together's room screen: opens [port] (TCP and UDP) on the router by UPnP before the game, read back through
+     * [netplayOutside]; the game's room server on the same port keeps that mapping. [netplayUpnpClose] removes it.
+     */
+    external fun netplayUpnpOpen(port: Int)
+    external fun netplayUpnpClose()
     /** New frames presented since start (wraps): what the game drew, without repeats. */
     external fun framesDrawn(): Int
     /** The game's native frame rate (NTSC ~60, PAL 50), for the speed percentage. */
@@ -182,6 +242,21 @@ object NativeBridge {
 
     /** RETRO_DEVICE_ID_JOYPAD_* bitmask for N64 [port] 0..3 (Controls, `PlayerInput.buttons`). */
     external fun setButtons(port: Int, mask: Int)
+
+    /**
+     * Controls extras' macro on [port]: step i holds RetroPad bits [masks] and the N64 stick ([sx], [sy], libretro
+     * range, 0 = the player's own stick) for [frames] polls; [repeat] plays it again until [stopMacro]. Any thread.
+     */
+    external fun playMacro(port: Int, masks: IntArray, sx: IntArray, sy: IntArray, frames: IntArray, repeat: Boolean)
+
+    /** Stops [port]'s macro: [now] at once, else a repeating one after its pass. */
+    external fun stopMacro(port: Int, now: Boolean)
+
+    /** Turbo (approved mockup 2026-11-08): [port]'s RetroPad bits in [mask] repeat while held, [perSecond] presses a second. Any thread. */
+    external fun setTurbo(port: Int, mask: Int, perSecond: Int)
+
+    /** The Turbo hotkey: every player's turbo off for this play, or on again. Any thread. */
+    external fun setTurboOn(on: Boolean)
 
     /** Analog sticks in libretro range -32768..32767 for [port]. index 0 = left, 1 = right (C-buttons). */
     external fun setAnalog(port: Int, index: Int, x: Int, y: Int)

@@ -28,15 +28,25 @@ std::thread g_thread;
 std::mutex g_mutex;
 std::condition_variable g_cv;
 bool g_run = false;
+int g_port = 0; // the port asked for while g_run
 std::atomic<int> g_state{Off};
 std::string g_outside;
-constexpr int kLeaseSeconds = 3600; // the router drops it by itself an hour after a crash
-constexpr auto kRenewEvery = std::chrono::minutes(30);
+// Short, so a room that crashed (no close) frees its outside port soon: another room on this network may want it.
+constexpr int kLeaseSeconds = 120;
+constexpr auto kRenewEvery = std::chrono::seconds(60);
+constexpr int kOnlyPermanentLeases = 725; // UPnP OnlyPermanentLeasesSupported: such a router takes lease 0 only
+
+// Outside ports a room code can hold (RoomCode.kt: 45000 + 0..7).
+constexpr int kCodeBase = 45000, kCodePorts = 8;
+bool inCodeRange(int p) { return p >= kCodeBase && p < kCodeBase + kCodePorts; }
+// The outside ports to try for the room's own port: its own first, then the others a code can hold.
+int codePort(int port, int i) { return i == 0 ? port : kCodeBase + (port - kCodeBase + i) % kCodePorts; }
 
 const char* stateName(int s) {
     switch (s) {
     case Open: return "open"; case NoRouter: return "no UPnP or NAT-PMP router"; case Refused: return "router refused";
-    case DoubleNat: return "opened, but the router is behind another NAT"; default: return "?";
+    case DoubleNat: return "opened, but the router is behind another NAT";
+    case AllTaken: return "every outside port (45000-45007) is held by other rooms"; default: return "?";
     }
 }
 
@@ -57,16 +67,23 @@ int natpmpAsk(natpmp_t* np, natpmpresp_t* resp, int ms) {
     }
 }
 
-// Maps (lifetime > 0) or removes (0) the port for TCP and UDP; 0 when the router took both.
-int natpmpMap(natpmp_t* np, int port, uint32_t lifetime) {
+// Maps (lifetime > 0) the room's `port` to outside port `ext`, or removes it (lifetime 0), for TCP and UDP.
+// 0 when the router took both; *got = the outside port the router gave (it may pick another when `ext` is taken).
+int natpmpMap(natpmp_t* np, int port, int ext, uint32_t lifetime, int* got = nullptr) {
+    int want = ext;
     for (int proto : {NATPMP_PROTOCOL_TCP, NATPMP_PROTOCOL_UDP}) {
-        int r = sendnewportmappingrequest(np, proto, (uint16_t)port, (uint16_t)port, lifetime);
+        int r = sendnewportmappingrequest(np, proto, (uint16_t)port, (uint16_t)(lifetime ? want : 0), lifetime);
         if (r < 0) return r;
         natpmpresp_t resp{};
         r = natpmpAsk(np, &resp, 2000);
         if (r < 0) return r;
-        if (lifetime && resp.pnu.newportmapping.mappedpublicport != port) return NATPMP_ERR_UNDEFINEDERROR; // another port: joiners use ours
+        if (lifetime) {
+            int p = resp.pnu.newportmapping.mappedpublicport;
+            if (proto == NATPMP_PROTOCOL_TCP) want = p; // UDP asks for the same outside port as TCP got
+            else if (p != want) return NATPMP_ERR_UNDEFINEDERROR;
+        }
     }
+    if (got) *got = want;
     return 0;
 }
 
@@ -78,6 +95,7 @@ bool isPrivate(in_addr a) {
 
 void work(int port) {
     char portStr[8]; snprintf(portStr, sizeof portStr, "%d", port);
+    char extStr[8]; snprintf(extStr, sizeof extStr, "%d", port);
     char lease[12]; snprintf(lease, sizeof lease, "%d", kLeaseSeconds);
     int err = 0;
     auto t0 = std::chrono::steady_clock::now();
@@ -96,18 +114,31 @@ void work(int port) {
         const char* gw = skipNatpmp ? nullptr : getenv("N64_NETPLAY_GW");
         in_addr gwa{};
         int r = NATPMP_ERR_CANNOTGETGATEWAY;
+        bool answered = false;
         if (gw && inet_pton(AF_INET, gw, &gwa) == 1) r = initnatpmp(&np, 1, gwa.s_addr);
         if (r == 0) {
             natpmpresp_t resp{};
             r = sendpublicaddressrequest(&np);
             if (r >= 0) r = natpmpAsk(&np, &resp, 1000);
             if (r == 0) {
+                answered = true;
                 char ext[64] = "";
                 inet_ntop(AF_INET, &resp.pnu.publicaddress.addr, ext, sizeof ext);
-                r = natpmpMap(&np, port, kLeaseSeconds);
-                if (r == 0) {
-                    viaNatpmp = true;
-                    { std::lock_guard<std::mutex> lk(g_mutex); g_outside = std::string(ext) + ":" + portStr; }
+                // The outside port has to be one a room code can hold: the room's own, else the next free one.
+                for (int i = 0; i < kCodePorts && !viaNatpmp; i++) {
+                    int got = 0;
+                    r = natpmpMap(&np, port, codePort(port, i), kLeaseSeconds, &got);
+                    if (r != 0) break;
+                    if (inCodeRange(got)) {
+                        viaNatpmp = true;
+                        snprintf(extStr, sizeof extStr, "%d", got);
+                    } else {
+                        natpmpMap(&np, port, 0, 0); // a port no code can hold: give it back
+                        r = NATPMP_ERR_UNDEFINEDERROR;
+                    }
+                }
+                if (viaNatpmp) {
+                    { std::lock_guard<std::mutex> lk(g_mutex); g_outside = std::string(ext) + ":" + extStr; }
                     g_state = isPrivate(resp.pnu.publicaddress.addr) ? DoubleNat : Open;
                 }
             }
@@ -115,7 +146,8 @@ void work(int port) {
         }
         if (!skipNatpmp)
             ULOGI("netplay: NAT-PMP: router %s: %s", gw && *gw ? gw : "not known",
-                  viaNatpmp ? "port open" : r == NATPMP_TRYAGAIN ? "no answer" : strnatpmperr(r) ? strnatpmperr(r) : "?");
+                  viaNatpmp ? "port open" : r == NATPMP_TRYAGAIN ? "no answer" : answered && r == NATPMP_ERR_UNDEFINEDERROR
+                  ? "no outside port a room code can hold" : strnatpmperr(r) ? strnatpmperr(r) : "?");
     }
 
     UPNPUrls urls{}; IGDdatas data{};
@@ -125,21 +157,40 @@ void work(int port) {
         freeUPNPDevlist(devs);
     }
     bool haveUrls = igd != UPNP_NO_IGD;
-    auto addBoth = [&]() -> int {
-        int r = UPNP_AddPortMapping(urls.controlURL, data.first.servicetype, portStr, portStr, lan, "Joey64 netplay", "TCP", nullptr, lease);
-        if (r == UPNPCOMMAND_SUCCESS)
-            r = UPNP_AddPortMapping(urls.controlURL, data.first.servicetype, portStr, portStr, lan, "Joey64 netplay", "UDP", nullptr, lease);
+    // The outside port [extStr] leads to the room's own port [portStr] on this device. A first add that half
+    // worked is undone; a renewal leaves the mapping alone (it runs out by itself if the router is gone).
+    auto addBoth = [&](bool renewal = false) -> int {
+        int r = UPNP_AddPortMapping(urls.controlURL, data.first.servicetype, extStr, portStr, lan, "Joey64 netplay", "TCP", nullptr, lease);
+        if (r == kOnlyPermanentLeases && strcmp(lease, "0") != 0) {
+            ULOGI("netplay: UPnP: the router takes only permanent mappings: asking for one (removed when the room closes)");
+            snprintf(lease, sizeof lease, "0");
+            r = UPNP_AddPortMapping(urls.controlURL, data.first.servicetype, extStr, portStr, lan, "Joey64 netplay", "TCP", nullptr, lease);
+        }
+        if (r == UPNPCOMMAND_SUCCESS) {
+            r = UPNP_AddPortMapping(urls.controlURL, data.first.servicetype, extStr, portStr, lan, "Joey64 netplay", "UDP", nullptr, lease);
+            if (r != UPNPCOMMAND_SUCCESS && !renewal) UPNP_DeletePortMapping(urls.controlURL, data.first.servicetype, extStr, "TCP", nullptr);
+        }
         return r;
     };
     if (viaNatpmp) {
         // done above
     } else if (igd == UPNP_CONNECTED_IGD || igd == UPNP_PRIVATEIP_IGD) {
+        // Another device on this network (another Joey64's room) can hold the outside port already: the router
+        // answers 718 (ConflictInMappingEntry). Then the next outside port a room code can hold, the room's own first.
         int r = addBoth();
-        if (r == UPNPCOMMAND_SUCCESS) {
+        for (int i = 1; r == 718 && i < kCodePorts; i++) {
+            ULOGI("netplay: UPnP: outside port %s is taken on the router, trying %d", extStr, codePort(port, i));
+            snprintf(extStr, sizeof extStr, "%d", codePort(port, i));
+            r = addBoth();
+        }
+        if (r == 718) {
+            g_state = AllTaken;
+            ULOGI("netplay: UPnP: every outside port a room code can hold (%d-%d) is held by other rooms", kCodeBase, kCodeBase + kCodePorts - 1);
+        } else if (r == UPNPCOMMAND_SUCCESS) {
             char ext[64] = "";
             if (UPNP_GetExternalIPAddress(urls.controlURL, data.first.servicetype, ext) != UPNPCOMMAND_SUCCESS || !*ext)
                 snprintf(ext, sizeof ext, "%s", wan);
-            { std::lock_guard<std::mutex> lk(g_mutex); g_outside = std::string(ext) + ":" + portStr; }
+            { std::lock_guard<std::mutex> lk(g_mutex); g_outside = std::string(ext) + ":" + extStr; }
             g_state = igd == UPNP_PRIVATEIP_IGD ? DoubleNat : Open;
         } else {
             g_state = Refused;
@@ -153,32 +204,40 @@ void work(int port) {
           stateName(g_state), igd, *lan ? lan : "?", g_outside.empty() ? "-" : g_outside.c_str(), ms);
 
     std::unique_lock<std::mutex> lk(g_mutex);
+    int lastRenew = UPNPCOMMAND_SUCCESS;
     while (g_run) {
         if (g_cv.wait_for(lk, kRenewEvery, [] { return !g_run; })) break;
-        if (g_state == Open || g_state == DoubleNat) {
+        if ((g_state == Open || g_state == DoubleNat) && (viaNatpmp || strcmp(lease, "0") != 0)) {
             lk.unlock();
-            int r = viaNatpmp ? (natpmpMap(&np, port, kLeaseSeconds) == 0 ? UPNPCOMMAND_SUCCESS : -1) : addBoth();
-            ULOGI("netplay: %s: renewed port %d: %s", viaNatpmp ? "NAT-PMP" : "UPnP", port, r == UPNPCOMMAND_SUCCESS ? "ok" : "failed");
+            int r = viaNatpmp ? (natpmpMap(&np, port, atoi(extStr), kLeaseSeconds) == 0 ? UPNPCOMMAND_SUCCESS : -1) : addBoth(true);
+            // Every minute: logged only when it starts or stops failing.
+            if ((r == UPNPCOMMAND_SUCCESS) != (lastRenew == UPNPCOMMAND_SUCCESS))
+                ULOGI("netplay: %s: renewing outside port %s %s (%d)", viaNatpmp ? "NAT-PMP" : "UPnP", extStr,
+                      r == UPNPCOMMAND_SUCCESS ? "works again" : "failed", r);
+            lastRenew = r;
             lk.lock();
         }
     }
     lk.unlock();
     if (viaNatpmp) {
-        int r = natpmpMap(&np, port, 0);
-        ULOGI("netplay: NAT-PMP: port %d closed on the router (%s)", port, r == 0 ? "ok" : "failed");
+        int r = natpmpMap(&np, port, 0, 0);
+        ULOGI("netplay: NAT-PMP: outside port %s closed on the router (%s)", extStr, r == 0 ? "ok" : "failed");
         closenatpmp(&np);
     } else if (g_state == Open || g_state == DoubleNat) {
-        int a = UPNP_DeletePortMapping(urls.controlURL, data.first.servicetype, portStr, "TCP", nullptr);
-        int b = UPNP_DeletePortMapping(urls.controlURL, data.first.servicetype, portStr, "UDP", nullptr);
-        ULOGI("netplay: UPnP: port %d closed on the router (%s)", port, a == UPNPCOMMAND_SUCCESS && b == UPNPCOMMAND_SUCCESS ? "ok" : "failed");
+        int a = UPNP_DeletePortMapping(urls.controlURL, data.first.servicetype, extStr, "TCP", nullptr);
+        int b = UPNP_DeletePortMapping(urls.controlURL, data.first.servicetype, extStr, "UDP", nullptr);
+        ULOGI("netplay: UPnP: outside port %s closed on the router (%s)", extStr, a == UPNPCOMMAND_SUCCESS && b == UPNPCOMMAND_SUCCESS ? "ok" : "failed");
     }
     if (haveUrls) FreeUPNPUrls(&urls);
 }
 } // namespace
 
 void open(int port) {
+    // Already asked for this port (the room screen opened it before the game's room server starts on the same
+    // port): keep that mapping, so the router line and the room code stay as they are.
+    { std::lock_guard<std::mutex> lk(g_mutex); if (g_run && g_port == port) return; }
     close();
-    { std::lock_guard<std::mutex> lk(g_mutex); g_run = true; g_outside.clear(); }
+    { std::lock_guard<std::mutex> lk(g_mutex); g_run = true; g_port = port; g_outside.clear(); }
     g_state = Looking;
     g_thread = std::thread(work, port);
 }

@@ -45,10 +45,41 @@ class ControlsStore(private val dir: File) {
         return ControlsSet(List(4) { i -> g.players[i].copy(device = a.players[i].device) })
     }
 
+    /** Profiles (Controls extras), `profiles/<name>.json`, newest first. */
+    fun profiles(): List<Profile> {
+        val fallback = ControlsSet.defaults().players[0]
+        return profilesDir.listFiles { f -> f.isFile && f.name.endsWith(".json") }
+            ?.mapNotNull { f -> read(f)?.let { Profile.fromJson(it, fallback) }?.takeIf { it.name.isNotBlank() } }
+            ?.sortedByDescending { it.savedAt } ?: emptyList()
+    }
+
+    /** Saves [p], replacing a profile of the same name. */
+    fun saveProfile(p: Profile) {
+        profiles().firstOrNull { it.name.equals(p.name, ignoreCase = true) && it.name != p.name }?.let { removeProfile(it.name) }
+        write(profileFile(p.name), p.toJson())
+    }
+
+    fun removeProfile(name: String) {
+        val f = profileFile(name)
+        if (!f.delete() && f.exists()) JLog.e(TAG, "can't remove profile $name")
+    }
+
+    /** Renames a profile; the saved time stays. False when it doesn't exist or [new] is taken by another. */
+    fun renameProfile(old: String, new: String): Boolean {
+        val all = profiles()
+        val p = all.firstOrNull { it.name == old } ?: return false
+        if (new.isBlank() || all.any { it.name != old && it.name.equals(new, ignoreCase = true) }) return false
+        removeProfile(old)
+        write(profileFile(new), p.copy(name = new).toJson())
+        return true
+    }
+
     fun hotkeys(): Hotkeys = read(hotkeysFile)?.let { Hotkeys.fromJson(it) } ?: Hotkeys()
     fun saveHotkeys(h: Hotkeys) = write(hotkeysFile, h.toJson())
 
     private fun gameFile(saveName: String) = File(games, safe(saveName) + ".json")
+    private val profilesDir = File(dir, "profiles")
+    private fun profileFile(name: String) = File(profilesDir, safe(name.lowercase()) + ".json")
 
     private fun read(f: File): JSONObject? {
         if (!f.isFile) return null

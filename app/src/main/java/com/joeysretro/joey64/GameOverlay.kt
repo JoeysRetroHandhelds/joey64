@@ -1,6 +1,13 @@
 package com.joeysretro.joey64
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
+import androidx.activity.compose.LocalActivityResultRegistryOwner
+import androidx.activity.result.ActivityResultRegistry
+import androidx.activity.result.ActivityResultRegistryOwner
+import androidx.activity.result.contract.ActivityResultContract
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.core.app.ActivityOptionsCompat
 import android.graphics.PixelFormat
 import android.os.Handler
 import android.os.Looper
@@ -69,6 +76,25 @@ class GameOverlay(private val activity: Activity, private val actions: PauseActi
     var saveSlotName by mutableStateOf("Slot 1")
 
     private val owner = OverlayOwner()
+
+    /**
+     * Pickers in the pause menu's pages (the Picture panel's Your own image, Thor 2026-11-08: without an
+     * owner it crashed). The game screen is a plain Activity, so a pick launches through
+     * startActivityForResult and MainActivity.onActivityResult hands the answer back here.
+     */
+    val results = object : ActivityResultRegistry() {
+        override fun <I, O> onLaunch(requestCode: Int, contract: ActivityResultContract<I, O>, input: I, options: ActivityOptionsCompat?) {
+            try {
+                activity.startActivityForResult(contract.createIntent(activity, input), requestCode, options?.toBundle())
+            } catch (e: ActivityNotFoundException) {
+                JLog.e("Joey64", "no app to pick with: $e")
+                dispatchResult(requestCode, Activity.RESULT_CANCELED, null)
+            }
+        }
+    }
+    private val resultsOwner = object : ActivityResultRegistryOwner {
+        override val activityResultRegistry: ActivityResultRegistry get() = results
+    }
     private val popups = PopupQueue()
     /**
      * The pop-up showing. With none the window is made invisible: at 0 px high it kept its last
@@ -89,7 +115,9 @@ class GameOverlay(private val activity: Activity, private val actions: PauseActi
             val settings by store.settings.collectAsState(initial = null)
             val s = screen
             if (s != null) JoeyTheme(settings?.theme ?: ThemeChoice.Dark) {
-                PausePopup(s, title, saveSlotName, System.currentTimeMillis(), actions)
+                CompositionLocalProvider(LocalActivityResultRegistryOwner provides resultsOwner) {
+                    PausePopup(s, title, saveSlotName, System.currentTimeMillis(), actions)
+                }
             }
         }
     }

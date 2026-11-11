@@ -35,9 +35,10 @@ data class JoeySpacing(
     val rail: Dp = 52.dp,
     /** Height of the hint row. */
     val hintRow: Dp = 32.dp,
-    /** Rows in lists and popups: horizontal and vertical padding, and the corner. */
+    /** Rows in lists and popups: horizontal and vertical padding, and the corner. Vertical is 6 dp everywhere
+     *  (Joey 2026-11-10, was 12: the game popup had 11 rows and scrolled; real Thor screenshots compared). */
     val rowPadH: Dp = 10.dp,
-    val rowPadV: Dp = 12.dp,
+    val rowPadV: Dp = 6.dp,
     val rowCorner: Dp = 6.dp,
     val popupCorner: Dp = 12.dp,
     /** Dark mode's focus outline, drawn inside the row. */

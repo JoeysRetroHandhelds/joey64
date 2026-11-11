@@ -1,0 +1,44 @@
+#version 450
+// Settings › Video's Shader, Sides of the picture, Overlay and colour-blind help on Vulkan (vk_look.cpp):
+// one invocation per window pixel, the whole window written. The sums are look.glsl's, shared with GLES.
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform sampler2D imgPicture; // the core's picture, or the colour/sharpening pass's
+layout(set = 0, binding = 1, rgba8) uniform writeonly image2D imgDst; // the window
+layout(set = 0, binding = 2) uniform sampler2D imgSides;
+layout(set = 0, binding = 3) uniform sampler2D imgOverlay;
+layout(set = 0, binding = 4) uniform sampler2D imgPrevious; // the last frame's window (LCD ghosting)
+
+layout(push_constant) uniform Push {
+    ivec4 rect;
+    vec4 src;   // picture w, h; window w, h
+    vec4 misc;  // lines, sharp factor, overlay opacity, picture uv scale (the part of the image that's the picture)
+    uvec4 ids;
+    uvec4 pa;
+    uvec4 pb;
+    uvec4 mode;
+} pc;
+
+#define L_RECT pc.rect
+#define L_SRC pc.src
+#define L_MISC pc.misc
+#define L_IDS pc.ids
+#define L_PA pc.pa
+#define L_PB pc.pb
+#define L_MODE pc.mode
+
+vec3 pictureAt(vec2 uv) { return textureLod(imgPicture, clamp(uv, 0.0, 1.0) * pc.misc.w, 0.0).rgb; }
+vec4 sidesAt(vec2 uv) { return textureLod(imgSides, uv, 0.0); }
+vec4 overlayAt(vec2 uv) { return textureLod(imgOverlay, uv, 0.0); }
+vec3 previousAt(ivec2 p) { return texelFetch(imgPrevious, p, 0).rgb; }
+ivec2 sidesSize() { return textureSize(imgSides, 0); }
+ivec2 overlaySize() { return textureSize(imgOverlay, 0); }
+
+#include "look.glsl"
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(imgDst);
+    if (p.x >= size.x || p.y >= size.y) return;
+    imageStore(imgDst, p, vec4(lookPixel(p), 1.0));
+}

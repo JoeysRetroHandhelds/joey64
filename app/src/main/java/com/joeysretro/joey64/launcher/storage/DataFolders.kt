@@ -60,6 +60,8 @@ object SrmSync {
      * "<save name>.ndd.disk_save", 2026-11-07).
      */
     fun names(saveName: String) = listOf("$saveName.srm", "$saveName.ndd.disk_save", "$saveName.d64.disk_save")
+    /** What goes to and from the picked folder: [names] and the Transfer Pak's Game Boy save copy (not on the Saves page). */
+    private fun syncNames(saveName: String) = names(saveName) + "$saveName.gb.sav"
     /** The save RAM keeps its old key (the save name). */
     private fun key(name: String) = if (name.endsWith(".srm")) name.removeSuffix(".srm") else name
 
@@ -69,7 +71,7 @@ object SrmSync {
         val folder = DataFolders.current(context)
         if (folder.isInternal || saveName.isEmpty()) return
         val st = stamps(context)
-        for (n in names(saveName)) pullFile(folder.space, workDir(context), n, st)
+        for (n in syncNames(saveName)) pullFile(folder.space, workDir(context), n, st)
     }
 
     /** Puts the game's working copies in the picked folder when they changed since the last time. */
@@ -78,7 +80,7 @@ object SrmSync {
         val folder = DataFolders.current(context)
         if (folder.isInternal || saveName.isEmpty()) return
         val st = stamps(context)
-        for (n in names(saveName)) pushFile(folder.space, workDir(context), n, st)
+        for (n in syncNames(saveName)) pushFile(folder.space, workDir(context), n, st)
     }
 
     /** Every working copy that changed (before a backup or a move reads the picked folder). */
@@ -87,8 +89,14 @@ object SrmSync {
         val folder = DataFolders.current(context)
         if (folder.isInternal) return
         val st = stamps(context)
-        workDir(context).listFiles { x -> x.isFile && (x.name.endsWith(".srm") || x.name.endsWith(".disk_save")) }
+        workDir(context).listFiles { x -> x.isFile && (x.name.endsWith(".srm") || x.name.endsWith(".disk_save") || x.name.endsWith(".gb.sav")) }
             ?.forEach { pushFile(folder.space, workDir(context), it.name, st) }
+    }
+
+    /** [name]'s working copy went (the Saves page restored or deleted it): nothing about it is in step any more. */
+    fun forgetFile(context: Context, name: String) {
+        val k = key(name)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(k).remove("$k|size").remove("$k|mod").commit()
     }
 
     /** The folder changed: nothing is in step with the new one yet. */

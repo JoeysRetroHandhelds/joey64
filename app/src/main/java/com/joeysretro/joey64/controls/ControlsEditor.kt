@@ -79,7 +79,12 @@ class ControlsEditor(
         val next = when (row) {
             "Stick" -> cur.copy(stick = base.stick)
             "DeadZone" -> cur.copy(deadZone = base.deadZone)
-            "Pak" -> cur.copy(pak = base.pak)
+            "Pak" -> cur.copy(pak = base.pak, gbGame = base.gbGame, gbSave = base.gbSave)
+            "RumbleOn" -> cur.copy(rumbleOn = base.rumbleOn)
+            "RumbleStrength" -> cur.copy(rumbleStrength = base.rumbleStrength)
+            "Tap" -> cur.copy(latch = base.latch)
+            "Macros" -> cur.copy(macros = base.macros)
+            "Turbo" -> cur.copy(turbo = base.turbo, turboSpeed = base.turboSpeed)
             // The page's Stick feel row: all of it; a row inside its popup: that one.
             "StickFeel" -> cur.copy(feel = base.feel)
             in StickFeel.ROWS -> cur.copy(feel = cur.feel.withRow(row, base.feel))
@@ -108,7 +113,8 @@ class ControlsEditor(
      * player differs). The controller stays. Hotkeys aren't a player's.
      */
     fun resetPlayer(player: Int) {
-        if (game == null) { set(player, defaultsFor(all.players[player])); return }
+        // Tap to hold and macros stay: the approved popup names the rows it resets, and they aren't among them.
+        if (game == null) { val cur = all.players[player]; set(player, defaultsFor(cur).copy(latch = cur.latch, macros = cur.macros, turbo = cur.turbo, turboSpeed = cur.turboSpeed)); return }
         val o = own ?: return
         val next = o.with(player, all.players[player])
         if ((0..3).all { next.players[it].copy(device = all.players[it].device).differences(all.players[it]).isEmpty() }) removeGame(game)
@@ -122,6 +128,22 @@ class ControlsEditor(
     }
 
     fun gamesWithOwn(): List<String> = store.gamesWithOwn()
+
+    /**
+     * Loads [profile] into [player] (Controls extras' Profiles): to All games, or with a game in the
+     * chip that game's own only. The controller and pak stay. Not linked afterwards.
+     */
+    fun loadProfile(player: Int, profile: Profile) = set(player, Profile.applyTo(shown.players[player], profile))
+
+    fun profiles(): List<Profile> = store.profiles()
+
+    /** Saves what [player] plays with now (on this page: All games or the game's) as [name], replacing one of that name. */
+    fun saveProfile(player: Int, name: String, deviceName: String, now: Long) =
+        store.saveProfile(Profile(name.trim(), now, deviceName, shown.players[player]))
+
+    fun renameProfile(old: String, new: String) = store.renameProfile(old, new.trim())
+
+    fun removeProfile(name: String) = store.removeProfile(name)
 
     fun setHotkeys(h: Hotkeys) { hotkeys = h; store.saveHotkeys(h) }
 }

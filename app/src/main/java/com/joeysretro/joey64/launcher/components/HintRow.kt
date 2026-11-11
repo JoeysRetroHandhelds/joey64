@@ -43,7 +43,9 @@ data class Hint(val key: String, val action: String)
  * Touch-only users see it too; it isn't a focus stop.
  */
 @Composable
-fun HintRow(hints: List<Hint>, modifier: Modifier = Modifier) {
+fun HintRow(hints: List<Hint>, modifier: Modifier = Modifier, end: String? = null) {
+    // A TV remote has OK and Back, not a controller's buttons (approved Android TV mockup 2026-11-09, screen 4).
+    val hints = if (com.joeysretro.joey64.launcher.layout.RemoteKeys.active) com.joeysretro.joey64.launcher.layout.RemoteKeys.hints(hints) else hints
     val c = JoeyTheme.colors
     val s = JoeyTheme.spacing
     Box(modifier.fillMaxWidth().background(c.surface)) {
@@ -60,12 +62,20 @@ fun HintRow(hints: List<Hint>, modifier: Modifier = Modifier) {
                         Text(hint.action, style = JoeyTheme.type.hint, color = c.textSecondary, maxLines = 1, softWrap = false)
                     }
                 }
+                // [end]: a line on the right of the bar (the screenshot viewer's "Mario Tennis · Today, 9:14 pm · 1 of 8").
+                if (end != null) Box(Modifier.height(s.hintRow), contentAlignment = Alignment.CenterEnd) {
+                    Text(end, style = JoeyTheme.type.hint, color = c.textSecondary, maxLines = 1, softWrap = false)
+                }
             },
         ) { measurables, constraints ->
             val loose = constraints.copy(minWidth = 0, maxWidth = androidx.compose.ui.unit.Constraints.Infinity)
-            val placeables = measurables.map { it.measure(loose) }
-            val shown = HintFit.fit(placeables.map { it.width }, constraints.maxWidth, 18.dp.roundToPx(), 10.dp.roundToPx())
+            val all = measurables.map { it.measure(loose) }
+            val endText = if (end != null) all.last() else null
+            val placeables = if (end != null) all.dropLast(1) else all
+            val room = constraints.maxWidth - (endText?.let { it.width + 18.dp.roundToPx() } ?: 0)
+            val shown = HintFit.fit(placeables.map { it.width }, room.coerceAtLeast(0), 18.dp.roundToPx(), 10.dp.roundToPx())
             layout(constraints.maxWidth, constraints.maxHeight) {
+                endText?.placeRelative(constraints.maxWidth - endText.width, 0)
                 var x = 0
                 for (ix in shown.indices) {
                     val p = placeables[ix]

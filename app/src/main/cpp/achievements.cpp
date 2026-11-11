@@ -478,7 +478,8 @@ JNIEXPORT void JNICALL RAJNI(setOptions)(JNIEnv*, jclass, jboolean enabled, jboo
 JNIEXPORT void JNICALL RAJNI(setHost)(JNIEnv* env, jclass, jstring host) {
     ensureClient();
     const char* h = host ? env->GetStringUTFChars(host, nullptr) : nullptr;
-    rc_client_set_host(g_client, h && *h ? h : nullptr);
+    // rcheevos wants "" for its own server: a null host crashes in rc_buffer_strcpy (seen on the Thor 2026-11-08).
+    rc_client_set_host(g_client, h && *h ? h : "");
     { std::lock_guard<std::mutex> l(g_hostMutex); g_host = h ? h : ""; }
     if (h) env->ReleaseStringUTFChars(host, h);
 }

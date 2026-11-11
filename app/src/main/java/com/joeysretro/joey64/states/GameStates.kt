@@ -33,9 +33,61 @@ class GameStates(
 
     fun exists(slot: Int) = space.exists(path(StateSlots.fileName(saveName, slot)))
 
+    // ---- Undo load state / Undo save state (approved mockup 2026-11-08, scratchpad build_undo.py) ----
+    // One of each, in memory, until the game closes. Undo load: where the game was just before the last
+    // load by hand. Undo save: the slot's file, picture and date just before the last save wrote over it.
+
+    private class UndoLoad(val slot: Int, val mem: ByteArray, val achv: ByteArray?)
+    private class UndoSave(val slot: Int, val state: ByteArray?, val picture: ByteArray?, val savedAt: Long?)
+    @Volatile private var undoLoad: UndoLoad? = null
+    @Volatile private var undoSave: UndoSave? = null
+
+    /** What Undo save state put back: the slot, and when its old save was from (null: the slot was empty). */
+    class UndoneSave(val slot: Int, val savedAt: Long?)
+
+    /** Goes back to just before the last load by hand: the slot that load was from, or null with nothing to undo. */
+    fun undoLoad(): Int? {
+        val u = undoLoad ?: return null
+        val ok = NativeBridge.loadState(u.mem, u.achv, TIMEOUT_MS)
+        if (!ok) { JLog.e(TAG, "undo load: FAILED"); return null }
+        undoLoad = null
+        JLog.i(TAG, "undo load: back to before ${StateSlots.label(u.slot)} was loaded")
+        return u.slot
+    }
+
+    /** Puts the slot the last save wrote over back as it was, or null with nothing to undo. */
+    fun undoSave(): UndoneSave? {
+        val u = undoSave ?: return null
+        val name = StateSlots.fileName(saveName, u.slot)
+        val thumb = StateSlots.thumbnailName(saveName, u.slot)
+        try {
+            if (u.state == null) { space.delete(path(name)); space.delete(path(thumb)) }
+            else {
+                writeWhole(name, u.state)
+                if (u.picture != null) writeWhole(thumb, u.picture) else space.delete(path(thumb))
+                if (u.savedAt != null) { space.setModified(path(name), u.savedAt); if (u.picture != null) space.setModified(path(thumb), u.savedAt) }
+            }
+        } catch (e: IOException) {
+            JLog.e(TAG, "undo save: can't put ${StateSlots.label(u.slot)} back: $e"); return null
+        }
+        undoSave = null
+        JLog.i(TAG, "undo save: ${StateSlots.label(u.slot)} back to " + (u.savedAt?.toString() ?: "empty"))
+        return UndoneSave(u.slot, u.savedAt)
+    }
+
+    /** How many bytes the last save or screenshot that couldn't be written needed (Not enough space to save); 0 after one that was. */
+    @Volatile var failedNeed = 0L
+        private set
+
     /** Saves the game as it is now into [slot]. False if the core's state couldn't be taken or written. */
     fun save(slot: Int): Boolean {
+        failedNeed = 0
         val t0 = SystemClock.elapsedRealtime()
+        // What the slot held before, for Undo save state (a slot's own quit save rotation isn't kept).
+        val before = if (StateSlots.isAuto(slot)) null else try {
+            UndoSave(slot, readWhole(StateSlots.fileName(saveName, slot)),
+                space.openRead(path(StateSlots.thumbnailName(saveName, slot)))?.use { it.readBytes() }, savedAt(slot))
+        } catch (e: IOException) { null }
         val data = NativeBridge.saveState(TIMEOUT_MS) ?: return false.also { JLog.e(TAG, "slot $slot: the core gave no state") }
         val achv = NativeBridge.stateProgress()
         // The same moment's picture (the game is paused or between frames, so it's the frame the state holds).
@@ -43,6 +95,7 @@ class GameStates(
         val t1 = SystemClock.elapsedRealtime()
         return try {
             val file = StateFormat.wrap(data, achv)
+            failedNeed = file.size.toLong() + (png?.size ?: 0)
             writeWhole(StateSlots.fileName(saveName, slot), file)
             // The picture beside it, as RetroArch names it. The old one (RetroArch's, or ours) shows the
             // moment before, so it goes even when there's no new one.
@@ -55,6 +108,8 @@ class GameStates(
                 runCatching { space.delete(path(thumb)) }
                 if (png == null) JLog.e(TAG, "slot $slot: no picture from the core")
             }
+            if (before != null) undoSave = before
+            failedNeed = 0
             JLog.i(TAG, "saved ${StateSlots.fileName(saveName, slot)}: ${data.size} bytes, ${file.size} written, picture ${png?.size ?: 0}; " +
                 "taking it ${t1 - t0} ms, packing and writing ${SystemClock.elapsedRealtime() - t1} ms")
             true
@@ -100,6 +155,12 @@ class GameStates(
         return false
     }
 
+    /** Deletes [slot]'s state and picture (the Saves page); true when it's gone. */
+    fun deleteSlot(slot: Int): Boolean {
+        removeSlot(slot)
+        return !exists(slot)
+    }
+
     private fun removeSlot(slot: Int) {
         space.delete(path(StateSlots.fileName(saveName, slot)))
         space.delete(path(StateSlots.thumbnailName(saveName, slot)))
@@ -115,11 +176,17 @@ class GameStates(
         if (space.exists(path(t))) space.rename(path(t), StateSlots.thumbnailName(saveName, to))
     }
 
-    /** Loads [slot] into the running game; right after start it waits for the core to be ready. */
-    fun load(slot: Int): Boolean {
+    /**
+     * Loads [slot] into the running game; right after start it waits for the core to be ready. [undoable]
+     * (a load by hand: the hotkey or the pause menu): where the game was first is kept for Undo load state.
+     */
+    fun load(slot: Int, undoable: Boolean = false): Boolean {
         val name = StateSlots.fileName(saveName, slot)
         val bytes = readWhole(name) ?: return false.also { JLog.e(TAG, "no $name") }
-        return loadBytes(name, bytes)
+        val before = if (undoable) NativeBridge.saveState(TIMEOUT_MS)?.let { UndoLoad(slot, it, NativeBridge.stateProgress()) } else null
+        val ok = loadBytes(name, bytes)
+        if (ok && before != null) undoLoad = before
+        return ok
     }
 
     private fun loadBytes(name: String, bytes: ByteArray): Boolean {
@@ -136,13 +203,16 @@ class GameStates(
      * The file name, or null if the core had no picture or it couldn't be written.
      */
     fun screenshot(): String? {
+        failedNeed = 0
         val png = FramePicture.capturePng() ?: return null.also { JLog.e(TAG, "screenshot: no picture from the core") }
         val stamp = java.text.SimpleDateFormat("yyMMdd-HHmmss", java.util.Locale.US).format(java.util.Date())
         var name = "$saveName-$stamp.png"
         var n = 1
         while (space.exists(listOf(DataKind.Screenshots.dir, name))) name = "$saveName-$stamp-${n++}.png"
         return try {
+            failedNeed = png.size.toLong()
             space.openWrite(listOf(DataKind.Screenshots.dir, name)).use { it.write(png) }
+            failedNeed = 0
             JLog.i(TAG, "screenshot $name (${png.size} bytes)")
             name
         } catch (e: IOException) {

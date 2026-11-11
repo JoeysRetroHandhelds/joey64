@@ -77,12 +77,19 @@ class LauncherActivity : ComponentActivity() {
         @Volatile var started = false
     }
 
-    private val keys = KeyNormaliser { super.dispatchKeyEvent(it) }
+    private val isTv by lazy { com.joeysretro.joey64.launcher.layout.Tv.isTv(this) }
+    private val keys = KeyNormaliser(tv = { isTv }) { super.dispatchKeyEvent(it) }
     private val model: LibraryModel by viewModels()
     private val importModel: ImportModel by viewModels()
     private val updates: UpdateModel by viewModels()
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean = keys.dispatch(event)
+
+    // A controller's stick moved: its hints again (a TV remote has no stick).
+    override fun dispatchGenericMotionEvent(event: android.view.MotionEvent): Boolean {
+        if (isTv && event.isFromSource(android.view.InputDevice.SOURCE_JOYSTICK)) com.joeysretro.joey64.launcher.layout.RemoteKeys.padMoved()
+        return super.dispatchGenericMotionEvent(event)
+    }
 
     private var raFake: android.content.BroadcastReceiver? = null
     private var debugShow: android.content.BroadcastReceiver? = null
@@ -137,8 +144,12 @@ class LauncherActivity : ComponentActivity() {
             // boxart-reset: every downloaded or not-found cover is looked up again now (custom and
             // hidden ones stay), for checking the box-art source; the old files are overwritten as found.
             // size: the launcher laid out at another screen's size, `--es size 512x384` (dp; off goes back).
+            // lost-folder: the first ROM folder counts as one that can't be reached (its games greyed, the popup asks
+            // again); Try again or lost-folder-off brings it back.
             // reports-ask: the reports question over the library; reports-send: a report now, even if one
             // went today (to files/dev_reports_base when it exists, e.g. a local wrangler dev through adb reverse).
+            // net-reach-<n>: the next rooms take UPnP state n (upnp.h: 3 no router, 4 refused, 5 shared address,
+            // 6 every outside port taken) instead of the router's; net-reach-off goes back.
             val show = object : android.content.BroadcastReceiver() {
                 override fun onReceive(c: android.content.Context, i: android.content.Intent) {
                     val what = i.getStringExtra("what") ?: return
@@ -146,6 +157,9 @@ class LauncherActivity : ComponentActivity() {
                     else if (what == "boxart-reset") model.debugResetArt()
                     else if (what == "reports-ask") model.debugAskReports()
                     else if (what == "reports-send") model.debugSendReports()
+                    else if (what == "lost-folder" || what == "lost-folder-off") model.debugLostFolder(what == "lost-folder")
+                    else if (what.startsWith("net-reach-")) com.joeysretro.joey64.netplay.PlayTogether.debugRouterState = what.removePrefix("net-reach-").toIntOrNull()
+                    else if (what.startsWith("net-")) model.debugNetEnded(what)
                     else if (what.startsWith("update")) updates.debugShow(what) else model.debugSetupPage(what.takeIf { it == "first-run" || it == "data" || it == "import" })
                 }
             }
@@ -177,13 +191,14 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
         LaunchedEffect(Unit) { inputMode.requestInputMode(InputMode.Keyboard) }
 
         // The whole window's shape decides the layout (one column, the bottom bar); debug builds can set another size.
-        com.joeysretro.joey64.launcher.layout.DevFrame { ProvideScreenLayout(Modifier.fillMaxSize()) {
+        com.joeysretro.joey64.launcher.layout.DevFrame { com.joeysretro.joey64.launcher.layout.TvSafeArea(JoeyTheme.colors.page) { ProvideScreenLayout(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().background(JoeyTheme.colors.page)) {
             if (s == null) return@Column
             val folders = s.romFolders.map { it.toUri() }
             if (folders.isNotEmpty()) {
                 LifecycleResumeEffect(folders) {
                     model.resumed()
+                    model.checkFolders(folders)
                     model.autoRefresh(folders)
                     onPauseOrDispose { }
                 }
@@ -198,13 +213,15 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             val cheatsFor by model.cheatsFor.collectAsStateWithLifecycle()
             val gameSettingsFor by model.gameSettingsFor.collectAsStateWithLifecycle()
             val achievementsFor by model.achievementsFor.collectAsStateWithLifecycle()
+            val savesFor by model.savesFor.collectAsStateWithLifecycle()
+            val screenshotsFor by model.screenshotsFor.collectAsStateWithLifecycle()
             val raAccount by com.joeysretro.joey64.achievements.RaBridge.account.collectAsStateWithLifecycle()
             // Signed out with the Achievements page up: back to the library.
             LaunchedEffect(raAccount == null) { if (raAccount == null && place == RailPlace.Achievements) place = RailPlace.Library }
             // Signed in: the Has achievements filter's list, fetched again when a day old.
             LaunchedEffect(raAccount != null) { if (raAccount != null) model.refreshSetList() }
             // Cheats opens over the library or Search results (a game's options), and B goes back there; going anywhere on the rail closes it.
-            LaunchedEffect(place) { model.closeCheats(); model.closeAchievements(); model.closeGameSettings() }
+            LaunchedEffect(place) { model.closeCheats(); model.closeAchievements(); model.closeGameSettings(); model.closeSaves(); model.closeScreenshots() }
             if (home) UpdateChecks(updates)
             // The rail on the left, or a bar along the bottom in portrait.
             com.joeysretro.joey64.launcher.components.RailLayout(Modifier.weight(1f).fillMaxWidth(), rail = { horizontal ->
@@ -239,6 +256,13 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                                 gameSettingsFor != null -> androidx.compose.runtime.key(gameSettingsFor) {
                                     com.joeysretro.joey64.launcher.screens.GameSettingsScreen(gameSettingsFor!!, onHints = { settingsHints = it }) { model.closeGameSettings() }
                                 }
+                                savesFor != null -> androidx.compose.runtime.key(savesFor) {
+                                    com.joeysretro.joey64.launcher.screens.SavesScreen(savesFor!!, onHints = { settingsHints = it },
+                                        onPlay = { which -> model.play(savesFor!!.game, which) { intent -> context.startActivity(intent) } }) { model.closeSaves() }
+                                }
+                                screenshotsFor != null -> androidx.compose.runtime.key(screenshotsFor) {
+                                    com.joeysretro.joey64.launcher.screens.ScreenshotsScreen(screenshotsFor!!, onHints = { settingsHints = it }) { model.closeScreenshots() }
+                                }
                                 cheatsFor != null -> androidx.compose.runtime.key(cheatsFor) {
                                     com.joeysretro.joey64.launcher.screens.CheatsScreen(cheatsFor!!, onHints = { settingsHints = it }) { model.closeCheats() }
                                 }
@@ -253,6 +277,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                                 }
                                 place == RailPlace.Controls -> ControlsScreen(onHints = { settingsHints = it }) { place = RailPlace.Library }
                                 place == RailPlace.Search -> com.joeysretro.joey64.launcher.screens.SearchScreen(model, onHints = { settingsHints = it }) { place = RailPlace.Library }
+                                place == RailPlace.Netplay -> com.joeysretro.joey64.launcher.screens.NetplayScreen(model, onHints = { settingsHints = it }) { place = RailPlace.Library }
                                 else -> LibraryScreen(model) { place = RailPlace.Search }
                             }
                         }
@@ -263,13 +288,17 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                 !home -> listOf(Hint("A", "Select"))
                 importAgain -> listOf(Hint("A", "Select"), Hint("B", "Back"))
                 onRail -> listOf(Hint("A", "Open"))
-                place == RailPlace.Settings || place == RailPlace.Controls || place == RailPlace.Search || place == RailPlace.Achievements ||
-                    cheatsFor != null || achievementsFor != null || gameSettingsFor != null -> settingsHints
+                place == RailPlace.Settings || place == RailPlace.Controls || place == RailPlace.Search || place == RailPlace.Achievements || place == RailPlace.Netplay ||
+                    cheatsFor != null || achievementsFor != null || gameSettingsFor != null || savesFor != null || screenshotsFor != null -> settingsHints
                 else -> listOf(Hint("A", "Play"), Hint("Start", "Options"), Hint("Y", "Search"))
             })
             if (home) updates.prompt.collectAsStateWithLifecycle().value?.let { UpdatePopup(it, updates) }
+            com.joeysretro.joey64.launcher.screens.NeedsControllerPopup(model)
+            // Netplay: a game's options › Netplay, and the room screens wherever a room was opened or joined.
+            if (home) com.joeysretro.joey64.launcher.screens.NetplayGamePopup(model)
+            if (home) com.joeysretro.joey64.launcher.screens.NetplayRoomPopups(model)
         }
-        } }
+        } } }
     }
 }
 

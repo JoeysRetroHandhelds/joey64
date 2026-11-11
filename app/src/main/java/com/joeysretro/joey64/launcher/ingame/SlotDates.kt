@@ -24,4 +24,14 @@ object SlotDates {
             else -> fmt("MMM d, yyyy")
         }
     }
+
+    /**
+     * The same with the time always there, as the Saves page writes it (approved mockup 2026-11-08):
+     * "Today, 9:12 pm", "Yesterday, 8:40 pm", "Nov 2, 7:05 pm". Two backups of one day stay told apart.
+     */
+    fun withTime(savedAt: Long, now: Long, zone: TimeZone = TimeZone.getDefault(), locale: Locale = Locale.US): String {
+        val time = SimpleDateFormat("h:mm a", locale).apply { timeZone = zone }.format(java.util.Date(savedAt)).lowercase(locale)
+        val day = label(savedAt, now, zone, locale)
+        return if (day.startsWith("Today ")) "Today, $time" else "$day, $time"
+    }
 }

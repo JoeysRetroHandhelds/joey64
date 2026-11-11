@@ -16,14 +16,13 @@ class VideoSettingsTest {
         assertEquals(1, v.int(VideoKey.Resolution))
         assertEquals("original", v.look)
         val a = VideoApply.of(v, parallel = true)
-        // The core's own defaults, so a user who never opens Video plays as before.
+        // The core's own defaults, so a user who never opens Video plays as before; deinterlace is ours (Weave, Joey 2026-11-10).
         assertEquals("1x", a.coreOptions["mupen64plus-parallel-rdp-upscaling"])
         assertEquals("True", a.coreOptions["mupen64plus-parallel-rdp-vi-aa"])
         assertEquals("True", a.coreOptions["mupen64plus-parallel-rdp-native-tex-rect"])
         assertEquals("disable", a.coreOptions["mupen64plus-parallel-rdp-downscaling"])
-        assertEquals("Bob", a.coreOptions["mupen64plus-parallel-rdp-deinterlace-method"])
+        assertEquals("Weave", a.coreOptions["mupen64plus-parallel-rdp-deinterlace-method"]) // ours, not the core's (Bob)
         assertTrue(a.env.isEmpty())
-        assertFalse(a.sharpScale)
         assertEquals(4 to 3, VideoApply.aspect(v, widescreen = null))
     }
 
@@ -43,7 +42,6 @@ class VideoSettingsTest {
         assertEquals("False", a.coreOptions["mupen64plus-parallel-rdp-vi-aa"])
         assertEquals("False", a.coreOptions["mupen64plus-parallel-rdp-vi-bilinear"])
         assertEquals("True", a.coreOptions["mupen64plus-parallel-rdp-dither-filter"])
-        assertTrue(a.sharpScale)
         val sharper = VideoSettings(VideoSettings.LOOKS.getValue("sharper"))
         assertEquals("False", VideoApply.of(sharper, true).coreOptions["mupen64plus-parallel-rdp-dither-filter"])
         assertEquals("custom", VideoSettings(mapOf(VideoKey.Divot to "off")).look)
@@ -52,7 +50,6 @@ class VideoSettingsTest {
     @Test fun glidenGetsItsResolutionFactorOnly() {
         val a = VideoApply.of(VideoSettings(mapOf(VideoKey.Resolution to "2")), parallel = false)
         assertEquals(mapOf("mupen64plus-EnableNativeResFactor" to "2"), a.coreOptions)
-        assertFalse(a.sharpScale)
     }
 
     @Test fun pacingGoesToTheEnvironment() {
@@ -89,5 +86,17 @@ class VideoSettingsTest {
     @Test fun unknownKeysAreIgnored() {
         val o = org.json.JSONObject("""{"version":1,"resolution":"4","nope":"x"}""")
         assertEquals(mapOf(VideoKey.Resolution to "4"), VideoSettings.fromJson(o))
+    }
+
+    @Test fun cropEdges() {
+        // Off by default; named amounts, any other even amount up to 32 is Exact.
+        assertEquals(0, VideoSettings.DEFAULTS.int(VideoKey.Crop))
+        assertEquals("Off", VideoChoices.label(VideoKey.Crop, "0"))
+        assertEquals("Normal", VideoChoices.label(VideoKey.Crop, "8"))
+        assertEquals("Exact, 10 lines", VideoChoices.label(VideoKey.Crop, "10"))
+        assertEquals(listOf(0, 2, 4), VideoChoices.CROP_STEPS.take(3))
+        assertEquals(32, VideoChoices.CROP_STEPS.last())
+        // It changes while the game runs, so it isn't a start-only row.
+        assertFalse(VideoKey.Crop in VideoKey.AT_START)
     }
 }

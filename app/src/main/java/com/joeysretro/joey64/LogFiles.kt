@@ -44,7 +44,7 @@ object JLog {
  *  - `-exit-<time>.txt` (+ `-exit-<time>.trace` / `.tombstone.pb`): an earlier run's end as Android recorded it
  *    (ApplicationExitInfo, Android 11+): crash, native crash, ANR, low memory, killed; Android 11+ adds the ANR's
  *    thread dump, Android 12+ a native crash's tombstone (protobuf).
- * The last [KEEP] sessions are kept. [zip] packs them for sending (the Share button comes with Joey's menus).
+ * The last [KEEP] sessions are kept. [zip] packs them for sending (Settings › About › Share logs).
  */
 object LogFiles {
     private const val TAG = "Joey64"
@@ -58,6 +58,9 @@ object LogFiles {
         private set
 
     fun dir(ctx: Context) = File(ctx.filesDir, "logs").apply { mkdirs() }
+
+    /** How many sessions are kept (one app log each). */
+    fun sessionCount(ctx: Context) = dir(ctx).listFiles().orEmpty().count { it.name.endsWith("-app.log") }
 
     /**
      * Once per process, before anything else logs: the launcher's screen or the game's, whichever opens first. A later
@@ -200,9 +203,9 @@ object LogFiles {
 
     private fun copy(input: InputStream, out: File) = out.outputStream().use { input.copyTo(it) }
 
-    /** All kept sessions in one zip (cacheDir/joey64-logs.zip), for sending. */
+    /** All kept sessions in one zip (cacheDir/share/joey64-logs.zip, which the FileProvider shares), for sending. */
     fun zip(ctx: Context): File {
-        val out = File(ctx.cacheDir, "joey64-logs.zip")
+        val out = File(File(ctx.cacheDir, "share").apply { mkdirs() }, "joey64-logs.zip")
         ZipOutputStream(out.outputStream()).use { z ->
             dir(ctx).listFiles().orEmpty().filter { it.isFile }.sortedBy { it.name }.forEach { f ->
                 z.putNextEntry(ZipEntry("logs/${f.name}"))

@@ -108,6 +108,9 @@ class TreeSpace(
         return found
     }
 
+    /** The document at [path], or null when there's none (a screenshot to share). */
+    fun uriOf(path: List<String>): Uri? = childId(path)?.let { documentUri(it.docId) }
+
     private fun childId(path: List<String>): Child? {
         if (path.isEmpty()) return null
         val parent = dirId(path.dropLast(1), create = false) ?: return null

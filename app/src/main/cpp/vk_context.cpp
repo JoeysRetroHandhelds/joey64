@@ -22,7 +22,7 @@ int64_t monoNs() {
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
 }
-#define VK_FUNCS(X) X(vkAcquireNextImageKHR) X(vkAllocateCommandBuffers) X(vkBeginCommandBuffer) X(vkCmdBlitImage) X(vkCmdClearColorImage) X(vkCmdPipelineBarrier) X(vkCreateAndroidSurfaceKHR) X(vkCreateCommandPool) X(vkCreateDevice) X(vkCreateFence) X(vkCreateSemaphore) X(vkCreateSwapchainKHR) X(vkDestroyCommandPool) X(vkDestroyDevice) X(vkDestroyFence) X(vkDestroyInstance) X(vkDestroySemaphore) X(vkDestroySurfaceKHR) X(vkDestroySwapchainKHR) X(vkDeviceWaitIdle) X(vkEndCommandBuffer) X(vkEnumerateDeviceExtensionProperties) X(vkEnumeratePhysicalDevices) X(vkFreeCommandBuffers) X(vkGetDeviceQueue) X(vkGetPhysicalDeviceFeatures2) X(vkGetPhysicalDeviceProperties) X(vkGetPhysicalDeviceQueueFamilyProperties) X(vkGetPhysicalDeviceSurfaceCapabilitiesKHR) X(vkGetPhysicalDeviceSurfaceFormatsKHR) X(vkGetPhysicalDeviceSurfacePresentModesKHR) X(vkGetPhysicalDeviceSurfaceSupportKHR) X(vkGetSwapchainImagesKHR) X(vkQueuePresentKHR) X(vkQueueSubmit) X(vkResetCommandBuffer) X(vkResetFences) X(vkWaitForFences) X(vkGetDeviceProcAddr) X(vkCreateImage) X(vkDestroyImage) X(vkGetImageMemoryRequirements) X(vkAllocateMemory) X(vkFreeMemory) X(vkBindImageMemory) X(vkGetPhysicalDeviceMemoryProperties) X(vkQueueWaitIdle) X(vkCreateBuffer) X(vkDestroyBuffer) X(vkGetBufferMemoryRequirements) X(vkBindBufferMemory) X(vkMapMemory) X(vkUnmapMemory) X(vkCmdCopyImageToBuffer) X(vkInvalidateMappedMemoryRanges)
+#define VK_FUNCS(X) X(vkAcquireNextImageKHR) X(vkAllocateCommandBuffers) X(vkBeginCommandBuffer) X(vkCmdBlitImage) X(vkCmdClearColorImage) X(vkCmdPipelineBarrier) X(vkCreateAndroidSurfaceKHR) X(vkCreateCommandPool) X(vkCreateDevice) X(vkCreateFence) X(vkCreateSemaphore) X(vkCreateSwapchainKHR) X(vkDestroyCommandPool) X(vkDestroyDevice) X(vkDestroyFence) X(vkDestroyInstance) X(vkDestroySemaphore) X(vkDestroySurfaceKHR) X(vkDestroySwapchainKHR) X(vkDeviceWaitIdle) X(vkEndCommandBuffer) X(vkEnumerateDeviceExtensionProperties) X(vkEnumeratePhysicalDevices) X(vkFreeCommandBuffers) X(vkGetDeviceQueue) X(vkGetPhysicalDeviceFeatures2) X(vkGetPhysicalDeviceProperties) X(vkGetPhysicalDeviceQueueFamilyProperties) X(vkGetPhysicalDeviceSurfaceCapabilitiesKHR) X(vkGetPhysicalDeviceSurfaceFormatsKHR) X(vkGetPhysicalDeviceSurfacePresentModesKHR) X(vkGetPhysicalDeviceSurfaceSupportKHR) X(vkGetSwapchainImagesKHR) X(vkQueuePresentKHR) X(vkQueueSubmit) X(vkResetCommandBuffer) X(vkResetFences) X(vkWaitForFences) X(vkGetDeviceProcAddr) X(vkCreateImage) X(vkDestroyImage) X(vkGetImageMemoryRequirements) X(vkAllocateMemory) X(vkFreeMemory) X(vkBindImageMemory) X(vkGetPhysicalDeviceMemoryProperties) X(vkQueueWaitIdle) X(vkCreateImageView) X(vkDestroyImageView) X(vkCreateBuffer) X(vkDestroyBuffer) X(vkGetBufferMemoryRequirements) X(vkBindBufferMemory) X(vkMapMemory) X(vkUnmapMemory) X(vkCmdCopyImageToBuffer) X(vkInvalidateMappedMemoryRanges)
 #define VK_DECLARE(f) PFN_##f f = nullptr;
 VK_FUNCS(VK_DECLARE)
 PFN_vkCreateInstance vkCreateInstance = nullptr;
@@ -277,6 +277,11 @@ bool VkContext::init(const retro_hw_render_context_negotiation_interface_vulkan*
     VkPhysicalDeviceMemoryProperties memProps;
     vkGetPhysicalDeviceMemoryProperties(gpu_, &memProps);
     post_.setDevice(device_, memProps, vkGetDeviceProcAddr, [this] {
+        std::lock_guard<std::mutex> lk(queueMutex_);
+        vkQueueWaitIdle(queue_);
+    });
+    static_assert(kSyncFrames == VkLook::kFrames, "picture pass sets per frame");
+    look_.setDevice(device_, memProps, vkGetDeviceProcAddr, [this] {
         std::lock_guard<std::mutex> lk(queueMutex_);
         vkQueueWaitIdle(queue_);
     });
@@ -543,6 +548,13 @@ void VkContext::paceFrame() {
     frameStartNs_ = -1; // set once the image is acquired: work excludes swapchain waits
 }
 
+void VkContext::showAgain() {
+    if (!hasWindow() || !haveImage_ || !beginFrame(true)) return;
+    repaint_ = true;
+    present(false);
+    endFrame();
+}
+
 void VkContext::endFrame() {
     bool begun = acquired_;
     if (acquired_ && !presented_) present(false); // an acquired image must be presented
@@ -603,36 +615,155 @@ void VkContext::present(bool newImage) {
         bool transfer = newImage && srcQueueFamily_ != VK_QUEUE_FAMILY_IGNORED && srcQueueFamily_ != queueFamily_;
         uint32_t fromFam = transfer ? srcQueueFamily_ : VK_QUEUE_FAMILY_IGNORED;
         uint32_t toFam = transfer ? queueFamily_ : VK_QUEUE_FAMILY_IGNORED;
+        // Crop edges (Settings › Video): the kept part of the picture is copied into cropImage_ first, and from
+        // there on it is the picture (pic, picView, cropW x cropH), so the shape, shaders, sides and colour all
+        // see the cropped one. Paused, showAgain draws it again with a new amount at once.
+        int32_t cx = 0, cy = 0;
+        bool crop = Display::cropOf((int)imageW_, (int)imageH_, cx, cy) && image_.image_view &&
+                    ensureCropImage(imageW_ - 2 * cx, imageH_ - 2 * cy, image_.create_info.format);
+        uint32_t cropW = crop ? imageW_ - 2 * cx : imageW_, cropH = crop ? imageH_ - 2 * cy : imageH_;
+        VkImage pic = crop ? cropImage_ : src;
+        VkImageView picView = crop ? cropView_ : image_.image_view;
+        VkFormat picFormat = image_.create_info.format;
         // Settings › Video: the shape (4:3, 16:9, stretch) and integer scaling, as the GLES path
         // (display_opts.h). Dev switch N64_ASPECT=W:H still wins.
         int32_t winW = (int32_t)dstExtent.width, winH = (int32_t)dstExtent.height;
         int32_t x, y, dstW, dstH;
-        Display::fit(winW, winH, (int)imageW_, (int)imageH_, x, y, dstW, dstH);
+        Display::fit(winW, winH, (int)cropW, (int)cropH, x, y, dstW, dstH);
         // Colour or sharpening changed: the compute pass (vk_post.cpp) samples the picture into an
         // image at the shown size, which is copied in; else the plain blit (no extra cost).
-        bool post = Display::opts().postOn() && image_.image_view && dstW > 0 && dstH > 0 &&
-                    post_.prepare((uint32_t)dstW, (uint32_t)dstH);
-        VkImageLayout blitLayout = layout == VK_IMAGE_LAYOUT_GENERAL ? VK_IMAGE_LAYOUT_GENERAL
-                                 : post ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        VkAccessFlags readAccess = post ? VK_ACCESS_SHADER_READ_BIT : VK_ACCESS_TRANSFER_READ_BIT;
-        VkPipelineStageFlags readStage = post ? VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT : VK_PIPELINE_STAGE_TRANSFER_BIT;
-        imageBarrier(cmd, src, range, layout, blitLayout,
+        // Your own RetroArch preset (libra.h): Colour first at the game's size (no Sharpening), then the
+        // preset into libraImage_ at the shown size, then Sides and Overlay around and over it.
+        // A new preset: the old chain goes once the frames in flight are done with it.
+        if (libra_.stale()) { std::lock_guard<std::mutex> lk(queueMutex_); vkQueueWaitIdle(queue_); }
+        bool libra = picView && dstW > 0 && dstH > 0 &&
+                     libra_.ready(instance_, gpu_, device_, queue_, gipa_, queueMutex_, kSyncFrames) &&
+                     ensureLibraImage((uint32_t)dstW, (uint32_t)dstH);
+        uint32_t postW = libra ? cropW : (uint32_t)dstW, postH = libra ? cropH : (uint32_t)dstH;
+        bool post = (libra ? Display::opts().colourOn() : Display::opts().postOn()) && picView && dstW > 0 && dstH > 0 &&
+                    post_.prepare(postW, postH);
+        // Shader, sides, overlay or colour-blind help: the Picture pass (vk_look.cpp) draws the whole
+        // window from the picture (or the colour pass's result), which is then copied in.
+        bool look = Display::opts().lookOn(true) && picView && dstW > 0 && dstH > 0 &&
+                    look_.prepare((uint32_t)winW, (uint32_t)winH);
+        bool sampled = post || look || libra;
+        // librashader's descriptors say SHADER_READ_ONLY_OPTIMAL, so it gets that even from a GENERAL image.
+        VkImageLayout blitLayout = libra ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                                 : layout == VK_IMAGE_LAYOUT_GENERAL && !crop ? VK_IMAGE_LAYOUT_GENERAL
+                                 : sampled ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        VkAccessFlags readAccess = sampled ? VK_ACCESS_SHADER_READ_BIT : VK_ACCESS_TRANSFER_READ_BIT;
+        VkPipelineStageFlags readStage = libra ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT
+                                       : sampled ? VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT : VK_PIPELINE_STAGE_TRANSFER_BIT;
+        // With Crop edges the core's picture is only read by the crop copy.
+        VkImageLayout srcLayout = !crop ? blitLayout : layout == VK_IMAGE_LAYOUT_GENERAL ? VK_IMAGE_LAYOUT_GENERAL
+                                : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        VkAccessFlags srcAccess = crop ? VK_ACCESS_TRANSFER_READ_BIT : readAccess;
+        VkPipelineStageFlags srcStage = crop ? VK_PIPELINE_STAGE_TRANSFER_BIT : readStage;
+        imageBarrier(cmd, src, range, layout, srcLayout,
                      VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT,
-                     readAccess, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, readStage, fromFam, toFam);
+                     srcAccess, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, srcStage, fromFam, toFam);
+        if (crop) {
+            VkImageSubresourceRange one{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            // The previous frame's reads of it come first.
+            imageBarrier(cmd, cropImage_, one, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                         0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+            VkImageBlit cut{};
+            cut.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, range.baseMipLevel, range.baseArrayLayer, 1};
+            cut.srcOffsets[0] = {cx, cy, 0};
+            cut.srcOffsets[1] = {(int32_t)imageW_ - cx, (int32_t)imageH_ - cy, 1};
+            cut.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            cut.dstOffsets[1] = {(int32_t)cropW, (int32_t)cropH, 1};
+            vkCmdBlitImage(cmd, src, srcLayout, cropImage_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &cut, VK_FILTER_NEAREST);
+            imageBarrier(cmd, cropImage_, one, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, blitLayout,
+                         VK_ACCESS_TRANSFER_WRITE_BIT, readAccess, VK_PIPELINE_STAGE_TRANSFER_BIT, readStage);
+        }
         VkImageBlit blit{};
-        blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, range.baseMipLevel, range.baseArrayLayer, 1};
-        blit.srcOffsets[1] = {(int32_t)imageW_, (int32_t)imageH_, 1};
+        blit.srcSubresource = crop ? VkImageSubresourceLayers{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}
+                                   : VkImageSubresourceLayers{VK_IMAGE_ASPECT_COLOR_BIT, range.baseMipLevel, range.baseArrayLayer, 1};
+        blit.srcOffsets[1] = {(int32_t)cropW, (int32_t)cropH, 1};
         blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         blit.dstOffsets[0] = {x, y, 0};
         blit.dstOffsets[1] = {x + dstW, y + dstH, 1};
         // Sharp display: nearest to the first whole multiple at least the screen size, then a linear step
         // down (under 2:1, so the 2x2 blit filter sees every pixel). Rounding down instead left OoT's
         // 640x480 at 1x on the Flip's 752-line screen, a plain linear 1.57x stretch.
-        uint32_t kx = sharp_ ? std::max(1, (dstW + (int32_t)imageW_ - 1) / (int32_t)imageW_) : 1;
-        uint32_t ky = sharp_ ? std::max(1, (dstH + (int32_t)imageH_ - 1) / (int32_t)imageH_) : 1;
-        if (post) {
+        // Sharp pixels: the dev switch (setSharp) or Settings › Video › Shader (look.glsl's id 1).
+        bool sharp = sharp_ || Display::opts().has(1);
+        uint32_t kx = sharp ? std::max(1, (dstW + (int32_t)cropW - 1) / (int32_t)cropW) : 1;
+        uint32_t ky = sharp ? std::max(1, (dstH + (int32_t)cropH - 1) / (int32_t)cropH) : 1;
+        VkImageBlit whole{}; // the Picture pass's window, copied as it is
+        whole.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        whole.srcOffsets[1] = {winW, winH, 1};
+        whole.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        whole.dstOffsets[1] = {winW, winH, 1};
+        if (libra) {
+            static bool told = false;
+            if (!told) {
+                told = true;
+                LOGI("librashader: picture %ux%u (format %d, layout %d) -> %dx%d", cropW, cropH,
+                     (int)picFormat, (int)layout, dstW, dstH);
+            }
+            VkImageSubresourceRange one{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            VkImage in = pic;
+            VkFormat inFormat = picFormat;
+            if (post) { // Colour at the game's own size, read by the preset
+                VkImage out = VK_NULL_HANDLE;
+                post_.record(cmd, sync_, picView, blitLayout, cropW, cropH, cropW, cropH, 1, &out);
+                imageBarrier(cmd, out, one, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                             VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+                in = out;
+                inFormat = VK_FORMAT_R8G8B8A8_UNORM;
+            }
+            // The previous frame's blit or Picture pass may still read it.
+            imageBarrier(cmd, libraImage_, one, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                         0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+            libra_.frame(cmd, in, inFormat, cropW, cropH, libraImage_, VK_FORMAT_R8G8B8A8_UNORM,
+                         (uint32_t)dstW, (uint32_t)dstH);
+            if (look) { // Sides and Overlay around and over the preset's picture
+                imageBarrier(cmd, libraImage_, one, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                             VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+                VkImage win = VK_NULL_HANDLE;
+                Display::LookPush lp = Display::lookPush(winW, winH, dstW, dstH, (int)cropH, x, y, dstW, dstH, 1.0f);
+                look_.record(cmd, sync_, libraView_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, lp, &win);
+                vkCmdBlitImage(cmd, win, VK_IMAGE_LAYOUT_GENERAL, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &whole,
+                               VK_FILTER_NEAREST);
+            } else {
+                imageBarrier(cmd, libraImage_, one, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                             VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+                             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+                VkImageBlit copy{};
+                copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+                copy.srcOffsets[1] = {dstW, dstH, 1};
+                copy.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+                copy.dstOffsets[0] = {x, y, 0};
+                copy.dstOffsets[1] = {x + dstW, y + dstH, 1};
+                vkCmdBlitImage(cmd, libraImage_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               1, &copy, VK_FILTER_NEAREST);
+            }
+        } else if (post && look) {
+            VkImage out = VK_NULL_HANDLE, win = VK_NULL_HANDLE;
+            post_.record(cmd, sync_, picView, blitLayout, cropW, cropH, (uint32_t)dstW, (uint32_t)dstH,
+                         std::max(kx, ky), &out);
+            VkImageSubresourceRange one{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            imageBarrier(cmd, out, one, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                         VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+            Display::LookPush lp = Display::lookPush(winW, winH, dstW, dstH, (int)cropH, x, y, dstW, dstH, 1.0f);
+            look_.record(cmd, sync_, post_.outView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, lp, &win);
+            vkCmdBlitImage(cmd, win, VK_IMAGE_LAYOUT_GENERAL, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &whole,
+                           VK_FILTER_NEAREST);
+        } else if (look) {
+            VkImage win = VK_NULL_HANDLE;
+            Display::LookPush lp = Display::lookPush(winW, winH, (int)cropW, (int)cropH, (int)cropH, x, y, dstW, dstH, 1.0f);
+            look_.record(cmd, sync_, picView, blitLayout, lp, &win);
+            vkCmdBlitImage(cmd, win, VK_IMAGE_LAYOUT_GENERAL, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &whole,
+                           VK_FILTER_NEAREST);
+        } else if (post) {
             VkImage out = VK_NULL_HANDLE;
-            post_.record(cmd, sync_, image_.image_view, blitLayout, imageW_, imageH_, (uint32_t)dstW, (uint32_t)dstH,
+            post_.record(cmd, sync_, picView, blitLayout, cropW, cropH, (uint32_t)dstW, (uint32_t)dstH,
                          std::max(kx, ky), &out);
             VkImageBlit copy{};
             copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
@@ -643,7 +774,7 @@ void VkContext::present(bool newImage) {
             // A blit, not a copy: the swapchain may be BGRA. Same size, so nearest is exact.
             vkCmdBlitImage(cmd, out, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                            1, &copy, VK_FILTER_NEAREST);
-        } else if ((kx > 1 || ky > 1) && ensureSharpImage(imageW_ * kx, imageH_ * ky, image_.create_info.format)) {
+        } else if ((kx > 1 || ky > 1) && ensureSharpImage(cropW * kx, cropH * ky, picFormat)) {
             VkImageSubresourceRange whole{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
             // The previous frame's linear blit may still read it: wait for that before writing.
             imageBarrier(cmd, sharpImage_, whole, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -651,7 +782,7 @@ void VkContext::present(bool newImage) {
             VkImageBlit up = blit;
             up.dstOffsets[0] = {0, 0, 0};
             up.dstOffsets[1] = {(int32_t)sharpW_, (int32_t)sharpH_, 1};
-            vkCmdBlitImage(cmd, src, blitLayout, sharpImage_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &up, VK_FILTER_NEAREST);
+            vkCmdBlitImage(cmd, pic, blitLayout, sharpImage_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &up, VK_FILTER_NEAREST);
             imageBarrier(cmd, sharpImage_, whole, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                          VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
                          VK_PIPELINE_STAGE_TRANSFER_BIT);
@@ -661,11 +792,11 @@ void VkContext::present(bool newImage) {
             vkCmdBlitImage(cmd, sharpImage_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                            1, &down, VK_FILTER_LINEAR);
         } else {
-            vkCmdBlitImage(cmd, src, blitLayout, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+            vkCmdBlitImage(cmd, pic, blitLayout, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
         }
 
-        imageBarrier(cmd, src, range, blitLayout, layout, readAccess, 0,
-                     readStage, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, toFam, fromFam);
+        imageBarrier(cmd, src, range, srcLayout, layout, srcAccess, 0,
+                     srcStage, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, toFam, fromFam);
     }
 
     imageBarrier(cmd, dst, kColorRange, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
@@ -824,7 +955,11 @@ void VkContext::destroy() {
     if (!instance_) return;
     if (device_) vkDeviceWaitIdle(device_);
     post_.destroy();
+    look_.destroy();
+    libra_.destroy();
+    destroyLibraImage();
     destroySharpImage();
+    destroyCropImage();
     destroySwapchain();
     if (surface_) vkDestroySurfaceKHR(instance_, surface_, nullptr);
     for (auto& f : frameFences_) if (f) { vkDestroyFence(device_, f, nullptr); f = VK_NULL_HANDLE; }
@@ -962,6 +1097,91 @@ bool VkContext::ensureSharpImage(uint32_t w, uint32_t h, VkFormat format) {
     sharpW_ = w; sharpH_ = h; sharpFormat_ = format;
     LOGI("vulkan: sharp display prescale %ux%u", w, h);
     return true;
+}
+
+bool VkContext::ensureLibraImage(uint32_t w, uint32_t h) {
+    if (libraImage_ && w == libraW_ && h == libraH_) return true;
+    if (libraImage_) {
+        std::lock_guard<std::mutex> lk(queueMutex_);
+        vkQueueWaitIdle(queue_);
+    }
+    destroyLibraImage();
+    VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    ci.imageType = VK_IMAGE_TYPE_2D; ci.format = VK_FORMAT_R8G8B8A8_UNORM; ci.extent = {w, h, 1};
+    ci.mipLevels = 1; ci.arrayLayers = 1; ci.samples = VK_SAMPLE_COUNT_1_BIT; ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE; ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (vkCreateImage(device_, &ci, nullptr, &libraImage_) != VK_SUCCESS) { libraImage_ = VK_NULL_HANDLE; return false; }
+    VkPhysicalDeviceMemoryProperties mp;
+    vkGetPhysicalDeviceMemoryProperties(gpu_, &mp);
+    VkMemoryRequirements req;
+    vkGetImageMemoryRequirements(device_, libraImage_, &req);
+    uint32_t type = UINT32_MAX;
+    for (uint32_t t = 0; t < mp.memoryTypeCount && type == UINT32_MAX; ++t)
+        if ((req.memoryTypeBits & (1u << t)) && (mp.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) type = t;
+    VkMemoryAllocateInfo mai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    mai.allocationSize = req.size; mai.memoryTypeIndex = type;
+    if (type == UINT32_MAX || vkAllocateMemory(device_, &mai, nullptr, &libraMem_) != VK_SUCCESS) {
+        LOGE("vulkan: librashader image memory failed"); destroyLibraImage(); return false;
+    }
+    vkBindImageMemory(device_, libraImage_, libraMem_, 0);
+    VkImageViewCreateInfo vi{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    vi.image = libraImage_; vi.viewType = VK_IMAGE_VIEW_TYPE_2D; vi.format = VK_FORMAT_R8G8B8A8_UNORM;
+    vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    if (vkCreateImageView(device_, &vi, nullptr, &libraView_) != VK_SUCCESS) { libraView_ = VK_NULL_HANDLE; destroyLibraImage(); return false; }
+    libraW_ = w; libraH_ = h;
+    return true;
+}
+
+bool VkContext::ensureCropImage(uint32_t w, uint32_t h, VkFormat format) {
+    if (cropImage_ && w == cropW_ && h == cropH_ && format == cropFormat_) return true;
+    if (cropImage_) { // earlier frames may still read the old one (a new amount, or the game changed resolution)
+        std::lock_guard<std::mutex> lk(queueMutex_);
+        vkQueueWaitIdle(queue_);
+    }
+    destroyCropImage();
+    VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    ci.imageType = VK_IMAGE_TYPE_2D; ci.format = format; ci.extent = {w, h, 1};
+    ci.mipLevels = 1; ci.arrayLayers = 1; ci.samples = VK_SAMPLE_COUNT_1_BIT; ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ci.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE; ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (vkCreateImage(device_, &ci, nullptr, &cropImage_) != VK_SUCCESS) { cropImage_ = VK_NULL_HANDLE; return false; }
+    VkPhysicalDeviceMemoryProperties mp;
+    vkGetPhysicalDeviceMemoryProperties(gpu_, &mp);
+    VkMemoryRequirements req;
+    vkGetImageMemoryRequirements(device_, cropImage_, &req);
+    uint32_t type = UINT32_MAX;
+    for (uint32_t t = 0; t < mp.memoryTypeCount && type == UINT32_MAX; ++t)
+        if ((req.memoryTypeBits & (1u << t)) && (mp.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) type = t;
+    VkMemoryAllocateInfo mai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    mai.allocationSize = req.size; mai.memoryTypeIndex = type;
+    if (type == UINT32_MAX || vkAllocateMemory(device_, &mai, nullptr, &cropMem_) != VK_SUCCESS) {
+        LOGE("vulkan: crop image memory failed"); destroyCropImage(); return false;
+    }
+    vkBindImageMemory(device_, cropImage_, cropMem_, 0);
+    VkImageViewCreateInfo vi{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    vi.image = cropImage_; vi.viewType = VK_IMAGE_VIEW_TYPE_2D; vi.format = format;
+    vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    if (vkCreateImageView(device_, &vi, nullptr, &cropView_) != VK_SUCCESS) { cropView_ = VK_NULL_HANDLE; destroyCropImage(); return false; }
+    cropW_ = w; cropH_ = h; cropFormat_ = format;
+    LOGI("vulkan: crop edges %ux%u", w, h);
+    return true;
+}
+
+void VkContext::destroyCropImage() {
+    if (cropView_) vkDestroyImageView(device_, cropView_, nullptr);
+    cropView_ = VK_NULL_HANDLE;
+    if (cropImage_) vkDestroyImage(device_, cropImage_, nullptr);
+    if (cropMem_) vkFreeMemory(device_, cropMem_, nullptr);
+    cropImage_ = VK_NULL_HANDLE; cropMem_ = VK_NULL_HANDLE; cropW_ = cropH_ = 0;
+}
+
+void VkContext::destroyLibraImage() {
+    if (libraView_) vkDestroyImageView(device_, libraView_, nullptr);
+    libraView_ = VK_NULL_HANDLE;
+    if (libraImage_) vkDestroyImage(device_, libraImage_, nullptr);
+    if (libraMem_) vkFreeMemory(device_, libraMem_, nullptr);
+    libraImage_ = VK_NULL_HANDLE; libraMem_ = VK_NULL_HANDLE; libraW_ = libraH_ = 0;
 }
 
 void VkContext::destroySharpImage() {

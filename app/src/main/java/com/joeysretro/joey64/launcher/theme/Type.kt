@@ -70,6 +70,10 @@ data class JoeyType(
     /** An icon row's bold name (the achievement pages) and the small tag after it ("Missable"). */
     val rowBold: TextStyle,
     val tag: TextStyle,
+    /** A Netplay room code ("K7Q4 MD2X") and each box of Join by code. */
+    val roomCode: TextStyle,
+    /** The number in a player's circle (Netplay rooms). */
+    val playerNumber: TextStyle,
 )
 
 val DefaultType = JoeyType(
@@ -92,6 +96,8 @@ val DefaultType = JoeyType(
     thumbLabel = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Bold, fontSize = 12.sp),
     rowBold = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Bold, fontSize = 14.5.sp),
     tag = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Bold, fontSize = 10.5.sp),
+    roomCode = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Black, fontSize = 26.sp, letterSpacing = 3.sp),
+    playerNumber = TextStyle(fontFamily = Rubik, fontWeight = FontWeight.Black, fontSize = 12.sp),
 )
 
 val LocalJoeyType = staticCompositionLocalOf { DefaultType }

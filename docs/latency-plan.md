@@ -79,5 +79,5 @@ Triggered by `adb shell am broadcast -a com.joeysretro.joey64.LAGTEST --es butto
 
 2. Cheap fixes, each measured: request 60 Hz (`setFrameRate`), pace by video with dynamic audio
    rate and a small ring, unbuffered input, frame delay (start the frame as late as vsync allows).
-3. Run-ahead prototype in one game; cost and glitches on both renderers.
+3. Run-ahead prototype in one game; cost and glitches on both renderers. Done 2026-11-09: one frame less lag, about 12 ms a frame on the Thor, and broken by the core's state return (README T9).
 4. Per-game lag from the lag test into the profile DB (M3), run-ahead set from it.

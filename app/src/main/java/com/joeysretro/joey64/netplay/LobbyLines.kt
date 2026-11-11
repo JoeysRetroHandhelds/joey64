@@ -1,0 +1,66 @@
+package com.joeysretro.joey64.netplay
+
+/**
+ * The Play together room's own messages (2026-11-10): the room screen before the game starts, between Joey64s only.
+ * The game itself then runs through the room server the core talks to (netplay_server.cpp, mupen64plus netplay).
+ *
+ * Over TCP on the room's port, one line a message, fields split by tabs:
+ *  host -> joiner on connect: `ROOM <proto> <host name> <device> <game title> <md5> <file>`
+ *  joiner -> host: `HELLO <proto> <name> <device> <md5>`
+ *  host -> joiner: `WELCOME <slot>`, `FULL`, `MISMATCH`, `PLAYERS <slot|name|device|where|ping;...>`, `START`,
+ *                  `GO <slot> <port>`, `CLOSED`
+ *  both ways: `PING <t>`, `PONG <t>` (t: the sender's clock in ms), and `BYE` from the joiner.
+ * Over UDP the host sends a beacon to the Wi-Fi's broadcast address on [PlayTogether.DISCOVERY_PORT] every second,
+ * `J64ROOM <proto> <port> <host name> <device> <game title> <md5> <players> <code>`, and answers `J64PING <t>` with
+ * `J64PONG <t>` on its room port.
+ */
+object LobbyLines {
+    const val PROTO = 1
+
+    /** A name, title or file as one field: no tabs, line ends or the list's own separators; at most 48 characters. */
+    fun field(s: String) = s.map { if (it == '\t' || it == '\n' || it == '\r' || it == '|' || it == ';') ' ' else it }
+        .joinToString("").trim().take(48)
+
+    fun line(vararg f: Any) = f.joinToString("\t") { field(it.toString()) }
+
+    fun split(line: String): List<String> = line.trimEnd('\r', '\n').split('\t')
+
+    data class Entry(val slot: Int, val name: String, val device: String, val where: String, val ping: Int?)
+
+    fun players(list: List<Entry>) = list.joinToString(";") {
+        listOf(it.slot.toString(), field(it.name), field(it.device), field(it.where), it.ping?.toString() ?: "").joinToString("|")
+    }
+
+    fun parsePlayers(s: String): List<Entry> = s.split(';').mapNotNull { e ->
+        val f = e.split('|')
+        val slot = f.getOrNull(0)?.toIntOrNull()?.takeIf { it in 1..4 } ?: return@mapNotNull null
+        Entry(slot, f.getOrNull(1).orEmpty().ifEmpty { "Player $slot" }, f.getOrNull(2).orEmpty(), f.getOrNull(3).orEmpty(), f.getOrNull(4)?.toIntOrNull())
+    }.sortedBy { it.slot }
+
+    /** A beacon from the Wi-Fi, or null for anything else on that port (another emulator's discovery, junk). */
+    data class Beacon(val port: Int, val hostName: String, val device: String, val game: String, val md5: String, val players: Int, val code: String)
+
+    fun beacon(b: Beacon) = line("J64ROOM", PROTO, b.port, b.hostName, b.device, b.game, b.md5, b.players, b.code)
+
+    fun parseBeacon(s: String): Beacon? {
+        val f = split(s)
+        if (f.size < 9 || f[0] != "J64ROOM" || f[1].toIntOrNull() != PROTO) return null
+        val port = f[2].toIntOrNull()?.takeIf { it in 1..65535 } ?: return null
+        val md5 = f[6].lowercase().takeIf { it.length == 32 && it.all { c -> c in '0'..'9' || c in 'a'..'f' } } ?: return null
+        return Beacon(port, f[3].ifEmpty { "Someone" }, f[4], f[5], md5, f[7].toIntOrNull()?.coerceIn(1, 4) ?: 1, f[8])
+    }
+
+    /** The next number for X (approved mockup 2026-11-10 screen 3): 1 -> 2 -> 3 -> 4 -> 1. */
+    /** The next player number in a room of [places] (the game's most players, 2-4), round to 1 after the last. */
+    fun nextSlot(slot: Int, places: Int = 4) = slot % places.coerceIn(1, 4) + 1
+
+    /** Moves [slot]'s player to the next number, swapping with whoever has it. [slots]: player key -> slot. */
+    fun <K> move(slots: Map<K, Int>, who: K, places: Int = 4): Map<K, Int> {
+        val from = slots[who] ?: return slots
+        val to = nextSlot(from, places)
+        return slots.mapValues { (k, s) -> when { k == who -> to; s == to -> from; else -> s } }
+    }
+
+    /** The lowest number nobody has, or null when all [places] are taken. */
+    fun freeSlot(taken: Collection<Int>, places: Int = 4) = (1..places.coerceIn(1, 4)).firstOrNull { it !in taken }
+}

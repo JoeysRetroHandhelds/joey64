@@ -121,6 +121,13 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val sys = File(filesDir, "system").apply { mkdirs() }
         val saves = File(filesDir, "saves").apply { mkdirs() }
 
+        // Netplay (Play together, 2026-11-10): the room's extras, as the environment the host and core read. A game screen
+        // runs in the launcher's process, and the host sets N64_NETPLAY itself when it opens a room, so a game without the
+        // extras clears them first: one netplay game must never make the next one a netplay game.
+        for (k in NETPLAY_ENV) android.system.Os.unsetenv(k)
+        intent?.getStringExtra(EXTRA_NETPLAY_HOST)?.let { android.system.Os.setenv("N64_NETPLAY_SERVE", it, true) }
+        intent?.getStringExtra(EXTRA_NETPLAY_JOIN)?.let { android.system.Os.setenv("N64_NETPLAY", it, true) }
+        intent?.getStringExtra(EXTRA_NETPLAY_NAME)?.let { android.system.Os.setenv("N64_NETPLAY_NAME", it, true) }
         // Dev: --es env "PARALLEL_RDP_UBERSHADER=1,KEY=value" (process environment, read by the core).
         // Set before setupGpu: the driver hooks (N64_KGSL_PRIO) read it while the custom driver loads
         devString("env")?.split(',')?.forEach { kv ->
@@ -149,12 +156,14 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // scaling, black frames, colour and sharpening. The dev switches below still win.
         val vApply = com.joeysretro.joey64.video.VideoApply.of(video, renderer == "parallel")
         for ((k, v) in vApply.coreOptions) NativeBridge.setOption(k, capUpscaling(k, v))
-        // The stats overlay's "parallel-RDP 2x" (after the Duo's cap; a dev --es opts upscale isn't shown).
-        statsRenderer = if (renderer == "parallel") "parallel-RDP " + capUpscaling("mupen64plus-parallel-rdp-upscaling",
-            vApply.coreOptions["mupen64plus-parallel-rdp-upscaling"] ?: "1x") else "GLideN64 " + (vApply.coreOptions["mupen64plus-EnableNativeResFactor"] ?: "1") + "x"
-        if (renderer == "parallel") playUpscale = capUpscaling(UPSCALE_KEY, vApply.coreOptions[UPSCALE_KEY] ?: "1x")
-        if (vApply.sharpScale) NativeBridge.setSharp(true)
+        // The stats overlay's "parallel-RDP 2x" (after the Duo's cap; a dev --es opts upscale isn't shown). A netplay room
+        // renders at 1x whatever is asked (the host answers the core so, Joey 2026-11-10), so it says 1x there.
+        val room1x = android.system.Os.getenv("N64_NETPLAY") != null || android.system.Os.getenv("N64_NETPLAY_SERVE") != null
+        statsRenderer = if (renderer == "parallel") "parallel-RDP " + (if (room1x) "1x" else capUpscaling("mupen64plus-parallel-rdp-upscaling",
+            vApply.coreOptions["mupen64plus-parallel-rdp-upscaling"] ?: "1x")) else "GLideN64 " + (if (room1x) "1" else vApply.coreOptions["mupen64plus-EnableNativeResFactor"] ?: "1") + "x"
+        if (renderer == "parallel") playUpscale = if (room1x) "1x" else capUpscaling(UPSCALE_KEY, vApply.coreOptions[UPSCALE_KEY] ?: "1x")
         applyVideoDisplay()
+        applyPicture()
         devSharp = devFlag("sharp2") || devFlag("sharp")
         // Sharp display (opt-in; the native look stays the default): the VI's anti-aliasing and bilinear
         // blur off, and a sharp-bilinear final scale. Dev: --ez sharp true, until the settings screen exists.
@@ -270,7 +279,20 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         return v?.takeIf { it.hasVibrator() }
     }
 
+    private fun systemVibrator(): Vibrator? {
+        val sys = if (Build.VERSION.SDK_INT >= 31)
+            (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
+            else @Suppress("DEPRECATION") getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        return sys.takeIf { it.hasVibrator() }
+    }
+
     private fun vibratorFor(p: Int): Vibrator? {
+        // Controls › Rumble on (approved paks mockup 2026-11-08): Off shakes nothing; This device shakes the device for any controller.
+        when (controls.players.getOrNull(p)?.rumbleOn) {
+            com.joeysretro.joey64.controls.RumbleOn.Off -> return null
+            com.joeysretro.joey64.controls.RumbleOn.Device -> return systemVibrator()
+            else -> {}
+        }
         // The pads playing as p, the one last used first; then a connected pad that is p's controller but hasn't been pressed yet.
         val ids = playerOfDevice.filterValues { it == p }.keys.sortedByDescending { it == padDeviceId }
         for (id in ids) padVibrator(InputDevice.getDevice(id))?.let { return it }
@@ -281,10 +303,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         }
         val builtInPlayer = controls.players.indexOfFirst { it.device == DeviceChoice.BuiltIn }
         if (p != builtInPlayer && !(p == 0 && builtInPlayer < 0)) return null
-        val sys = if (Build.VERSION.SDK_INT >= 31)
-            (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
-            else @Suppress("DEPRECATION") getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        return sys.takeIf { it.hasVibrator() }
+        return systemVibrator()
     }
 
     private fun setRumbling(mask: Int) {
@@ -294,8 +313,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             if (on) {
                 rumbleVibrators[p] = vibratorFor(p)
                 JLog.i(TAG, "rumble player ${p + 1} on: ${rumbleVibrators[p] ?: "no vibrator"}")
-                // Long one-shot, cancelled when the game switches the motor off.
-                rumbleVibrators[p]?.vibrate(VibrationEffect.createOneShot(10_000, VibrationEffect.DEFAULT_AMPLITUDE))
+                // Long one-shot, cancelled when the game switches the motor off. Rumble strength sets the amplitude on a
+                // motor that has amplitude control (the others shake at full: the row says "Full only").
+                val v = rumbleVibrators[p]
+                val pct = controls.players.getOrNull(p)?.rumbleStrength ?: 100
+                val amp = if (v != null && v.hasAmplitudeControl() && pct < 100) (255 * pct / 100).coerceIn(1, 255) else VibrationEffect.DEFAULT_AMPLITUDE
+                v?.vibrate(VibrationEffect.createOneShot(10_000, amp))
             } else {
                 rumbleVibrators[p]?.cancel()
                 rumbleVibrators[p] = null
@@ -687,6 +710,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val before = video
         video = next
         applyVideoDisplay()
+        applyPicture()
         applyWindowVideo()
         if (!devSharp) {
             val was = com.joeysretro.joey64.video.VideoApply.of(before, parallel)
@@ -696,7 +720,6 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
                 NativeBridge.setOptionsLive(changed.keys.toTypedArray(), changed.map { (k, v) -> capUpscaling(k, v) }.toTypedArray())
                 JLog.i(TAG, "game settings: core options now ${changed}")
             }
-            if (now.sharpScale != was.sharpScale) NativeBridge.setSharp(now.sharpScale)
         }
         val a = applyAudioNow(saveName)
         val start = audioAtStart ?: a
@@ -810,10 +833,194 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     /** The host's display state from [video]: shape, integer scaling, black frames, colour, sharpening. */
+    // ---- Settings › Video's Picture rows (approved mockup 2026-11-08; video/Picture.kt) ----------------
+    /** Next shader's pick, for this play only (a Shader value); null: Settings › Video's. */
+    private var playShader: String? = null
+    /** Shader on/off: the shader off for this play. */
+    private var shaderOff = false
+    private val lookImageKeys = arrayOfNulls<String>(2)
+
+    /** The screen's height in landscape, for Auto (Sharp pixels when it isn't a whole number of times 240). */
+    private fun screenSize(): Pair<Int, Int> {
+        val (w, h) = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) windowManager.maximumWindowMetrics.bounds.let { it.width() to it.height() }
+            else android.graphics.Point().also { @Suppress("DEPRECATION") windowManager.defaultDisplay.getRealSize(it) }.let { it.x to it.y }
+        return maxOf(w, h) to minOf(w, h)
+    }
+
+    /** What Auto gives here: the resolution this play draws at (Upscale hotkeys included). */
+    internal fun autoSharp(v: com.joeysretro.joey64.video.VideoSettings): Boolean {
+        val res = if (parallel) playUpscale?.removeSuffix("x")?.toIntOrNull() ?: v.int(com.joeysretro.joey64.video.VideoKey.Resolution)
+            else v.int(com.joeysretro.joey64.video.VideoKey.Resolution)
+        return com.joeysretro.joey64.video.Picture.autoSharp(res, screenSize().second)
+    }
+
+    /**
+     * Hands the host Shader, Sides of the picture, Overlay and colour-blind help: [v] (the in-game Picture
+     * panel's live pick) or the game's settings with this play's Next shader / Shader on/off.
+     */
+    internal fun applyPicture(v: com.joeysretro.joey64.video.VideoSettings? = null) {
+        val s = v ?: playShader?.let { com.joeysretro.joey64.video.VideoSettings(video.values + (com.joeysretro.joey64.video.VideoKey.Shader to it)) } ?: video
+        val store = com.joeysretro.joey64.video.PictureStore(this)
+        val setup = if (shaderOff && v == null) com.joeysretro.joey64.video.ShaderSetup(emptyList())
+            else com.joeysretro.joey64.video.Picture.setup(s, store::preset, autoSharp(s))
+        lastPictureV = v
+        val n = com.joeysretro.joey64.video.Picture.native(s, setup, raOverlayFor(s))
+        NativeBridge.setLook(n.ids, n.params, n.scale, n.sides, n.colourBlind, n.overlay, n.placeX, n.placeY, n.placeW)
+        handLookImage(0, n.sidesImage, store)
+        handLookImage(1, n.overlayImage, store)
+        applySlang(setup.slang, setup.slangParams)
+        NativeBridge.showAgain() // paused (the in-game Picture panel): the change shows now
+        JLog.i(TAG, "picture: shader ${setup.label}, scale ${setup.scale}, sides ${n.sides}, overlay ${n.overlay}%, colour-blind ${n.colourBlind}")
+    }
+
+    private var slangKey: String? = null
+
+    // ---- Sides › RetroArch overlay (approved mockup 2026-11-08; video/RaOverlay.kt) ----
+    /** What [raUse] was worked out for: the overlay, the orientation, its Place the game. */
+    private var raKey: String? = null
+    private var raUse: com.joeysretro.joey64.video.Picture.RaUse? = null
+    private var raNoneTold = false
+    private var lastPictureV: com.joeysretro.joey64.video.VideoSettings? = null
+
+    /**
+     * The RetroArch overlay this game uses with [s], or null (not that Sides choice, none for this game, or not ready:
+     * its copy, image and hole are worked out on [gameIo] first, then the picture is handed over again).
+     */
+    private fun raOverlayFor(s: com.joeysretro.joey64.video.VideoSettings): com.joeysretro.joey64.video.Picture.RaUse? {
+        val ra = com.joeysretro.joey64.video.RaOverlay
+        if (s[com.joeysretro.joey64.video.VideoKey.Sides] != "retroarch") { raKey = null; raUse = null; return null }
+        val sel = s[com.joeysretro.joey64.video.VideoKey.SidesRa]
+        val store = com.joeysretro.joey64.video.RaOverlayStore(this)
+        val value = when {
+            ra.isOverlay(sel) -> sel
+            ra.isMatch(sel) -> store.matchFor(listOfNotNull(earlySaveName(), intent?.getStringExtra(EXTRA_TITLE)))
+            else -> null
+        }
+        if (value == null) {
+            raKey = null; raUse = null
+            if (ra.isMatch(sel) && !raNoneTold) {
+                raNoneTold = true
+                val other = com.joeysretro.joey64.video.Picture.SIDES_OTHER.firstOrNull { it.value == s[com.joeysretro.joey64.video.VideoKey.SidesRaOther] }?.label ?: "None"
+                pop("sides", InGamePopup.Kind.Sides, "Sides of the picture", "No overlay for this game", "Using $other")
+            }
+            return null
+        }
+        val portrait = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
+        val place = store.place(value)
+        val key = "$value|$portrait|$place"
+        if (key == raKey) return raUse
+        raKey = key; raUse = null
+        val (lw, lh) = screenSize()
+        val (sw, sh) = if (portrait) lh to lw else lw to lh
+        gameIo.execute {
+            val err = store.ensure(value)
+            val img = if (err == null) store.imageFile(value, portrait) else null
+            val spot = place ?: img?.let { store.holeOf(it) }?.let { (hole, iw, ih) -> hole?.let { ra.placeIn(it, iw, ih, sw, sh) } }
+            runOnUiThread {
+                if (destroyed || raKey != key) return@runOnUiThread
+                if (img == null) {
+                    if (err == null) store.fail(value, "its image isn't there")
+                    pop("sides", InGamePopup.Kind.Problem, "Sides of the picture", "${ra.name(value)} didn't load",
+                        "Its image is missing from the folder you picked")
+                    return@runOnUiThread
+                }
+                JLog.i(TAG, "RetroArch overlay ${ra.name(value)}: ${img.name}, game at ${spot ?: "the middle"}")
+                raUse = com.joeysretro.joey64.video.Picture.RaUse(img.path, spot)
+                applyPicture(lastPictureV)
+            }
+        }
+        return null
+    }
+
+    /**
+     * Your own RetroArch preset (video/Slang.kt) to the host: its copy in files/video/slang/ (made on [gameIo] first
+     * when there's none), then how it loaded: one that doesn't is recorded (the Shader row says "<name> didn't load")
+     * and a pop-up says so; the game then draws with None.
+     */
+    private fun applySlang(value: String?, params: Map<String, Float>) {
+        val names = params.keys.toTypedArray()
+        val values = FloatArray(names.size) { params.getValue(names[it]) }
+        val key = value?.let { it + "|" + com.joeysretro.joey64.video.Slang.paramsString(params) }
+        if (key == slangKey) return
+        val newPreset = value != slangKey?.substringBefore('|')
+        slangKey = key
+        if (value == null) { NativeBridge.setSlang(null, names, values); return }
+        val slang = com.joeysretro.joey64.video.SlangStore(this)
+        gameIo.execute {
+            val err = slang.ensure(value)
+            val file = slang.localFile(value)
+            runOnUiThread {
+                if (destroyed || slangKey != key) return@runOnUiThread
+                if (err != null) { slangFailed(value, err); return@runOnUiThread }
+                NativeBridge.setSlang(file.path, names, values)
+                NativeBridge.showAgain()
+                if (newPreset) checkSlang(value, file.path, 0)
+            }
+        }
+    }
+
+    /** Polls the host's word on [path] (its chain is made at the next frame drawn) for up to 5 s. */
+    private fun checkSlang(value: String, path: String, tries: Int) {
+        window.decorView.postDelayed({
+            if (destroyed || slangKey?.substringBefore('|') != value) return@postDelayed
+            val st = NativeBridge.slangStatus().split('\n', limit = 3)
+            when {
+                st.size >= 2 && st[1] == path && st[0] == "ok" -> com.joeysretro.joey64.video.SlangStore(this).loaded(value)
+                st.size >= 3 && st[1] == path && st[0] == "error" -> slangFailed(value, st[2])
+                tries < 20 -> checkSlang(value, path, tries + 1)
+            }
+        }, 250)
+    }
+
+    private fun slangFailed(value: String, message: String) {
+        JLog.e(TAG, "RetroArch preset $value didn't load: $message")
+        com.joeysretro.joey64.video.SlangStore(this).fail(value, message)
+        val name = com.joeysretro.joey64.video.Slang.name(value)
+        pop("shader", InGamePopup.Kind.Problem, "Shader", "$name didn't load", com.joeysretro.joey64.video.Slang.plainError(message))
+    }
+
+    /** A sides (0) or overlay (1) image to the host, read on [gameIo] when it changed. */
+    private fun handLookImage(slot: Int, what: String?, store: com.joeysretro.joey64.video.PictureStore) {
+        val f = what?.takeIf { it != com.joeysretro.joey64.video.Picture.FRAME }?.let { if (it.startsWith("/")) File(it) else File(store.imagesDir, it) }
+        val key = when { what == null -> null; f == null -> "frame"; else -> "${f.name}:${f.lastModified()}:${f.length()}" }
+        if (key == lookImageKeys[slot]) return
+        lookImageKeys[slot] = key
+        if (key == null) { NativeBridge.setLookImage(slot, null, 0, 0); return }
+        val (sw, sh) = screenSize()
+        gameIo.execute {
+            val img = if (f == null) com.joeysretro.joey64.video.PictureImages.rgba(
+                com.joeysretro.joey64.video.PictureImages.frame(this, 960, (960L * sh / maxOf(1, sw)).toInt().coerceAtLeast(1)))
+                else com.joeysretro.joey64.video.PictureImages.load(f)
+            NativeBridge.setLookImage(slot, img?.bytes, img?.w ?: 0, img?.h ?: 0)
+            NativeBridge.showAgain()
+        }
+    }
+
+    /** Next shader (hotkey): Auto, None, the built-ins, then the presets, for this play. */
+    private fun nextShader() {
+        val list = com.joeysretro.joey64.video.Picture.cycle(com.joeysretro.joey64.video.PictureStore(this).presets().map { it.name })
+        val cur = playShader ?: video[com.joeysretro.joey64.video.VideoKey.Shader]
+        val i = (list.indexOf(cur) + 1).mod(list.size)
+        playShader = list[i]
+        shaderOff = false
+        applyPicture()
+        JLog.i(TAG, "next shader hotkey: ${list[i]} for this play")
+        pop("shader", InGamePopup.Kind.Shader, "Next shader", com.joeysretro.joey64.video.Picture.valueLabel(list[i]), "${i + 1} of ${list.size} · for this play")
+    }
+
+    /** Shader on/off (hotkey): no shader for this play, and back. */
+    private fun toggleShader() {
+        shaderOff = !shaderOff
+        applyPicture()
+        val name = com.joeysretro.joey64.video.Picture.valueLabel(playShader ?: video[com.joeysretro.joey64.video.VideoKey.Shader])
+        pop("shader", InGamePopup.Kind.Shader, "Shader on/off", if (shaderOff) "Shader off" else name, "For this play")
+    }
+
     private fun applyVideoDisplay() {
         val v = video
         val (aw, ah) = com.joeysretro.joey64.video.VideoApply.aspect(v, extrasOn.shape)
         NativeBridge.setDisplay(aw, ah, v.on(com.joeysretro.joey64.video.VideoKey.Integer), v.on(com.joeysretro.joey64.video.VideoKey.Bfi))
+        NativeBridge.setCrop(v.int(com.joeysretro.joey64.video.VideoKey.Crop))
         NativeBridge.setColour(v.int(com.joeysretro.joey64.video.VideoKey.Brightness), v.int(com.joeysretro.joey64.video.VideoKey.Contrast), v.int(com.joeysretro.joey64.video.VideoKey.Saturation), v.int(com.joeysretro.joey64.video.VideoKey.Gamma))
         NativeBridge.setSharpen(when (v[com.joeysretro.joey64.video.VideoKey.Sharpen]) { "cas" -> 1; "fsr" -> 2; else -> 0 }, v.int(com.joeysretro.joey64.video.VideoKey.SharpenStrength))
     }
@@ -966,7 +1173,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     /** What [prepareGame] got ready off the main thread: the ROM, its save name, a 64DD disk's cartridge, Settings › Saves. */
     private class Prepared(val rom: String, val saveName: String, val ddCart: String?, val savesOpts: com.joeysretro.joey64.saves.SavesOptions,
-                           val extras: com.joeysretro.joey64.video.ExtrasOn)
+                           val extras: com.joeysretro.joey64.video.ExtrasOn, val tpak: Pair<String, String>? = null)
     /** [prepareGame] stopped because a 64DD disk's cartridge didn't unpack. */
     @Volatile private var cartFailed = false
     /** [prepareGame] is running on [gameIo]. */
@@ -979,7 +1186,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (!mine) return
         NativeBridge.setSurface(holder.surface)
         surfaceUp = true
-        if (started) return
+        // Paused (the pause menu, or back from a picker it opened): draw the held frame on the new surface,
+        // or the game stays black behind the menu until Resume (Thor 2026-11-08). Running, the next frame does.
+        if (started) { NativeBridge.showAgain(); return }
         prepared?.let { launchGame(it); return }
         if (preparing) return
         // The file work before a game loads (unpacking the ROM, the 64DD BIOS, a picked data folder's saves, the
@@ -991,7 +1200,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             runOnUiThread {
                 preparing = false
                 if (destroyed) return@runOnUiThread
-                if (p == null) { reportGameState(loading = false); notStarted(cart = cartFailed); return@runOnUiThread }
+                if (p == null) { reportGameState(loading = false); notStarted(cart = cartFailed, why = com.joeysretro.joey64.launcher.GameStartFailed.Why.Unreadable); return@runOnUiThread }
                 prepared = p
                 if (surfaceUp) launchGame(p)
             }
@@ -1017,7 +1226,24 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         com.joeysretro.joey64.launcher.storage.SrmSync.pull(this, saveName)
         com.joeysretro.joey64.saves.SaveBackups.maybeBackUp(com.joeysretro.joey64.launcher.storage.DataFolders.current(this).space,
             saveName, opts.backups, opts.backupsKeep)
-        return Prepared(rom, saveName, ddCart, opts, gameExtras(if (disk) ddCart ?: "" else rom))
+        return Prepared(rom, saveName, ddCart, opts, gameExtras(if (disk) ddCart ?: "" else rom), if (disk) null else transferPak(saveName))
+    }
+
+    /**
+     * Transfer Pak (approved paks mockup 2026-11-08, scratchpad build_paks2.py): the first player whose pak is the
+     * Transfer Pak, with a Game Boy game picked, gives the play its Game Boy game (copied, unzipped, to cache/tpak/) and
+     * save (Joey64's own copy, saves/<save name>.gb.sav, synced with the data folder like the save RAM; GameBoyFiles.saveCopy). The core takes one Game Boy
+     * game per play, so other players with a Transfer Pak get the same one (README work order (44)). Null: none.
+     */
+    private fun transferPak(saveName: String): Pair<String, String>? {
+        if (saveName.isEmpty()) return null
+        val set = try { controlsStore.forGame(saveName) } catch (e: Exception) { return null }
+        val p = set.players.firstOrNull { it.device != DeviceChoice.None && it.pak == Pak.Transfer && it.gbGame != null } ?: return null
+        val game = p.gbGame!!
+        val rom = com.joeysretro.joey64.controls.GameBoyFiles.copyGame(this, game.uri, game.name, File(cacheDir, "tpak")) ?: return null
+        val ram = com.joeysretro.joey64.controls.GameBoyFiles.saveCopy(this, saveName, p.gbSave?.uri)
+        JLog.i(TAG, "Transfer Pak: ${com.joeysretro.joey64.controls.GameBoyFiles.describe(game.name, p.gbSave?.name)}, playing ${ram.name}")
+        return rom.absolutePath to ram.absolutePath
     }
 
     /** On the main thread, with a surface: the rest of the start. */
@@ -1026,6 +1252,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val rom = p.rom; val saveName = p.saveName; val ddCart = p.ddCart
         startRom = rom; startSave = saveName
         NativeBridge.setDdCart(ddCart ?: "")
+        NativeBridge.setTransferPak(p.tpak?.first ?: "", p.tpak?.second ?: "")
         applyControls(rom, saveName)
         extrasOn = p.extras // before applyCheats, which hands the core their codes
         applyCheats(if (RomFiles.isDiskName(rom)) ddCart ?: "" else rom, saveName)
@@ -1044,6 +1271,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         JLog.i(TAG, "widescreen / 60 fps: ${p.extras.log}")
         // RetroAchievements: signs in with the kept account first, so the game is identified as it loads.
         com.joeysretro.joey64.achievements.RaBridge.init(this)
+        com.joeysretro.joey64.achievements.RaBridge.gameStarting()
         // The recompiler's block list, one file per game (Joey 2026-11-09: "Yes, build it"): the blocks the game compiled
         // last time are compiled early on the compile thread as their code loads, so a scene's first compile doesn't
         // land in a frame (Flip, Mario Kart 64's race start: a 42-46 ms hitch without the list, none with it). The core
@@ -1052,12 +1280,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             android.system.Os.setenv("N64_DRC_LIST", File(File(filesDir, "blocklists").apply { mkdirs() }, "$saveName.txt").path, true)
         // The router's address for a hosted room's NAT-PMP (when no UPnP router answers): from the network's default
         // route, since Android's main route table that libnatpmp reads has none. --es env N64_NETPLAY_GW=<ip> wins.
-        if (devString("env")?.contains("N64_NETPLAY_GW=") != true) runCatching {
-            val cm = getSystemService(android.net.ConnectivityManager::class.java)
-            val gw = cm?.getLinkProperties(cm.activeNetwork)?.routes
-                ?.firstOrNull { it.isDefaultRoute && it.gateway is java.net.Inet4Address }?.gateway?.hostAddress
-            if (gw != null) android.system.Os.setenv("N64_NETPLAY_GW", gw, true) else android.system.Os.unsetenv("N64_NETPLAY_GW")
-        }
+        if (devString("env")?.contains("N64_NETPLAY_GW=") != true) com.joeysretro.joey64.netplay.RouterAddress.set(this)
         trial?.begin()
         if (NativeBridge.loadGame(rom, saveName)) {
             NativeBridge.start(); started = true; owner = this; gameLoaded = true
@@ -1065,18 +1288,24 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             startStates(saveName)
             startSession(rom, saveName)
             fpsHandler.postDelayed(shutdownWatch, SHUTDOWN_POLL_MS)
+            fpsHandler.postDelayed(saveRamWatch, SAVE_RAM_POLL_MS)
+            if (android.system.Os.getenv("N64_NETPLAY") != null || android.system.Os.getenv("N64_NETPLAY_SERVE") != null)
+                fpsHandler.postDelayed(netWatch, NET_POLL_MS)
+            getSystemService(android.hardware.input.InputManager::class.java)?.registerInputDeviceListener(padListener, fpsHandler)
             reportGameState(loading = false)
         } else {
             trial?.cancel()
             reportGameState(loading = false)
-            notStarted(cart = false)
+            notStarted(cart = false, why = com.joeysretro.joey64.launcher.GameStartFailed.Why.Refused)
         }
     }
 
     /** The game couldn't start (no ROM, a cartridge that didn't unpack, the core refused it): back to what started it, not a black screen. */
-    private fun notStarted(cart: Boolean) {
-        JLog.e(TAG, "the game didn't start, closing the game screen")
+    private fun notStarted(cart: Boolean, why: com.joeysretro.joey64.launcher.GameStartFailed.Why) {
+        JLog.e(TAG, "the game didn't start (${why.name}), closing the game screen")
         if (cart) intent?.let { com.joeysretro.joey64.launcher.GameStartFailed.diskNeedsCart(it) }
+        // Started from the library (it passes the MD5): it says "<game> won't start" (approved problem screens 2026-11-08).
+        else intent?.takeIf { it.hasExtra(EXTRA_MD5) }?.let { com.joeysretro.joey64.launcher.GameStartFailed.romFailed(it, why) }
         finish()
     }
 
@@ -1098,6 +1327,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             trial?.cancel()
             // Only a missing IPL is asked for; a damaged disk or disk save just goes back.
             if (noIpl) intent?.let { com.joeysretro.joey64.launcher.GameStartFailed.diskNeedsBios(it) }
+            // Netplay: the room was lost, couldn't be reached, turned this player down, or has another copy (approved netplay screens).
+            // A quit the player asked for stops the room's wait (joey64_netplay_abort), and the core then says the
+            // connection was lost or the room can't be reached: no problem screen for that.
+            else if (why in 3..6) { if (!quitting) intent?.takeIf { it.hasExtra(EXTRA_MD5) }?.let { com.joeysretro.joey64.launcher.GameStartFailed.netEnded(it, why) } }
+            else intent?.takeIf { it.hasExtra(EXTRA_MD5) }?.let { com.joeysretro.joey64.launcher.GameStartFailed.romFailed(it, com.joeysretro.joey64.launcher.GameStartFailed.Why.Stopped) }
             finish()
         }
     }
@@ -1129,7 +1363,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             it.title = givenTitle ?: saveName
             it.saveSlotName = slotName(currentSlot())
             it.onScreen = onScreen
+            for (p in earlyPops) it.show(p)
+            earlyPops.clear()
         }
+        // No touchscreen (a TV): no touch controls (Android TV mockup 2026-11-09, screen 7).
+        if (com.joeysretro.joey64.launcher.layout.Tv.hasTouch(this)) touch = com.joeysretro.joey64.touch.TouchLayer(this, touchHost)
+        applyTouch(fresh = true)
         // RetroAchievements no longer takes the kept sign-in (the password changed on the website): say so
         // once the game is up (approved sign-in mockup g). Signing in again is in Settings › RetroAchievements.
         uiScope.launch {
@@ -1144,6 +1383,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             badges = { ids, files -> runOnUiThread { if (!destroyed) overlay?.setChallengeBadges(ids, files) } },
             screenshot = { stateHandler.post { if (st.screenshot() == null) JLog.w(TAG, "screenshot on unlock: not saved") } },
         ).also { com.joeysretro.joey64.achievements.RaBridge.listeners += it }
+        // Offline unlocks: RAOfflineProxy picked and not running, so no achievements this game (in place of the summary).
+        if (com.joeysretro.joey64.achievements.RaBridge.offThisGame) uiScope.launch {
+            pop("ra", InGamePopup.Kind.AchievementsOff, "", "Achievements off", com.joeysretro.joey64.achievements.OfflineRoute.OFF_LINE)
+        }
         // The progress cache (decided 2026-11-04): the set and its progress, for the Achievements pages.
         raCache = com.joeysretro.joey64.achievements.RaCache(this).also { com.joeysretro.joey64.achievements.RaBridge.listeners += it }
         // The pause menu's title: the game's name in the library, else the ROM's (a frontend's game).
@@ -1159,7 +1402,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             null -> {}
             STATE_AUTO -> stateHandler.post { startLoadFailed = !st.load(StateSlots.AUTO) }
             STATE_RECOVERY -> stateHandler.post { startLoadFailed = !st.loadRecovery() }
-            else -> JLog.e(TAG, "states: unknown state to load: $which")
+            // The Saves page's Play from here: "slot:<n>", StateSlots' number.
+            else -> which.removePrefix(STATE_SLOT).toIntOrNull()?.takeIf { which.startsWith(STATE_SLOT) }
+                ?.let { n -> stateHandler.post { startLoadFailed = !st.load(n) } }
+                ?: JLog.e(TAG, "states: unknown state to load: $which")
         }
         // A picked data folder gets the save RAM the core wrote, every 30 s when it changed (and on exit).
         stateHandler.postDelayed(srmTick, SRM_PUSH_MS)
@@ -1307,6 +1553,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         gameSharkButton(false)
         releaseAll()
         o.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Menu()
+        touch?.setActive(false)
     }
 
     /**
@@ -1328,7 +1575,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             }
             MotionEvent.ACTION_CANCEL -> tapDown = null
         }
-        return if (tapDown != null) true else super.dispatchTouchEvent(ev)
+        if (tapDown != null) return true
+        if (touch?.touchedWhileHidden(ev) == true) return true
+        return super.dispatchTouchEvent(ev)
     }
 
     private fun opensAchievements(t: GameOverlay.Tap) = when (t) {
@@ -1392,6 +1641,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // Resume goes on after the Pause hotkey too (approved hotkeys mockup 2026-11-07).
         if (hotkeyPaused) { sessionMark(); hotkeyPaused = false; overlay?.hide("paused", waiting = true) }
         if (resumed && !quitting) NativeBridge.pause(false)
+        touch?.setActive(touchActive())
     }
 
     /** The picker's cells: each slot's date and its picture, shrunk for a 100 x 75 dp cell. */
@@ -1409,6 +1659,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         override fun openGameSettings() {
             val st = states ?: return
             overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.GameSettings(st.saveName)
+        }
+        override fun pictureChanged() {
+            // The in-game Picture panel: its pick replaces this play's Next shader / Shader on/off.
+            val name = states?.saveName ?: return
+            playShader = null; shaderOff = false
+            applyPicture(com.joeysretro.joey64.video.VideoStore(this@MainActivity).forGame(name))
         }
         override fun closeGameSettings() {
             states?.let { applyGameSettings(it.saveName) }
@@ -1472,15 +1728,25 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             overlay?.screen = null
             quitToLibrary()
         }
+        override fun disconnectChoice(choice: com.joeysretro.joey64.launcher.ingame.DisconnectChoice) = disconnected(choice)
+        override fun closeNoSpace() { closeMenu() }
+        override val inRoom: Boolean get() = net.inRoom
+        override val netLine: String? get() = if (!net.inRoom) null
+            else com.joeysretro.joey64.netplay.NetplayWords.waitingForYou(
+                (netPlayers.map { it.player }.ifEmpty { net.playersIn(net.joined) }).filter { it != netMe })
+        override fun netMenu() { openMenu() }
+        override fun netCarryOn() { closeMenu() }
+        override fun netLeave() { JLog.i(TAG, "netplay: leaving the room"); overlay?.screen = null; quitToLibrary() }
         override val quitLabel: String get() = hotkeys.quitTo.menuRow
         override fun pick(save: Boolean, slot: Int) {
             val st = states ?: return
             overlay?.screen = null
             stateHandler.post {
                 val savedAt = if (save) null else st.savedAt(slot)
-                val ok = if (save) st.save(slot) else st.load(slot)
+                val ok = if (save) st.save(slot) else st.load(slot, undoable = true)
                 // A state loaded by hand: the game is somewhere real again, so quitting writes the auto slot.
-                if (ok && !save) startLoadFailed = false
+                if (ok && !save) { startLoadFailed = false; loadedThisPlay = true }
+                if (ok && save) savedThisPlay = true
                 runOnUiThread {
                     if (ok && slot != StateSlots.AUTO) setCurrentSlot(slot)
                     closeMenu()
@@ -1515,6 +1781,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private var hotkeyHatY = 0
 
     private fun hotkey(action: HotkeyAction) {
+        if (netBlocked(action)) return
         when (action) {
             HotkeyAction.Save -> hotkeySave()
             HotkeyAction.Load -> hotkeyLoad()
@@ -1537,6 +1804,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             HotkeyAction.Pause -> togglePause()
             HotkeyAction.FrameAdvance -> frameAdvance()
             HotkeyAction.Achievements -> openAchievementsHotkey()
+            HotkeyAction.UndoLoad -> hotkeyUndoLoad()
+            HotkeyAction.UndoSave -> hotkeyUndoSave()
+            HotkeyAction.Turbo -> toggleTurbo()
+            HotkeyAction.NextShader -> nextShader()
+            HotkeyAction.ShaderToggle -> toggleShader()
         }
     }
 
@@ -1548,6 +1820,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private fun hotkeyEdge(action: HotkeyAction, event: KeyEvent, down: Boolean) {
         val up = event.action == KeyEvent.ACTION_UP
         if (quitting) return
+        if (net.inRoom && com.joeysretro.joey64.netplay.NetplayWords.blockedLine(action) != null) { if (down) netBlocked(action); return }
         when (action) {
             HotkeyAction.GameShark -> if (down) { fpsHandler.removeCallbacks(gameSharkUp); gameSharkButton(true) } else if (up) gameSharkRelease()
             HotkeyAction.FastForward -> if (down || up) fastForwardKey(down)
@@ -1632,6 +1905,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val next = UPSCALES[i]
         playUpscale = next
         NativeBridge.setOptionsLive(arrayOf(UPSCALE_KEY), arrayOf(next))
+        applyPicture() // Auto follows the resolution
         statsRenderer = "parallel-RDP $next"
         stats?.renderer = statsRenderer
         val kept = com.joeysretro.joey64.video.VideoChoices.label(com.joeysretro.joey64.video.VideoKey.Resolution,
@@ -1710,20 +1984,80 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     private fun hotkeySave() {
         val st = states ?: return
+        letGoHeld()
         val slot = currentSlot()
-        stateHandler.post { val ok = st.save(slot); runOnUiThread { popSaved(slot, ok) } }
+        stateHandler.post { val ok = st.save(slot); if (ok) savedThisPlay = true; runOnUiThread { popSaved(slot, ok) } }
     }
 
     private fun hotkeyLoad() {
         val st = states ?: return
+        letGoHeld()
         val slot = currentSlot()
         stateHandler.post {
             val savedAt = st.savedAt(slot)
             if (savedAt == null) { runOnUiThread { popEmpty(slot) }; return@post }
-            val ok = st.load(slot)
-            if (ok) startLoadFailed = false
+            val ok = st.load(slot, undoable = true)
+            if (ok) { startLoadFailed = false; loadedThisPlay = true }
             runOnUiThread { popLoaded(slot, ok, savedAt) }
         }
+    }
+
+    // ---- Undo load state / Undo save state (approved mockup 2026-11-08, scratchpad build_undo.py) ----
+
+    /** Whether a load / save by hand happened this play, for Nothing to undo's line. */
+    @Volatile private var loadedThisPlay = false
+    @Volatile private var savedThisPlay = false
+
+    private fun hotkeyUndoLoad() {
+        val st = states ?: return
+        letGoHeld()
+        stateHandler.post {
+            val slot = st.undoLoad()
+            runOnUiThread {
+                if (slot != null) pop("state", InGamePopup.Kind.Undo, "Undo load state", "Back to before loading ${slotName(slot).lowercase()}", "")
+                else pop("state", InGamePopup.Kind.Undo, "Undo load state", NOTHING_TO_UNDO,
+                    if (loadedThisPlay) "Already undone" else "No state loaded since the game started")
+            }
+        }
+    }
+
+    private fun hotkeyUndoSave() {
+        val st = states ?: return
+        stateHandler.post {
+            val u = st.undoSave()
+            runOnUiThread {
+                if (u != null) pop("state", InGamePopup.Kind.Undo, "Undo save state",
+                    slotName(u.slot) + (u.savedAt?.let { " is back to " + slotDate(it) } ?: " is empty again"), "")
+                else pop("state", InGamePopup.Kind.Undo, "Undo save state", NOTHING_TO_UNDO,
+                    if (savedThisPlay) "Already undone" else "No state saved since the game started")
+            }
+        }
+    }
+
+    // ---- Turbo (approved mockup 2026-11-08, scratchpad build_turbo.py) ----
+
+    /** The Turbo hotkey's switch, for this play only: the next game starts with it on. */
+    private var turboOn = true
+
+    /** Each player's turbo buttons and speed to the host (a button held by a tap doesn't repeat). */
+    private fun applyTurbo() {
+        for (i in 0..3) {
+            val s = players[i].setup
+            NativeBridge.setTurbo(i, com.joeysretro.joey64.controls.turboMask(s.turbo, s.latch), s.turboSpeed)
+        }
+        NativeBridge.setTurboOn(turboOn)
+    }
+
+    private fun toggleTurbo() {
+        val all = (0..3).filter { controls.players[it].device != DeviceChoice.None }
+            .flatMap { players[it].setup.let { s -> s.turbo - s.latch } }.toSet()
+        if (all.isEmpty()) { pop("turbo", InGamePopup.Kind.Turbo, "", "No turbo buttons", "Controls › Turbo"); return }
+        turboOn = !turboOn
+        NativeBridge.setTurboOn(turboOn)
+        JLog.i(TAG, "turbo " + if (turboOn) "on" else "off")
+        if (turboOn) pop("turbo", InGamePopup.Kind.Turbo, "", "Turbo on", com.joeysretro.joey64.controls.turboNames(all))
+        else pop("turbo", InGamePopup.Kind.TurboOff, "", "Turbo off",
+            com.joeysretro.joey64.controls.turboNames(all, and = true) + if (all.size == 1) " presses normally" else " press normally")
     }
 
     private fun stepSlot(by: Int) {
@@ -1745,7 +2079,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             val name = st.screenshot()
             runOnUiThread {
                 if (name != null) pop("screenshot", InGamePopup.Kind.Screenshot, "Screenshot", "Saved", "In the screenshots folder")
-                else pop("screenshot", InGamePopup.Kind.Problem, "Screenshot", "Not saved", "The log has the details")
+                else if (!noSpace(com.joeysretro.joey64.saves.NoSpace.What.Screenshot, st.failedNeed)) pop("screenshot", InGamePopup.Kind.Problem, "Screenshot", "Not saved", "The log has the details")
             }
         }
     }
@@ -1766,16 +2100,23 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // Settings › On screen › Pop-ups (problems always show).
         val off = when (kind) {
             InGamePopup.Kind.Saved, InGamePopup.Kind.Loaded, InGamePopup.Kind.Slot -> !onScreen.popStates
+            InGamePopup.Kind.Undo -> !onScreen.popStates && name != NOTHING_TO_UNDO
             InGamePopup.Kind.Screenshot -> !onScreen.popScreenshots
             InGamePopup.Kind.Reset -> !onScreen.popReset
-            InGamePopup.Kind.Volume, InGamePopup.Kind.Mute, InGamePopup.Kind.Resolution -> !onScreen.popHotkeys
+            InGamePopup.Kind.Volume, InGamePopup.Kind.Mute, InGamePopup.Kind.Resolution, InGamePopup.Kind.Shader -> !onScreen.popHotkeys
+            InGamePopup.Kind.Turbo, InGamePopup.Kind.TurboOff -> !onScreen.popHotkeys && name != "No turbo buttons"
             else -> false
         }
         if (off) return
-        overlay?.show(InGamePopup(key, kind, label, name, line, bar = bar))
+        val p = InGamePopup(key, kind, label, name, line, bar = bar)
+        // Before the game is up (a RetroArch preset that didn't load at start): shown once the overlay is there.
+        overlay?.show(p) ?: earlyPops.add(p)
     }
 
+    private val earlyPops = ArrayList<InGamePopup>()
+
     private fun popSaved(slot: Int, ok: Boolean) {
+        if (!ok && noSpace(com.joeysretro.joey64.saves.NoSpace.What.State, states?.failedNeed ?: 0, slotName(slot))) return
         if (ok) pop("state", InGamePopup.Kind.Saved, "Save state", "${slotName(slot)} saved", overlay?.title ?: "")
         else pop("state", InGamePopup.Kind.Problem, "Save state", "${slotName(slot)} wasn't saved", "The log has the details")
     }
@@ -1805,11 +2146,103 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
      * Quit to library: the game is paused, the auto slot written (Continue starts from it) and the
      * recovery state dropped, then the screen closes.
      */
+    // ---- Netplay in game (approved mockup 2026-11-10, scratchpad build_netplay3.py / netplay3_mock.png, "Approve as drawn") ----
+    // The room is read four times a second while the game is in one (dev env N64_NETPLAY / N64_NETPLAY_SERVE until the
+    // Play together screens). Screens: (1) another player paused, (2) the pauser's menu line (PauseScreens), (3) waiting for a
+    // slow player, (5) out of step, (6) a hotkey that waits until you leave; the player-left popup (approved 2026-11-05).
+    // Room lost (4) is the library's (GameStartFailed.netEnded).
+    private var net = com.joeysretro.joey64.netplay.NetInfo.OFF
+    /** This device's player (1-4), 0 until known. */
+    private var netMe = 0
+    /** Out of step shows once a play; players who left are said once. */
+    private var netOutShown = false
+    private var netLeftSaid = 0
+    /** The player the Waiting pop-up names, 0 for none. */
+    private var netWaitShown = 0
+    /** The room's players (names, pings), and every name seen this play (a player who left isn't listed any more). */
+    private var netPlayers = emptyList<com.joeysretro.joey64.netplay.NetPlayer>()
+    private val netNames = HashMap<Int, String>()
+    private var netChip: com.joeysretro.joey64.netplay.NetChip? = null
+    private fun netName(p: Int) = netNames[p]
+
+    private val netWatch = object : Runnable {
+        override fun run() {
+            if (destroyed || isFinishing) return
+            val n = com.joeysretro.joey64.netplay.NetInfo.of(NativeBridge.netplayInfo())
+            net = n
+            if (n.inRoom && netMe == 0) {
+                netMe = com.joeysretro.joey64.netplay.NetplayWords.myPlayer(n.hosting, android.system.Os.getenv("N64_NETPLAY"), n.me)
+                if (netMe != 0) JLog.i(TAG, "netplay: in the room as player $netMe" + if (n.hosting) " (hosting)" else "")
+            }
+            netPlayers = if (n.inRoom) com.joeysretro.joey64.netplay.NetPlayers.parse(NativeBridge.netplayPlayers()) else emptyList()
+            for (p in netPlayers) netNames[p.player] = p.name
+            if (n.inRoom && !quitting) netShow(n)
+            // The players chip (approved), top right; at the bottom right when the stats are top right.
+            if (netChip == null && netPlayers.isNotEmpty()) netChip = com.joeysretro.joey64.netplay.NetChip(this@MainActivity, windowManager)
+            netChip?.show(if (quitting) emptyList() else netPlayers,
+                onScreen.stats != com.joeysretro.joey64.onscreen.StatsMode.Off && onScreen.corner.top && !onScreen.corner.left)
+            fpsHandler.postDelayed(this, NET_POLL_MS)
+        }
+    }
+
+    private fun netShow(n: com.joeysretro.joey64.netplay.NetInfo) {
+        val o = overlay ?: return
+        val w = com.joeysretro.joey64.netplay.NetplayWords
+        // (5) Out of step: over the paused game (pausing tells the room, so everyone stops), once a play.
+        if (n.outOfStep && !netOutShown) {
+            netOutShown = true
+            JLog.i(TAG, "netplay: the games are out of step, asking")
+            if (!menuOpen) openMenu()
+            o.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.NetOutOfStep(n.hosting)
+            return
+        }
+        // Player left: the game paused for everyone while the popup is up.
+        val newLeft = n.left and netLeftSaid.inv()
+        if (newLeft != 0) {
+            netLeftSaid = netLeftSaid or n.left
+            val p = n.playersIn(newLeft).first()
+            JLog.i(TAG, "netplay: player $p left, asking")
+            if (!menuOpen) openMenu()
+            if (o.screen !is com.joeysretro.joey64.launcher.ingame.PauseScreen.NetOutOfStep) o.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.NetLeft(p, netName(p))
+            return
+        }
+        // (1) Another player's menu has the game stopped: shown while it's open, unless this player's own menu is.
+        val other = n.pausedBy != 0 && n.pausedBy != netMe
+        val scr = o.screen
+        if (other && !menuOpen && (scr == null || (scr is com.joeysretro.joey64.launcher.ingame.PauseScreen.NetPaused && (scr.player != n.pausedBy || scr.name != netName(n.pausedBy))))) {
+            if (scr == null) JLog.i(TAG, "netplay: player ${n.pausedBy} paused the game")
+            o.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.NetPaused(n.pausedBy, netName(n.pausedBy))
+            touch?.setActive(false)
+        } else if (!other && scr is com.joeysretro.joey64.launcher.ingame.PauseScreen.NetPaused) {
+            JLog.i(TAG, "netplay: player ${scr.player} is back")
+            o.screen = null
+            touch?.setActive(touchActive())
+        }
+        // (3) Waiting for a slow player (the core says so after a second's wait), while nobody has paused.
+        val waitFor = if (n.pausedBy == 0 && n.waitingFor != netMe) n.waitingFor else 0
+        if (waitFor != netWaitShown) {
+            netWaitShown = waitFor
+            if (waitFor == 0) o.hide("npwait")
+            else o.show(InGamePopup("npwait", InGamePopup.Kind.NetWait, "Netplay", w.waitingTitle(waitFor), w.slowLine(waitFor, netName(waitFor)),
+                stayMs = com.joeysretro.joey64.launcher.ingame.PopupQueue.UNTIL_HIDDEN))
+        }
+    }
+
+    /** (6) In a room, a hotkey for something that changes the game's course says it waits until you leave (3 s). True if it's blocked. */
+    private fun netBlocked(action: HotkeyAction): Boolean {
+        if (!net.inRoom) return false
+        val line = com.joeysretro.joey64.netplay.NetplayWords.blockedLine(action) ?: return false
+        JLog.i(TAG, "netplay: ${action.label} refused in a room")
+        overlay?.show(InGamePopup("npblock", InGamePopup.Kind.NetBlocked, "Netplay", com.joeysretro.joey64.netplay.NetplayWords.BLOCKED, line, stayMs = NET_BLOCKED_MS))
+        return true
+    }
+
     private fun quitToLibrary() {
         val st = states ?: run { finish(); return }
         if (quitting) return
         quitting = true
         NativeBridge.pause(true)
+        releaseAll()
         stateHandler.removeCallbacks(recoveryTick)
         stateHandler.post {
             if (startLoadFailed) JLog.e(TAG, "states: the state asked for at start didn't load, so the auto slot is kept as it was")
@@ -1823,7 +2256,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         }
     }
 
-    override fun surfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) { if (mine) NativeBridge.surfaceResized() }
+    override fun surfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) {
+        if (!mine) return
+        NativeBridge.surfaceResized()
+        if (started) NativeBridge.showAgain()
+    }
     override fun surfaceDestroyed(holder: SurfaceHolder) { surfaceUp = false; if (mine) NativeBridge.setSurface(null) }
 
     /**
@@ -1930,13 +2367,72 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     /** Players whose port is plugged in this session (the core's ports are set as the game loads). */
     private var portsPresent = 1
 
+    // ---- Touch controls (approved mockup 2026-11-09, scratchpad build_touch3.py): Player 1's, in a window over the game ----
+    private var touch: com.joeysretro.joey64.touch.TouchLayer? = null
+    private var touchSettings = com.joeysretro.joey64.touch.TouchSettings()
+    private var touchFfDown = 0L
+    private var touchFfWasOn = false
+    private val touchHost = object : com.joeysretro.joey64.touch.TouchLayer.Host {
+        override fun onTouchInput(bits: Int, stick: Pair<Float, Float>?) {
+            players[0].touchBits = bits; players[0].touchStick = stick
+            push(0)
+        }
+        override fun onTouchAction(c: com.joeysretro.joey64.touch.TouchControl, down: Boolean) {
+            if (quitting) return
+            when (c.kind) {
+                com.joeysretro.joey64.touch.TouchKind.Menu -> if (!down && !menuOpen) openMenu()
+                com.joeysretro.joey64.touch.TouchKind.FastForward -> if (!net.inRoom) touchFastForward(down) else if (down) netBlocked(HotkeyAction.FastForward)
+                com.joeysretro.joey64.touch.TouchKind.SaveState -> if (down) hotkey(HotkeyAction.Save)
+                com.joeysretro.joey64.touch.TouchKind.LoadState -> if (down) hotkey(HotkeyAction.Load)
+                com.joeysretro.joey64.touch.TouchKind.Screenshot -> if (down) hotkey(HotkeyAction.Screenshot)
+                com.joeysretro.joey64.touch.TouchKind.Macro -> touchMacro(c, down)
+                else -> {}
+            }
+        }
+        override fun onEmptyTap(downX: Float, downY: Float, upX: Float, upY: Float) {
+            // A tap on an achievement pop-up under the controls opens it, as on the game's own window.
+            val o = overlay ?: return
+            val d = o.tapAt(downX, downY)?.takeIf { opensAchievements(it) } ?: return
+            if (o.tapAt(upX, upY) == d) openAchievementsAt(d)
+        }
+    }
+
+    /** The touch controls for this game (All games, or its own): at the start ([fresh]), or after a change in the pause menu. */
+    private fun applyTouch(fresh: Boolean) {
+        val t = touch ?: return
+        val s = com.joeysretro.joey64.touch.TouchStore(this).forGame(currentSaveName.ifEmpty { null })
+        touchSettings = s
+        if (fresh) t.apply(s, controllerConnected = PadDevices.pads().isNotEmpty()) else t.reapply(s)
+        NativeBridge.setPortraitTop(if (s.show == com.joeysretro.joey64.touch.TouchShow.Never) -1 else PORTRAIT_TOP_PER_MILLE)
+        t.setActive(touchActive())
+    }
+
+    /** The touch controls take touches only while the game plays with nothing over it. */
+    private fun touchActive() = resumed && !menuOpen && !quitting && overlay?.screen == null
+
+    /** Fast-forward on the screen: a tap turns it on or off, a hold is for while held ("Tap to turn on or off, hold for while held"). */
+    private fun touchFastForward(down: Boolean) {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (down) { touchFfWasOn = fastForward; touchFfDown = now; setFastForward(!fastForward); return }
+        if (!touchFfWasOn && now - touchFfDown >= TOUCH_HOLD_MS) setFastForward(false)
+    }
+
+    /** A macro button: one of Player 1's macros by name, played as its own button would (held, a repeating one repeats). */
+    private fun touchMacro(c: com.joeysretro.joey64.touch.TouchControl, down: Boolean) {
+        val m = players[0].setup.macros.firstOrNull { it.name == c.macro }
+        if (m == null) { if (down) JLog.i(TAG, "touch: no macro named ${c.macro} for Player 1"); return }
+        if (down) playMacro(0, m) else if (m.repeat) NativeBridge.stopMacro(0, false)
+    }
+
     /** Reads the controls for [saveName] and sets the core's ports, paks and input options. Before loadGame. */
     private fun applyControls(rom: String, saveName: String) {
-        if (!controlsStore.hasAll()) controlsStore.saveAll(PadDevices.firstSet())
+        if (!controlsStore.hasAll()) controlsStore.saveAll(PadDevices.firstSet(com.joeysretro.joey64.launcher.layout.Tv.isTv(this)))
         controls = controlsStore.forGame(saveName.ifEmpty { null })
         hotkeys = controlsStore.hotkeys()
         applyRewind()
         for (i in 0..3) players[i].setup = controls.players[i]
+        turboOn = true
+        applyTurbo()
         playerOfDevice.clear()
         portsPresent = 1
         for (i in 1..3) if (controls.players[i].device != DeviceChoice.None) portsPresent = portsPresent or (1 shl i)
@@ -1977,6 +2473,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (p < 0 && PadDevices.isBuiltIn(dev)) p = controls.players.indexOfFirst { it.device == DeviceChoice.BuiltIn }
         if (p < 0) p = claimFreePlayer(dev)
         playerOfDevice[id] = p
+        if (!PadDevices.isBuiltIn(dev)) padNames[id] = dev.name
         if (p >= 0) JLog.i(TAG, "controls: ${dev.name} (" + "%04x:%04x".format(dev.vendorId, dev.productId) + ") is player ${p + 1}")
         return p
     }
@@ -1997,6 +2494,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         controlsStore.saveAll(all.with(free, setup))
         controls = controls.with(free, if (currentSaveName.isNotEmpty() && controlsStore.game(currentSaveName) != null) controls.players[free].copy(device = choice) else setup)
         players[free].setup = controls.players[free]
+        applyTurbo()
         if (portsPresent and (1 shl free) == 0) {
             portsPresent = portsPresent or (1 shl free)
             NativeBridge.setPortsPresent(portsPresent)
@@ -2018,6 +2516,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         applyRewind()
         if (slowMotion) NativeBridge.setSlowMotion(hotkeys.slowSpeed)
         for (i in 0..3) { players[i].setup = controls.players[i]; players[i].release(); push(i) }
+        applyTurbo()
         playerOfDevice.clear()
         var ports = 1
         for (i in 1..3) if (controls.players[i].device != DeviceChoice.None) ports = ports or (1 shl i)
@@ -2030,10 +2529,142 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             // Live: the game is loaded, and setOption writes the option table the emulation thread reads unlocked.
             if (pak != paks[i]) { paks[i] = pak; NativeBridge.setOptionsLive(arrayOf("mupen64plus-pak${i + 1}"), arrayOf(pak.core!!)) }
         }
+        applyTouch(fresh = false)
         JLog.i(TAG, "controls: changed in game, " + controls.players.mapIndexed { i, p -> "P${i + 1} ${deviceLabel(p.device)} (${paks[i].name})" }.joinToString(", "))
     }
     private val paks = Array(4) { Pak.Controller }
     private var lastRom: String? = null
+
+    // ---- Controller disconnected (approved problem screens, scratchpad build_problems2.py, 2026-11-08, screen 4) ------
+    // A controller a player was playing on goes (its battery, out of range, unplugged): the game pauses with a popup and
+    // carries on by itself when it comes back. Built-in controls never "go". Use built-in controls puts the device's own
+    // controls on that player for now (Auto mapped, nothing saved); Carry on without them (players 2-4) unplugs their port
+    // for now. Either way the player's own controller, when it comes back, has them again.
+    /** External controllers' names by device id, as they last sent input (the device is gone by the time it's removed). */
+    private val padNames = HashMap<Int, String>()
+    /** The player the game waits for (Controller disconnected is up), or -1. */
+    private var waitingPlayer = -1
+    /** Players on the built-in controls for now (Use built-in controls) and players left out for now (Carry on without them). */
+    private val onBuiltIn = HashSet<Int>()
+    private val leftOut = HashSet<Int>()
+    /** Of [leftOut], the players whose port this unplugged (only those are plugged back in). */
+    private val unplugged = HashSet<Int>()
+
+    private val padListener = object : android.hardware.input.InputManager.InputDeviceListener {
+        override fun onInputDeviceAdded(id: Int) { padBack(id) }
+        override fun onInputDeviceRemoved(id: Int) { padGone(id) }
+        override fun onInputDeviceChanged(id: Int) {}
+    }
+
+    private fun padGone(id: Int) {
+        val p = playerOfDevice.remove(id) ?: return
+        val name = padNames.remove(id) ?: return
+        if (p < 0 || playerOfDevice.values.any { it == p }) { JLog.i(TAG, "controls: $name went, player ${p + 1} still has a controller"); return }
+        if (!gameLoaded || quitting || destroyed || overlay == null || p in leftOut) {
+            JLog.i(TAG, "controls: $name went (player ${p + 1}), no game to pause (loaded $gameLoaded, overlay ${overlay != null})"); return
+        }
+        JLog.i(TAG, "controls: $name (player ${p + 1}) disconnected, the game waits for it")
+        players[p].release(); push(p)
+        waitingPlayer = p
+        if (!menuOpen) openMenu()
+        val builtIn = PadDevices.builtIn() != null
+        overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.Disconnected(p, name, builtIn,
+            touch = !builtIn && p == 0 && touch != null && touchSettings.show != com.joeysretro.joey64.touch.TouchShow.Never)
+    }
+
+    /** The player whose own controller [dev] is (Controls' Controller row), without giving it to a free player. */
+    private fun ownerOf(dev: InputDevice): Int {
+        val p = controls.players.indexOfFirst { it.device is DeviceChoice.Pad && PadDevices.matches(it.device, dev) }
+        if (p >= 0) return p
+        // A phone: a controller plays as the built-in player (claimFreePlayer).
+        val b = controls.players.indexOfFirst { it.device == DeviceChoice.BuiltIn }
+        return if (b >= 0 && PadDevices.builtIn() == null && (b == waitingPlayer || b in onBuiltIn || b in leftOut)) b else -1
+    }
+
+    private fun padBack(id: Int) {
+        val dev = InputDevice.getDevice(id) ?: return
+        if (!PadDevices.isPad(dev) || PadDevices.isBuiltIn(dev)) return
+        val p = ownerOf(dev)
+        if (p < 0 || (p != waitingPlayer && p !in onBuiltIn && p !in leftOut)) return
+        JLog.i(TAG, "controls: ${dev.name} is back, player ${p + 1} plays on it again")
+        playerOfDevice[id] = p; padNames[id] = dev.name
+        playerBack(p, id)
+    }
+
+    /** [p]'s own controller ([id]; null from the debug broadcast) is back: they play on it again. */
+    private fun playerBack(p: Int, id: Int?) {
+        if (onBuiltIn.remove(p)) {
+            // The built-in controls go back to whoever they belong to.
+            playerOfDevice.entries.removeAll { (d, q) -> q == p && d != id }
+            players[p].release(); players[p].setup = controls.players[p]; push(p)
+        }
+        leftOut.remove(p)
+        if (unplugged.remove(p) && portsPresent and (1 shl p) == 0) { portsPresent = portsPresent or (1 shl p); NativeBridge.setPortsPresent(portsPresent) }
+        if (p == waitingPlayer) {
+            waitingPlayer = -1
+            if (overlay?.screen is com.joeysretro.joey64.launcher.ingame.PauseScreen.Disconnected) closeMenu()
+        }
+    }
+
+    private fun disconnected(choice: com.joeysretro.joey64.launcher.ingame.DisconnectChoice) {
+        val p = waitingPlayer
+        if (choice == com.joeysretro.joey64.launcher.ingame.DisconnectChoice.Quit) { waitingPlayer = -1; pauseActions.quit(); return }
+        if (p < 0) { closeMenu(); return }
+        when (choice) {
+            com.joeysretro.joey64.launcher.ingame.DisconnectChoice.BuiltIn -> {
+                val own = PadDevices.pads().filter { PadDevices.isBuiltIn(it) }
+                if (own.isEmpty()) return
+                for (d in own) playerOfDevice[d.id] = p
+                players[p].release(); players[p].setup = PadDevices.autoSetup(own.first(), DeviceChoice.BuiltIn, keep = controls.players[p])
+                onBuiltIn += p
+                JLog.i(TAG, "controls: player ${p + 1} on the built-in controls until their controller is back")
+            }
+            com.joeysretro.joey64.launcher.ingame.DisconnectChoice.Touch -> {
+                touch?.showNow()
+                JLog.i(TAG, "controls: player 1 on the touch controls until their controller is back")
+            }
+            com.joeysretro.joey64.launcher.ingame.DisconnectChoice.WithoutThem -> {
+                leftOut += p
+                players[p].release(); push(p)
+                if (portsPresent and (1 shl p) != 0) { unplugged += p; portsPresent = portsPresent and (1 shl p).inv(); NativeBridge.setPortsPresent(portsPresent) }
+                JLog.i(TAG, "controls: carrying on without player ${p + 1} until their controller is back")
+            }
+            else -> {}
+        }
+        waitingPlayer = -1
+        closeMenu()
+    }
+
+    // ---- Not enough space to save (approved problem screens, screen 5) ------------------------------------------
+    /**
+     * A state, a screenshot or the game's own save that couldn't be written ([need] bytes) on a full disk: the popup over
+     * the paused game says so. False (nothing shown) when there's room, so the failure was something else.
+     */
+    private fun noSpace(what: com.joeysretro.joey64.saves.NoSpace.What, need: Long, slot: String? = null, devFree: Long? = null): Boolean {
+        if (need <= 0 || overlay == null || quitting || destroyed) return false
+        // The game's own save is written to Joey64's own files first (a picked data folder gets a copy).
+        val tree = if (what == com.joeysretro.joey64.saves.NoSpace.What.GameSave) null
+            else com.joeysretro.joey64.launcher.storage.DataFolders.current(this).treeUri
+        val place = com.joeysretro.joey64.saves.NoSpace.placeOf(this, tree)
+        val free = devFree ?: place.free
+        if (free == null || !com.joeysretro.joey64.saves.NoSpace.isFull(free, need)) return false
+        JLog.e(TAG, "not enough space: ${what.name} needs $need bytes, ${place.name} has $free free")
+        if (!menuOpen) openMenu()
+        overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.NoSpace(com.joeysretro.joey64.saves.NoSpace.text(what, slot, place.name, free, need))
+        return true
+    }
+
+    /** The game's own save couldn't be written: says so once, until a write works again. */
+    private var saveRamWarned = false
+    private val saveRamWatch = object : Runnable {
+        override fun run() {
+            if (destroyed) return
+            val failed = NativeBridge.saveRamFailed()
+            if (failed == 0L) saveRamWarned = false
+            else if (!saveRamWarned && !menuOpen) saveRamWarned = noSpace(com.joeysretro.joey64.saves.NoSpace.What.GameSave, failed)
+            fpsHandler.postDelayed(this, SAVE_RAM_POLL_MS)
+        }
+    }
 
     /** Switches the rumble and stick calibration to the pad that sent the last input. */
     private fun usePad(dev: InputDevice?, id: Int): Controllers.StickCal {
@@ -2049,15 +2680,76 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         NativeBridge.setButtons(p, input.buttons())
         val (x, y) = input.stick()
         NativeBridge.setAnalog(p, 0, PlayerInput.toRetroStick(x), PlayerInput.toRetroStick(y))
+        showHeld()
     }
 
     private fun releaseAll() {
+        stopMacros()
         for (p in 0..3) { players[p].release(); push(p); NativeBridge.setAnalog(p, 1, 0, 0) }
+    }
+
+    /** A save state or load: buttons held by a tap and macros playing stop; buttons pressed now stay pressed. */
+    private fun letGoHeld() {
+        stopMacros()
+        for (p in 0..3) { players[p].releaseLatches(); push(p) }
+    }
+
+    // Controls extras' Tap to hold (approved mockup 2026-11-08): a pop-up at the top left while a button is held by a tap.
+    private var heldShown = ""
+    private fun showHeld() {
+        val parts = (0..3).mapNotNull { p -> players[p].latched().takeIf { it.isNotEmpty() }?.let { p to it } }
+        val text = when (parts.size) {
+            0 -> ""
+            1 -> com.joeysretro.joey64.controls.heldLine(parts[0].second)
+            else -> parts.joinToString(" · ") { (p, held) -> "P${p + 1} " + com.joeysretro.joey64.controls.latchLabel(held) } + " held"
+        }
+        if (text == heldShown) return
+        heldShown = text
+        if (text.isEmpty()) overlay?.hide("held", waiting = true)
+        else overlay?.show(InGamePopup("held", InGamePopup.Kind.Held, "", text, "", compact = true,
+            stayMs = com.joeysretro.joey64.launcher.ingame.PopupQueue.UNTIL_HIDDEN))
+    }
+
+    // Controls extras' macros: the key that started one, with its player, until it's let go.
+    private val macroKeys = HashMap<Int, Pair<Int, com.joeysretro.joey64.controls.Macro>>()
+
+    /** A macro's button for player [p] ([withHotkey]: the hotkey button is held): it plays, and the game never sees the button. */
+    private fun macroKey(p: Int, code: Int, event: KeyEvent, withHotkey: Boolean): Boolean {
+        if (event.action != KeyEvent.ACTION_DOWN) return false
+        val m = com.joeysretro.joey64.controls.Macro.forKey(players[p].setup.macros, code, withHotkey) ?: return false
+        if (event.repeatCount == 0) {
+            playMacro(p, m)
+            macroKeys[code] = p to m
+        }
+        return true
+    }
+
+    private fun playMacro(p: Int, m: com.joeysretro.joey64.controls.Macro) {
+        val steps = m.steps
+        NativeBridge.playMacro(p, IntArray(steps.size) { steps[it].mask() },
+            IntArray(steps.size) { PlayerInput.toRetroStick(steps[it].stickXY().first) },
+            IntArray(steps.size) { PlayerInput.toRetroStick(steps[it].stickXY().second) },
+            IntArray(steps.size) { steps[it].frames }, m.repeat)
+        JLog.i(TAG, "macro: P${p + 1} ${m.name}, ${steps.size} steps${if (m.repeat) ", repeating" else ""}")
+    }
+
+    /** A macro's button let go: a repeating one stops after its pass; a Once one plays to its end. */
+    private fun macroKeyUp(code: Int): Boolean {
+        val (p, m) = macroKeys.remove(code) ?: return false
+        if (m.repeat) NativeBridge.stopMacro(p, false)
+        return true
+    }
+
+    private fun stopMacros() {
+        for (p in 0..3) NativeBridge.stopMacro(p, true)
+        macroKeys.clear()
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         // The release of a button the Controls remap popup took (it closed on the press).
         if (com.joeysretro.joey64.launcher.controls.PadCapture.swallowRelease(event)) return true
+        if (event.action == KeyEvent.ACTION_DOWN && (KeyEvent.isGamepadButton(event.keyCode) ||
+                event.source and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD)) touch?.controllerUsed()
         val inGame = states != null && overlay != null && mine
         val code = event.keyCode
         val down = event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0
@@ -2066,6 +2758,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             if (event.action == KeyEvent.ACTION_UP && !event.isCanceled && !quitting && !menuOpen) openMenu()
             return true
         }
+        // A macro's button let go (the hotkey button may already be up).
+        if (event.action == KeyEvent.ACTION_UP && macroKeyUp(code)) return true
         // The hotkey button held makes the next button a hotkey.
         if (inGame && code == hotkeys.button) {
             when (event.action) {
@@ -2084,11 +2778,16 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (hotkeyHeld && inGame) {
             // Both edges are the hotkey's: the game never sees them.
             hotkeys.actionFor(code, alone = false)?.let { action -> hotkeyEdge(action, event, down); return true }
+            // Then a macro on hotkey button + this button.
+            val hp = playerFor(event.device, event.deviceId)
+            if (hp >= 0 && macroKey(hp, code, event, withHotkey = true)) return true
         }
         val p = playerFor(event.device, event.deviceId)
         if (KeyEvent.isGamepadButton(code) || p >= 0) usePad(event.device, event.deviceId)
         // A hotkey on its own wins over the game's use of the button (the Hotkeys popup says so).
         if (inGame) hotkeys.actionFor(code, alone = true)?.let { action -> hotkeyEdge(action, event, down); return true }
+        // A macro's button wins over the player's use of it.
+        if (inGame && p >= 0 && macroKey(p, code, event, withHotkey = false)) return true
         if (p < 0 || !players[p].uses(code)) return super.dispatchKeyEvent(event)
         if (inputLat && event.action == KeyEvent.ACTION_DOWN) noteInputLat(event.eventTime, true, 0)
         when (event.action) {
@@ -2103,6 +2802,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (event.source and InputDevice.SOURCE_JOYSTICK != InputDevice.SOURCE_JOYSTICK ||
             event.action != MotionEvent.ACTION_MOVE) return super.dispatchGenericMotionEvent(event)
         val cal = usePad(event.device, event.deviceId)
+        // A stick pushed on purpose (not a resting stick's jitter) hides When no controller's touch controls.
+        if (touch != null && listOf(MotionEvent.AXIS_X, MotionEvent.AXIS_Y, MotionEvent.AXIS_Z, MotionEvent.AXIS_RZ, MotionEvent.AXIS_HAT_X,
+                MotionEvent.AXIS_HAT_Y, MotionEvent.AXIS_LTRIGGER, MotionEvent.AXIS_RTRIGGER).any { kotlin.math.abs(event.getAxisValue(it)) > 0.5f })
+            touch?.controllerUsed()
         if (hotkeyHeld) hotkeyHat(event)
         if (inputLat) noteInputLat(if (event.historySize > 0) event.getHistoricalEventTime(0) else event.eventTime, false, event.historySize)
         val p = playerFor(event.device, event.deviceId)
@@ -2157,6 +2860,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         focusRequest = null
     }
 
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        // A picker opened from the pause menu (GameOverlay.results).
+        if (overlay?.results?.dispatchResult(requestCode, resultCode, data) != true) super.onActivityResult(requestCode, resultCode, data)
+    }
+
     // In a netplay room (2026-11-10, Joey: "Wi-Fi lock first"): a low-latency Wi-Fi lock while the game is on screen,
     // so Wi-Fi power saving doesn't hold packets back (Android applies it only in the foreground with the screen on).
     // Dev: --es env N64_NETPLAY_WIFILOCK=0 leaves it off, for the before/after.
@@ -2194,6 +2903,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         reportGameState(loading = false, playing = false)
         stats?.stop()
         resumed = false
+        touch?.setActive(false)
         hotkeyHeld = false
         fastForwardRelease()
         slowMotionRelease()
@@ -2211,6 +2921,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (started) { reportGameState(loading = false); requestAudioFocus() }
         session?.tick(false, NativeBridge.framesRun(), NativeBridge.framesDrawn(), android.os.SystemClock.elapsedRealtime())
         resumed = true
+        touch?.setActive(touchActive())
         netWifiLockSet(true)
         stats?.start()
         setRumbling(NativeBridge.rumble())
@@ -2233,15 +2944,20 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     override fun onDestroy() {
         if (isFinishing) { fpsHandler.removeCallbacks(sessionTick); session?.finish(); session = null }
+        fpsHandler.removeCallbacks(saveRamWatch)
+        getSystemService(android.hardware.input.InputManager::class.java)?.unregisterInputDeviceListener(padListener)
         uiScope.cancel()
         debugStick?.let { unregisterReceiver(it) }
         debugDump?.let { unregisterReceiver(it) }
         debugLogs?.let { unregisterReceiver(it) }
+        debugProblem?.let { unregisterReceiver(it) }
         debugRaEvent?.let { unregisterReceiver(it) }
         destroyed = true
         stats?.destroy()
+        netChip?.remove()
         raPopups?.stop()
         raCache?.stop()
+        touch?.destroy()
         overlay?.destroy()
         if (owner === this) { NativeBridge.stop(); owner = null } else if (owner == null && !switching) NativeBridge.stop()
         // The save RAM and a 64DD disk save written as the core stopped, into a picked data folder: on [gameIo], after
@@ -2262,6 +2978,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private var debugStick: BroadcastReceiver? = null
     private var debugDump: BroadcastReceiver? = null
     private var debugLogs: BroadcastReceiver? = null
+    private var debugProblem: BroadcastReceiver? = null
     private var debugRaEvent: BroadcastReceiver? = null
 
     private fun registerDebugStick() {
@@ -2274,6 +2991,28 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
                 handler.postDelayed({ NativeBridge.setAnalog(0, stick, 0, 0) }, i.getIntExtra("ms", 150).toLong())
             }
         }
+        // Approved problem screens (2026-11-08), checks without pulling a controller or filling the disk:
+        // adb shell am broadcast -a com.joeysretro.joey64.PROBLEM --es what disconnect [--ei player 1] [--es name "8BitDo Pro 2"]
+        //   (the player's controller went), back (it came back), nospace | nospace-shot | nospace-save (a full disk: 1 MB free).
+        debugProblem = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, i: Intent) {
+                JLog.i(TAG, "debug PROBLEM: ${i.getStringExtra("what")}")
+                val mb = 1024L * 1024
+                when (i.getStringExtra("what")) {
+                    "disconnect" -> {
+                        val p = i.getIntExtra("player", 0).coerceIn(0, 3)
+                        // As if this were the player's only controller (on the Thor, player 1 also has the built-in one).
+                        playerOfDevice.entries.removeAll { it.value == p }
+                        playerOfDevice[-99] = p; padNames[-99] = i.getStringExtra("name") ?: "8BitDo Pro 2"
+                        padGone(-99)
+                    }
+                    "back" -> if (waitingPlayer >= 0) playerBack(waitingPlayer, null) else (onBuiltIn + leftOut).firstOrNull()?.let { playerBack(it, null) }
+                    "nospace" -> noSpace(com.joeysretro.joey64.saves.NoSpace.What.State, 4 * mb, slotName(currentSlot()), devFree = mb)
+                    "nospace-shot" -> noSpace(com.joeysretro.joey64.saves.NoSpace.What.Screenshot, 900 * 1024L, devFree = mb / 2)
+                    "nospace-save" -> noSpace(com.joeysretro.joey64.saves.NoSpace.What.GameSave, 290 * 1024L, devFree = 100 * 1024L)
+                }
+            }
+        }
         // adb shell am broadcast -a com.joeysretro.joey64.DUMP --es name snap1  -> files/dumps/snap1.bin
         debugDump = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, i: Intent) {
@@ -2282,7 +3021,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
                 NativeBridge.dumpRam(File(dir, "${i.getStringExtra("name") ?: "ram"}.bin").absolutePath)
             }
         }
-        // adb shell am broadcast -a com.joeysretro.joey64.LOGS  -> cache/joey64-logs.zip (what the Share button will send)
+        // adb shell am broadcast -a com.joeysretro.joey64.LOGS  -> cache/share/joey64-logs.zip (what Settings › About › Share logs sends)
         debugLogs = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, i: Intent) {
                 JLog.i(TAG, "log: zipped to ${LogFiles.zip(ctx)}")
@@ -2303,7 +3042,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             }
         }
         for ((receiver, action) in listOf(debugStick to "com.joeysretro.joey64.STICK", debugDump to "com.joeysretro.joey64.DUMP",
-                debugLogs to "com.joeysretro.joey64.LOGS", debugRaEvent to "com.joeysretro.joey64.RA_EVENT")) {
+                debugLogs to "com.joeysretro.joey64.LOGS", debugRaEvent to "com.joeysretro.joey64.RA_EVENT",
+                debugProblem to "com.joeysretro.joey64.PROBLEM")) {
             val filter = IntentFilter(action)
             if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
             else registerReceiver(receiver, filter)
@@ -2311,6 +3051,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     companion object {
+        private const val NOTHING_TO_UNDO = "Nothing to undo"
         /**
          * The instance whose surface, pause and stop calls reach the native side: the one that loaded the game. A ROM
          * handed over while the game screen is already open makes a second instance; the first one's surfaceDestroyed,
@@ -2323,6 +3064,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         /** A game was loaded in this process; the core cannot load a second one, so a new ROM restarts the process. */
         private var gameLoaded = false
         private const val SHUTDOWN_POLL_MS = 500L
+        private const val NET_POLL_MS = 250L
+        private const val NET_BLOCKED_MS = 3_000L
+        /** How often the game screen checks whether the game's own save was written (Not enough space to save). */
+        private const val SAVE_RAM_POLL_MS = 3_000L
         /** Game start and quit file work, one job at a time in order, for every instance (they share cache/current.rom and saves/). */
         private val gameIo = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "joey64-gameio") }
         /** switchGame -> the next process: the ROM already unpacked, and its save name. */
@@ -2340,14 +3085,27 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         private const val SESSION_TICK_MS = 5_000L
         /** A 64DD disk's cartridge, as a content URI (F-Zero X Expansion Kit: F-Zero X (Japan)); without it a disk boots alone. */
         const val EXTRA_DD_CART = "com.joeysretro.joey64.DD_CART"
+        /** Play together: host a room, "port:players:auto" (N64_NETPLAY_SERVE); with [EXTRA_NETPLAY_JOIN] "127.0.0.1:port:own player". */
+        const val EXTRA_NETPLAY_HOST = "com.joeysretro.joey64.NETPLAY_HOST"
+        /** Play together: join the room at "host:port:player" (N64_NETPLAY). */
+        const val EXTRA_NETPLAY_JOIN = "com.joeysretro.joey64.NETPLAY_JOIN"
+        /** Play together: this player's name in the room (N64_NETPLAY_NAME). */
+        const val EXTRA_NETPLAY_NAME = "com.joeysretro.joey64.NETPLAY_NAME"
+        private val NETPLAY_ENV = listOf("N64_NETPLAY", "N64_NETPLAY_SERVE", "N64_NETPLAY_NAME")
         const val STATE_AUTO = "auto"
         const val STATE_RECOVERY = "recovery"
+        /** "slot:<n>": the state in StateSlots' slot n (the Saves page's Play from here). */
+        const val STATE_SLOT = "slot:"
         private const val SRM_PUSH_MS = 30_000L
         /** "Every few minutes" (approved 2026-11-05). */
         /** The pause menu's "Press GameShark button": how long it holds it (approved 2026-11-07: a second). */
         private const val GAMESHARK_PRESS_MS = 1_000L
         /** The hotkey's shortest hold: a few frames, so a quick tap reaches the game. */
         private const val GAMESHARK_MIN_MS = 200L
+        /** Touch controls in portrait: the picture's top, 115 px of a 2400 px phone (approved mockup screen 6). */
+        private const val PORTRAIT_TOP_PER_MILLE = 48
+        /** A touch fast-forward held this long is "while held"; shorter is a tap. */
+        private const val TOUCH_HOLD_MS = 400L
         private const val UPSCALE_KEY = "mupen64plus-parallel-rdp-upscaling"
         /** parallel-RDP's Resolution steps for the Upscale hotkeys (the Duo stops at 2x, [capUpscaling]). */
         private val UPSCALES = listOf("1x", "2x", "4x", "8x")

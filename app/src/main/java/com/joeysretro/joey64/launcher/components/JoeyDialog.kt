@@ -10,6 +10,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -95,6 +96,18 @@ fun JoeyDialog(
     atTop: Boolean = false,
     /** Centred, and near the top while the keyboard is up (Sign in to RetroAchievements). */
     riseWithKeyboard: Boolean = false,
+    /**
+     * A panel down the right side over the running picture (the in-game Picture panel, approved 2026-11-05):
+     * no dim and no blur, so changes show on the game as they're made; [width] wide, the window's height.
+     */
+    sidePanel: Boolean = false,
+    /** A line on the right of the hint row (the screenshot viewer's game, date and "1 of 8"). */
+    hintEnd: String? = null,
+    /**
+     * The whole window is the content's, with nothing of the popup's own: no dim, blur, card or hint row
+     * (the touch controls' layout editor, approved mockup 2026-11-09 screen 3, draws its own over the game).
+     */
+    bare: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val backRegistry = remember { DialogBackRegistry() }
@@ -131,7 +144,7 @@ fun JoeyDialog(
                 WindowCompat.setDecorFitsSystemWindows(window, false)
                 window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
                 window.setDimAmount(0f)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && window.windowManager.isCrossWindowBlurEnabled) {
+                if (!sidePanel && !bare && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && window.windowManager.isCrossWindowBlurEnabled) {
                     window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
                     window.attributes = window.attributes.apply { blurBehindRadius = blurPx }
                 }
@@ -174,7 +187,14 @@ fun JoeyDialog(
         val tapOutside by rememberUpdatedState { if (dismissible) requestClose() }
         // Its own window: laid out at the launcher's debug size too, and measured for its own
         // ScreenLayout (in a game, the game's window provides none: its pages were always two columns).
-        com.joeysretro.joey64.launcher.layout.DevFrame { com.joeysretro.joey64.launcher.layout.ProvideScreenLayout(Modifier.fillMaxSize()) {
+        val isTv = remember { com.joeysretro.joey64.launcher.layout.Tv.isTv(view.context) }
+        val okHold = remember { com.joeysretro.joey64.launcher.layout.RemoteKeys.OkHold() }
+        com.joeysretro.joey64.launcher.layout.DevFrame {
+        // On a TV the popup and its hint row stay inside the safe area; the dim still covers the edges (TV mockup screens 5-6).
+        Box(Modifier.fillMaxSize().then(if (isTv && !sidePanel && !bare) Modifier.background(c.scrim) else Modifier)
+            .then(if (isTv) Modifier.padding(horizontal = com.joeysretro.joey64.launcher.layout.Tv.SAFE_SIDES,
+                vertical = com.joeysretro.joey64.launcher.layout.Tv.SAFE_ENDS) else Modifier)) {
+        com.joeysretro.joey64.launcher.layout.ProvideScreenLayout(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             // The dim: everything above the hint row. A tap on it is "outside". A tap handler,
             // not a clickable: a clickable is a focus target, and since it holds the card, a tap
@@ -184,25 +204,29 @@ fun JoeyDialog(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .background(c.scrim)
-                    .pointerInput(Unit) { detectTapGestures { tapOutside() } }
+                    .then(if (sidePanel || bare || isTv) Modifier else Modifier.background(c.scrim))
+                    .then(if (bare) Modifier else Modifier.pointerInput(Unit) { detectTapGestures { tapOutside() } })
                     .then(if (atTop) Modifier.padding(top = 44.dp) else Modifier)
                     // A card never touches the screen's edges: on a narrow screen it's the screen's width less these.
-                    .then(if (fullScreen) Modifier else Modifier.padding(horizontal = 16.dp, vertical = 8.dp)),
-                contentAlignment = if (atTop) Alignment.TopCenter else Alignment.Center,
+                    .then(if (fullScreen || sidePanel || bare) Modifier else Modifier.padding(horizontal = 16.dp, vertical = 8.dp)),
+                contentAlignment = if (sidePanel) Alignment.CenterEnd else if (atTop) Alignment.TopCenter else Alignment.Center,
             ) {
                 val shape = RoundedCornerShape(s.popupCorner)
                 Box(
                     modifier = Modifier
-                        .then(if (fullScreen) Modifier.fillMaxSize().background(c.page) else Modifier
+                        .then(if (bare) Modifier.fillMaxSize()
+                        else if (fullScreen) Modifier.fillMaxSize().background(c.page)
+                        else if (sidePanel) Modifier.fillMaxHeight().widthIn(max = width).fillMaxWidth().background(c.surface)
+                            .border(1.dp, c.border).padding(horizontal = 8.dp, vertical = 10.dp)
+                        else Modifier
                             .widthIn(max = width)
                             .fillMaxWidth()
                             .then(if (c.isDark) Modifier else Modifier.shadow(18.dp, shape))
                             .background(c.surface, shape)
                             .border(1.dp, c.border, shape))
                         // Taps on the card mustn't count as outside (the options take their own first).
-                        .pointerInput(Unit) { detectTapGestures { } }
-                        .then(if (fullScreen) Modifier else Modifier.padding(horizontal = 10.dp, vertical = 12.dp))
+                        .then(if (bare) Modifier else Modifier.pointerInput(Unit) { detectTapGestures { } })
+                        .then(if (fullScreen || sidePanel || bare) Modifier else Modifier.padding(horizontal = 10.dp, vertical = 12.dp))
                         .focusRequester(body)
                         // Compose turns a Back key it sees into a focus move out of the group
                         // (FocusDirection.Exit). In a popup that must be answered nothing closes,
@@ -212,6 +236,14 @@ fun JoeyDialog(
                         .focusGroup()
                         .onPreviewKeyEvent { event ->
                             val native = event.nativeKeyEvent
+                            com.joeysretro.joey64.launcher.layout.RemoteKeys.note(native, isTv)
+                            // A TV remote's OK: a press on release, Hold OK is Start (TV mockup screen 5).
+                            if (isTv && okHold.handle(native, click = {
+                                    view.post {
+                                        view.dispatchKeyEvent(com.joeysretro.joey64.launcher.layout.RemoteKeys.synth(KeyEvent.ACTION_DOWN))
+                                        view.dispatchKeyEvent(com.joeysretro.joey64.launcher.layout.RemoteKeys.synth(KeyEvent.ACTION_UP))
+                                    }
+                                }, hold = { onOptions?.invoke() })) return@onPreviewKeyEvent true
                             when (native.keyCode) {
                                 KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_BUTTON_SELECT -> {
                                     if (native.action == KeyEvent.ACTION_DOWN && native.repeatCount == 0) aDownTime = native.downTime
@@ -219,8 +251,8 @@ fun JoeyDialog(
                                         aDownTime = -1L
                                         // Posted so it isn't dispatched from inside this dispatch.
                                         view.post {
-                                            view.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_CENTER))
-                                            view.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_CENTER))
+                                            view.dispatchKeyEvent(com.joeysretro.joey64.launcher.layout.RemoteKeys.synth(KeyEvent.ACTION_DOWN))
+                                            view.dispatchKeyEvent(com.joeysretro.joey64.launcher.layout.RemoteKeys.synth(KeyEvent.ACTION_UP))
                                         }
                                     }
                                     true
@@ -246,9 +278,9 @@ fun JoeyDialog(
                     }
                 }
             }
-            HintRow(hints)
+            if (!bare) HintRow(hints, end = hintEnd)
         }
-        } }
+        } } }
         // Nothing marked: enter the popup at its first item. After the content, so a marked item
         // that's already attached asks first. (view.requestFocus() only focuses the window, not an
         // item in it: found on device in JoeyOS.)

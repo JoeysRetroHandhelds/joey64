@@ -7,6 +7,7 @@
 #include "gpu_counters.h"
 #include "thermal.h"
 #include "display_opts.h"
+#include "libra.h"
 #include "rewind_test.h"
 #include "rewind.h"
 #include <jni.h>
@@ -198,6 +199,8 @@ struct Core {
 
 std::string g_systemDir, g_saveDir;
 std::string g_ddCart; // a 64DD disk's cartridge (NativeBridge.setDdCart), "" = the disk alone
+bool g_coreInited = false; // retro_init ran and retro_deinit hasn't (loadCore, the emulation thread's end)
+std::string g_tpakRom, g_tpakSave; // the Transfer Pak's Game Boy game and save (NativeBridge.setTransferPak), "" = none
 
 // A 64DD disk image by its extension (MainActivity unpacks disks under their own name for this).
 static bool isDiskPath(const char* p) {
@@ -265,6 +268,27 @@ std::atomic<int> g_rewindBackFrames{0};
 // Stats windows in which audio underruns don't grow the latency target: rewind (no sound) and slow motion
 // (resampled) empty the ring, so the window after them starts from nothing (Thor: 8 underruns, target 20 -> 30 ms).
 std::atomic<int> g_audioRefillWindows{0};
+// Run-ahead (dev switch N64_RUNAHEAD=<frames> 1-4, measuring its cost first: Joey 2026-11-09, "strong devices only,
+// measure the cost first"). Each frame: the real frame runs with its sound but not shown, its state is taken, the
+// next frames run with the same buttons (the last one shown, no sound), and the state goes back. The game then
+// answers a press that many frames sooner. g_raReplay: the extra frames read the buttons the real frame sampled
+// (no new sample, so taps, turbo and macros count only real frames); g_raMute drops their sound; g_raHide: the
+// real frame's picture isn't shown.
+bool g_raReplay = false, g_raMute = false, g_raHide = false;
+// A frame of this run-ahead step that wasn't shown drew a new picture. If the shown one is then a repeat of it
+// (repeat frames are skipped), that picture is the one to show: else games that draw 20-30 a second froze
+// (Pokemon Snap showed nothing new, Mario Kart 64 7 frames a second; Thor 2026-11-09).
+bool g_raFresh = false;
+// The last run-ahead step's shown frame was presented (a new picture). The hidden real frame then runs the same
+// emulated frame that one showed, so its new picture is the one on screen already: a repeat of it isn't presented
+// again. Before (core runahead-state 27aa4c9, Thor 2026-11-10), Snap at 30 a second presented 60, every picture
+// twice: the core skipped half the refreshes as repeats, and each skipped shown frame got the hidden one's picture.
+bool g_raPrevShown = false;
+// g_raState: run-ahead is taking or putting back its state (GET_SAVESTATE_CONTEXT answers RUNAHEAD_SAME_INSTANCE).
+bool g_raState = false;
+// Dev lag probe (N64_LAG_PROBE=<frame>[/0]): presses N64 A for 20 frames from that many frames after N64_STATE
+// loads (/0: no press, the baseline) and logs a hash of each shown frame around it, to count frames to a response.
+int g_probeMask = 0;
 // Benchmark (dev env N64_BENCH=1): no speed cap, vsync off, audio dropped, settings unchanged and every frame
 // presented, so the counter shows how fast the game could run: the headroom a full-speed game has.
 bool g_bench = false;
@@ -318,6 +342,28 @@ std::atomic<int> g_buttons[kPorts] = {};
 std::atomic<int> g_tapped[kPorts] = {}; // presses not yet seen by a poll, so sub-frame taps still register
 int g_polledButtons[kPorts] = {};       // emulation thread only
 std::atomic<int> g_analog[kPorts][2][2] = {};
+// Controls extras' macros (approved mockup 2026-11-08): a run of presses per port, one step held for
+// its frames, counted in polls (sampleButtons). Its buttons are added to the player's; a step with a
+// stick direction takes over the N64 stick for its frames. Started and stopped from the UI thread.
+struct MacroStepN { int mask; int sx, sy; int frames; };
+struct MacroPlay {
+    std::vector<MacroStepN> steps;
+    bool repeat = false, stopping = false, active = false;
+    size_t idx = 0;
+    int left = 0;
+};
+std::mutex g_macroMutex;
+MacroPlay g_macro[kPorts];
+std::atomic<bool> g_macroAny{false};
+bool g_macroStickOn[kPorts] = {};        // emulation thread only
+int g_macroStick[kPorts][2] = {};
+bool g_macroStickAny = false;
+// Turbo (approved mockup 2026-11-08): per port, these bits repeat while held, so many presses a second
+// (counted in polls, 60 a second); the Turbo hotkey turns it off for every port. Set from the UI thread.
+std::atomic<int> g_turboMask[kPorts] = {};
+std::atomic<int> g_turboSpeed[kPorts] = {};
+std::atomic<bool> g_turboOn{true};
+int g_turboPolls[kPorts] = {};           // emulation thread only: polls since a turbo button went down
 // Ports with a controller plugged in (bit per port), applied after load_game. Default: player 1 only.
 std::atomic<int> g_portsPresent{1};
 std::atomic<bool> g_portsChanged{false}; // set while a game runs: applied between frames
@@ -568,6 +614,14 @@ bool environment(unsigned cmd, void* data) {
     }
     case RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE:
         static_cast<retro_rumble_interface*>(data)->set_rumble_state = setRumble; return true;
+    case RETRO_ENVIRONMENT_GET_SAVESTATE_CONTEXT:
+        // run-ahead's state goes back into this same core within the frame (the core may keep part of it itself)
+        if (data) *static_cast<int*>(data) = g_raState ? RETRO_SAVESTATE_CONTEXT_RUNAHEAD_SAME_INSTANCE : RETRO_SAVESTATE_CONTEXT_NORMAL;
+        return true;
+    case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE:
+        // bit 0 video, bit 1 audio, bit 3 (hard disable audio): run-ahead's extra frames, which are rolled back
+        if (data) *static_cast<int*>(data) = (g_raHide ? 0 : 1) | (g_raMute ? 0 : 2) | (g_raReplay ? 8 : 0);
+        return true;
     case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
         *static_cast<bool*>(data) = g_optionsDirty.exchange(false); return true;
     case RETRO_ENVIRONMENT_SET_VARIABLES: {
@@ -598,6 +652,16 @@ bool environment(unsigned cmd, void* data) {
 }
 
 void video_refresh(const void* data, unsigned w, unsigned h, size_t) {
+    if (g_raHide) { // run-ahead: submitted, not shown
+        if (data) { g_raFresh = true; g_lastW = w; g_lastH = h; }
+        if (g_vulkan) g_vk.videoRefresh(data, w, h);
+        return;
+    }
+    static const bool raPrevCheck = !(getenv("N64_RA_PRESENT_TWICE") && *getenv("N64_RA_PRESENT_TWICE") == '1');
+    if (!data && g_raFresh && !(raPrevCheck && g_raReplay && g_raPrevShown))
+        data = RETRO_HW_FRAME_BUFFER_VALID; // the hidden frame's new picture, not on screen yet
+    g_raPrevShown = g_raReplay && data != nullptr;
+    g_raFresh = false;
     if (g_vulkan) {
         if (!data) ++g_statDupes;
         else { g_lastW = w; g_lastH = h; ++g_statPresents; noteDrawn(); }
@@ -616,7 +680,7 @@ void video_refresh(const void* data, unsigned w, unsigned h, size_t) {
 
 void audio_sample(int16_t l, int16_t r) {
     if (g_bench || g_paused) return; // paused: a frame advance step, whose sound would pile up in the paused stream
-    if (g_rewindActive) return; // going back: no sound
+    if (g_rewindActive || g_raMute) return; // going back, or run-ahead's extra frames: no sound
     int16_t s[2] = {l, r};
     if (double sl = g_slowNow.load(); sl > 0) { if (int m = g_ffSound.load()) g_audio.writeFast(s, 1, sl, m == 1 ? 0.25f : 1.0f); return; }
     if (g_fastForward) { if (int m = g_ffSound.load()) g_audio.writeFast(s, 1, g_ffSpeedNow.load(), m == 1 ? 0.25f : 1.0f); return; }
@@ -625,7 +689,7 @@ void audio_sample(int16_t l, int16_t r) {
 size_t g_frameAudio = 0; // audio frames the core gave during this retro_run (N64_FRAME_TRACE)
 size_t audio_batch(const int16_t* d, size_t frames) {
     if (g_bench || g_paused) return frames; // paused: a frame advance step (the stream is paused, nothing drains)
-    if (g_rewindActive) return frames; // going back: no sound
+    if (g_rewindActive || g_raMute) return frames; // going back, or run-ahead's extra frames: no sound
     // A blocking write would throttle fast-forward: its sound (if any) goes through writeFast; slow motion's too.
     if (double sl = g_slowNow.load(); sl > 0) { if (int m = g_ffSound.load()) g_audio.writeFast(d, frames, sl, m == 1 ? 0.25f : 1.0f); }
     else if (g_fastForward) { if (int m = g_ffSound.load()) g_audio.writeFast(d, frames, g_ffSpeedNow.load(), m == 1 ? 0.25f : 1.0f); }
@@ -670,8 +734,29 @@ bool g_lateInput = true;
 bool g_pollPending = false;
 void sampleButtons();
 void input_poll() {
+    if (g_raReplay) return; // run-ahead's extra frames keep the real frame's buttons
     if (g_lateInput) { g_pollPending = true; return; }
     sampleButtons();
+}
+
+// Dev (2026-11-10, the Spider-Man 4x strip): N64_LOG_PRESSES=1 logs "press <frame> <hex>" whenever player 1's polled
+// buttons change; N64_PRESS_SCRIPT="<frame>:<hex>/<frame>:<hex>/..." (frames from boot, '/' between, env can't hold a
+// comma) replaces player 1's buttons with the last entry at or before each frame, so a run's presses replay on the same frames.
+static bool g_logPresses = false;
+static int g_lastPressLogged = -1;
+static std::vector<std::pair<uint32_t, int>> g_pressScript;
+static void readPressScript() {
+    g_logPresses = getenv("N64_LOG_PRESSES") && getenv("N64_LOG_PRESSES")[0] == '1';
+    g_pressScript.clear();
+    if (const char* s = getenv("N64_PRESS_SCRIPT")) {
+        for (const char* q = s; *q;) {
+            unsigned f = 0; int m = 0, used = 0;
+            if (sscanf(q, "%u:%x%n", &f, &m, &used) != 2) break;
+            g_pressScript.emplace_back(f, m);
+            q += used; if (*q == '/') ++q;
+        }
+        LOGI("press script: %zu entries", g_pressScript.size());
+    }
 }
 
 void sampleButtons() {
@@ -681,7 +766,45 @@ void sampleButtons() {
             if (taps & (1 << i)) g_tapHold[p][i] = kMinPressPolls;
             if (g_tapHold[p][i] > 0) { --g_tapHold[p][i]; held |= 1 << i; }
         }
-        g_polledButtons[p] = g_buttons[p].load() | held;
+        g_polledButtons[p] = g_buttons[p].load() | held | (p == 0 ? g_probeMask : 0);
+        // Turbo: pressed for the first half of each beat, let go for the second (10 a second: 3 polls each).
+        const int t = g_turboOn.load() ? g_turboMask[p].load() : 0;
+        if (t & g_polledButtons[p]) {
+            const int n = g_turboPolls[p]++, speed = std::max(1, g_turboSpeed[p].load());
+            if ((n * speed * 2 / 60) % 2) g_polledButtons[p] &= ~t;
+        } else g_turboPolls[p] = 0;
+        if (p == 0 && !g_pressScript.empty()) {
+            const uint32_t f = g_framesRun.load();
+            int m = 0;
+            for (auto& e : g_pressScript) { if (e.first > f) break; m = e.second; }
+            g_polledButtons[0] = m;
+        }
+        if (p == 0 && g_logPresses && g_polledButtons[0] != g_lastPressLogged) {
+            g_lastPressLogged = g_polledButtons[0];
+            LOGI("press %u %x", g_framesRun.load(), (unsigned)g_lastPressLogged);
+        }
+    }
+    if (g_macroAny.load() || g_macroStickAny) {
+        std::lock_guard<std::mutex> lk(g_macroMutex);
+        bool any = false, stick = false;
+        for (int p = 0; p < kPorts; ++p) {
+            MacroPlay& m = g_macro[p];
+            g_macroStickOn[p] = false;
+            if (!m.active || m.steps.empty()) { m.active = false; continue; }
+            const MacroStepN& s = m.steps[m.idx];
+            g_polledButtons[p] |= s.mask;
+            if (s.sx || s.sy) { g_macroStickOn[p] = true; g_macroStick[p][0] = s.sx; g_macroStick[p][1] = s.sy; stick = true; }
+            if (--m.left <= 0) {
+                if (++m.idx >= m.steps.size()) {
+                    m.idx = 0;
+                    if (!m.repeat || m.stopping) m.active = false;
+                }
+                m.left = m.steps[m.idx].frames;
+            }
+            any = any || m.active;
+        }
+        g_macroStickAny = stick;
+        if (!any) g_macroAny = false;
     }
     if (g_vulkan) {
         timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); // the clock display timing reports in
@@ -692,13 +815,15 @@ void sampleButtons() {
 int16_t input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
     if (port >= (unsigned)kPorts) return 0;
     if (device == RETRO_DEVICE_JOYPAD) {
-        if (g_pollPending) { g_pollPending = false; sampleButtons(); }
+        if (g_pollPending && !g_raReplay) { g_pollPending = false; sampleButtons(); }
         int mask = g_polledButtons[port];
         if (id == RETRO_DEVICE_ID_JOYPAD_MASK) return (int16_t)mask;
         return (mask >> id) & 1;
     }
-    if (device == RETRO_DEVICE_ANALOG && index < 2 && id < 2)
+    if (device == RETRO_DEVICE_ANALOG && index < 2 && id < 2) {
+        if (index == 0 && g_macroStickOn[port]) return (int16_t)g_macroStick[port][id];
         return (int16_t)g_analog[port][index][id].load();
+    }
     return 0;
 }
 
@@ -784,6 +909,9 @@ std::string gpuClockText() {
 // name (the dev path) and saves from before names use the ROM's content hash instead.
 std::string g_savePath, g_saveFallbackPath;
 std::vector<uint8_t> g_lastSave;
+// The size of the save RAM the last write couldn't put on disk, 0 once one is written (MainActivity polls it: Not enough
+// space to save, approved problem screens 2026-11-08). A failed write is tried again at the next check, as before.
+std::atomic<int64_t> g_saveFailedBytes{0};
 
 void loadSave() {
     auto* mem = static_cast<uint8_t*>(core.get_memory_data(RETRO_MEMORY_SAVE_RAM));
@@ -809,12 +937,13 @@ void flushSave() {
     if (g_lastSave.size() == size && !memcmp(g_lastSave.data(), mem, size)) return;
     std::string tmp = g_savePath + ".tmp";
     FILE* f = fopen(tmp.c_str(), "wb");
-    if (!f) { LOGE("save: cannot write %s", tmp.c_str()); return; }
+    if (!f) { LOGE("save: cannot write %s", tmp.c_str()); g_saveFailedBytes = (int64_t)size; return; }
     bool ok = fwrite(mem, 1, size, f) == size;
     ok = (fflush(f) == 0) && ok;
     ok = (fsync(fileno(f)) == 0) && ok;
     fclose(f);
-    if (!ok || rename(tmp.c_str(), g_savePath.c_str()) != 0) { LOGE("save: write failed"); return; }
+    if (!ok || rename(tmp.c_str(), g_savePath.c_str()) != 0) { LOGE("save: write failed"); remove(tmp.c_str()); g_saveFailedBytes = (int64_t)size; return; }
+    g_saveFailedBytes = 0;
     g_lastSave.assign(mem, mem + size);
     LOGI("save: wrote %zu bytes", size);
 }
@@ -841,6 +970,8 @@ std::mutex g_stateMutex;
 std::condition_variable g_stateCv;
 StateRequest* g_stateReq = nullptr;
 std::atomic<bool> g_statePending{false};
+// Paused: draw the last picture again (NativeBridge.showAgain, the in-game Picture panel).
+std::atomic<bool> g_showAgain{false};
 // mupen64plus-next can't serialize before its emulation has started, so a request waits for the first
 // frame. 1 frame (Joey 2026-11-06, was 30 like the dev N64_STATE load, which keeps 30): the Thor's
 // 14-game test loaded all 56 Continues either way, done ~400 ms sooner. Dev env N64_STATE_READY=<frames>.
@@ -1068,6 +1199,24 @@ void runLoop() {
     const char* statePath = getenv("N64_STATE");
     int stateWait = statePath && *statePath ? 30 : -1;
     g_bench = getenv("N64_BENCH") && atoi(getenv("N64_BENCH")) == 1;
+    // Never in a netplay room (N64_NETPLAY joins one, N64_NETPLAY_SERVE hosts one): every player has to run the same
+    // frames, and run-ahead's extra frames and put back would send inputs out of step.
+    const bool netplay = (getenv("N64_NETPLAY") && *getenv("N64_NETPLAY")) || (getenv("N64_NETPLAY_SERVE") && *getenv("N64_NETPLAY_SERVE"));
+    const int runAheadAsked = getenv("N64_RUNAHEAD") ? std::clamp(atoi(getenv("N64_RUNAHEAD")), 0, 4) : 0;
+    const int runAhead = netplay ? 0 : runAheadAsked;
+    if (runAhead) LOGI("run-ahead: %d frame%s", runAhead, runAhead > 1 ? "s" : "");
+    else if (runAheadAsked) LOGI("run-ahead: off in a netplay room");
+    std::vector<uint8_t> raState;
+    double raSaveMs = 0, raLoadMs = 0, raExtraMs = 0; int raFrames = 0, raRefused = 0, raSaveRamPutBack = 0; std::vector<uint8_t> raSaveRam;
+    readPressScript();
+    const char* probeEnv = getenv("N64_LAG_PROBE");
+    const int probeAt = probeEnv && *probeEnv ? atoi(probeEnv) : -1;
+    const bool probePress = !(probeEnv && strchr(probeEnv, '/')); // "<frame>/0": no press (env values can't hold a comma)
+    int probeFrame = -1; // real frames since N64_STATE loaded
+    // Without N64_STATE the probe counts from boot (a game's intro runs the same every time); N64_LAG_PROBE_LEN=<n>
+    // hashes n frames from <frame> instead of 24 from <frame> - 3.
+    if (probeAt >= 0 && stateWait < 0) probeFrame = 0;
+    const int probeLen = getenv("N64_LAG_PROBE_LEN") ? atoi(getenv("N64_LAG_PROBE_LEN")) : 0;
     auto ffNext = std::chrono::steady_clock::now(), ffLastShown = ffNext, ffFrameAt = ffNext, capNext = ffNext, rewindNext = ffNext;
     // Fast-forward's shown frames (2026-11-10, "fast forward stutters and looks choppy"): emulated frames since the
     // last one shown, and per 5 s how many were shown, how many frames each moved on, and how evenly they were spaced.
@@ -1090,13 +1239,21 @@ void runLoop() {
             std::unique_lock<std::mutex> lk(g_pauseMutex);
             for (;;) {
                 // Wakes once a second while paused so rc_client can keep the session alive (pings, retries).
-                if (!g_pauseCv.wait_for(lk, std::chrono::seconds(1), [] { return !g_paused || !g_running || g_statePending || g_stepFrames > 0; })) {
+                if (!g_pauseCv.wait_for(lk, std::chrono::seconds(1), [] { return !g_paused || !g_running || g_statePending || g_stepFrames > 0 || g_showAgain; })) {
                     lk.unlock(); Cheevos::idle(); lk.lock();
                     continue;
                 }
                 if (!g_paused || !g_running) break;
                 // Frame advance: one frame while staying paused (its sound is dropped, see audio_batch).
                 if (g_stepFrames > 0) { --g_stepFrames; break; }
+                if (g_showAgain.exchange(false)) {
+                    lk.unlock();
+                    applySurfaceIfChanged();
+                    if (g_vulkan) g_vk.showAgain();
+                    else if (g_egl.hasWindow() && g_lastW && g_lastH) g_egl.present((int)g_lastW, (int)g_lastH, g_hw.bottom_left_origin);
+                    lk.lock();
+                    continue;
+                }
                 // Paused with a state request (the pause menu): served without running a frame.
                 lk.unlock();
                 serveStateRequest(g_framesRun >= (uint32_t)stateReadyFrames(), true);
@@ -1268,43 +1425,133 @@ void runLoop() {
             if (capNext > now) std::this_thread::sleep_until(capNext);
             else if (now - capNext > std::chrono::milliseconds(50)) capNext = now; // behind: don't sprint
         }
-        if (g_vulkan) {
-            auto t0 = std::chrono::steady_clock::now();
-            if (!g_vk.beginFrame(show)) continue;   // swapchain recreated, try again
-            auto t1 = std::chrono::steady_clock::now();
-            const int presentsBefore = g_statPresents;
-            core.run();
-            auto t3 = std::chrono::steady_clock::now();
-            if (ff && ffDueOn && ffDue && g_statPresents != presentsBefore) { // a new picture went out: the slot is used
-                ffDue = false;
-                if (ffShown++ > 0) {
-                    const double gap = std::chrono::duration<double, std::milli>(ffFrameAt - ffLastShown).count();
-                    ffGapSum += gap; ffGapSq += gap * gap;
-                    ffPerMin = std::min(ffPerMin, ffSinceShown); ffPerMax = std::max(ffPerMax, ffSinceShown);
+        // One retro_run, shown or not; the frame's time (acquire + run + present), or < 0 when the swapchain was rebuilt.
+        auto runOne = [&](bool showIt) -> double {
+            if (g_vulkan) {
+                auto t0 = std::chrono::steady_clock::now();
+                if (!g_vk.beginFrame(showIt)) return -1;   // swapchain recreated, try again
+                auto t1 = std::chrono::steady_clock::now();
+                const int presentsBefore = g_statPresents;
+                core.run();
+                auto t3 = std::chrono::steady_clock::now();
+                if (ff && ffDueOn && ffDue && g_statPresents != presentsBefore) { // a new picture went out: the slot is used
+                    ffDue = false;
+                    if (ffShown++ > 0) {
+                        const double gap = std::chrono::duration<double, std::milli>(ffFrameAt - ffLastShown).count();
+                        ffGapSum += gap; ffGapSq += gap * gap;
+                        ffPerMin = std::min(ffPerMin, ffSinceShown); ffPerMax = std::max(ffPerMax, ffSinceShown);
+                    }
+                    ffLastShown = ffFrameAt; ffSinceShown = 0;
                 }
-                ffLastShown = ffFrameAt; ffSinceShown = 0;
+                g_vk.endFrame();
+                g_statWaitMs += std::chrono::duration<double, std::milli>(t1 - t0).count();
+                auto t2 = std::chrono::steady_clock::now();
+                g_statRunMs += std::chrono::duration<double, std::milli>(t2 - t1).count();
+                double frameMs = std::chrono::duration<double, std::milli>(t2 - t0).count();
+                // Dev: N64_HITCH_LOG=1 logs every frame over 33 ms split into acquire (beginFrame), emulation
+                // (retro_run, which includes parallel-RDP's scanout) and present (endFrame), to find what a hitch is.
+                static const bool hitchLog = getenv("N64_HITCH_LOG") && *getenv("N64_HITCH_LOG") == '1';
+                if (hitchLog && frameMs > 33.0)
+                    LOGI("hitch: %.1f ms frame: acquire %.1f, emulation %.1f, present %.1f ms (frame %u)", frameMs,
+                         std::chrono::duration<double, std::milli>(t1 - t0).count(),
+                         std::chrono::duration<double, std::milli>(t3 - t1).count(),
+                         std::chrono::duration<double, std::milli>(t2 - t3).count(), g_framesRun.load());
+                return frameMs;
             }
-            g_vk.endFrame();
-            g_statWaitMs += std::chrono::duration<double, std::milli>(t1 - t0).count();
-            auto t2 = std::chrono::steady_clock::now();
-            g_statRunMs += std::chrono::duration<double, std::milli>(t2 - t1).count();
-            double frameMs = std::chrono::duration<double, std::milli>(t2 - t0).count();
-            noteFrameTime(frameMs);
-            // Dev: N64_HITCH_LOG=1 logs every frame over 33 ms split into acquire (beginFrame), emulation
-            // (retro_run, which includes parallel-RDP's scanout) and present (endFrame), to find what a hitch is.
-            static const bool hitchLog = getenv("N64_HITCH_LOG") && *getenv("N64_HITCH_LOG") == '1';
-            if (hitchLog && frameMs > 33.0)
-                LOGI("hitch: %.1f ms frame: acquire %.1f, emulation %.1f, present %.1f ms (frame %u)", frameMs,
-                     std::chrono::duration<double, std::milli>(t1 - t0).count(),
-                     std::chrono::duration<double, std::milli>(t3 - t1).count(),
-                     std::chrono::duration<double, std::milli>(t2 - t3).count(), g_framesRun.load());
-        } else {
             auto t0 = std::chrono::steady_clock::now();
             glBindFramebuffer(GL_FRAMEBUFFER, g_egl.fbo());
             core.run(); // includes the swap, so the vsync wait lands here
             double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
             g_statRunMs += ms;
+            return ms;
+        };
+        // Run-ahead: not while fast-forwarding, rewinding, stepping paused, before the core can take a state, or in the
+        // frames before N64_STATE loads.
+        const bool ahead = runAhead > 0 && !ff && !rewinding && !g_paused && stateWait <= 0 &&
+                           g_framesRun >= (uint32_t)stateReadyFrames();
+        if (probeAt >= 0 && probeFrame >= 0) g_probeMask = probePress && probeFrame >= probeAt && probeFrame < probeAt + 20 ? 1 : 0;
+        if (!ahead) {
+            double ms = runOne(show);
+            if (ms < 0) continue;
             noteFrameTime(ms);
+        } else {
+            using clk = std::chrono::steady_clock;
+            g_raHide = true;
+            double ms = runOne(false); // the real frame: its sound plays, its picture is replaced below
+            g_raHide = false;
+            if (ms < 0) continue;
+            auto s0 = clk::now();
+            size_t n = core.serialize_size();
+            raState.resize(n);
+            g_raState = true;
+            bool saved = n > 0 && core.serialize(raState.data(), n);
+            g_raState = false;
+            // The cartridge's save memory (EEPROM, SRAM, FlashRAM, Controller Pak) isn't in the core's state: what the
+            // extra frames write there would stay. Kept with the state and put back (a guard: none of the games tested
+            // has written it in an extra frame yet). N64_RA_SAVERAM=0 leaves it out.
+            static const bool keepSaveRam = !(getenv("N64_RA_SAVERAM") && *getenv("N64_RA_SAVERAM") == '0');
+            auto* sram = static_cast<uint8_t*>(core.get_memory_data(RETRO_MEMORY_SAVE_RAM));
+            size_t sramSize = core.get_memory_size(RETRO_MEMORY_SAVE_RAM);
+            if (saved && keepSaveRam && sram && sramSize) raSaveRam.assign(sram, sram + sramSize);
+            auto s1 = clk::now();
+            raSaveMs += std::chrono::duration<double, std::milli>(s1 - s0).count();
+            double extra = 0;
+            if (!saved) {
+                // The core takes no state while an RSP task is still running at the frame's end (it would be lost and
+                // the game would wait for it for good): this frame goes without run-ahead, its own picture shown.
+                ++raRefused;
+                g_raPrevShown = false;
+                if (g_raFresh) {
+                    if (g_vulkan) g_vk.showAgain();
+                    else if (g_egl.hasWindow() && g_lastW && g_lastH) g_egl.present((int)g_lastW, (int)g_lastH, g_hw.bottom_left_origin);
+                }
+                g_raFresh = false;
+            } else {
+                g_raReplay = g_raMute = true;
+                for (int k = 1; k <= runAhead; ++k) {
+                    g_raHide = k < runAhead;
+                    double m = runOne(k == runAhead);
+                    if (m > 0) extra += m;
+                }
+                g_raReplay = g_raMute = g_raHide = g_raFresh = false;
+            }
+            auto l0 = clk::now();
+            if (saved) {
+                g_raState = true;
+                core.unserialize(raState.data(), raState.size());
+                g_raState = false;
+                if (keepSaveRam && sram && raSaveRam.size() == sramSize && memcmp(sram, raSaveRam.data(), sramSize) != 0) {
+                    memcpy(sram, raSaveRam.data(), sramSize);
+                    ++raSaveRamPutBack;
+                }
+            }
+            auto l1 = clk::now();
+            raLoadMs += std::chrono::duration<double, std::milli>(l1 - l0).count();
+            raExtraMs += extra;
+            ++raFrames;
+            noteFrameTime(ms + extra + std::chrono::duration<double, std::milli>(s1 - s0).count() +
+                          std::chrono::duration<double, std::milli>(l1 - l0).count());
+            if (raFrames >= 300) {
+                LOGI("run-ahead: per frame: take state %.2f ms, extra frames %.2f ms, put back %.2f ms; %d of %d frames without (no state), save memory put back %d times",
+                     raSaveMs / raFrames, raExtraMs / raFrames, raLoadMs / raFrames, raRefused, raFrames, raSaveRamPutBack);
+                raSaveMs = raLoadMs = raExtraMs = 0; raFrames = 0; raRefused = 0; raSaveRamPutBack = 0;
+            }
+        }
+        if (probeAt >= 0 && probeFrame >= 0) {
+            if (probeLen > 0 ? probeFrame >= probeAt && probeFrame < probeAt + probeLen : probeFrame >= probeAt - 3 && probeFrame <= probeAt + 20) {
+                std::vector<uint8_t> px; unsigned pw = g_lastW, ph = g_lastH;
+                bool ok = g_vulkan ? g_vk.capture(px, pw, ph) : g_egl.capture((int)g_lastW, (int)g_lastH, g_hw.bottom_left_origin, px);
+                uint64_t h = 1469598103934665603ull;
+                for (size_t i = 0; ok && i < px.size(); i++) h = (h ^ px[i]) * 1099511628211ull;
+                LOGI("lagprobe %d %s %016llx", probeFrame - probeAt, g_probeMask ? "A" : "-", (unsigned long long)h);
+                // N64_LAG_PROBE_DUMP=<dir>: each probed frame's pixels too, <dir>/probe<n>_<w>x<h>.rgba (to see what differs).
+                if (const char* dump = getenv("N64_LAG_PROBE_DUMP"); ok && dump && *dump) {
+                    char path[512];
+                    snprintf(path, sizeof path, "%s/probe%d_%ux%u.rgba", dump, probeFrame - probeAt, pw, ph);
+                    if (FILE* f = fopen(path, "wb")) { fwrite(px.data(), 1, px.size(), f); fclose(f); }
+                }
+            }
+            ++probeFrame;
         }
         if (Cheevos::waitingForRam())
             Cheevos::ramReady(static_cast<uint8_t*>(core.get_memory_data(RETRO_MEMORY_SYSTEM_RAM)), core.get_memory_size(RETRO_MEMORY_SYSTEM_RAM));
@@ -1323,6 +1570,7 @@ void runLoop() {
             }
             bool ok = !s.empty() && core.unserialize(s.data(), s.size());
             LOGI("state %s: %s (%zu bytes)", statePath, ok ? "loaded" : "FAILED", s.size());
+            if (probeAt >= 0) probeFrame = 0;
         }
         // Dev (env N64_STATE_SAVE=<frame>:<frame>... (any one character between; --es env splits at commas) and
         // N64_STATE_SAVE_TO=<path prefix>): writes the core's raw state
@@ -1368,6 +1616,22 @@ void runLoop() {
             uint64_t h = 1469598103934665603ull;
             for (size_t i = 0; mem && i < words; i++) h = (h ^ mem[i]) * 1099511628211ull;
             LOGI("ramhash %d %016llx", hashFrame, (unsigned long long)h);
+            // N64_HASH_RAM_TWICE=1: hash again at once; a different second hash means the RDP was still writing RDRAM
+            // while the host read it (the hash itself races, not the emulation).
+            static const bool hashTwice = getenv("N64_HASH_RAM_TWICE") && getenv("N64_HASH_RAM_TWICE")[0] == '1';
+            if (hashTwice) {
+                uint64_t h2 = 1469598103934665603ull;
+                for (size_t i = 0; mem && i < words; i++) h2 = (h2 ^ mem[i]) * 1099511628211ull;
+                if (h2 != h) LOGI("ramhash-race %d %016llx %016llx", hashFrame, (unsigned long long)h, (unsigned long long)h2);
+            }
+            // N64_RAM_DUMP=<dir>:<from>:<to>: RDRAM at each hashed frame from..to, <dir>/ram<frame>.bin (to see what differs).
+            static const char* ramDump = getenv("N64_RAM_DUMP");
+            static int dumpFrom = -1, dumpTo = -1; static char dumpDir[256];
+            if (ramDump && dumpFrom < 0) sscanf(ramDump, "%255[^:]:%d:%d", dumpDir, &dumpFrom, &dumpTo) == 3 || (dumpFrom = dumpTo = -2);
+            if (ramDump && hashFrame >= dumpFrom && hashFrame <= dumpTo) {
+                char path[320]; snprintf(path, sizeof path, "%s/ram%d.bin", dumpDir, hashFrame);
+                if (FILE* f = fopen(path, "wb")) { fwrite(mem, 4, words, f); fclose(f); }
+            }
         }
         {
             std::lock_guard<std::mutex> lk(g_dumpMutex);
@@ -1402,6 +1666,7 @@ void runLoop() {
     NetplayServer::stop();
     g_netplay = false;
     core.deinit();
+    g_coreInited = false;
     g_audio.close();
     if (g_vulkan) g_vk.destroy();
     else g_egl.destroy();
@@ -1490,7 +1755,11 @@ JNIEXPORT jboolean JNICALL JNI(loadCore)(JNIEnv* env, jobject, jstring path, jst
     core.set_audio_sample_batch(audio_batch);
     core.set_input_poll(input_poll);
     core.set_input_state(input_state);
+    // A game screen whose start failed before the game ran (no ROM, loadGame refused) never reached the emulation
+    // thread's deinit: the core was still up, and the next screen's init failed (CoreStartup err=2, Thor 2026-11-08).
+    if (g_coreInited) { LOGI("core: still up from a start that failed, shutting it down first"); core.deinit(); }
     core.init();
+    g_coreInited = true;
     return JNI_TRUE;
 }
 
@@ -1520,6 +1789,16 @@ JNIEXPORT void JNICALL JNI(setDisplay)(JNIEnv*, jobject, jint aspW, jint aspH, j
     o.aspW = aspW; o.aspH = aspH; o.integer = integer; o.bfi = bfi;
 }
 
+// Settings › Video › Crop edges: lines of the N64's 240 off every edge, 0 off (display_opts.h cropOf).
+JNIEXPORT void JNICALL JNI(setCrop)(JNIEnv*, jobject, jint lines) {
+    Display::opts().crop = std::max(0, std::min(64, (int)lines));
+}
+
+// Touch controls in portrait: the picture's top in per mille of the window's height, -1 centred.
+JNIEXPORT void JNICALL JNI(setPortraitTop)(JNIEnv*, jobject, jint perMille) {
+    Display::opts().portraitTop = perMille;
+}
+
 // Settings › Video › Colour: percent (-50..50) and gamma in tenths; Sharpening: 0 off, 1 CAS, 2 FSR.
 JNIEXPORT void JNICALL JNI(setColour)(JNIEnv*, jobject, jint brightness, jint contrast, jint saturation, jint gamma) {
     auto& o = Display::opts();
@@ -1529,6 +1808,130 @@ JNIEXPORT void JNICALL JNI(setColour)(JNIEnv*, jobject, jint brightness, jint co
 JNIEXPORT void JNICALL JNI(setSharpen)(JNIEnv*, jobject, jint mode, jint strength) {
     auto& o = Display::opts();
     o.sharpen = mode; o.strength = strength;
+}
+
+// Settings › Video's Picture rows (display_opts.h, look.glsl): ids = up to four shaders in order (0 none),
+// params = 8 settings (0..255) per shader, then Shader scale, Sides, colour-blind help, the overlay's
+// opacity (0 = off) and Place the game (tenths of a percent; w 0 = centred). Any time.
+JNIEXPORT void JNICALL JNI(setLook)(JNIEnv* env, jobject, jintArray ids, jintArray params, jint scale, jint sides,
+                                    jint colourBlind, jint overlay, jint placeX, jint placeY, jint placeW) {
+    auto& o = Display::opts();
+    jint id[4] = {}, pr[32] = {};
+    if (ids) env->GetIntArrayRegion(ids, 0, std::min<jsize>(4, env->GetArrayLength(ids)), id);
+    if (params) env->GetIntArrayRegion(params, 0, std::min<jsize>(32, env->GetArrayLength(params)), pr);
+    for (int i = 0; i < 4; ++i) {
+        uint32_t a = 0, b = 0;
+        for (int k = 0; k < 4; ++k) {
+            a |= (uint32_t)(std::clamp(pr[i * 8 + k], 0, 255)) << (8 * k);
+            b |= (uint32_t)(std::clamp(pr[i * 8 + 4 + k], 0, 255)) << (8 * k);
+        }
+        o.pa[i] = a; o.pb[i] = b; o.ids[i] = (uint32_t)std::max(0, id[i]);
+    }
+    o.scale = scale; o.sides = sides; o.colourBlind = colourBlind; o.overlay = std::clamp(overlay, 0, 100);
+    o.placeX = placeX; o.placeY = placeY; o.placeW = placeW;
+}
+
+// The sides (slot 0) or overlay (slot 1) image: RGBA8, top row first; null clears it. Any time.
+JNIEXPORT void JNICALL JNI(setLookImage)(JNIEnv* env, jobject, jint slot, jbyteArray rgba, jint w, jint h) {
+    Display::Image& img = slot == 0 ? Display::sidesImage() : Display::overlayImage();
+    if (!rgba || w <= 0 || h <= 0 || env->GetArrayLength(rgba) < (jsize)w * h * 4) { img.set(nullptr, 0, 0); return; }
+    jbyte* p = env->GetByteArrayElements(rgba, nullptr);
+    img.set(reinterpret_cast<const uint8_t*>(p), w, h);
+    env->ReleaseByteArrayElements(rgba, p, JNI_ABORT);
+}
+
+// ---- Your own RetroArch preset (libra.h) ----
+
+namespace {
+std::string jstr(JNIEnv* env, jstring s) {
+    if (!s) return "";
+    const char* c = env->GetStringUTFChars(s, nullptr);
+    std::string r = c ? c : "";
+    if (c) env->ReleaseStringUTFChars(s, c);
+    return r;
+}
+
+std::vector<std::pair<std::string, float>> jparams(JNIEnv* env, jobjectArray names, jfloatArray values) {
+    std::vector<std::pair<std::string, float>> out;
+    if (!names || !values) return out;
+    jsize n = std::min(env->GetArrayLength(names), env->GetArrayLength(values));
+    std::vector<jfloat> v(n);
+    if (n) env->GetFloatArrayRegion(values, 0, n, v.data());
+    for (jsize i = 0; i < n; ++i) {
+        auto s = (jstring)env->GetObjectArrayElement(names, i);
+        out.emplace_back(jstr(env, s), v[i]);
+        env->DeleteLocalRef(s);
+    }
+    return out;
+}
+
+jobjectArray jstrings(JNIEnv* env, const std::vector<std::string>& v) {
+    jobjectArray a = env->NewObjectArray((jsize)v.size(), env->FindClass("java/lang/String"), nullptr);
+    for (size_t i = 0; i < v.size(); ++i) {
+        jstring s = env->NewStringUTF(v[i].c_str());
+        env->SetObjectArrayElement(a, (jsize)i, s);
+        env->DeleteLocalRef(s);
+    }
+    return a;
+}
+} // namespace
+
+// The preset the game draws with (null or "": none) and the settings changed from the preset's own. Any time.
+JNIEXPORT void JNICALL JNI(setSlang)(JNIEnv* env, jobject, jstring path, jobjectArray names, jfloatArray values) {
+    Libra::set(jstr(env, path), jparams(env, names, values));
+}
+
+// How the newest chain went: "ok\n<path>", "error\n<path>\n<message>", or "" before it was tried.
+JNIEXPORT jstring JNICALL JNI(slangStatus)(JNIEnv* env, jobject) {
+    return env->NewStringUTF(Libra::status().c_str());
+}
+
+JNIEXPORT jboolean JNICALL JNI(slangAvailable)(JNIEnv*, jobject) {
+    return Libra::available() ? JNI_TRUE : JNI_FALSE;
+}
+
+// A preset's settings, six strings each (name, description, the preset's value, minimum, maximum, step);
+// on failure {"!", message}.
+JNIEXPORT jobjectArray JNICALL JNI(slangParams)(JNIEnv* env, jobject, jstring path) {
+    std::vector<Libra::ParamInfo> ps;
+    std::string err;
+    std::vector<std::string> out;
+    if (!Libra::params(jstr(env, path).c_str(), ps, err)) return jstrings(env, {"!", err});
+    char buf[64];
+    for (auto& p : ps) {
+        out.push_back(p.name); out.push_back(p.description);
+        for (float f : {p.value, p.minimum, p.maximum, p.step}) { snprintf(buf, sizeof buf, "%g", f); out.push_back(buf); }
+    }
+    return jstrings(env, out);
+}
+
+// The preset drawn on argb (w x h, top row first) at outW x outH, as ARGB; null on failure with err[0] the message.
+JNIEXPORT jintArray JNICALL JNI(slangPreview)(JNIEnv* env, jobject, jstring path, jobjectArray names, jfloatArray values,
+                                              jintArray argb, jint w, jint h, jint outW, jint outH, jobjectArray err) {
+    if (!argb || w <= 0 || h <= 0 || outW <= 0 || outH <= 0 || env->GetArrayLength(argb) < w * h) return nullptr;
+    std::vector<jint> px((size_t)w * h);
+    env->GetIntArrayRegion(argb, 0, w * h, px.data());
+    std::vector<uint8_t> rgba((size_t)w * h * 4);
+    for (size_t i = 0; i < px.size(); ++i) {
+        uint32_t c = (uint32_t)px[i];
+        rgba[i * 4] = (c >> 16) & 255; rgba[i * 4 + 1] = (c >> 8) & 255; rgba[i * 4 + 2] = c & 255; rgba[i * 4 + 3] = 255;
+    }
+    std::vector<uint8_t> out;
+    std::string e;
+    if (!Libra::preview(jstr(env, path).c_str(), jparams(env, names, values), rgba.data(), w, h, outW, outH, out, e)) {
+        if (err && env->GetArrayLength(err) > 0) { jstring s = env->NewStringUTF(e.c_str()); env->SetObjectArrayElement(err, 0, s); env->DeleteLocalRef(s); }
+        return nullptr;
+    }
+    std::vector<jint> res((size_t)outW * outH);
+    for (size_t i = 0; i < res.size(); ++i)
+        res[i] = (jint)(0xFF000000u | ((uint32_t)out[i * 4] << 16) | ((uint32_t)out[i * 4 + 1] << 8) | out[i * 4 + 2]);
+    jintArray a = env->NewIntArray((jsize)res.size());
+    env->SetIntArrayRegion(a, 0, (jsize)res.size(), res.data());
+    return a;
+}
+
+JNIEXPORT void JNICALL JNI(slangPreviewClose)(JNIEnv*, jobject) {
+    Libra::previewClose();
 }
 
 // Sharp display (sharp-bilinear final scale); MainActivity also turns the VI blur filters off.
@@ -1547,6 +1950,11 @@ JNIEXPORT void JNICALL JNI(setDdCart)(JNIEnv* env, jobject, jstring path) {
     const char* s = env->GetStringUTFChars(path, nullptr);
     g_ddCart = s;
     env->ReleaseStringUTFChars(path, s);
+}
+
+JNIEXPORT void JNICALL JNI(setTransferPak)(JNIEnv* env, jobject, jstring rom, jstring save) {
+    const char* r = env->GetStringUTFChars(rom, nullptr); g_tpakRom = r; env->ReleaseStringUTFChars(rom, r);
+    const char* s = env->GetStringUTFChars(save, nullptr); g_tpakSave = s; env->ReleaseStringUTFChars(save, s);
 }
 
 JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstring saveName) {
@@ -1634,6 +2042,13 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
         else if (!core.load_game_special) { LOGE("64DD: the core has no retro_load_game_special"); ok = false; }
         else if (!g_ddCart.empty() && buf.empty()) ok = false; // can't read the cartridge (logged above)
         else ok = core.load_game_special(1 /* RETRO_GAME_TYPE_DD */, dd, g_ddCart.empty() ? 1 : 2);
+    } else if (!g_tpakRom.empty() && core.load_game_special && !buf.empty()) {
+        // The Transfer Pak: the core's subsystem takes the Game Boy save, the Game Boy game and the cartridge, and
+        // reads the cartridge from its path itself; ports whose pak option is "transfer" get the Game Boy game.
+        retro_game_info tp[3] = { { g_tpakSave.c_str(), nullptr, 0, nullptr }, { g_tpakRom.c_str(), nullptr, 0, nullptr },
+                                  { p, nullptr, 0, nullptr } };
+        LOGI("Transfer Pak: Game Boy game %s, save %s", g_tpakRom.c_str(), g_tpakSave.c_str());
+        ok = core.load_game_special(2 /* RETRO_GAME_TYPE_TRANSFERPAK */, tp, 3);
     } else {
         ok = !buf.empty() && core.load_game(&info);
     }
@@ -1689,6 +2104,13 @@ JNIEXPORT void JNICALL JNI(start)(JNIEnv*, jobject) {
     if (g_running) return;
     g_running = true;
     g_thread = std::thread(runLoop);
+}
+
+// Paused: draws the last picture again with the display settings as they are now. Does nothing if running.
+JNIEXPORT void JNICALL JNI(showAgain)(JNIEnv*, jobject) {
+    if (!g_paused) return;
+    { std::lock_guard<std::mutex> pl(g_pauseMutex); g_showAgain = true; }
+    g_pauseCv.notify_all();
 }
 
 // Frame advance: while paused, the game runs one more frame and stays paused. Does nothing if not paused.
@@ -1832,6 +2254,8 @@ JNIEXPORT jint JNICALL JNI(coreShutDown)(JNIEnv*, jobject) {
     return !g_coreShutDown ? 0 : g_ddIplMissing ? 2 : g_netplayJoinFailed ? g_netplayJoinFailed.load() : g_netplayLost ? 3 : 1;
 }
 
+JNIEXPORT jlong JNICALL JNI(saveRamFailed)(JNIEnv*, jobject) { return (jlong)g_saveFailedBytes.load(); }
+
 // [in a room (1/0), hosting it (1/0), players joined (bit per player; the host only), status (bit 0 de-synced,
 // bits 1-4 player 1-4 left; the host's is the room's own), the paused player 1-4 (0 = none),
 // the player this game waits for 1-4 (0 = none; set after 1 s of waiting)].
@@ -1841,6 +2265,13 @@ JNIEXPORT jstring JNICALL JNI(netplayOutside)(JNIEnv* env, jobject) {
     std::string s = std::to_string((int)Upnp::state()) + " " + Upnp::outside();
     return env->NewStringUTF(s.c_str());
 }
+
+// Play together's room screen (before the game): the room's port on the router, kept for the game's room server.
+JNIEXPORT void JNICALL JNI(netplayUpnpOpen)(JNIEnv*, jobject, jint port) {
+    const char* u = getenv("N64_NETPLAY_UPNP");
+    if (!u || strcmp(u, "0") != 0) Upnp::open((int)port);
+}
+JNIEXPORT void JNICALL JNI(netplayUpnpClose)(JNIEnv*, jobject) { Upnp::close(); }
 
 JNIEXPORT jintArray JNICALL JNI(netplayInfo)(JNIEnv* env, jobject) {
     bool host = NetplayServer::running();
@@ -2003,6 +2434,42 @@ JNIEXPORT void JNICALL JNI(setButtons)(JNIEnv*, jobject, jint port, jint mask) {
     if (port < 0 || port >= kPorts) return;
     g_tapped[port] |= mask & ~g_buttons[port].exchange(mask);
 }
+
+// Plays a macro on [port] from its next poll: each step's RetroPad bits and stick for its frames.
+// [repeat]: again and again until stopMacro.
+JNIEXPORT void JNICALL JNI(playMacro)(JNIEnv* env, jobject, jint port, jintArray masks, jintArray sx, jintArray sy,
+                                      jintArray frames, jboolean repeat) {
+    if (port < 0 || port >= kPorts) return;
+    jsize n = env->GetArrayLength(masks);
+    if (n <= 0 || env->GetArrayLength(sx) != n || env->GetArrayLength(sy) != n || env->GetArrayLength(frames) != n) return;
+    std::vector<jint> m(n), x(n), y(n), f(n);
+    env->GetIntArrayRegion(masks, 0, n, m.data());
+    env->GetIntArrayRegion(sx, 0, n, x.data());
+    env->GetIntArrayRegion(sy, 0, n, y.data());
+    env->GetIntArrayRegion(frames, 0, n, f.data());
+    std::vector<MacroStepN> steps((size_t)n);
+    for (jsize i = 0; i < n; ++i) steps[i] = {m[i] & 0xffff, x[i], y[i], std::max(1, std::min(60, (int)f[i]))};
+    std::lock_guard<std::mutex> lk(g_macroMutex);
+    MacroPlay& p = g_macro[port];
+    p.steps = std::move(steps);
+    p.repeat = repeat; p.stopping = false; p.active = true; p.idx = 0; p.left = p.steps[0].frames;
+    g_macroAny = true;
+}
+
+// Stops [port]'s macro: [now] at once (the pause menu, a state loaded), else a repeating one after its pass.
+JNIEXPORT void JNICALL JNI(stopMacro)(JNIEnv*, jobject, jint port, jboolean now) {
+    if (port < 0 || port >= kPorts) return;
+    std::lock_guard<std::mutex> lk(g_macroMutex);
+    if (now) g_macro[port].active = false; else g_macro[port].stopping = true;
+}
+
+JNIEXPORT void JNICALL JNI(setTurbo)(JNIEnv*, jobject, jint port, jint mask, jint perSecond) {
+    if (port < 0 || port >= kPorts) return;
+    g_turboSpeed[port] = std::max(1, std::min(30, (int)perSecond));
+    g_turboMask[port] = mask & 0xffff;
+}
+
+JNIEXPORT void JNICALL JNI(setTurboOn)(JNIEnv*, jobject, jboolean on) { g_turboOn = on; }
 
 JNIEXPORT void JNICALL JNI(setAnalog)(JNIEnv*, jobject, jint port, jint i, jint x, jint y) {
     if (port < 0 || port >= kPorts || i < 0 || i > 1) return;

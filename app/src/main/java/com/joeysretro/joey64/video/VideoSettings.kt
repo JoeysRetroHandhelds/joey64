@@ -14,6 +14,8 @@ import java.io.File
 enum class VideoKey(val key: String, val default: String) {
     Resolution("resolution", "1"),
     Aspect("aspect", "auto"),
+    /** Crop edges (approved mockup 2026-11-09): lines of the N64's 240 off every edge, "0" off (display_opts.h cropOf). */
+    Crop("crop", "0"),
     Integer("integer", "off"),
     Orientation("orientation", "landscape"),
     Cutout("cutout", "off"),
@@ -23,6 +25,30 @@ enum class VideoKey(val key: String, val default: String) {
     Gamma("gamma", "10"),
     Sharpen("sharpen", "off"),
     SharpenStrength("sharpen_strength", "50"),
+    /**
+     * Picture rows (approved mockup 2026-11-08; video/Picture.kt): auto, none, a stack "ntsc+crt_heavy", "preset:<name>",
+     * or "slang:<folder name>/<path>.slangp" (Your own RetroArch preset, video/Slang.kt).
+     */
+    Shader("shader", "auto"),
+    /** Each adjusted shader's settings, "crt_heavy=60,0,1,20,10;lcd=50,30". */
+    ShaderParams("shader_params", ""),
+    ShaderScale("shader_scale", "auto"),
+    /** A RetroArch preset's settings changed from its own, "name=value;name=value" (Slang.paramsOf). */
+    SlangParams("slang_params", ""),
+    Sides("sides", "none"),
+    /** The picked sides image's file in files/video/images/. */
+    SidesImage("sides_image", ""),
+    /** Place the game in that image: "left,top,width" in tenths of a percent; empty = centred. */
+    SidesPlace("sides_place", ""),
+    /** Sides › RetroArch overlay: "raov:<folder>/<path>.cfg", or "match:<folder>" (Match each game; RaOverlay.kt). */
+    SidesRa("sides_ra", ""),
+    /** With Match each game: what a game without its own overlay gets (none, blur, frame). */
+    SidesRaOther("sides_ra_other", "blur"),
+    Overlay("overlay", "off"),
+    OverlayImage("overlay_image", ""),
+    OverlayOpacity("overlay_opacity", "30"),
+    /** Colour's colour-blind help: off, red, green, blue (weak). */
+    ColourBlind("colour_blind", "off"),
     Bfi("bfi", "off"),
     Renderer("renderer", "auto"),
     Driver("driver", "auto"),
@@ -32,7 +58,7 @@ enum class VideoKey(val key: String, val default: String) {
     DitherFilter("dither_filter", "on"),
     Divot("divot", "on"),
     GammaDither("gamma_dither", "on"),
-    Deinterlace("deinterlace", "bob"),
+    Deinterlace("deinterlace", "weave"), // Weave since 2026-11-10 (Joey): upscaled, Bob shook still 480i pictures (THPS2, Spider-Man)
     Supersample("supersample", "off"),
     NativeTexLod("native_tex_lod", "off"),
     NativeTexRect("native_tex_rect", "on"),
@@ -90,6 +116,14 @@ object VideoChoices {
     val deinterlace = listOf(VideoChoice("bob", "Bob", "Smooth, a little flicker"), VideoChoice("weave", "Weave", "Sharp, combing on movement"))
     /** All games' Widescreen and 60 fps (a game's own popup lists its versions instead). */
     val extrasAll = listOf(VideoChoice("off", "Off", "Only games you turn it on for"), VideoChoice("auto", "When a game has one"))
+    /** Crop edges' named amounts; any other even amount up to 32 is Exact. */
+    val crop = listOf(
+        VideoChoice("0", "Off", "The whole picture, border and all"),
+        VideoChoice("4", "Thin", "4 lines of 240 off each edge"),
+        VideoChoice("8", "Normal", "8 lines: most games' black border"),
+        VideoChoice("12", "Wide", "12 lines"),
+        VideoChoice("16", "Widest", "16 lines"))
+    val CROP_STEPS: List<Int> = (0..32 step 2).toList()
     val supersample = listOf(
         VideoChoice("off", "Off"), VideoChoice("1/2", "2x"), VideoChoice("1/4", "4x"), VideoChoice("1/8", "8x"))
 
@@ -104,12 +138,14 @@ object VideoChoices {
         VideoKey.Deinterlace -> deinterlace
         VideoKey.Supersample -> supersample
         VideoKey.Widescreen, VideoKey.Fps -> extrasAll
+        VideoKey.Crop -> crop
         else -> onOff
     }
 
     fun label(key: VideoKey, value: String): String = of(key).firstOrNull { it.value == value }?.label
         // A game's own Widescreen / 60 fps: the version's cheat name, as its popup names it.
-        ?: if (key == VideoKey.Widescreen || key == VideoKey.Fps) GameExtras.fpsLabel(value) else value
+        ?: if (key == VideoKey.Widescreen || key == VideoKey.Fps) GameExtras.fpsLabel(value)
+        else if (key == VideoKey.Crop) "Exact, $value lines" else value
 }
 
 /** Video settings with every key filled in: All games over the defaults, then a game's own keys. */
@@ -156,7 +192,6 @@ data class VideoSettings(val values: Map<VideoKey, String>) {
 data class VideoApply(
     val coreOptions: Map<String, String>,
     val env: Map<String, String>,
-    val sharpScale: Boolean,
 ) {
     companion object {
         fun of(v: VideoSettings, parallel: Boolean): VideoApply {
@@ -178,7 +213,9 @@ data class VideoApply(
             }
             val env = LinkedHashMap<String, String>()
             when (v[VideoKey.Pacing]) { "steady" -> env["N64_SWAP_INTERVAL"] = "1"; "timed" -> env["N64_SWAP_INTERVAL"] = "2" }
-            return VideoApply(opts, env, sharpScale = parallel && !v.on(VideoKey.ViBilinear))
+            // Look's Sharp preset no longer turns on the sharp-pixels drawing (Picture mockup's Q1, 2026-11-08):
+            // that is Shader's Sharp pixels now (Auto gives it at Native on most screens).
+            return VideoApply(opts, env)
         }
 
         /** The picture's shape as W:H (0:0 = stretch to the screen); Auto takes the widescreen code's [widescreen] shape. */

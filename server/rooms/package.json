@@ -1,0 +1,10 @@
+{
+  "name": "joey64-rooms",
+  "private": true,
+  "description": "Joey64's public Netplay room list (Cloudflare Worker + D1).",
+  "type": "module",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}

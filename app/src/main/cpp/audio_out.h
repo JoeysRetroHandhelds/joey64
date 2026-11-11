@@ -40,6 +40,10 @@ public:
     // the emulation ran at full speed meanwhile: underruns then raise the target by 10 ms (devices
     // whose frames sometimes miss a vsync need more queued), up to kMaxTargetMs.
     void takeStats(bool keepingUp, double& fillMs, double& targetMs, int& underruns);
+    // Audio frames per second since the last call: from the game (write) and taken by the device's callbacks. The
+    // T820 report (2026-11-08) drained the ring at 61 emulated fps in windows where half the frames repeat; these
+    // tell a game that brings less audio from a device that plays faster than its stated rate.
+    void takeRates(double secs, double& inHz, double& outHz);
 
 private:
     static constexpr int kTargetMs = 20, kMaxTargetMs = 150;
@@ -70,6 +74,7 @@ private:
     int dstRate_ = 48000;
     size_t target_ = 0;      // samples the ring is kept near (audio latency)
     std::atomic<int> underruns_{0};
+    std::atomic<long long> srcFrames_{0}, outFrames_{0}; // takeRates
     double fillSum_ = 0; int fillCount_ = 0;
     double baseStep_ = 1.0;  // nominal source frames per output frame
     double drcI_ = 0;        // integral part of the rate correction

@@ -222,8 +222,14 @@ bool AudioOut::push(float s) {
     return true;
 }
 
+void AudioOut::takeRates(double secs, double& inHz, double& outHz) {
+    inHz = secs > 0 ? srcFrames_.exchange(0) / secs : 0;
+    outHz = secs > 0 ? outFrames_.exchange(0) / secs : 0;
+}
+
 void AudioOut::write(const int16_t* frames, size_t frameCount) {
     if (!stream_) return;
+    srcFrames_.fetch_add((long long)frameCount, std::memory_order_relaxed);
     // Linear interpolation between prev_ and each new source frame.
     for (size_t i = 0; i < frameCount; ++i) {
         const int16_t* cur = frames + i * 2;
@@ -277,6 +283,7 @@ aaudio_data_callback_result_t AudioOut::cb(AAudioStream*, void* user, void* data
     auto* self = static_cast<AudioOut*>(user);
     auto* out = static_cast<float*>(data);
     size_t samples = (size_t)frames * 2;
+    self->outFrames_.fetch_add(frames, std::memory_order_relaxed);
     for (size_t i = 0; i < samples; ++i) {
         size_t r = self->r_.load(std::memory_order_relaxed);
         if (r == self->w_.load(std::memory_order_acquire)) { // underrun → silence

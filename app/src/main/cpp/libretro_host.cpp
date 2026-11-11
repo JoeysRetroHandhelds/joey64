@@ -1068,10 +1068,15 @@ void runLoop() {
     const char* statePath = getenv("N64_STATE");
     int stateWait = statePath && *statePath ? 30 : -1;
     g_bench = getenv("N64_BENCH") && atoi(getenv("N64_BENCH")) == 1;
-    auto ffNext = std::chrono::steady_clock::now(), ffLastShown = ffNext, capNext = ffNext, rewindNext = ffNext;
+    auto ffNext = std::chrono::steady_clock::now(), ffLastShown = ffNext, ffFrameAt = ffNext, capNext = ffNext, rewindNext = ffNext;
     // Fast-forward's shown frames (2026-11-10, "fast forward stutters and looks choppy"): emulated frames since the
     // last one shown, and per 5 s how many were shown, how many frames each moved on, and how evenly they were spaced.
     int ffSinceShown = 0, ffShown = 0, ffPerMin = 99, ffPerMax = 0;
+    // A shown slot whose frame turned out a repeat (the game drew nothing new) stays due for the next frames until
+    // one brings a new picture (2026-11-10, Duo Conker: a 20 fps game repeats 2 refreshes in 3, so most shown slots
+    // were repeats and only 20 pictures a second reached the screen; the new ones fell in frames not shown).
+    bool ffDue = false;
+    static const bool ffDueOn = !(getenv("N64_FF_DUE") && *getenv("N64_FF_DUE") == '0');
     double ffGapSum = 0, ffGapSq = 0;
     auto ffLastWake = ffNext, ffStepAt = ffNext, ffLogAt = ffNext; // fast-forward's even pacing
     double ffWorkEma = 0, ffPace = 0;
@@ -1147,7 +1152,7 @@ void runLoop() {
         bool ff = g_fastForward && !rewinding;
         const bool slow = slowPct > 0 && !ff && !rewinding && !g_bench;
         g_slowNow = slow ? slowPct / 100.0 : 0.0;
-        if (slow || rewinding) g_audioRefillWindows = 2;
+        if (slow || rewinding || ff) g_audioRefillWindows = 2; // and fast-forward: its end refills the emptied ring (Duo 2026-11-10: 257 underruns, target 20 -> 30 ms)
         if (ff != ffApplied) {
             ffApplied = ff;
             if (g_vulkan) g_vk.setUnthrottled(ff || g_bench);
@@ -1235,8 +1240,9 @@ void runLoop() {
                 const double hz = std::min(rn ? 1e9 / (double)rn : 60.0, 62.5);
                 const int k = std::max(1, (int)std::lround(g_av.timing.fps * g_ffSpeedNow.load() / hz));
                 show = ffSinceShown >= k;
-            } else show = now - ffLastShown >= std::chrono::microseconds(16000);
-            if (show) {
+            } else { static const long gapUs = getenv("N64_FF_GAP_US") ? atol(getenv("N64_FF_GAP_US")) : 16000; show = now - ffLastShown >= std::chrono::microseconds(gapUs); }
+            if (ffDueOn && g_vulkan) { show = show || ffDue; ffDue = show; ffFrameAt = now; } // the slot is timed from frame starts
+            if (show && !(ffDueOn && g_vulkan)) {
                 if (ffShown++ > 0) {
                     const double gap = std::chrono::duration<double, std::milli>(now - ffLastShown).count();
                     ffGapSum += gap; ffGapSq += gap * gap;
@@ -1266,8 +1272,18 @@ void runLoop() {
             auto t0 = std::chrono::steady_clock::now();
             if (!g_vk.beginFrame(show)) continue;   // swapchain recreated, try again
             auto t1 = std::chrono::steady_clock::now();
+            const int presentsBefore = g_statPresents;
             core.run();
             auto t3 = std::chrono::steady_clock::now();
+            if (ff && ffDueOn && ffDue && g_statPresents != presentsBefore) { // a new picture went out: the slot is used
+                ffDue = false;
+                if (ffShown++ > 0) {
+                    const double gap = std::chrono::duration<double, std::milli>(ffFrameAt - ffLastShown).count();
+                    ffGapSum += gap; ffGapSq += gap * gap;
+                    ffPerMin = std::min(ffPerMin, ffSinceShown); ffPerMax = std::max(ffPerMax, ffSinceShown);
+                }
+                ffLastShown = ffFrameAt; ffSinceShown = 0;
+            }
             g_vk.endFrame();
             g_statWaitMs += std::chrono::duration<double, std::milli>(t1 - t0).count();
             auto t2 = std::chrono::steady_clock::now();

@@ -150,6 +150,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         launcherString(EXTRA_NETPLAY_HOST)?.let { android.system.Os.setenv("N64_NETPLAY_SERVE", it, true) }
         launcherString(EXTRA_NETPLAY_JOIN)?.let { android.system.Os.setenv("N64_NETPLAY", it, true) }
         launcherString(EXTRA_NETPLAY_NAME)?.let { android.system.Os.setenv("N64_NETPLAY_NAME", it, true) }
+        launcherString(EXTRA_NETPLAY_KEYS)?.let { android.system.Os.setenv("N64_NETPLAY_KEYS", it, true) }
+        launcherString(EXTRA_NETPLAY_KEY)?.let { android.system.Os.setenv("N64_NETPLAY_KEY", it, true) }
         // Dev: --es env "PARALLEL_RDP_UBERSHADER=1,KEY=value" (process environment, read by the core).
         // Set before setupGpu: the driver hooks (N64_KGSL_PRIO) read it while the custom driver loads
         devString("env")?.split(',')?.forEach { kv ->
@@ -3265,10 +3267,15 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         const val EXTRA_NETPLAY_JOIN = "com.joeysretro.joey64.NETPLAY_JOIN"
         /** Play together: this player's name in the room (N64_NETPLAY_NAME). */
         const val EXTRA_NETPLAY_NAME = "com.joeysretro.joey64.NETPLAY_NAME"
-        private val NETPLAY_ENV = listOf("N64_NETPLAY", "N64_NETPLAY_SERVE", "N64_NETPLAY_NAME")
+        /** Play together, the host: the joiners' one-time keys by place, "k1,k2,k3,k4" (N64_NETPLAY_KEYS, read by the room). */
+        const val EXTRA_NETPLAY_KEYS = "com.joeysretro.joey64.NETPLAY_KEYS"
+        /** Play together, a joiner: its one-time key (N64_NETPLAY_KEY: the core registers with it). */
+        const val EXTRA_NETPLAY_KEY = "com.joeysretro.joey64.NETPLAY_KEY"
+        private val NETPLAY_ENV = listOf("N64_NETPLAY", "N64_NETPLAY_SERVE", "N64_NETPLAY_NAME", "N64_NETPLAY_KEYS", "N64_NETPLAY_KEY")
         /** Extras only Joey64's own starts may carry ([fromJoey64]); a start from another app has them dropped. */
         private val LAUNCHER_EXTRAS = listOf(EXTRA_ROM_PATH, EXTRA_SAVE_NAME, EXTRA_LOAD_STATE, EXTRA_SOURCE_URI, EXTRA_SOURCE_NAME,
             EXTRA_TITLE, EXTRA_MD5, EXTRA_KNOWN_MD5, EXTRA_DD_CART, EXTRA_NETPLAY_HOST, EXTRA_NETPLAY_JOIN, EXTRA_NETPLAY_NAME,
+            EXTRA_NETPLAY_KEYS, EXTRA_NETPLAY_KEY,
             com.joeysretro.joey64.launcher.library.GameLauncher.EXTRA_IS_DISK, com.joeysretro.joey64.launcher.library.GameLauncher.EXTRA_NEEDS_CART)
         const val STATE_AUTO = "auto"
         const val STATE_RECOVERY = "recovery"

@@ -24,6 +24,36 @@ class LobbyLinesTest {
         assertEquals(line, LobbyLines.readLine(input(line + "\n")))
     }
 
+    @Test fun keysAreEightHexDigitsAndNeverZero() {
+        repeat(200) {
+            val k = LobbyLines.newKey()
+            assertEquals(8, k.length)
+            assertEquals(k, LobbyLines.parseKey(k))
+        }
+    }
+
+    @Test fun aGoLinesKeyIsReadOnlyWhenItIsOne() {
+        assertEquals("00c0ffee", LobbyLines.parseKey("00C0FFEE"))
+        assertEquals("1", LobbyLines.parseKey("1"))
+        assertNull(LobbyLines.parseKey(null))
+        assertNull(LobbyLines.parseKey(""))
+        assertNull(LobbyLines.parseKey("0"))
+        assertNull(LobbyLines.parseKey("00000000"))
+        assertNull(LobbyLines.parseKey("123456789"))
+        assertNull(LobbyLines.parseKey("12g4"))
+        assertNull(LobbyLines.parseKey("-1"))
+    }
+
+    @Test fun roomKeysByPlace() {
+        assertEquals("0,aa,0,bb", LobbyLines.roomKeys(mapOf(2 to "aa", 4 to "bb")))
+        assertEquals("0,0,0,0", LobbyLines.roomKeys(emptyMap()))
+    }
+
+    @Test fun aGoLineCarriesTheKey() {
+        val f = LobbyLines.split(LobbyLines.line("GO", 2, 45001, "00c0ffee"))
+        assertEquals(listOf("GO", "2", "45001", "00c0ffee"), f)
+    }
+
     @Test fun aLongerLineIsRefused() {
         val i = input("y".repeat(LobbyLines.MAX_LINE + 1) + "\n")
         try { LobbyLines.readLine(i); fail("read a line past the limit") } catch (e: IOException) { }

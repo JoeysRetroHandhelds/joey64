@@ -79,7 +79,7 @@ object PlayTogether {
                          val players: Int, val code: String, val pingMs: Int?, val seenAt: Long)
 
     /** The joiner's start: the room's game and the extras its game screen needs. */
-    data class Go(val md5: String, val join: String, val name: String)
+    data class Go(val md5: String, val join: String, val name: String, val key: String? = null)
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     /** The router's way in, opened and closed in the order asked (Upnp::close joins its worker: never on the main thread, never two at once). */
@@ -395,8 +395,11 @@ object PlayTogether {
 
     @Volatile private var handingOver = false
 
-    /** The host's extras for its own game: "port:players" and its own number, or null when no room is open. */
-    data class HostStart(val serve: String, val join: String, val name: String)
+    /**
+     * The host's extras for its own game: "port:players" and its own number, or null when no room is open; [keys] the
+     * joiners' one-time keys by place ([LobbyLines.roomKeys]), which the game's room checks their registrations against.
+     */
+    data class HostStart(val serve: String, val join: String, val name: String, val keys: String)
 
     /**
      * Start the game: the others are told to wait, the room stops listening (its port is the game's room server's
@@ -408,6 +411,9 @@ object PlayTogether {
         handingOver = true
         val joiners = synchronized(lock) { slots.keys.filterNotNull().map { it to slots[it]!! } }
         val count = joiners.size + 1
+        // One key each, for the place it's given with (code audit 3, M21: anyone who reached the room's port could take
+        // a joiner's place by registering first). Never logged: the session logs can be shared.
+        val keys = joiners.associate { (j, _) -> j to LobbyLines.newKey() }
         val mySlot = synchronized(lock) { slots[null] ?: 1 }
         RoomList.hosting(null)
         hostJob?.cancel(); hostJob = null
@@ -425,13 +431,14 @@ object PlayTogether {
             val up = NativeBridge.netplayInfo().getOrElse(1) { 0 } != 0
             JLog.i(TAG, if (up) "the game's room is open after ${System.currentTimeMillis() - t0} ms: telling the others" else "the game's room didn't open: closing")
             for ((j, slot) in joiners) {
-                j.send(if (up) LobbyLines.line("GO", slot, port) else "CLOSED")
+                j.send(if (up) LobbyLines.line("GO", slot, port, keys[j]!!) else "CLOSED")
                 try { j.socket.close() } catch (e: Exception) { }
             }
             synchronized(lock) { slots.clear() }
             handingOver = false
         }
-        return HostStart("$port:$count:auto", "127.0.0.1:$port:$mySlot", me.name)
+        return HostStart("$port:$count:auto", "127.0.0.1:$port:$mySlot", me.name,
+            LobbyLines.roomKeys(joiners.associate { (j, slot) -> slot to keys[j]!! }))
     }
 
     /** Close the room (or leave one): the others are told, the router's way in is closed. */
@@ -535,9 +542,10 @@ object PlayTogether {
                             // reached: from outside that is the router's outside port, which can differ from the host's own.
                             val port = target.port
                             val g = game ?: break
-                            JLog.i(TAG, "go: player $s on port $port (the host's own ${f.getOrNull(2) ?: "?"})")
+                            val key = LobbyLines.parseKey(f.getOrNull(3))
+                            JLog.i(TAG, "go: player $s on port $port (the host's own ${f.getOrNull(2) ?: "?"})" + if (key == null) ", no key" else ", with its key")
                             _state.value = Idle
-                            _go.value = Go(g.md5, "${target.ip}:$port:$s", me.name)
+                            _go.value = Go(g.md5, "${target.ip}:$port:$s", me.name, key)
                             gone = false; break
                         }
                         "CLOSED" -> break

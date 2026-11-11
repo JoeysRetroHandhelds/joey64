@@ -31,6 +31,15 @@
   where the six games need scrolling). With Sort by Recently played, the game just played moves to the front off
   screen: the grid now scrolls to it and keeps it focused, and Up and Down go from its new place (they
   went from its old index).
+- Joey's answers (2026-11-11, about 4:40 pm, one by one): both server deploys done and checked live (reports
+  d2ee0350, rooms fa8ec6ab); the privacy line now says the server keeps a scrambled part of the address for a day;
+  M10's quiet reset stays quiet; every new wording OK as written; the repos go public with the first public test
+  build; all 15 look items on one review sheet now; M21's leftover fixed now (one-time keys: app side done, the core's
+  part asked); xBRZ dropped from the core (asked); the core delta audit and the regional-copies mockup started as
+  their own sessions.
+- The merge: main merged into launcher/phase0 (f322f9a, core 322462b8 bundled), build, tests and checkBundledFiles
+  pass; on the Duo the merged build started Super Mario 64 from the launcher (faux123 + parallel-RDP, 60 emu fps,
+  the shipped block list read) and came back to the library on it; the perf session fast-forwards main.
 - Noted, not changed: a pack subfolder whose cfgs point at ../ images lists no overlays (Slang.resolve refuses paths
   above the picked folder; RetroArch reads them: pick the pack's root); "1 of your 6 games has one" shows under the
   title while that list scrolls (normal clipping); Save as preset's buttons are [Save][Cancel], Save profile's

@@ -25,7 +25,7 @@ Numbers are REPORT.md's (H/M) and the part files' (pN Lx). [ ] to do, [x] done (
 - [x] M7 closing in-game Cheats sends old cheats (p2 M1) (8f19472)
 - [x] M8 Transfer Pak unreadable save marked copied (p4 M3) (8419abe)
 - [x] M9 proxy dying loses unlocks (p4 M2) (8419abe)
-- [x] M10 sign-in save/clear crash (p4 M1) (8419abe)
+- [x] M10 sign-in save/clear crash (p4 M1) (8419abe); a damaged settings or sign-in file resets quietly, logged only: Joey 2026-11-11 "No message"
 - [x] M11 failed netplay loadGame leaves the room running (p5 M2) (a233f71)
 - [x] M12 vkQueueSubmit failure hangs (p5 M4) (8419abe)
 - [x] M13 Upnp::close on the main thread (p5 M3) (a233f71)
@@ -37,16 +37,18 @@ Numbers are REPORT.md's (H/M) and the part files' (pN Lx). [ ] to do, [x] done (
 - [x] M19 SAF cheats read on the main thread (p1 M3) (8419abe)
 - [x] M20 own image copied on the main thread, same-name replace (p2 M6) (8419abe)
 - [x] M21 unauthenticated netplay packets (p5 M1): accept only registered peers (a233f71; left: the lobby doesn't pass its joiners' addresses to the room, so a stranger who reaches the port and registers before a joiner still takes that place)
+- [ ] M21's leftover (Joey 2026-11-11: "Fix it now"): the lobby gives each joiner a one-time key with GO, the room takes a joiner's registration only with its place's key. App side done (this commit); [C] the core registers with N64_NETPLAY_KEY (asked); then host + joiner on two devices
 - [x] M22 report over 64 KB never sent (p7 M2) (8419abe)
 - [x] M23 reports server per-install cap (p7 M3): code here, deploy [J] (8419abe)
-- [J] M23 deploy (Joey's go): `wrangler d1 execute joey64-reports --remote --file schema.sql` for the two day-cap tables, then `wrangler deploy` (server/reports/README.md, Deploy)
+- [x] M23 deploy (Joey 2026-11-11: "Deploy both now"): schema.sql run on the live D1 (days, posters added), Worker version d2ee0350; live /health ok, a bad report 400; local-run.sh 204s then 429 past the install's cap
+- [x] M23 privacy line (Joey picked "Short"): What's sent ends "The server sees your IP address to stop floods. It keeps only a scrambled part of it, for one day." (was "and never keeps it")
 - [x] M24 rooms server IPv6 posters (p7 M4): code here, deploy [J] (8419abe)
-- [J] M24 deploy (Joey's go): `wrangler d1 execute joey64-rooms --remote --file migrations/0002-unverified.sql`, then `wrangler deploy` (server/rooms/README.md, Deploying)
+- [x] M24 deploy (Joey 2026-11-11: "Deploy both now"): 0002-unverified.sql run on the live D1 (rooms has verified, via; salts added), Worker version fa8ec6ab; live /health ok, GET /rooms 200, a bad post 400
 - [x] M25 GPL source offer: Source code text names the core; making the repos public [J] (8419abe)
-- [J] M25 making the app and core repos public, so About's Source code links open; the row's new wording needs Joey's look
+- [J] M25 making the app and core repos public, so About's Source code links open: Joey 2026-11-11, the same day as the first public test build (with Joey's go for that release); the row's wording: OK
 - [x] M26 Y reset undoes other changes (p2 M2) (8419abe)
 - [x] M27 picking another preset/overlay folder keeps the old list (p2 M5) (8419abe)
-- [J] M28 X removes a game's settings without asking (p2 M7; the mockup says so)
+- [J] M28 X removes a game's settings without asking (p2 M7; the mockup says so): on the review sheet (Joey 2026-11-11: one sheet, before and after, for all 15 look items)
 - [J] M29 ◀ ▶ rows by touch (p8 M2): needs a mockup
 - [J] M30 X/Y/Start/L/R-only actions, no touch or remote way (p8 M1): needs a mockup
 - [x] M31 host room popup: tap outside / B closes the room for everyone (p8 M4) (8419abe)
@@ -118,7 +120,7 @@ Part 7
 - [x] p7 L5 other extras from any app (with H9) (8f19472)
 - [x] p7 L6 rooms reads the body before the size check (8419abe)
 - [x] p7 L7 workflows paste upstream text (8419abe)
-- [J] p7 L8 GLideN64 v2 / xBRZ v3 licence
+- [C] p7 L8 GLideN64 v2 / xBRZ v3 licence: Joey 2026-11-11 "Drop xBRZ from the core" (asked the core's owner); then About's xBRZ entry and assets/licenses/xbrz.txt go
 - [x] p7 L9 ScreenScraper login XOR only: decided, no change
 Part 8
 - [J] p8 L1 hint row clips at large fonts (layout)

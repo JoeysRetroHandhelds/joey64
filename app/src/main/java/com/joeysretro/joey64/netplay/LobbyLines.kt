@@ -8,7 +8,9 @@ package com.joeysretro.joey64.netplay
  *  host -> joiner on connect: `ROOM <proto> <host name> <device> <game title> <md5> <file>`
  *  joiner -> host: `HELLO <proto> <name> <device> <md5>`
  *  host -> joiner: `WELCOME <slot>`, `FULL`, `MISMATCH`, `PLAYERS <slot|name|device|where|ping;...>`, `START`,
- *                  `GO <slot> <port>`, `CLOSED`
+ *                  `GO <slot> <port> <key>`, `CLOSED`
+ *    (key: 8 hex digits, made for this joiner and this place when the game starts; its game registers with it, and the
+ *    game's room takes no other registration for that place: code audit 3, M21. A host without keys sends none.)
  *  both ways: `PING <t>`, `PONG <t>` (t: the sender's clock in ms), and `BYE` from the joiner.
  * Over UDP the host sends a beacon to the Wi-Fi's broadcast address on [PlayTogether.DISCOVERY_PORT] every second,
  * `J64ROOM <proto> <port> <host name> <device> <game title> <md5> <players> <code>`, and answers `J64PING <t>` with
@@ -24,6 +26,23 @@ object LobbyLines {
     fun line(vararg f: Any) = f.joinToString("\t") { field(it.toString()) }
 
     fun split(line: String): List<String> = line.trimEnd('\r', '\n').split('\t')
+
+    private val random = java.security.SecureRandom()
+
+    /** A joiner's one-time key for the game's room: 8 lower-case hex digits, never 0 (0 is "no key"). */
+    fun newKey(): String {
+        while (true) { val k = random.nextInt(); if (k != 0) return "%08x".format(k) }
+    }
+
+    /** A GO line's key: 1 to 8 hex digits, not 0, lower-cased; null for none or anything else. */
+    fun parseKey(s: String?): String? {
+        val k = s?.trim()?.lowercase() ?: return null
+        if (k.isEmpty() || k.length > 8 || !k.all { it in '0'..'9' || it in 'a'..'f' }) return null
+        return k.takeIf { it.toLong(16) != 0L }
+    }
+
+    /** The room's keys by place 1-4, as N64_NETPLAY_KEYS reads them: "k1,k2,k3,k4", 0 for a place with none. */
+    fun roomKeys(byPlace: Map<Int, String>) = (1..4).joinToString(",") { byPlace[it] ?: "0" }
 
     /** The longest line either side takes: a PLAYERS line with four players is under 1 KB (each field at most 48 characters). */
     const val MAX_LINE = 4096

@@ -44,7 +44,7 @@ Box art
 Crashes
   • Where it happened and the first lines of the error, or for a crash in the emulator, the code it was running (library names only)
 
-Never sent: your name, accounts or RetroAchievements sign-in, folders, ROMs, saves, location. The server sees your IP address to stop floods, and never keeps it."""
+Never sent: your name, accounts or RetroAchievements sign-in, folders, ROMs, saves, location. The server sees your IP address to stop floods. It keeps only a scrambled part of it, for one day."""
 
 @Composable
 fun WhatsSentPopup(onDismiss: () -> Unit) = TextBoxPopup("What's sent", null, WHATS_SENT, onDismiss)

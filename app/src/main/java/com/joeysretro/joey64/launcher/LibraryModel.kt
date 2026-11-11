@@ -990,6 +990,7 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
             intent.putExtra(com.joeysretro.joey64.MainActivity.EXTRA_NETPLAY_HOST, hs.serve)
                 .putExtra(com.joeysretro.joey64.MainActivity.EXTRA_NETPLAY_JOIN, hs.join)
                 .putExtra(com.joeysretro.joey64.MainActivity.EXTRA_NETPLAY_NAME, hs.name)
+                .putExtra(com.joeysretro.joey64.MainActivity.EXTRA_NETPLAY_KEYS, hs.keys)
             JLog.i(TAG, "${game.title}: Netplay, hosting (${hs.serve})")
             startNow(game, intent, start)
         }
@@ -1004,6 +1005,7 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
             val intent = withContext(Dispatchers.IO) { launcher.intentFor(game) } ?: run { JLog.w(TAG, "no readable file for ${game.title}"); return@launch }
             intent.putExtra(com.joeysretro.joey64.MainActivity.EXTRA_NETPLAY_JOIN, go.join)
                 .putExtra(com.joeysretro.joey64.MainActivity.EXTRA_NETPLAY_NAME, go.name)
+            go.key?.let { intent.putExtra(com.joeysretro.joey64.MainActivity.EXTRA_NETPLAY_KEY, it) }
             JLog.i(TAG, "${game.title}: Netplay, joining (${go.join})")
             startNow(game, intent, start)
         }

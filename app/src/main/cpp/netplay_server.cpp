@@ -95,6 +95,10 @@ int g_wake[2] = {-1, -1};
 
 struct Room {
     int players = 2, delay = 2;
+    // The joiners' one-time keys by place (N64_NETPLAY_KEYS from the lobby, code audit 3 M21): with any set, a game
+    // from another device registers for a place only with that place's key as its id. 0: no key for that place.
+    uint32_t keys[4] = {0, 0, 0, 0};
+    bool keyed = false;
     int tcp = -1, udp = -1;
     std::vector<Client> clients;
     Reg reg[4];
@@ -420,8 +424,11 @@ struct Room {
             if (b.size() < 8) return 0;
             int p = b[1]; uint32_t id = r32(&b[4]);
             uint8_t ok = 0;
+            // A keyed room: the place's key, or the host's own game (M21's leftover: a stranger who reached the port
+            // before a joiner could take the joiner's place).
+            const bool keyOk = !keyed || c.local || (p >= 0 && p < 4 && keys[p] && id == keys[p]);
             // one place a connection (M21: one connection could take every free place)
-            if (p >= 0 && p < 4 && id && (c.regId == 0 || c.regId == id) && (reg[p].id == 0 || reg[p].id == id)) {
+            if (keyOk && p >= 0 && p < 4 && id && (c.regId == 0 || c.regId == id) && (reg[p].id == 0 || reg[p].id == id)) {
                 reg[p] = {id, b[2], b[3]}; ok = 1; c.regId = id;
                 uint8_t m = 0; for (int i = 0; i < 4; i++) if (reg[i].id) m |= 1 << i;
                 g_regMask = m;
@@ -429,7 +436,9 @@ struct Room {
                 for (uint32_t k = 0; k < (uint32_t)delay; k++) inputs[p][k] = {0, b[2]};
                 sched[p] = {{0u, delay}}; started[p] = false; pendingLower[p] = 0;
             }
-            NLOGI("netplay server: player %d register %08x: %s", p + 1, id, ok ? "ok" : "taken");
+            // A key isn't logged (session logs can be shared); a keyed room's ids are the keys.
+            if (keyed) NLOGI("netplay server: player %d register: %s", p + 1, ok ? "ok" : keyOk ? "taken" : "not this place's key");
+            else NLOGI("netplay server: player %d register %08x: %s", p + 1, id, ok ? "ok" : "taken");
             uint8_t out[2] = {ok, kBufferTarget};
             queue(c, out, 2);
             return 8;
@@ -735,6 +744,17 @@ bool start(int port, int players, int delay) {
     room->adaptive = delay < 0;
     room->delay = room->adaptive ? Room::kMinDelay : delay > 30 ? 30 : delay;
     g_delay = room->delay;
+    if (const char* k = getenv("N64_NETPLAY_KEYS")) {
+        const char* s = k;
+        for (int i = 0; i < 4 && *s; i++) {
+            char* end = nullptr;
+            room->keys[i] = (uint32_t)strtoul(s, &end, 16);
+            if (room->keys[i]) room->keyed = true;
+            if (!end || *end != ',') break;
+            s = end + 1;
+        }
+        NLOGI("netplay server: %s", room->keyed ? "joiners register with their keys" : "no keys");
+    }
     if (const char* s = getenv("N64_NETPLAY_SIM")) {
         sscanf(s, "%d%*[^0-9]%d%*[^0-9]%d", &room->simDelay, &room->simJitter, &room->simLoss);
         room->simLoss = std::clamp(room->simLoss, 0, 90);

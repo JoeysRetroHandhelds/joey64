@@ -21,13 +21,16 @@
   following a new folder (M27), Place the game with an overlay (found 22%, moved 24% saved, X back), preset rename
   alpha to gamma and profile rename (p4 L8), the host room kept by B, Back and a tap outside and closed by Close the
   room (M31), and in game the Retro TV overlay with the alpha preset at 60 fps.
-- Found while checking, fixed in 1d0d4dd and checked on the Portal: focus went back to the wrong place. Closing a
+- Found while checking, fixed in 1d0d4dd and the reorder commit after it, and checked on the Portal: focus went back to the wrong place. Closing a
   game's page or quitting a game focused the first cover (and after a game the view went back to All games); Search
   came back empty with the keyboard up after a result's page; Options came back on Play after Details or Add to
   collection; the Picture popups and the in-game Picture panel came back on the current choice after Adjust, Place
   the game, the overlays list, Add a shader or Shader scale. All now land on the row or game you left, and the
   library keeps its view and place when the launcher is made again in a new process (checked with am kill); a cold
-  start still begins at All games, first game.
+  start still begins at All games, first game. The scroll comes back exactly (checked in the debug 320x240 window,
+  where the six games need scrolling). With Sort by Recently played, the game just played moves to the front off
+  screen: the grid now scrolls to it and keeps it focused, and Up and Down go from its new place (they
+  went from its old index).
 - Noted, not changed: a pack subfolder whose cfgs point at ../ images lists no overlays (Slang.resolve refuses paths
   above the picked folder; RetroArch reads them: pick the pack's root); "1 of your 6 games has one" shows under the
   title while that list scrolls (normal clipping); Save as preset's buttons are [Save][Cancel], Save profile's

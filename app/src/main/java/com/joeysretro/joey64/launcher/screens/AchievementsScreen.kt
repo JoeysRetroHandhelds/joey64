@@ -307,7 +307,12 @@ private fun AchievementRow(a: RaAchievement, now: Long, live: Boolean, modifier:
     val challenge = live && a.section == RaAchievement.ACTIVE_CHALLENGE
     IconRow(a.title, a.description, modifier, bar = if (tracked) a.percent / 100f else null, rightText = right, rightNote = RaLists.rarity(a),
         dim = !a.isUnlocked,
-        picture = { if (a.isUnlocked) Picture(badgeFile(a.badge), 40.dp) else LockTile() },
+        // Locked: RetroAchievements' grey badge (Joey 2026-11-10, "greyed badges yes"); the padlock tile only when it has none.
+        picture = { when {
+            a.isUnlocked -> Picture(badgeFile(a.badge), 40.dp)
+            a.badgeLocked.isNotEmpty() -> Picture(badgeFile(a.badgeLocked), 40.dp)
+            else -> LockTile()
+        } },
         tag = if (challenge || a.missable) ({
             if (challenge) RowTag("Challenge active", c.tagChallenge, c.tagChallengeBg)
             if (a.missable) RowTag("Missable", c.tagMissable, c.tagMissableBg, R.drawable.ic_alert_triangle)

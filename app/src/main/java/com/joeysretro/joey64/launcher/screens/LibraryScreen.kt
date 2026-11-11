@@ -8,6 +8,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
 import androidx.compose.runtime.setValue
 import com.joeysretro.joey64.launcher.controls.Control
 import com.joeysretro.joey64.launcher.controls.ControlBus
@@ -95,7 +97,8 @@ fun LibraryScreen(model: LibraryModel, onSearch: () -> Unit) {
     val facts by model.facts.collectAsStateWithLifecycle()
     val landing = LocalFocusLanding.current
     val context = LocalContext.current
-    // On opening, and after picking what to show: focus lands on the first game.
+    // On opening, and after picking what to show: focus lands on the first game. Back from a game's page or a game,
+    // on the game you left from (GamesGrid's keepPlace).
     LaunchedEffect(view) { landing?.arm() }
     if (model.offline.collectAsStateWithLifecycle().value) OfflinePopup(model::offlineSeen)
     model.recovery.collectAsStateWithLifecycle().value?.let { offer ->
@@ -154,19 +157,30 @@ fun LibraryScreen(model: LibraryModel, onSearch: () -> Unit) {
         if (list.isEmpty()) Text("No games here yet", style = JoeyTheme.type.note, color = c.textDim,
             modifier = Modifier.padding(start = JoeyTheme.spacing.margin, top = 20.dp))
         // A new view starts at its first game.
-        androidx.compose.runtime.key(view) { GamesGrid(list, model, onSearch) }
+        androidx.compose.runtime.key(view) { GamesGrid(list, model, onSearch, keepPlace = true) }
     }
 }
 
 /**
  * A grid of games (the library, a view of it, or Search's results): A plays, Start or a
- * long-press opens the game's options, Y [onSearch]. Focus starts on the first game.
+ * long-press opens the game's options, Y [onSearch]. Focus starts on the first game ([keepPlace]: on the one you
+ * left from).
  */
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
 fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit, firstFocus: Boolean = true, onFocusGame: (Boolean) -> Unit = {},
     /** Focuses the first tile (Search's Enter: the first result, not the tile under the box). */
-    firstTile: androidx.compose.ui.focus.FocusRequester? = null) {
+    firstTile: androidx.compose.ui.focus.FocusRequester? = null,
+    /**
+     * The library's own grid: it comes back where you left it ([LibraryModel.libraryFocus]), focus on that game and the
+     * same scroll, after a game's page or a game put it away. Found on the Odin 3 Portal 2026-11-11: closing Game
+     * settings, or quitting a game, focused the first cover.
+     */
+    keepPlace: Boolean = false,
+    /** Without [keepPlace]: the game focus lands on when the landing is armed (Search, back from a game's page). */
+    landOn: Long? = null,
+    /** A game's tile took focus, or was tapped or long-pressed. */
+    onFocused: (Long) -> Unit = {}) {
     val context = LocalContext.current
     // Settings › Library › Covers (approved mockup 2026-11-08): cover size and names.
     val store = remember { com.joeysretro.joey64.launcher.settings.SettingsStore(context) }
@@ -175,6 +189,10 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
     val names = look?.names ?: com.joeysretro.joey64.launcher.library.NamesMode.DEFAULT
     val style = look?.nameStyle ?: com.joeysretro.joey64.launcher.library.NameStyle.Short
     val greyed by model.greyed.collectAsStateWithLifecycle()
+    // keepPlace: the game focus lands on, read as the grid is made (null: the first game, as before).
+    val landId = remember(list, landOn) { (if (keepPlace) model.libraryFocus else landOn)?.takeIf { id -> list.any { it.id == id } } }
+    val landing = LocalFocusLanding.current
+    fun keep(g: LibraryGame) { if (keepPlace) model.libraryFocus = g.id; onFocused(g.id) }
     // The game whose tile has focus, for Start; null while focus is elsewhere.
     var focusedGame by remember { mutableStateOf<LibraryGame?>(null) }
     var popup by remember { mutableStateOf<Pair<Long, GamePopup>?>(null) }
@@ -204,7 +222,12 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
         // Compose's default stops with the tile flush against the hint row, outline cut.
         val gap = with(LocalDensity.current) { 16.dp.toPx() }
         val cols = com.joeysretro.joey64.launcher.library.LibraryArrange.columns(LocalScreenLayout.current.boxArtColumns, size)
-        val gridState = rememberLazyGridState()
+        // keepPlace: the scroll it had (made again after a game's page, the grid started at the top).
+        val start = remember { if (keepPlace) model.libraryScroll else 0 to 0 }
+        val gridState = rememberLazyGridState(start.first, start.second)
+        if (keepPlace) LaunchedEffect(gridState) {
+            snapshotFlow { gridState.firstVisibleItemIndex to gridState.firstVisibleItemScrollOffset }.collect { model.libraryScroll = it }
+        }
         val scope = androidx.compose.runtime.rememberCoroutineScope()
         // Up and Down go by index (the tile [cols] before or after), so the column stays. Compose's own search goes by
         // where tiles are on screen, and with a key held the next row isn't laid out yet: holding Up from the last game
@@ -213,6 +236,13 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
         var focusedIndex by remember { mutableStateOf(-1) }
         var moving by remember { mutableStateOf(false) }
         val listNow by rememberUpdatedState(list)
+        // The game to land on is off screen (the list changed while away: Recently played puts the game just played
+        // first): its row is scrolled in, and focus lands on it as it's composed.
+        if (landId != null && landing?.pending == true) LaunchedEffect(landId) {
+            val laidOut = snapshotFlow { gridState.layoutInfo }.first { it.visibleItemsInfo.isNotEmpty() }
+            val index = listNow.indexOfFirst { it.id == landId }
+            if (index >= 0 && laidOut.visibleItemsInfo.none { it.index == index }) gridState.scrollToItem(index)
+        }
         CompositionLocalProvider(LocalBringIntoViewSpec provides remember(gap) { RowGapSpec(gap) }) {
         LazyVerticalGrid(
             columns = GridCells.Fixed(cols),
@@ -258,10 +288,10 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
                 val own = remember { FocusRequester() }
                 androidx.compose.runtime.DisposableEffect(g.id) { tileFocus[g.id] = own; onDispose { if (tileFocus[g.id] === own) tileFocus.remove(g.id) } }
                 GameTile(g, model.cover(g), names, com.joeysretro.joey64.launcher.library.LibraryArrange.title(g, style), greyed = g.id in greyed,
-                    modifier = Modifier.initialFocus(firstFocus && i == 0).focusRequester(own)
+                    modifier = Modifier.initialFocus(if (landId != null) g.id == landId else firstFocus && i == 0).focusRequester(own)
                     .then(if (i == 0 && firstTile != null) Modifier.focusRequester(firstTile) else Modifier),
-                    onFocus = { on -> if (on) { focusedGame = g; focusedIndex = i } else if (focusedGame?.id == g.id) { focusedGame = null; focusedIndex = -1 } },
-                    onOptions = { popup = g.id to GamePopup.Options }) { model.playAsked(g) { context.startActivity(it) } }
+                    onFocus = { on -> if (on) { focusedGame = g; focusedIndex = i; keep(g) } else if (focusedGame?.id == g.id) { focusedGame = null; focusedIndex = -1 } },
+                    onOptions = { keep(g); popup = g.id to GamePopup.Options }) { keep(g); model.playAsked(g) { context.startActivity(it) } }
             }
         }
         }

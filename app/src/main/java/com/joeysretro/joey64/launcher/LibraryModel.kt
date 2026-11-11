@@ -9,6 +9,7 @@ import android.net.Uri
 import androidx.core.net.toUri
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import android.net.ConnectivityManager
 import android.net.Network
@@ -46,7 +47,7 @@ data class FolderLook(val tree: Uri, val roms: Int, val place: String, val folde
  * The launcher's state that outlives a screen rotation: the library list, the background read
  * that keeps it current ([LibraryScanner]), and starting games ([GameLauncher]).
  */
-class LibraryModel(app: Application) : AndroidViewModel(app) {
+class LibraryModel(app: Application, private val saved: SavedStateHandle) : AndroidViewModel(app) {
     private val db = LibraryDb.get(app)
     private val scanner = LibraryScanner(app, db)
     private val launcher = GameLauncher(app, db)
@@ -94,9 +95,36 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
 
     // ---- Collections and filters (Phase 5) -------------------------------------------------------------
 
-    private val _view = MutableStateFlow<com.joeysretro.joey64.launcher.library.LibraryView>(com.joeysretro.joey64.launcher.library.LibraryView.All)
+    // From the launcher's saved state: after a game the launcher is often made again in a new process, and the view
+    // stayed All games (found on the Odin 3 Portal 2026-11-11).
+    private val _view = MutableStateFlow(com.joeysretro.joey64.launcher.library.LibraryViews.fromKey(saved.get<String>(KEY_VIEW)))
     /** What the grid shows; named on the Filter button. */
     val view: StateFlow<com.joeysretro.joey64.launcher.library.LibraryView> = _view
+
+    init {
+        // Kept as it changes (reloadCollections renames a collection's view, or drops it, off the main thread).
+        viewModelScope.launch { _view.collect { saved[KEY_VIEW] = com.joeysretro.joey64.launcher.library.LibraryViews.key(it) } }
+    }
+
+    /**
+     * Where the library grid was: the game that had focus last (or was tapped) and the scroll. A game's page or a game
+     * puts the grid away, and it comes back there instead of at the first game (GamesGrid's keepPlace). In the saved
+     * state, so it holds when a game starts the launcher again in a new process; a cold start begins at the first game.
+     */
+    var libraryFocus: Long?
+        get() = saved.get<Long>(KEY_FOCUS)
+        set(value) { saved[KEY_FOCUS] = value }
+    var libraryScroll: Pair<Int, Int>
+        get() = (saved.get<Int>(KEY_SCROLL) ?: 0) to (saved.get<Int>(KEY_SCROLL_OFFSET) ?: 0)
+        set(value) { saved[KEY_SCROLL] = value.first; saved[KEY_SCROLL_OFFSET] = value.second }
+
+    /**
+     * Search's words and the result that had focus, kept while a game's page is over Search: the page takes Search's
+     * place, and Search's own state went with it. Forgotten when Search is left ([forgetSearch]).
+     */
+    var searchQuery = ""
+    var searchFocus: Long? = null
+    fun forgetSearch() { searchQuery = ""; searchFocus = null }
     private val _collections = MutableStateFlow<List<com.joeysretro.joey64.launcher.data.GameCollection>>(emptyList())
     val collections: StateFlow<List<com.joeysretro.joey64.launcher.data.GameCollection>> = _collections
     private val _facts = MutableStateFlow<com.joeysretro.joey64.launcher.library.LibraryFacts?>(null)
@@ -123,6 +151,8 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun show(v: com.joeysretro.joey64.launcher.library.LibraryView) {
+        // Another view starts at its first game, at the top.
+        if (v != _view.value) { libraryFocus = null; libraryScroll = 0 to 0 }
         _view.value = v
         JLog.i(TAG, "showing ${v.label}")
     }
@@ -1113,6 +1143,10 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
 
     private companion object {
         const val TAG = "Joey64Library"
+        const val KEY_VIEW = "library_view"
+        const val KEY_FOCUS = "library_focus"
+        const val KEY_SCROLL = "library_scroll"
+        const val KEY_SCROLL_OFFSET = "library_scroll_offset"
     }
 }
 

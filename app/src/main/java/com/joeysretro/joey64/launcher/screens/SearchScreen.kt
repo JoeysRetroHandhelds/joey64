@@ -12,7 +12,6 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -45,12 +44,20 @@ fun SearchScreen(model: LibraryModel, onHints: (List<Hint>) -> Unit, onClose: ()
     NetEndedPopup(model)
     LostFolderPopup(model)
     NeedsCartPopup(model) { ctx.startActivity(it) }
-    var query by rememberSaveable { mutableStateOf("") }
+    // Kept in the model while a game's page is over Search: the page takes Search's place, and Search's own state went
+    // with it (found on the Odin 3 Portal 2026-11-11: back from Game settings, Search was empty, the keyboard up).
+    var query by remember { mutableStateOf(model.searchQuery) }
+    androidx.compose.runtime.SideEffect { model.searchQuery = query }
+    // Back from a game's page: focus on the result you left from, without the keyboard. Cleared when the field takes
+    // focus again (Y, or B clearing the words).
+    var back by remember { mutableStateOf(model.searchFocus?.takeIf { query.isNotEmpty() }) }
     // Y on the results: back into the field, typing. Bumped to make a fresh field that starts typing.
     var edit by remember { mutableIntStateOf(0) }
     var onGame by remember { mutableStateOf(false) }
     val landing = LocalFocusLanding.current
     val found = remember(games, query) { LibraryViews.search(games, query) }
+    val backTo = back?.takeIf { id -> found.any { it.id == id } }
+    LaunchedEffect(Unit) { if (backTo != null) landing?.arm() }
     val c = JoeyTheme.colors
     val firstResult = remember { androidx.compose.ui.focus.FocusRequester() }
 
@@ -63,13 +70,13 @@ fun SearchScreen(model: LibraryModel, onHints: (List<Hint>) -> Unit, onClose: ()
         })
     }
     BackHandler {
-        if (query.isEmpty()) onClose() else { query = ""; edit++; landing?.arm() }
+        if (query.isEmpty()) onClose() else { query = ""; back = null; edit++; landing?.arm() }
     }
     Column(Modifier.fillMaxSize()) {
         key(edit) {
             ControllerTextField(query, { query = it }, "Search your games",
-                Modifier.initialFocus().padding(start = JoeyTheme.spacing.margin, end = JoeyTheme.spacing.margin, top = 12.dp),
-                startTyping = true,
+                Modifier.initialFocus(backTo == null).padding(start = JoeyTheme.spacing.margin, end = JoeyTheme.spacing.margin, top = 12.dp),
+                startTyping = backTo == null,
                 // Enter goes to the first result (moving focus down landed on the tile under the box).
                 onDone = { found.isNotEmpty() && runCatching { firstResult.requestFocus() }.isSuccess },
                 trailing = {
@@ -81,7 +88,8 @@ fun SearchScreen(model: LibraryModel, onHints: (List<Hint>) -> Unit, onClose: ()
             Text("No games match", style = JoeyTheme.type.note, color = c.textDim,
                 modifier = Modifier.padding(start = JoeyTheme.spacing.margin, top = 20.dp))
         } else if (found.isNotEmpty()) {
-            GamesGrid(found, model, onSearch = { edit++; landing?.arm() }, firstFocus = false, onFocusGame = { onGame = it }, firstTile = firstResult)
+            GamesGrid(found, model, onSearch = { back = null; edit++; landing?.arm() }, firstFocus = false, onFocusGame = { onGame = it }, firstTile = firstResult,
+                landOn = backTo, onFocused = { model.searchFocus = it })
         }
     }
 }

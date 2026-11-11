@@ -65,4 +65,13 @@ class LibraryViewsTest {
         assertEquals(null, LibraryViews.playersOf(unknown, facts))
         assertEquals(listOf(9L), LibraryViews.show(listOf(remix, starRoad, unknown), LibraryView.Filter(AutoFilter.FourPlayers), facts).map { it.id })
     }
+
+    @Test fun viewKeysReadBack() {
+        val views = listOf(LibraryView.All, LibraryView.Favourites, LibraryView.Collection(7, "Party: 4 players")) +
+            AutoFilter.entries.map { LibraryView.Filter(it) }
+        for (v in views) assertEquals(v, LibraryViews.fromKey(LibraryViews.key(v)))
+        assertEquals(LibraryView.All, LibraryViews.fromKey(null))
+        assertEquals(LibraryView.All, LibraryViews.fromKey("filter:Gone"))
+        assertEquals(LibraryView.All, LibraryViews.fromKey("collection:x:Party"))
+    }
 }

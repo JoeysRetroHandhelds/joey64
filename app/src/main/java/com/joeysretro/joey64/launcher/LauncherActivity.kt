@@ -221,7 +221,10 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             // Signed in: the Has achievements filter's list, fetched again when a day old.
             LaunchedEffect(raAccount != null) { if (raAccount != null) model.refreshSetList() }
             // Cheats opens over the library or Search results (a game's options), and B goes back there; going anywhere on the rail closes it.
-            LaunchedEffect(place) { model.closeCheats(); model.closeAchievements(); model.closeGameSettings(); model.closeSaves(); model.closeScreenshots() }
+            LaunchedEffect(place) {
+                model.closeCheats(); model.closeAchievements(); model.closeGameSettings(); model.closeSaves(); model.closeScreenshots()
+                if (place != RailPlace.Search) model.forgetSearch()
+            }
             if (home) UpdateChecks(updates)
             // The rail on the left, or a bar along the bottom in portrait.
             com.joeysretro.joey64.launcher.components.RailLayout(Modifier.weight(1f).fillMaxWidth(), rail = { horizontal ->

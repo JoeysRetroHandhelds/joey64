@@ -37,6 +37,28 @@ class LibraryFacts(
 )
 
 object LibraryViews {
+    /** [view] as text for the launcher's saved state ([fromKey] reads it back): the view stays after a game. */
+    fun key(view: LibraryView): String = when (view) {
+        LibraryView.All -> "all"
+        LibraryView.Favourites -> "favourites"
+        is LibraryView.Collection -> "collection:${view.id}:${view.name}"
+        is LibraryView.Filter -> "filter:${view.filter.name}"
+    }
+
+    /** The view [key] names; All games for none, or for one that doesn't read (a filter an update took out). */
+    fun fromKey(key: String?): LibraryView {
+        val k = key ?: return LibraryView.All
+        return when {
+            k == "favourites" -> LibraryView.Favourites
+            k.startsWith("collection:") -> k.removePrefix("collection:").split(':', limit = 2).let { p ->
+                p[0].toLongOrNull()?.let { LibraryView.Collection(it, p.getOrElse(1) { "" }) }
+            } ?: LibraryView.All
+            k.startsWith("filter:") -> AutoFilter.entries.firstOrNull { it.name == k.removePrefix("filter:") }
+                ?.let { LibraryView.Filter(it) } ?: LibraryView.All
+            else -> LibraryView.All
+        }
+    }
+
     fun matches(game: LibraryGame, view: LibraryView, facts: LibraryFacts): Boolean = when (view) {
         LibraryView.All -> true
         LibraryView.Favourites -> game.favourite

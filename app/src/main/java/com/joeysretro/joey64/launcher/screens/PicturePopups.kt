@@ -149,12 +149,15 @@ internal fun PicturePopups(page: PicPage, ctx: PictureCtx, onPage: (PicPage?) ->
     val context = LocalContext.current
     // The RetroArch previews' own GL context goes with the popups.
     DisposableEffect(Unit) { onDispose { slangPreviewClose() } }
+    // The row each list (Shader, Sides, Advanced) was left from for a page over it: coming back lands there, not on
+    // the current choice (found on the Odin 3 Portal 2026-11-11: Place the game's Done focused RetroArch overlay).
+    val rows = remember { HashMap<PicPage, String>() }
     when (page) {
-        PicPage.Shader -> ShaderPopup(ctx, onPage)
+        PicPage.Shader -> ShaderPopup(ctx, rows, onPage)
         PicPage.Slang -> SlangPopup(ctx, onPage)
         is PicPage.SlangAdjust -> SlangAdjustPopup(ctx, page.value) { onPage(PicPage.Slang) }
         is PicPage.Adjust -> Shaders.of(page.id)?.let { AdjustPopup(it, ctx) { onPage(PicPage.Shader) } } ?: onPage(PicPage.Shader)
-        PicPage.Advanced -> AdvancedShaderPopup(ctx, onPage)
+        PicPage.Advanced -> AdvancedShaderPopup(ctx, rows, onPage)
         is PicPage.StackPick -> StackPickPopup(ctx, page.index) { onPage(PicPage.Advanced) }
         PicPage.Scale -> ScalePopup(ctx) { onPage(PicPage.Advanced) }
         is PicPage.Save -> SavePresetPopup(page.setup, page.name, { onPage(PicPage.Shader) }) { n ->
@@ -170,11 +173,11 @@ internal fun PicturePopups(page: PicPage, ctx: PictureCtx, onPage: (PicPage?) ->
         is PicPage.Rename -> NameEntryPopup("Rename ${page.name}", page.name, null,
             taken = { n -> ctx.presets.any { it.name != page.name && it.name.equals(n, ignoreCase = true) } },
             onDismiss = { onPage(PicPage.Shader) }) { n ->
-            ctx.store.rename(page.name, n, VideoStore(context)); ctx.presetsChanged(); onPage(PicPage.Shader)
+            ctx.store.rename(page.name, n, VideoStore(context)); ctx.presetsChanged(); rows[PicPage.Shader] = Picture.PRESET + n; onPage(PicPage.Shader)
         }
         is PicPage.Delete -> ResetTabPopup("Delete ${page.name}?", "Games that use it go back to Auto.", "Keep it", "Delete",
             { onPage(PicPage.Shader) }) { ctx.store.remove(page.name); ctx.presetsChanged(); onPage(PicPage.Shader) }
-        PicPage.Sides -> SidesPopup(ctx, onPage)
+        PicPage.Sides -> SidesPopup(ctx, rows, onPage)
         PicPage.RaOverlays -> RaOverlayPopup(ctx, onPage)
         is PicPage.Place -> PlacePopup(ctx, page.ra) { onPage(PicPage.Sides) }
         PicPage.Overlay -> OverlayPopup(ctx) { onPage(null) }
@@ -437,9 +440,11 @@ private fun pick(e: ShEntry, ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
 }
 
 @Composable
-private fun ShaderPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
+private fun ShaderPopup(ctx: PictureCtx, rows: MutableMap<PicPage, String>, onPage: (PicPage?) -> Unit) {
     val list = entries(ctx)
-    var focused by remember { mutableStateOf<ShEntry>(list.firstOrNull { isOn(it, ctx.v) } ?: ShEntry.Auto) }
+    // Back from a page over it (Adjust, Save as preset, a preset's options, Advanced): the row you left from.
+    val back = remember { rows[PicPage.Shader]?.takeIf { k -> list.any { it.key == k } } }
+    var focused by remember { mutableStateOf<ShEntry>(list.firstOrNull { it.key == back } ?: list.firstOrNull { isOn(it, ctx.v) } ?: ShEntry.Auto) }
     val f = focused
     val ownOn = Slang.isSlang(ctx.v[VideoKey.Shader])
     val adjustable = (f is ShEntry.BuiltIn && f.def.params.isNotEmpty()) || (f == ShEntry.Own && ownOn)
@@ -473,7 +478,7 @@ private fun ShaderPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
                         if (e is ShEntry.Preset && e == list.first { it is ShEntry.Preset }) SectionLabel("Your presets")
                         if (e == ShEntry.Own) PopupDivider()
                         val on = isOn(e, ctx.v)
-                        JoeyRow(entryLabel(e, ctx.v), Modifier.initialFocus(on || (e == ShEntry.Auto && list.none { isOn(it, ctx.v) })),
+                        JoeyRow(entryLabel(e, ctx.v), Modifier.initialFocus(if (back != null) e.key == back else on || (e == ShEntry.Auto && list.none { isOn(it, ctx.v) })),
                             detail = when (e) {
                                 ShEntry.Auto -> Picture.autoLabel(ctx.autoSharp)
                                 is ShEntry.Preset -> e.p.setup.label + ", your settings"
@@ -483,7 +488,7 @@ private fun ShaderPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
                             value = when (e) { ShEntry.Own -> if (on) null else "›"; ShEntry.Advanced -> "Stack, scale  ›"; else -> null },
                             enabled = e != ShEntry.Own || slangAvailable(), sideways = true,
                             trailing = if (on && e != ShEntry.Advanced) { _ -> PickerTick() } else null,
-                            onFocused = { if (it) focused = e }) { pick(e, ctx, onPage) }
+                            onFocused = { if (it) { focused = e; rows[PicPage.Shader] = e.key } }) { pick(e, ctx, onPage) }
                     }
                 }
                 Spacer(Modifier.width(12.dp))
@@ -568,12 +573,20 @@ private fun setStack(ctx: PictureCtx, stack: List<String>, scale: String? = null
 }
 
 @Composable
-private fun AdvancedShaderPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
+private fun AdvancedShaderPopup(ctx: PictureCtx, rows: MutableMap<PicPage, String>, onPage: (PicPage?) -> Unit) {
     val setup = ctx.setup
     if (setup.slang != null) { AdvancedSlangPopup(ctx) { onPage(PicPage.Shader) }; return }
     val stack = setup.stack
-    var row by remember { mutableIntStateOf(0) }
-    JoeyDialog(onDismiss = { onPage(PicPage.Shader) }, width = 520.dp,
+    // Back from a stack row's list, Add a shader or Shader scale: the row you left from (after Add, the shader added).
+    // Fixed as the popup opens: the popup's first-item fallback moves [row] before a marked row can land.
+    val landRow = remember {
+        rows[PicPage.Advanced]?.toIntOrNull()?.let { r ->
+            when { r == 99 -> 99; r < stack.size -> r; stack.size < Shaders.MAX_STACK -> stack.size; else -> stack.size - 1 }
+        } ?: 0
+    }
+    var row by remember { mutableIntStateOf(landRow) }
+    androidx.compose.runtime.SideEffect { rows[PicPage.Advanced] = row.toString() }
+    JoeyDialog(onDismiss = { rows.remove(PicPage.Advanced); onPage(PicPage.Shader) }, width = 520.dp,
         hints = if (row < stack.size) listOf(Hint("A", "Change"), Hint("X", "Remove"), Hint("Y", "Move up"), Hint("B", "Done"))
             else listOf(Hint("A", "Change"), Hint("B", "Done")),
         onPadButton = { code ->
@@ -589,14 +602,14 @@ private fun AdvancedShaderPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
             PopupTitle("Shader, advanced", ctx.who)
             SectionLabel("Stack, drawn in this order")
             for ((i, id) in stack.withIndex()) {
-                JoeyRow("${i + 1} · ${Shaders.of(id)?.label ?: id}", Modifier.initialFocus(i == row), value = "›", sideways = true,
+                JoeyRow("${i + 1} · ${Shaders.of(id)?.label ?: id}", Modifier.initialFocus(i == landRow), value = "›", sideways = true,
                     onFocused = { if (it) row = i }) { onPage(PicPage.StackPick(i)) }
             }
             if (stack.size < Shaders.MAX_STACK)
-                JoeyRow("Add a shader", Modifier.initialFocus(stack.isEmpty()), detail = "Up to four", value = "+", sideways = true,
+                JoeyRow("Add a shader", Modifier.initialFocus(landRow == stack.size), detail = "Up to four", value = "+", sideways = true,
                     onFocused = { if (it) row = stack.size }) { onPage(PicPage.StackPick(-1)) }
             PopupDivider()
-            JoeyRow("Shader scale", detail = "The size the shaders draw at", value = Picture.SCALES.firstOrNull { it.value == setup.scale }?.label ?: "Auto",
+            JoeyRow("Shader scale", Modifier.initialFocus(landRow == 99), detail = "The size the shaders draw at", value = Picture.SCALES.firstOrNull { it.value == setup.scale }?.label ?: "Auto",
                 sideways = true, onFocused = { if (it) row = 99 }) { onPage(PicPage.Scale) }
             Spacer(Modifier.height(6.dp))
             when {
@@ -684,9 +697,8 @@ private fun rememberImagePicker(ctx: PictureCtx, onPicked: (String) -> Unit) = r
 private fun sidesMode(value: String) = when (value) { "blur" -> 1; "frame" -> 2; "image" -> 3; "retroarch" -> 4; else -> 0 }
 
 @Composable
-private fun SidesPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
+private fun SidesPopup(ctx: PictureCtx, rows: MutableMap<PicPage, String>, onPage: (PicPage?) -> Unit) {
     val v = ctx.v
-    var focused by remember { mutableStateOf(v[VideoKey.Sides]) }
     val image = v[VideoKey.SidesImage].ifEmpty { null }
     val picker = rememberImagePicker(ctx) { name ->
         ctx.set(mapOf(VideoKey.Sides to "image", VideoKey.SidesImage to name, VideoKey.SidesPlace to ""))
@@ -695,6 +707,13 @@ private fun SidesPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
     val raSel = if (v[VideoKey.Sides] == "retroarch") v[VideoKey.SidesRa] else ""
     val raPlace = rememberRaPlaceValue(ctx)
     val openPlace = rememberPlaceOpener(raPlace) { onPage(it) }
+    val canPlace = (v[VideoKey.Sides] == "image" && image != null) || raPlace != null
+    // Back from Place the game or the overlays list: the row you left from, not the current choice. Read as the popup
+    // opens (the popup's first-item fallback would move it); Place the game only once it can open (an overlay found
+    // for Match each game is read after the first frame).
+    val left = remember { rows[PicPage.Sides] }
+    val back = left?.takeIf { it != "place" || canPlace }
+    var focused by remember { mutableStateOf(back ?: v[VideoKey.Sides]) }
     JoeyDialog(onDismiss = { onPage(null) }, hints = listOf(Hint("A", "Pick"), Hint("B", "Done")), width = 760.dp) {
         Column {
             PopupTitle("Sides of the picture", if (Picture.noSides(v, ctx.widescreenOn)) "${ctx.who} · None at this shape: Widescreen or Stretch fills the screen" else ctx.who)
@@ -702,14 +721,14 @@ private fun SidesPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
                 Column(Modifier.weight(1f)) {
                     for (ch in Picture.SIDES) {
                         val on = v[VideoKey.Sides] == ch.value && (ch.value != "image" || image != null) && (ch.value != "retroarch" || raSel.isNotEmpty())
-                        JoeyRow(ch.label, Modifier.initialFocus(v[VideoKey.Sides] == ch.value),
+                        JoeyRow(ch.label, Modifier.initialFocus(if (back != null) back == ch.value else v[VideoKey.Sides] == ch.value),
                             detail = when {
                                 ch.value == "image" && image != null -> image
                                 ch.value == "retroarch" && raSel.isNotEmpty() -> Picture.raLabel(raSel).removePrefix("RetroArch: ")
                                 else -> ch.detail
                             },
                             value = if (ch.value == "image" || ch.value == "retroarch") "›" else null, sideways = true,
-                            trailing = if (on) { _ -> PickerTick() } else null, onFocused = { if (it) focused = ch.value }) {
+                            trailing = if (on) { _ -> PickerTick() } else null, onFocused = { if (it) { focused = ch.value; rows[PicPage.Sides] = ch.value } }) {
                             when (ch.value) {
                                 "image" -> picker.launch(arrayOf("image/png"))
                                 "retroarch" -> onPage(PicPage.RaOverlays)
@@ -718,9 +737,8 @@ private fun SidesPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
                         }
                     }
                     PopupDivider()
-                    val canPlace = (v[VideoKey.Sides] == "image" && image != null) || raPlace != null
-                    JoeyRow("Place the game", detail = "Your own image or a RetroArch overlay", value = "›", enabled = canPlace, sideways = true,
-                        onFocused = { if (it) focused = "place" }) { if (canPlace) openPlace() }
+                    JoeyRow("Place the game", Modifier.initialFocus(back == "place"), detail = "Your own image or a RetroArch overlay", value = "›",
+                        enabled = canPlace, sideways = true, onFocused = { if (it) { focused = "place"; rows[PicPage.Sides] = "place" } }) { if (canPlace) openPlace() }
                 }
                 Spacer(Modifier.width(12.dp))
                 val raShown = if (focused == "retroarch" || (focused == "place" && v[VideoKey.Sides] == "retroarch")) raPlace else null
@@ -898,6 +916,9 @@ internal fun PicturePanel(saveName: String, row: String, onChanged: () -> Unit, 
     var version by remember { mutableIntStateOf(0) }
     var allGames by remember { mutableStateOf(false) }
     var page by remember { mutableStateOf<PicPage?>(null) }
+    // The row a popup over the panel was opened from (Adjust, Save as preset, Place the game, the overlays list...):
+    // the panel comes back on it, not on the row it opened on.
+    var back by remember { mutableStateOf<String?>(null) }
     @Suppress("UNUSED_EXPRESSION") version
     val all = remember(version) { store.all() }
     val own = remember(version) { store.game(saveName) ?: emptyMap() }
@@ -924,6 +945,10 @@ internal fun PicturePanel(saveName: String, row: String, onChanged: () -> Unit, 
     val raPlace = rememberRaPlaceValue(ctx)
     val openPlace = rememberPlaceOpener(raPlace) { page = it }
     val p = page
+    val canPlace = (v[VideoKey.Sides] == "image" && image != null) || raPlace != null
+    // Read as the panel comes back from a popup: onFocused moves [back] on, and the panel's first-item fallback would too.
+    val landOn = remember(p == null) { back }
+    val backTo = landOn?.takeIf { b -> if (b == "place") canPlace else !b.startsWith("sh:") || list.any { "sh:" + it.key == b } }
     // Sub-pages go back to the Video tab's Shader, Sides or Overlay popup; here the panel is that list.
     if (p != null) { PicturePopups(p, ctx) { page = if (it == PicPage.Shader || it == PicPage.Sides || it == PicPage.Overlay) null else it }; return }
     JoeyDialog(onDismiss = onDone, sidePanel = true, width = 300.dp,
@@ -958,21 +983,21 @@ internal fun PicturePanel(saveName: String, row: String, onChanged: () -> Unit, 
             for (e in list) {
                 val on = isOn(e, v)
                 // Approved screen 6: the Shader section ends with Your own, the preset's name beside it.
-                JoeyRow(if (e == ShEntry.Own) "Your own" else entryLabel(e), Modifier.initialFocus(row == "sh" && on),
+                JoeyRow(if (e == ShEntry.Own) "Your own" else entryLabel(e), Modifier.initialFocus(if (backTo != null) backTo == "sh:" + e.key else row == "sh" && on),
                     detail = when (e) { ShEntry.Auto -> Picture.autoLabel(autoSharp).removeSuffix(" on this screen"); is ShEntry.Preset -> "preset"; else -> null },
                     value = if (e == ShEntry.Own) (v[VideoKey.Shader].takeIf { Slang.isSlang(it) }?.let { Slang.name(it) + "  ›" } ?: "›") else null,
                     sideways = e == ShEntry.Own,
-                    trailing = if (on) { _ -> PickerTick() } else null, onFocused = { if (it) focused = e }) { pick(e, ctx) { page = it } }
+                    trailing = if (on) { _ -> PickerTick() } else null, onFocused = { if (it) { focused = e; back = "sh:" + e.key } }) { pick(e, ctx) { page = it } }
             }
             SectionLabel("Sides of the picture")
             val raSel = if (v[VideoKey.Sides] == "retroarch") v[VideoKey.SidesRa] else ""
             for (ch in Picture.SIDES) {
                 val on = v[VideoKey.Sides] == ch.value && (ch.value != "retroarch" || raSel.isNotEmpty())
                 val more = ch.value == "image" || ch.value == "retroarch"
-                JoeyRow(ch.label, Modifier.initialFocus(row == "sd" && on),
+                JoeyRow(ch.label, Modifier.initialFocus(if (backTo != null) backTo == "sd:" + ch.value else row == "sd" && on),
                     value = when { ch.value == "retroarch" && raSel.isNotEmpty() -> Picture.raLabel(raSel).removePrefix("RetroArch: ") + "  ›"; more -> "›"; else -> null },
                     sideways = more, detail = if (ch.value == "image") image else null,
-                    trailing = if (on) { _ -> PickerTick() } else null, onFocused = { if (it) focused = null }) {
+                    trailing = if (on) { _ -> PickerTick() } else null, onFocused = { if (it) { focused = null; back = "sd:" + ch.value } }) {
                     when (ch.value) {
                         "image" -> sidesPicker.launch(arrayOf("image/png"))
                         "retroarch" -> page = PicPage.RaOverlays
@@ -980,13 +1005,14 @@ internal fun PicturePanel(saveName: String, row: String, onChanged: () -> Unit, 
                     }
                 }
             }
-            if ((v[VideoKey.Sides] == "image" && image != null) || raPlace != null)
-                JoeyRow("Place the game", value = "›", sideways = true, onFocused = { if (it) focused = null }) { openPlace() }
+            if (canPlace)
+                JoeyRow("Place the game", Modifier.initialFocus(backTo == "place"), value = "›", sideways = true,
+                    onFocused = { if (it) { focused = null; back = "place" } }) { openPlace() }
             SectionLabel("Overlay")
             val ovOn = v[VideoKey.Overlay] == "image" && overlay != null
-            JoeyRow("Off", Modifier.initialFocus(row == "ov" && !ovOn), trailing = if (!ovOn) { _ -> PickerTick() } else null,
+            JoeyRow("Off", Modifier.initialFocus(backTo == null && row == "ov" && !ovOn), trailing = if (!ovOn) { _ -> PickerTick() } else null,
                 onFocused = { if (it) focused = null }) { ctx.set(VideoKey.Overlay, "off") }
-            JoeyRow("Your own image", Modifier.initialFocus(row == "ov" && ovOn), detail = overlay, value = "›", sideways = true,
+            JoeyRow("Your own image", Modifier.initialFocus(backTo == null && row == "ov" && ovOn), detail = overlay, value = "›", sideways = true,
                 trailing = if (ovOn) { _ -> PickerTick() } else null, onFocused = { if (it) focused = null }) { overlayPicker.launch(arrayOf("image/png")) }
             if (ovOn) {
                 val op = v.int(VideoKey.OverlayOpacity)

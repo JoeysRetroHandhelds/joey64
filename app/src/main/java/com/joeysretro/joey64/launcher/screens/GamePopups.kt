@@ -76,6 +76,8 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
     val gridLanding = LocalFocusLanding.current
     var boxArt by remember { mutableStateOf(false) }
     var naming by remember { mutableStateOf(false) }
+    // Back from Details or Add to collection, Options lands on that row, not on Play.
+    var from by remember { mutableStateOf<GamePopup?>(null) }
     // Read again after a Box art choice, so the popup shows the new cover.
     var version by remember { mutableIntStateOf(0) }
     val details by produceState<GameDetails?>(null, game.id, version) { value = model.details(game) }
@@ -104,12 +106,12 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
             PopupTitle(game.title)
             when (popup) {
                 GamePopup.Options -> {
-                    JoeyOption("Play", modifier = Modifier.initialFocus()) { onPopup(null); onPlay() }
+                    JoeyOption("Play", modifier = Modifier.initialFocus(from == null)) { onPopup(null); onPlay() }
                     // Approved netplay6 screen 8 (the v2 Play together, renamed Netplay).
                     // A 1-player game can't be hosted (Joey 2026-11-10): greyed "1 player only".
                     if (model.onePlayerOnly(game)) JoeyOption("Netplay", value = "1 player only", enabled = false) {}
                     else JoeyOption("Netplay", value = "›") { onPopup(null); model.openNetplay(game) }
-                    JoeyOption("Details") { onPopup(GamePopup.Details) }
+                    JoeyOption("Details", modifier = Modifier.initialFocus(from == GamePopup.Details)) { from = GamePopup.Details; onPopup(GamePopup.Details) }
                     gameSettings?.let { JoeyOption("Game settings", value = "$it  ›") { onPopup(null); model.openGameSettings(game) } }
                     com.joeysretro.joey64.launcher.components.PopupDivider()
                     JoeyOption("Cheats", value = "›") { onPopup(null); model.openCheats(game) }
@@ -122,7 +124,9 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
                         }
                     }
                     com.joeysretro.joey64.launcher.components.PopupDivider()
-                    JoeyOption("Add to collection", value = "›") { onPopup(GamePopup.Collections) }
+                    JoeyOption("Add to collection", modifier = Modifier.initialFocus(from == GamePopup.Collections), value = "›") {
+                        from = GamePopup.Collections; onPopup(GamePopup.Collections)
+                    }
                     // Settings › Library (approved mockup 2026-11-08, screen 8): the game leaves the library,
                     // Search and the filters; Settings › Library › Hidden games shows it again. Its tile goes,
                     // so focus lands on the grid's first game rather than the rail.

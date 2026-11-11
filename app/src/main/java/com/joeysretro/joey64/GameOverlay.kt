@@ -280,11 +280,13 @@ class GameOverlay(private val activity: Activity, private val actions: PauseActi
         handler.removeCallbacks(popupTick)
         popups.clear()
         popup = null
-        if (popupAdded) try { activity.windowManager.removeView(popupView) } catch (e: Exception) {}
+        // Immediate: removeView only queues it, and Android's leak check right after onDestroy still saw the
+        // window (WindowLeaked on every Quit to library, 2026-11-10).
+        if (popupAdded) try { activity.windowManager.removeViewImmediate(popupView) } catch (e: Exception) {}
         popupAdded = false
         badgeFiles = emptyList()
         badgeIds = emptyList()
-        if (badgeAdded) try { activity.windowManager.removeView(badgeView) } catch (e: Exception) {}
+        if (badgeAdded) try { activity.windowManager.removeViewImmediate(badgeView) } catch (e: Exception) {}
         badgeAdded = false
         owner.destroy()
     }

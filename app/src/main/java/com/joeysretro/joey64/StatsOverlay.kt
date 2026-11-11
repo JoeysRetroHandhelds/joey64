@@ -74,7 +74,7 @@ class StatsOverlay(private val activity: Activity, private val wm: WindowManager
 
     fun start() { lastTime = 0L; handler.removeCallbacks(tick); handler.post(tick) }
     fun stop() { handler.removeCallbacks(tick) }
-    fun destroy() { stop(); if (added) { wm.removeView(view); added = false } }
+    fun destroy() { stop(); if (added) { wm.removeViewImmediate(view); added = false } }   // Immediate: see GameOverlay.destroy
 
     private val tick = object : Runnable {
         override fun run() {

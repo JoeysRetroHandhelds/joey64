@@ -58,7 +58,7 @@ class NetChip(private val activity: Activity, private val wm: WindowManager) {
         view.requestLayout(); view.invalidate()
     }
 
-    fun remove() { if (added) { wm.removeView(view); added = false } }
+    fun remove() { if (added) { wm.removeViewImmediate(view); added = false } }   // Immediate: see GameOverlay.destroy
 
     private class ChipView(ctx: Context) : View(ctx) {
         var players: List<NetPlayer> = emptyList()

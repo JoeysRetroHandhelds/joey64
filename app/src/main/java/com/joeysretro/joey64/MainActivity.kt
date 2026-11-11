@@ -242,9 +242,51 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             it.device = statsDevice()
             it.driver = statsDriver
             it.renderer = statsRenderer
+            it.game = ::statsGame
+            it.sideBar = ::statsSideBar
             it.apply(onScreen)
             if (resumed) it.start()
         }
+    }
+
+    /**
+     * The stats overlay's THIS GAME (approved stats mockup 2, 2026-11-10): the settings that change how this play runs,
+     * only those not at their default, as they are now (the Upscale and shader hotkeys included). Frame skip has no
+     * setting yet (Off, Joey 2026-11-08), so it has no line.
+     */
+    private fun statsGame(): List<com.joeysretro.joey64.onscreen.GameSetting> {
+        val out = ArrayList<com.joeysretro.joey64.onscreen.GameSetting>()
+        fun add(name: String, value: String) { out += com.joeysretro.joey64.onscreen.GameSetting(name, value) }
+        val inRoom = android.system.Os.getenv("N64_NETPLAY") != null || android.system.Os.getenv("N64_NETPLAY_SERVE") != null
+        val res = if (inRoom) 1 else if (parallel) playUpscale?.removeSuffix("x")?.toIntOrNull() ?: 1
+            else video.int(com.joeysretro.joey64.video.VideoKey.Resolution)
+        if (res > 1) add(com.joeysretro.joey64.onscreen.GameSetting.RESOLUTION, "${res}x")
+        // Run-ahead is the dev switch for now (libretro_host.cpp: N64_RUNAHEAD 1-4, off in a netplay room).
+        val ahead = android.system.Os.getenv("N64_RUNAHEAD")?.toIntOrNull()?.coerceIn(0, 4) ?: 0
+        if (ahead > 0 && !inRoom) add("Run-ahead", "$ahead")
+        extrasOn.shape?.let { (w, h) -> add("Widescreen", "$w:$h") }
+        if (extrasOn.fps) add("60 fps", "On")
+        val shader = playShader ?: video[com.joeysretro.joey64.video.VideoKey.Shader]
+        if (shaderOff) add("Shader", "Off")
+        else if (shader != com.joeysretro.joey64.video.VideoKey.Shader.default)
+            add("Shader", com.joeysretro.joey64.video.Picture.valueLabel(shader).removePrefix("Your own: "))
+        val oc = emuAtStart[com.joeysretro.joey64.emulation.EmuKey.Overclock]
+        if (oc != com.joeysretro.joey64.emulation.EmuKey.Overclock.default)
+            add("Overclock", com.joeysretro.joey64.emulation.EmuChoices.overclock.firstOrNull { it.value == oc }?.label ?: oc)
+        return out
+    }
+
+    /**
+     * The black bar each side of the picture, in px, for the stats overlay's Auto layout: the window's width less the
+     * picture's (Aspect ratio, a widescreen code's shape), halved. 0 when the picture is stretched to fill.
+     */
+    private fun statsSideBar(): Int {
+        val d = window.decorView
+        val w = d.width; val h = d.height
+        val (aw, ah) = com.joeysretro.joey64.video.VideoApply.aspect(video, extrasOn.shape)
+        if (w <= 0 || h <= 0 || aw <= 0 || ah <= 0) return 0
+        val pic = minOf(w.toDouble(), h.toDouble() * aw / ah)
+        return ((w - pic) / 2).toInt()
     }
 
     /** "AYN Thor · SM8550 · Adreno 740": the device, its chip (Android 12+) and GPU. */

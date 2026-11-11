@@ -29,14 +29,27 @@ enum class StatsCorner(val label: String, val spot: PopupSpot) {
 /** Text size in sp: the mockup's 11, 13 and 15 px at its 870 px screen. */
 enum class StatsSize(val label: String, val sp: Float) { Small("Small", 11f), Medium("Medium", 13f), Large("Large", 15f) }
 
-/** The ten lines of What it shows, top to bottom (Full is all ten). */
+/**
+ * Layout (approved stats mockup 2, 2026-11-10: scratchpad build_stats2.py): Auto puts the stats down the black bar
+ * beside the picture when it is wide enough, else in the corner.
+ */
+enum class StatsLayout(val label: String, val detail: String) {
+    Auto("Auto", "Down the side when the picture leaves room, else in the corner"),
+    Side("Down the side", "One stat a line"),
+    Corner("In the corner", "Several stats a line"),
+}
+
+/** Graph (approved stats mockup 2): the frame times as a line (default) or bars. */
+enum class StatsGraph(val label: String) { Line("Line"), Bars("Bars") }
+
+/** The eleven lines of What it shows (Full is all eleven). Game settings: approved stats mockup 2, 2026-11-10. */
 enum class StatsLine(val label: String) {
     Fps("FPS"), Vps("VPS"), Speed("Speed"), Graph("Frame times graph"), Load("CPU and GPU load"),
     Battery("Battery and heat"), Ram("RAM"), Device("Device, chip and GPU"), Driver("Driver and version"),
-    Renderer("Renderer and resolution");
+    Renderer("Renderer and resolution"), Game("Game settings");
 
     companion object {
-        /** Custom's lines until changed, as the approved mockup shows them (8 of 10). */
+        /** Custom's lines until changed, as the approved mockups show them (9 of 11). */
         val CUSTOM_DEFAULT: Set<StatsLine> = entries.toSet() - Ram - Driver
     }
 }
@@ -50,6 +63,8 @@ data class OnScreen(
     val stats: StatsMode = StatsMode.Off,
     val corner: StatsCorner = StatsCorner.TopRight,
     val size: StatsSize = StatsSize.Medium,
+    val layout: StatsLayout = StatsLayout.Auto,
+    val graph: StatsGraph = StatsGraph.Line,
     val custom: Set<StatsLine> = StatsLine.CUSTOM_DEFAULT,
     val popStates: Boolean = true,
     val popScreenshots: Boolean = true,
@@ -83,6 +98,7 @@ data class OnScreen(
     fun toJson(): JSONObject = JSONObject().apply {
         put("version", 1)
         put("stats", stats.name); put("corner", corner.name); put("size", size.name)
+        put("layout", layout.name); put("graph", graph.name)
         put("custom", JSONArray(StatsLine.entries.filter { it in custom }.map { it.name }))
         put("popStates", popStates); put("popScreenshots", popScreenshots); put("popReset", popReset); put("popHotkeys", popHotkeys)
     }
@@ -96,6 +112,8 @@ data class OnScreen(
                 stats = pick(StatsMode.entries, "stats", d.stats),
                 corner = pick(StatsCorner.entries, "corner", d.corner),
                 size = pick(StatsSize.entries, "size", d.size),
+                layout = pick(StatsLayout.entries, "layout", d.layout),
+                graph = pick(StatsGraph.entries, "graph", d.graph),
                 custom = custom ?: d.custom,
                 popStates = o.optBoolean("popStates", d.popStates),
                 popScreenshots = o.optBoolean("popScreenshots", d.popScreenshots),

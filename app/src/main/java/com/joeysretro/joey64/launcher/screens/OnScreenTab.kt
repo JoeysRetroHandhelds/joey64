@@ -36,14 +36,17 @@ import com.joeysretro.joey64.launcher.theme.JoeyTheme
 import com.joeysretro.joey64.onscreen.OnScreen
 import com.joeysretro.joey64.onscreen.OnScreenStore
 import com.joeysretro.joey64.onscreen.StatsCorner
+import com.joeysretro.joey64.onscreen.StatsGraph
+import com.joeysretro.joey64.onscreen.StatsLayout
 import com.joeysretro.joey64.onscreen.StatsLine
 import com.joeysretro.joey64.onscreen.StatsMode
 import com.joeysretro.joey64.onscreen.StatsSize
 
 /**
  * Settings › On screen (approved Stats overlay mockup, 2026-11-07: scratchpad build_stats.py): what
- * shows over the game, the same for every game. Left, Stats overlay: Stats, Position, Size (Left /
- * Right), What it shows (Custom only). Right, Pop-ups by type; the three achievement rows are
+ * shows over the game, the same for every game. Left, Stats overlay: Stats, Layout, Graph (Left / Right),
+ * Position, Size (Left / Right), What it shows (Custom only); Layout and Graph from stats mockup 2 (approved
+ * 2026-11-10, scratchpad build_stats2.py). Right, Pop-ups by type; the three achievement rows are
  * Settings › RetroAchievements' own (the same setting on both tabs). Y puts the focused row back.
  */
 @Composable
@@ -62,6 +65,8 @@ fun OnScreenTab(onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean
     fun setRa(change: (RaOptions) -> RaOptions) = RaSettings.update(context, change)
     fun reset(row: String) = when (row) {
         "stats" -> set(o.copy(stats = d.stats))
+        "layout" -> set(o.copy(layout = d.layout))
+        "graph" -> set(o.copy(graph = d.graph))
         "pos" -> set(o.copy(corner = d.corner))
         "size" -> set(o.copy(size = d.size))
         "what" -> set(o.copy(custom = d.custom))
@@ -82,7 +87,7 @@ fun OnScreenTab(onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean
         val y = Hint("Y", "Reset to default")
         onHints(when {
             focused == "what" && !custom -> listOf(Hint("L/R", "Tab"), Hint("B", "Back"))
-            focused == "size" -> listOf(Hint("◀▶", "Change"), y, Hint("L/R", "Tab"), Hint("B", "Back"))
+            focused == "size" || focused == "graph" -> listOf(Hint("◀▶", "Change"), y, Hint("L/R", "Tab"), Hint("B", "Back"))
             else -> listOf(Hint("A", "Change"), y, Hint("L/R", "Tab"), Hint("B", "Back"))
         })
     }
@@ -95,6 +100,10 @@ fun OnScreenTab(onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean
             SectionLabel("Stats overlay")
             JoeyRow("Stats", Modifier.initialFocus(), value = o.stats.label + "  ›", sideways = true,
                 onFocused = { if (it) focused = "stats" }) { popup = "stats" }
+            JoeyRow("Layout", value = o.layout.label + "  ›", sideways = true, onFocused = { if (it) focused = "layout" }) { popup = "layout" }
+            val graphs = StatsGraph.entries
+            StepRow("Graph", o.graph.label, graphs.indices.toList(), o.graph.ordinal, focused == "graph", first = false,
+                onFocused = { if (it) focused = "graph" }) { set(o.copy(graph = graphs[it])) }
             JoeyRow("Position", value = o.corner.label + "  ›", sideways = true, onFocused = { if (it) focused = "pos" }) { popup = "pos" }
             val sizes = StatsSize.entries
             StepRow("Size", o.size.label, sizes.indices.toList(), o.size.ordinal, focused == "size", first = false,
@@ -120,6 +129,9 @@ fun OnScreenTab(onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean
         "stats" -> ChoiceList("Stats", StatsMode.entries.map { Triple(it.label, it.detail, it == o.stats) }, { popup = null }) {
             set(o.copy(stats = StatsMode.entries[it])); popup = null
         }
+        "layout" -> ChoiceList("Layout", StatsLayout.entries.map { Triple(it.label, it.detail, it == o.layout) }, { popup = null }) {
+            set(o.copy(layout = StatsLayout.entries[it])); popup = null
+        }
         "pos" -> ChoiceList("Position", StatsCorner.entries.map { Triple(it.label, null, it == o.corner) }, { popup = null }) {
             set(o.copy(corner = StatsCorner.entries[it])); popup = null
         }
@@ -131,6 +143,8 @@ fun OnScreenTab(onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean
 
 private fun describe(row: String): Pair<String, String> = when (row) {
     "stats" -> "Stats" to "Off, Simple (one line), Full (everything) or Custom (the lines you pick). The Stats overlay hotkey steps through them in game."
+    "layout" -> "Layout" to "How the stats are laid out: down the side of the picture, or in the corner."
+    "graph" -> "Graph" to "The frame times graph: a line, or bars."
     "pos" -> "Position" to "The corner the stats sit in. Pop-ups in the same corner move to the other side."
     "size" -> "Size" to "How big the stats' text is."
     "what" -> "What it shows" to "The lines Custom shows."
@@ -157,7 +171,7 @@ internal fun ChoiceList(title: String, choices: List<Triple<String, String?, Boo
     }
 }
 
-/** What it shows (mockup screen 5): the ten lines in two columns, A turns one on or off. */
+/** What it shows (mockup screen 5; Game settings from mockup 2): the eleven lines in two columns, A turns one on or off. */
 @Composable
 private fun LinesPopup(on: Set<StatsLine>, onDismiss: () -> Unit, onToggle: (StatsLine) -> Unit) {
     val c = JoeyTheme.colors

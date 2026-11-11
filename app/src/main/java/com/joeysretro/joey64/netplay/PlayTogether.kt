@@ -270,7 +270,8 @@ object PlayTogether {
                 }
             }
         } catch (e: Exception) {
-            if (joiner != null) JLog.i(TAG, "${joiner.name}: $e")
+            // A socket this room closed itself (Close the room, a missed PING) ends the read as expected: not logged.
+            if (joiner != null && !sock.isClosed) JLog.i(TAG, "${joiner.name}: $e")
         } finally {
             val j = joiner
             if (j != null && !handingOver) {

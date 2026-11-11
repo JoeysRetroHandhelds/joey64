@@ -144,7 +144,9 @@ object NativeBridge {
     /**
      * Netplay (Play together's extras, or dev env N64_NETPLAY / N64_NETPLAY_SERVE): [in a room 1/0, hosting it 1/0,
      * players joined (bit per player, the host only), status (bit 0 de-synced, bits 1-4 player 1-4 left), the paused
-     * player 1-4 or 0, the player this game waits for 1-4 or 0, this game's own player 1-4 (0 = not in a room)].
+     * player 1-4 or 0, the player this game waits for 1-4 or 0, this game's own player 1-4 (0 = not in a room),
+     * the room's input delay in frames now (0 = not known yet; with N64_NETPLAY_SERVE=port:players:auto it moves
+     * between 2 and 12 as the connection needs)].
      */
     external fun netplayInfo(): IntArray
     /**

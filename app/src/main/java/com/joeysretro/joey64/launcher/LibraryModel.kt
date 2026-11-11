@@ -873,7 +873,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
     /** Host a room for [game]: false when no room port could be opened. */
     fun netplayHost(game: LibraryGame): Boolean {
         netplayGame = game
-        return com.joeysretro.joey64.netplay.PlayTogether.host(netplayMe(), netGame(game))
+        return com.joeysretro.joey64.netplay.PlayTogether.host(getApplication(), netplayMe(), netGame(game))
     }
 
     fun netplayJoin(target: com.joeysretro.joey64.netplay.PlayTogether.Target) {

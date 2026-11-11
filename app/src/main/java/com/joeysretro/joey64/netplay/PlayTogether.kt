@@ -186,7 +186,8 @@ object PlayTogether {
     @Volatile private var public = false
 
     /** Opens a room for [game] on the first free port of 45000-45007. False when none could be opened. */
-    fun host(me: Me, game: Game): Boolean {
+    fun host(context: Context, me: Me, game: Game): Boolean {
+        RouterAddress.set(context) // before the room asks the router for its port (NAT-PMP needs it)
         leave()
         for (i in 0 until RoomCode.PORTS) {
             val port = RoomCode.BASE_PORT + i

@@ -44,8 +44,15 @@ target_compile_definitions(miniupnpc PUBLIC MINIUPNP_STATICLIB
     PRIVATE MINIUPNPC_SET_SOCKET_TIMEOUT MINIUPNPC_GET_SRC_ADDR _BSD_SOURCE _DEFAULT_SOURCE _XOPEN_SOURCE=600)
 target_compile_options(miniupnpc PRIVATE -O2 -w)
 
+# libnatpmp (BSD-3-Clause; third_party/libnatpmp/README.joey64): the same for routers that speak NAT-PMP, not UPnP.
+set(NP third_party/libnatpmp)
+add_library(natpmp STATIC ${NP}/natpmp.c ${NP}/getgateway.c)
+target_include_directories(natpmp PUBLIC ${NP})
+target_compile_definitions(natpmp PUBLIC NATPMP_STATICLIB ENABLE_STRNATPMPERR)
+target_compile_options(natpmp PRIVATE -O2 -w)
+
 target_include_directories(joey64host PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(joey64host android log EGL GLESv3 aaudio dl adrenotools rcheevos miniupnpc z)
+target_link_libraries(joey64host android log EGL GLESv3 aaudio dl adrenotools rcheevos miniupnpc natpmp z)
 # Optimized even in debug builds (the only kind so far): at -O0 the host's audio resampler and
 # ring took 4-7% of all CPU on the Retroid Flip.
 target_compile_options(joey64host PRIVATE -O2)

@@ -59,6 +59,8 @@ static std::condition_variable g_npPauseCv;
 static std::atomic<int> g_netplayPausedBy{0};
 // This game's player (1-4, 0 = not in a room), and the room's list of players: "1|name|ping ms;2|..." (netplayPlayers).
 static std::atomic<int> g_npPlayer{0};
+// The room's input delay in frames, from its list of players (a joiner; the host asks its room), 0 = not known.
+static std::atomic<int> g_npDelay{0};
 static std::mutex g_npRosterMutex;
 static std::string g_npRoster;
 // The name the others see: N64_NETPLAY_NAME, else the device model (Build.MODEL's ro.product.model).
@@ -120,6 +122,10 @@ static void npPauseStart(const char* np) {
                             out += std::to_string(p + 1) + "|" + std::string((const char*)r + k + 4, l) + "|" + std::to_string(ping);
                             k += 4 + l;
                         }
+                        if (k < (size_t)n) { // after the players: the room's input delay (rooms from 2026-11-10 on)
+                            int dl = r[k];
+                            if (dl != g_npDelay.exchange(dl)) joeyLog(ANDROID_LOG_INFO, "joey64host", "netplay: input delay %d", dl);
+                        }
                         std::lock_guard<std::mutex> rl(g_npRosterMutex);
                         // the names only: pings change every second
                         auto names = [](const std::string& s) { std::string o; size_t a = 0;
@@ -154,7 +160,7 @@ static void npPauseStop() {
     { std::lock_guard<std::mutex> lk(g_npPauseMutex); g_npPauseRun = false; }
     g_npPauseCv.notify_all();
     g_npPauseThread.join();
-    g_npPlayer = 0;
+    g_npPlayer = 0; g_npDelay = 0;
     std::lock_guard<std::mutex> rl(g_npRosterMutex); g_npRoster.clear();
 }
 
@@ -592,6 +598,14 @@ bool environment(unsigned cmd, void* data) {
         return true;
     case RETRO_ENVIRONMENT_GET_VARIABLE: {
         auto* v = static_cast<retro_variable*>(data);
+        // Netplay rooms run at 1x on both renderers (Joey 2026-11-10, like run-ahead): in lockstep one device that
+        // can't hold 60 fps at its upscale slows every player, and the room would read it as late inputs.
+        if (g_netplay && v->key && (!strcmp(v->key, kUpscaleKey) || !strcmp(v->key, "mupen64plus-EnableNativeResFactor"))) {
+            static bool said = false;
+            if (!said) { said = true; LOGI("netplay: rendering at 1x in a room"); }
+            v->value = !strcmp(v->key, kUpscaleKey) ? "1x" : "1";
+            return true;
+        }
         auto it = g_optionOverrides.find(v->key);
         if (it != g_optionOverrides.end()) { v->value = it->second.c_str(); return true; }
         auto d = g_options.find(v->key);
@@ -1203,7 +1217,16 @@ void runLoop() {
     // hashes n frames from <frame> instead of 24 from <frame> - 3.
     if (probeAt >= 0 && stateWait < 0) probeFrame = 0;
     const int probeLen = getenv("N64_LAG_PROBE_LEN") ? atoi(getenv("N64_LAG_PROBE_LEN")) : 0;
-    auto ffNext = std::chrono::steady_clock::now(), ffLastShown = ffNext, capNext = ffNext, rewindNext = ffNext;
+    auto ffNext = std::chrono::steady_clock::now(), ffLastShown = ffNext, ffFrameAt = ffNext, capNext = ffNext, rewindNext = ffNext;
+    // Fast-forward's shown frames (2026-11-10, "fast forward stutters and looks choppy"): emulated frames since the
+    // last one shown, and per 5 s how many were shown, how many frames each moved on, and how evenly they were spaced.
+    int ffSinceShown = 0, ffShown = 0, ffPerMin = 99, ffPerMax = 0;
+    // A shown slot whose frame turned out a repeat (the game drew nothing new) stays due for the next frames until
+    // one brings a new picture (2026-11-10, Duo Conker: a 20 fps game repeats 2 refreshes in 3, so most shown slots
+    // were repeats and only 20 pictures a second reached the screen; the new ones fell in frames not shown).
+    bool ffDue = false;
+    static const bool ffDueOn = !(getenv("N64_FF_DUE") && *getenv("N64_FF_DUE") == '0');
+    double ffGapSum = 0, ffGapSq = 0;
     auto ffLastWake = ffNext, ffStepAt = ffNext, ffLogAt = ffNext; // fast-forward's even pacing
     double ffWorkEma = 0, ffPace = 0;
     int ffLate = 0, ffFrames = 0;
@@ -1286,7 +1309,7 @@ void runLoop() {
         bool ff = g_fastForward && !rewinding;
         const bool slow = slowPct > 0 && !ff && !rewinding && !g_bench;
         g_slowNow = slow ? slowPct / 100.0 : 0.0;
-        if (slow || rewinding) g_audioRefillWindows = 2;
+        if (slow || rewinding || ff) g_audioRefillWindows = 2; // and fast-forward: its end refills the emptied ring (Duo 2026-11-10: 257 underruns, target 20 -> 30 ms)
         if (ff != ffApplied) {
             ffApplied = ff;
             if (g_vulkan) g_vk.setUnthrottled(ff || g_bench);
@@ -1346,17 +1369,44 @@ void runLoop() {
                 ffNext = now; // don't sprint to catch up
             lastWake = std::chrono::steady_clock::now();
             if (lastWake - logAt >= std::chrono::seconds(5)) {
-                LOGI("fast-forward: chosen %.2fx, paced %.2fx, frame work %.1f ms, %d of %d frames late%s",
-                     want, speed, workEma, late, frames, even ? "" : " (even pacing off)");
+                const int gaps = std::max(1, ffShown - 1);
+                const double gapMean = ffGapSum / gaps, gapSd = std::sqrt(std::max(0.0, ffGapSq / gaps - gapMean * gapMean));
+                LOGI("fast-forward: chosen %.2fx, paced %.2fx, frame work %.1f ms, %d of %d frames late%s; shown %d, "
+                     "%d-%d frames each, %.1f ms apart (sd %.1f)%s",
+                     want, speed, workEma, late, frames, even ? "" : " (even pacing off)", ffShown,
+                     ffPerMin == 99 ? 0 : ffPerMin, ffPerMax, gapMean, gapSd,
+                     getenv("N64_FF_SHOWK") && *getenv("N64_FF_SHOWK") == '1' ? " (every Kth shown)" : "");
                 logAt = lastWake; late = 0; frames = 1;
+                ffShown = 0; ffPerMin = 99; ffPerMax = 0; ffGapSum = ffGapSq = 0;
             }
         }
         // Fast-forward shows at most ~60 frames a second so presenting doesn't cap the speed.
         bool show = true;
         if (ff) {
             auto now = std::chrono::steady_clock::now();
-            show = now - ffLastShown >= std::chrono::microseconds(16000);
-            if (show) ffLastShown = now;
+            // A frame is shown once 16 ms have passed since the last one shown. Dev (2026-11-10): N64_FF_SHOWK=1
+            // shows every Kth frame instead (K = frames per shown frame at the paced speed, at most ~60 shown a second
+            // or the panel's rate if lower), so each shown frame moves the game on by the same amount. Duo, Conker at
+            // 4x: by time 4-5 frames each, 18.7 ms apart (sd 0.3), 7.5% of frames late; every 4th: 4 each, 16.7 ms
+            // apart (sd 1.7), 12.5% late (showing more costs the Duo). Odin 2 Portal the same either way. Not a
+            // measured win, so the timer stays until Joey has looked at both.
+            static const bool counted = getenv("N64_FF_SHOWK") && *getenv("N64_FF_SHOWK") == '1';
+            ++ffSinceShown;
+            if (counted) {
+                const uint64_t rn = g_vulkan ? g_vk.refreshNs() : 0;
+                const double hz = std::min(rn ? 1e9 / (double)rn : 60.0, 62.5);
+                const int k = std::max(1, (int)std::lround(g_av.timing.fps * g_ffSpeedNow.load() / hz));
+                show = ffSinceShown >= k;
+            } else { static const long gapUs = getenv("N64_FF_GAP_US") ? atol(getenv("N64_FF_GAP_US")) : 16000; show = now - ffLastShown >= std::chrono::microseconds(gapUs); }
+            if (ffDueOn && g_vulkan) { show = show || ffDue; ffDue = show; ffFrameAt = now; } // the slot is timed from frame starts
+            if (show && !(ffDueOn && g_vulkan)) {
+                if (ffShown++ > 0) {
+                    const double gap = std::chrono::duration<double, std::milli>(now - ffLastShown).count();
+                    ffGapSum += gap; ffGapSq += gap * gap;
+                    ffPerMin = std::min(ffPerMin, ffSinceShown); ffPerMax = std::max(ffPerMax, ffSinceShown);
+                }
+                ffLastShown = now; ffSinceShown = 0;
+            }
         }
         if (!ff && !g_bench && !g_paused && !rewinding) { // paused: a frame advance step, no audio to wait for
             auto t0 = std::chrono::steady_clock::now();
@@ -1381,8 +1431,18 @@ void runLoop() {
                 auto t0 = std::chrono::steady_clock::now();
                 if (!g_vk.beginFrame(showIt)) return -1;   // swapchain recreated, try again
                 auto t1 = std::chrono::steady_clock::now();
+                const int presentsBefore = g_statPresents;
                 core.run();
                 auto t3 = std::chrono::steady_clock::now();
+                if (ff && ffDueOn && ffDue && g_statPresents != presentsBefore) { // a new picture went out: the slot is used
+                    ffDue = false;
+                    if (ffShown++ > 0) {
+                        const double gap = std::chrono::duration<double, std::milli>(ffFrameAt - ffLastShown).count();
+                        ffGapSum += gap; ffGapSq += gap * gap;
+                        ffPerMin = std::min(ffPerMin, ffSinceShown); ffPerMax = std::max(ffPerMax, ffSinceShown);
+                    }
+                    ffLastShown = ffFrameAt; ffSinceShown = 0;
+                }
                 g_vk.endFrame();
                 g_statWaitMs += std::chrono::duration<double, std::milli>(t1 - t0).count();
                 auto t2 = std::chrono::steady_clock::now();
@@ -1959,6 +2019,7 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
     if (const char* e = getenv("N64_NETPLAY_SERVE")) {
         int port = 45000, players = 2, delay = 2;
         sscanf(e, "%d%*[^0-9]%d%*[^0-9]%d", &port, &players, &delay);
+        if (strstr(e, "auto")) delay = -1; // port:players:auto = adaptive input delay (2-12 frames)
         if (NetplayServer::start(port, players, delay) && !getenv("N64_NETPLAY")) {
             char v[64]; snprintf(v, sizeof v, "127.0.0.1:%d:1", port);
             setenv("N64_NETPLAY", v, 1);
@@ -2215,11 +2276,12 @@ JNIEXPORT void JNICALL JNI(netplayUpnpClose)(JNIEnv*, jobject) { Upnp::close(); 
 JNIEXPORT jintArray JNICALL JNI(netplayInfo)(JNIEnv* env, jobject) {
     bool host = NetplayServer::running();
     int pausedBy = host ? (NetplayServer::status() >> 5) & 7 : g_netplayPausedBy.load();
-    jint v[7] = {g_netplay ? 1 : 0, host ? 1 : 0, host ? NetplayServer::registeredMask() : 0,
+    jint v[8] = {g_netplay ? 1 : 0, host ? 1 : 0, host ? NetplayServer::registeredMask() : 0,
                  (jint)((host ? (NetplayServer::status() | g_netplayStatus) : g_netplayStatus.load()) & 0x1F),
-                 pausedBy, g_netplayWaitingFor.load(), g_npPlayer.load()};
-    jintArray out = env->NewIntArray(7);
-    if (out) env->SetIntArrayRegion(out, 0, 7, v);
+                 pausedBy, g_netplayWaitingFor.load(), g_npPlayer.load(),
+                 host ? NetplayServer::inputDelay() : g_npDelay.load()};
+    jintArray out = env->NewIntArray(8);
+    if (out) env->SetIntArrayRegion(out, 0, 8, v);
     return out;
 }
 
@@ -2294,6 +2356,10 @@ JNIEXPORT void JNICALL JNI(stop)(JNIEnv*, jobject) {
     // A host's core can be waiting in its own room (for players to register, up to 30 s, or for their input):
     // closing the room first ends that wait, so leaving takes no longer than with nobody in the room (2026-11-10:
     // a room nobody joined took 20 s to quit). Called again after the run loop, which then does nothing.
+    // A joiner's core can be waiting the same way on someone else's room: the core's joey64_netplay_abort shuts
+    // its connection, which ends the wait (cores without it wait as before).
+    if (g_netplay && core.handle)
+        if (auto abortNp = reinterpret_cast<void (*)()>(dlsym(core.handle, "joey64_netplay_abort"))) abortNp();
     if (g_netplay && NetplayServer::running()) NetplayServer::stop();
     if (g_thread.joinable()) g_thread.join();
     { std::lock_guard<std::mutex> lk(g_stateMutex); }

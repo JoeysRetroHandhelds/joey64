@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application android:networkSecurityConfig="@xml/dev_network">
+    <!-- The network config (plain http to 127.0.0.1 / localhost only) is main's res/xml/network.xml since code audit 3 -->
+    <application>
         <!-- Debug builds only: the Phase 0 device checks (docs/launcher-build-plan.md, Phase 0 status).
              No launcher icon; started with
              adb shell am start -n com.joeysretro.joey64/.launcher.check.LauncherCheckActivity -->

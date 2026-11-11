@@ -42,7 +42,7 @@ class GameLauncher(private val context: Context, private val db: LibraryDb) {
             } catch (e: SecurityException) {
                 JLog.w(TAG, "can't open ${f.name}" + "\n" + Log.getStackTraceString(e)); null
             } ?: continue
-            val intent = Intent(context, MainActivity::class.java)
+            val intent = MainActivity.gameStart(context)
                 .setAction(Intent.ACTION_VIEW)
                 .setDataAndType(uri, "application/octet-stream")
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)

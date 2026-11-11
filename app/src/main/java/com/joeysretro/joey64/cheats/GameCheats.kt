@@ -8,7 +8,6 @@ import com.joeysretro.joey64.launcher.storage.DataKind
 import com.joeysretro.joey64.launcher.storage.FileSpace
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.IOException
 
 /** A cheat that's on: the option picked ([value], null for a plain one) and the codes it runs, values filled in. */
 data class CheatOn(val value: String?, val codes: List<String>)
@@ -74,22 +73,39 @@ class GameCheats(
         CheatChoices()
     }
 
-    /** Written whole or not at all: a .part file renamed over the old one. */
-    fun write(choices: CheatChoices) {
+    /**
+     * Written whole or not at all, one write at a time in the process (code audit 3, H3: two writes at once shared the
+     * .part name, and the second deleted the file the first had just put in place, so every cheat and typed code was
+     * lost). A checked copy goes over the old file, which stays whole until the new one is in (FileCopy.writeChecked;
+     * before, the old one was deleted first). Blocks: call off the main thread, or use [writeLater].
+     */
+    fun write(choices: CheatChoices) = synchronized(LOCK) {
         // cheats/ is kept out of the photo gallery (.nomedia), as every hidden folder before it's written.
         runCatching { com.joeysretro.joey64.launcher.storage.DataFolderRules.hideFromGallery(space) }
-        val part = listOf(DataKind.Cheats.dir, "$saveName.json.part")
-        try {
-            space.openWrite(part).use { it.write(choices.toJson().toByteArray(Charsets.UTF_8)) }
-            if (space.exists(path) && !space.delete(path)) throw IOException("can't replace ${path.last()}")
-            if (!space.rename(part, path.last())) throw IOException("can't rename ${part.last()}")
-        } catch (e: IOException) {
-            JLog.e(TAG, "can't write ${path.joinToString("/")}" + "\n" + Log.getStackTraceString(e))
-            runCatching { space.delete(part) }
+        val bytes = choices.toJson().toByteArray(Charsets.UTF_8)
+        val ok = try {
+            com.joeysretro.joey64.launcher.storage.FileCopy.writeChecked(bytes.inputStream(), space, path)
+        } catch (e: Exception) {
+            JLog.e(TAG, "can't write ${path.joinToString("/")}" + "\n" + Log.getStackTraceString(e)); false
         }
+        if (!ok) JLog.e(TAG, "can't write ${path.joinToString("/")}")
     }
 
-    private companion object {
-        const val TAG = "Joey64Cheats"
+    /** [write] on Joey64's one cheats writer, in the order asked: the file ends as the last change left it. */
+    fun writeLater(choices: CheatChoices) { WRITER.execute { write(choices) } }
+
+    companion object {
+        private const val TAG = "Joey64Cheats"
+        private val LOCK = Any()
+        private val WRITER = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "joey64-cheats") }
+
+        /**
+         * Waits, up to [ms], for the writes [writeLater] queued before now (code audit 3, M7: the in-game Cheats page
+         * closed and the game read the file before its last change was written). Off the main thread.
+         */
+        fun awaitWrites(ms: Long = 5_000) {
+            try { WRITER.submit {}.get(ms, java.util.concurrent.TimeUnit.MILLISECONDS) }
+            catch (e: Exception) { JLog.w(TAG, "cheats: still writing after $ms ms: $e") }
+        }
     }
 }

@@ -24,6 +24,7 @@
         android:extractNativeLibs="true"
         android:appCategory="game"
         android:allowBackup="false"
+        android:networkSecurityConfig="@xml/network"
         android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
         <!-- No Android backup (Joey 2026-11-08): its scheduled full backup force-stops the app, and on the Thor
              it killed a game mid-play (2026-11-07 23:17, signal 9). Joey64's own Back up Joey64 (Settings ›
@@ -46,6 +47,13 @@
                 <data android:mimeType="application/x-7z-compressed" />
             </intent-filter>
         </activity>
+        <!-- Joey64's own game starts (the library, a game switch, a settings restart) come through here. Not exported, so
+             only Joey64 can use it: MainActivity takes the launcher's extras (netplay, MD5, state, cartridge, save name)
+             only from a start through this alias (code audit 3, H9) -->
+        <activity-alias
+            android:name=".GameStart"
+            android:targetActivity=".MainActivity"
+            android:exported="false" />
         <!-- The app's home: first run, then the library. It starts games in MainActivity. -->
         <activity
             android:name=".launcher.LauncherActivity"

@@ -68,6 +68,27 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private val devBuild get() = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
     private fun devString(name: String): String? = if (devBuild) intent?.getStringExtra(name) else null
 
+    /**
+     * This start came from Joey64 itself: through the non-exported [GAME_START] alias (the library, switchGame, a settings
+     * restart), or a debug build (adb). Other apps can send this exported activity a ROM, but not the launcher's extras:
+     * a room with a router port mapping, a server to join, the MD5, a state to load, a cartridge URI or a save name
+     * (code audit 3, H9).
+     */
+    private val fromJoey64 get() = devBuild || intent?.component?.className == GAME_START
+    /** One of the launcher's own extras ([LAUNCHER_EXTRAS]), only from a start [fromJoey64]. */
+    private fun launcherString(name: String): String? = if (fromJoey64) intent?.getStringExtra(name) else null
+
+    /**
+     * The extras to carry into the next start (switchGame, a settings restart), which goes through [GAME_START] and is
+     * trusted: a start from another app loses the launcher's extras here, or they'd be trusted on the way.
+     */
+    private fun carriedExtras(): Bundle? = try {
+        intent?.extras?.let { b -> Bundle(b).apply { if (!fromJoey64) LAUNCHER_EXTRAS.forEach { remove(it) } } }
+    } catch (e: RuntimeException) {
+        // A bad parcel from another app (BadParcelableException and the like): carry nothing.
+        JLog.w(TAG, "can't read the start's extras: $e"); null
+    }
+
     /** The parallel-RDP Resolution this start asks for (dev `--es opts` upscaling, else Settings › Video), for Auto's driver. */
     private fun wantedUpscale(): Int =
         devString("opts")?.split(',')?.map { it.split('=', limit = 2) }?.firstOrNull { it.size == 2 && it[0].trim() == UPSCALE_KEY }
@@ -83,13 +104,13 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
      * these extras too, so a release build takes only a ROM in Joey64's own cache, where both unpack it.
      */
     private fun handedRom(): Pair<String, String>? {
-        val path = intent?.getStringExtra(EXTRA_ROM_PATH) ?: return null
+        val path = launcherString(EXTRA_ROM_PATH) ?: return null
         if (!devBuild) {
             val cache = cacheDir.canonicalFile.path + File.separator
             val f = try { File(path).canonicalFile.path } catch (e: java.io.IOException) { null }
             if (f == null || !f.startsWith(cache)) { JLog.e(TAG, "handed ROM outside Joey64's cache, not loaded: $path"); return null }
         }
-        return path to cleanSaveName(intent?.getStringExtra(EXTRA_SAVE_NAME) ?: "")
+        return path to cleanSaveName(launcherString(EXTRA_SAVE_NAME) ?: "")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -125,9 +146,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // runs in the launcher's process, and the host sets N64_NETPLAY itself when it opens a room, so a game without the
         // extras clears them first: one netplay game must never make the next one a netplay game.
         for (k in NETPLAY_ENV) android.system.Os.unsetenv(k)
-        intent?.getStringExtra(EXTRA_NETPLAY_HOST)?.let { android.system.Os.setenv("N64_NETPLAY_SERVE", it, true) }
-        intent?.getStringExtra(EXTRA_NETPLAY_JOIN)?.let { android.system.Os.setenv("N64_NETPLAY", it, true) }
-        intent?.getStringExtra(EXTRA_NETPLAY_NAME)?.let { android.system.Os.setenv("N64_NETPLAY_NAME", it, true) }
+        // Only from the library (fromJoey64): another app must not open a room on this device or point it at a server.
+        launcherString(EXTRA_NETPLAY_HOST)?.let { android.system.Os.setenv("N64_NETPLAY_SERVE", it, true) }
+        launcherString(EXTRA_NETPLAY_JOIN)?.let { android.system.Os.setenv("N64_NETPLAY", it, true) }
+        launcherString(EXTRA_NETPLAY_NAME)?.let { android.system.Os.setenv("N64_NETPLAY_NAME", it, true) }
         // Dev: --es env "PARALLEL_RDP_UBERSHADER=1,KEY=value" (process environment, read by the core).
         // Set before setupGpu: the driver hooks (N64_KGSL_PRIO) read it while the custom driver loads
         devString("env")?.split(',')?.forEach { kv ->
@@ -835,8 +857,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             if (saved) st.clearRecovery()
             JLog.i(TAG, "game settings: restarting for the new settings, auto slot ${if (saved) "written" else "not written"}")
             runOnUiThread {
-                val next = Intent(this, MainActivity::class.java).apply {
-                    intent.extras?.let { putExtras(it) }
+                val next = gameStart(this).apply {
+                    carriedExtras()?.let { putExtras(it) }
                     removeExtra("rom")
                     intent.data?.let { d ->
                         if (!hasExtra(EXTRA_SOURCE_URI)) putExtra(EXTRA_SOURCE_URI, d.toString())
@@ -857,8 +879,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     /** The save name the launcher gave, or the one the ROM's file name makes, before the ROM is read (null: the dev path). */
     private fun earlySaveName(): String? {
         val i = intent ?: return null
-        i.getStringExtra(EXTRA_SAVE_NAME)?.takeIf { it.isNotEmpty() }?.let { return cleanSaveName(it) }
-        val file = i.getStringExtra(EXTRA_SOURCE_NAME) ?: (if (devBuild) i.getStringExtra("rom") else null) ?: i.data?.let { displayName(it) } ?: return null
+        launcherString(EXTRA_SAVE_NAME)?.takeIf { it.isNotEmpty() }?.let { return cleanSaveName(it) }
+        val file = launcherString(EXTRA_SOURCE_NAME) ?: (if (devBuild) i.getStringExtra("rom") else null) ?: i.data?.let { displayName(it) } ?: return null
         return saveName(file)
     }
 
@@ -867,7 +889,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
      * EXTRA_MD5, else a handed-over or dev (`--es rom`) ROM hashed here; null when not known.
      */
     private fun earlyMd5(): String? {
-        intent?.getStringExtra(EXTRA_MD5)?.takeIf { it.isNotEmpty() }?.let { return it }
+        launcherString(EXTRA_MD5)?.takeIf { it.isNotEmpty() }?.let { return it }
         val path = handedRom()?.first
             ?: devString("rom")?.let { n -> listOfNotNull(getExternalFilesDir(null), filesDir).map { File(it, "roms/$n") }.firstOrNull { it.exists() }?.path }
             ?: return null
@@ -935,7 +957,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val store = com.joeysretro.joey64.video.RaOverlayStore(this)
         val value = when {
             ra.isOverlay(sel) -> sel
-            ra.isMatch(sel) -> store.matchFor(listOfNotNull(earlySaveName(), intent?.getStringExtra(EXTRA_TITLE)))
+            ra.isMatch(sel) -> store.matchFor(listOfNotNull(earlySaveName(), launcherString(EXTRA_TITLE)))
             else -> null
         }
         if (value == null) {
@@ -1090,6 +1112,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     /** Dev: the first .so in <external files>/drivers/ or files/drivers/, copied where it can be dlopen'd. */
     private fun devDriver(): File? {
+        // Debug builds only (code audit 3, H10): Android/data/.../files/drivers is shared storage other apps can write on
+        // Android 10, and a .so there would be loaded as the GPU driver, native code run inside Joey64.
+        if (!devBuild) return null
         // Internal files/drivers too, for devices whose adb can't write Android/data (see resolveRom).
         val src = listOfNotNull(getExternalFilesDir("drivers"), File(filesDir, "drivers"))
             .firstNotNullOfOrNull { d -> d.listFiles { f -> f.name.endsWith(".so") }?.firstOrNull() } ?: return null
@@ -1125,7 +1150,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
      */
     private fun resolveRom(): Pair<String, String>? {
         // Handed over by switchGame from the process before this one: the ROM is already unpacked.
-        if (intent?.hasExtra(EXTRA_ROM_PATH) == true) return handedRom()
+        if (launcherString(EXTRA_ROM_PATH) != null) return handedRom()
         intent?.data?.let { uri ->
             val shown = displayName(uri)
             val inner = copyToCache(uri, shown) ?: run { JLog.e(TAG, "No N64 ROM in $uri"); return null }
@@ -1172,7 +1197,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
      */
     private fun resolveDdCart(): String? {
         val out = File(cacheDir, "dd-cart.rom")
-        val given = intent?.getStringExtra(EXTRA_DD_CART)
+        val given = launcherString(EXTRA_DD_CART)
         val inner = when {
             given != null -> try { contentResolver.openInputStream(Uri.parse(given))?.use { RomFiles.extract(it, out) } } catch (e: Exception) { JLog.e(TAG, "64DD cartridge $given: $e"); null }
             else -> devString("ddcart")?.let { name ->
@@ -1257,7 +1282,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (disk) com.joeysretro.joey64.launcher.storage.BiosSync.refresh(this)
         val ddCart = if (disk) resolveDdCart() else null
         // A cartridge was given and didn't unpack: the disk alone would start with no word of it (code audit 2).
-        if (disk && ddCart == null && (intent?.getStringExtra(EXTRA_DD_CART) != null || devString("ddcart") != null)) {
+        if (disk && ddCart == null && (launcherString(EXTRA_DD_CART) != null || devString("ddcart") != null)) {
             JLog.e(TAG, "64DD: the cartridge didn't unpack, not starting the disk alone")
             cartFailed = true
             return null
@@ -1347,7 +1372,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         JLog.e(TAG, "the game didn't start (${why.name}), closing the game screen")
         if (cart) intent?.let { com.joeysretro.joey64.launcher.GameStartFailed.diskNeedsCart(it) }
         // Started from the library (it passes the MD5): it says "<game> won't start" (approved problem screens 2026-11-08).
-        else intent?.takeIf { it.hasExtra(EXTRA_MD5) }?.let { com.joeysretro.joey64.launcher.GameStartFailed.romFailed(it, why) }
+        else intent?.takeIf { launcherString(EXTRA_MD5) != null }?.let { com.joeysretro.joey64.launcher.GameStartFailed.romFailed(it, why) }
         finish()
     }
 
@@ -1372,8 +1397,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             // Netplay: the room was lost, couldn't be reached, turned this player down, or has another copy (approved netplay screens).
             // A quit the player asked for stops the room's wait (joey64_netplay_abort), and the core then says the
             // connection was lost or the room can't be reached: no problem screen for that.
-            else if (why in 3..6) { if (!quitting) intent?.takeIf { it.hasExtra(EXTRA_MD5) }?.let { com.joeysretro.joey64.launcher.GameStartFailed.netEnded(it, why) } }
-            else intent?.takeIf { it.hasExtra(EXTRA_MD5) }?.let { com.joeysretro.joey64.launcher.GameStartFailed.romFailed(it, com.joeysretro.joey64.launcher.GameStartFailed.Why.Stopped) }
+            else if (why in 3..6) { if (!quitting) intent?.takeIf { launcherString(EXTRA_MD5) != null }?.let { com.joeysretro.joey64.launcher.GameStartFailed.netEnded(it, why) } }
+            else intent?.takeIf { launcherString(EXTRA_MD5) != null }?.let { com.joeysretro.joey64.launcher.GameStartFailed.romFailed(it, com.joeysretro.joey64.launcher.GameStartFailed.Why.Stopped) }
             finish()
         }
     }
@@ -1400,7 +1425,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (saveName.isEmpty()) { JLog.i(TAG, "states: off for a ROM without a name (the dev path)"); return }
         val st = GameStates(this, saveName)
         states = st
-        val givenTitle = intent?.getStringExtra(EXTRA_TITLE)
+        val givenTitle = launcherString(EXTRA_TITLE)
         overlay = GameOverlay(this, pauseActions).also {
             it.title = givenTitle ?: saveName
             it.saveSlotName = slotName(currentSlot())
@@ -1440,7 +1465,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             recent = recentEntry(saveName, title)
             recent?.let { RecentlyPlayed.record(this, it) }
         }
-        when (val which = intent?.getStringExtra(EXTRA_LOAD_STATE)) {
+        when (val which = launcherString(EXTRA_LOAD_STATE)) {
             null -> {}
             STATE_AUTO -> stateHandler.post { startLoadFailed = !st.load(StateSlots.AUTO) }
             STATE_RECOVERY -> stateHandler.post { startLoadFailed = !st.loadRecovery() }
@@ -1472,8 +1497,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     private fun recentEntry(saveName: String, title: String?): RecentlyPlayed.Entry? {
         val i = intent ?: return null
-        val uri = i.getStringExtra(EXTRA_SOURCE_URI) ?: i.data?.toString() ?: return null
-        val file = i.getStringExtra(EXTRA_SOURCE_NAME) ?: i.data?.let { displayName(it) } ?: saveName
+        val uri = launcherString(EXTRA_SOURCE_URI) ?: i.data?.toString() ?: return null
+        val file = launcherString(EXTRA_SOURCE_NAME) ?: i.data?.let { displayName(it) } ?: saveName
         val path = try { RecentlyPlayed.pathOf(Uri.parse(uri)) } catch (e: Exception) { "" }
         return RecentlyPlayed.Entry(title ?: saveName, file, uri, path, saveName, System.currentTimeMillis())
     }
@@ -1498,7 +1523,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private fun startSession(rom: String, saveName: String) {
         if (!com.joeysretro.joey64.reports.ReportPrefs.on(this)) return
         if (listOf("env", "opts", "renderer", "driver").any { intent?.hasExtra(it) == true }) { JLog.i(TAG, "reports: a dev start, not recorded"); return }
-        val md5 = intent?.getStringExtra(EXTRA_MD5) ?: romMd5(rom) ?: return
+        val md5 = launcherString(EXTRA_MD5) ?: romMd5(rom) ?: return
         // Settings that differ from the defaults: Video's for this game (all of them count for speed), Audio's.
         val v = com.joeysretro.joey64.video.VideoStore(this).forGame(saveName.ifEmpty { null })
         val a = com.joeysretro.joey64.audio.AudioStore(this).forGame(saveName.ifEmpty { null })
@@ -1520,7 +1545,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             put("driver", statsDriver)
             @Suppress("DEPRECATION") val shown = if (Build.VERSION.SDK_INT >= 30) display else windowManager.defaultDisplay
             shown?.refreshRate?.takeIf { it > 0 }?.let { put("refreshHz", Math.round(it)) }
-            put("fromState", intent?.getStringExtra(EXTRA_LOAD_STATE) != null)
+            put("fromState", launcherString(EXTRA_LOAD_STATE) != null)
             put("cheats", cheatsMost)
             gpuWhy?.let { w ->
                 put("driverRule", w.driverRule)
@@ -1650,6 +1675,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private fun sendCheats() {
         val st = states ?: return
         stateHandler.post {
+            // The page's last change written first (code audit 3, M7), then read.
+            com.joeysretro.joey64.cheats.GameCheats.awaitWrites()
             // The widescreen / 60 fps codes the game started with stay with the cheats.
             val lines = com.joeysretro.joey64.cheats.GameCheats(this@MainActivity, st.saveName).read().codeLines() + extrasOn.codeLines
             NativeBridge.setCheats(lines.toTypedArray())
@@ -2347,25 +2374,40 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val clearTask = owner != null
         owner?.let { NativeBridge.stop(); it.finish() }
         owner = null
-        // The game before is closed on purpose: nothing to recover for it.
-        GameStates.Recovery.clear(this)
-        val (rom, saveName) = resolveRom() ?: run { JLog.e(TAG, "No N64 ROM in the new intent"); finish(); return }
-        val next = Intent(this, MainActivity::class.java).apply {
-            intent.extras?.let { putExtras(it) }
-            removeExtra("rom")
-            // The URI isn't carried over (the ROM is), so recently played gets the source as extras.
-            intent.data?.let { d ->
-                if (!hasExtra(EXTRA_SOURCE_URI)) putExtra(EXTRA_SOURCE_URI, d.toString())
-                if (!hasExtra(EXTRA_SOURCE_NAME)) displayName(d)?.let { putExtra(EXTRA_SOURCE_NAME, it) }
+        // Unpacking the new ROM (up to 64 MB, or a zip / 7z) runs on gameIo, as prepareGame does for the first game: on
+        // the main thread it risked an ANR, and a missing file or a full disk crashed the app (code audit 3, H2).
+        gameIo.execute {
+            // The game before is closed on purpose: nothing to recover for it.
+            GameStates.Recovery.clear(this)
+            val got = try { resolveRom() } catch (e: Exception) { JLog.e(TAG, "can't get the new game ready: $e"); null }
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                val (rom, saveName) = got ?: run {
+                    JLog.e(TAG, "No N64 ROM in the new intent")
+                    // Started from the library: it says "<game> won't start", as for a first game.
+                    intent?.takeIf { launcherString(EXTRA_MD5) != null }?.let {
+                        com.joeysretro.joey64.launcher.GameStartFailed.romFailed(it, com.joeysretro.joey64.launcher.GameStartFailed.Why.Unreadable)
+                    }
+                    finish(); return@runOnUiThread
+                }
+                val next = gameStart(this).apply {
+                    carriedExtras()?.let { putExtras(it) }
+                    removeExtra("rom")
+                    // The URI isn't carried over (the ROM is), so recently played gets the source as extras.
+                    intent.data?.let { d ->
+                        if (!hasExtra(EXTRA_SOURCE_URI)) putExtra(EXTRA_SOURCE_URI, d.toString())
+                        if (!hasExtra(EXTRA_SOURCE_NAME)) displayName(d)?.let { putExtra(EXTRA_SOURCE_NAME, it) }
+                    }
+                    putExtra(EXTRA_ROM_PATH, rom)
+                    putExtra(EXTRA_SAVE_NAME, saveName)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    if (clearTask) addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                }
+                // This screen only hands over: gone before the new one comes, so Back from it doesn't land here.
+                if (!clearTask) finish()
+                RestartActivity.restart(this, next)
             }
-            putExtra(EXTRA_ROM_PATH, rom)
-            putExtra(EXTRA_SAVE_NAME, saveName)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            if (clearTask) addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK)
         }
-        // This screen only hands over: gone before the new one comes, so Back from it doesn't land here.
-        if (!clearTask) finish()
-        RestartActivity.restart(this, next)
     }
     override fun surfaceRedrawNeeded(holder: SurfaceHolder) {}
 
@@ -2483,7 +2525,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         NativeBridge.setOption("mupen64plus-astick-deadzone", "0") // PlayerInput applies the player's own
         // Stick feel's Range and octagon gate reach past 80: the core maps 32767 to 120 (PlayerInput.toRetroStick).
         NativeBridge.setOption("mupen64plus-astick-sensitivity", "150")
-        val md5 by lazy { intent?.getStringExtra(EXTRA_MD5) ?: romMd5(rom) }
+        val md5 by lazy { launcherString(EXTRA_MD5) ?: romMd5(rom) }
         val rumbleGames by lazy { PakDb.load(this) }
         for (i in 0..3) {
             val p = controls.players[i]
@@ -2563,7 +2605,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         var ports = 1
         for (i in 1..3) if (controls.players[i].device != DeviceChoice.None) ports = ports or (1 shl i)
         if (ports != portsPresent) { portsPresent = ports; NativeBridge.setPortsPresent(ports) }
-        val md5 by lazy { intent?.getStringExtra(EXTRA_MD5) ?: lastRom?.let { romMd5(it) } }
+        val md5 by lazy { launcherString(EXTRA_MD5) ?: lastRom?.let { romMd5(it) } }
         val rumbleGames by lazy { PakDb.load(this) }
         for (i in 0..3) {
             val p = controls.players[i]
@@ -3112,6 +3154,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         private const val SAVE_RAM_POLL_MS = 3_000L
         /** Game start and quit file work, one job at a time in order, for every instance (they share cache/current.rom and saves/). */
         private val gameIo = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "joey64-gameio") }
+        /** The non-exported alias Joey64's own game starts go through (manifest; [fromJoey64]). */
+        const val GAME_START = "com.joeysretro.joey64.GameStart"
+        /** An intent for the game screen through [GAME_START]: use it for every start from inside Joey64. */
+        fun gameStart(context: Context): Intent = Intent().setClassName(context, GAME_START)
         /** switchGame -> the next process: the ROM already unpacked, and its save name. */
         const val EXTRA_ROM_PATH = "com.joeysretro.joey64.ROM_PATH"
         const val EXTRA_SAVE_NAME = "com.joeysretro.joey64.SAVE_NAME"
@@ -3134,6 +3180,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         /** Play together: this player's name in the room (N64_NETPLAY_NAME). */
         const val EXTRA_NETPLAY_NAME = "com.joeysretro.joey64.NETPLAY_NAME"
         private val NETPLAY_ENV = listOf("N64_NETPLAY", "N64_NETPLAY_SERVE", "N64_NETPLAY_NAME")
+        /** Extras only Joey64's own starts may carry ([fromJoey64]); a start from another app has them dropped. */
+        private val LAUNCHER_EXTRAS = listOf(EXTRA_ROM_PATH, EXTRA_SAVE_NAME, EXTRA_LOAD_STATE, EXTRA_SOURCE_URI, EXTRA_SOURCE_NAME,
+            EXTRA_TITLE, EXTRA_MD5, EXTRA_DD_CART, EXTRA_NETPLAY_HOST, EXTRA_NETPLAY_JOIN, EXTRA_NETPLAY_NAME,
+            com.joeysretro.joey64.launcher.library.GameLauncher.EXTRA_IS_DISK, com.joeysretro.joey64.launcher.library.GameLauncher.EXTRA_NEEDS_CART)
         const val STATE_AUTO = "auto"
         const val STATE_RECOVERY = "recovery"
         /** "slot:<n>": the state in StateSlots' slot n (the Saves page's Play from here). */

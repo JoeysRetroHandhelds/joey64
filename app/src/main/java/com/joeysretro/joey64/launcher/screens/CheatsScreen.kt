@@ -179,8 +179,11 @@ private fun CheatsContent(game: CheatsGame, sink: CheatsSink, onHints: (List<Hin
     }
 
     fun save(next: CheatChoices) {
+        // Not before the file is read (code audit 3, p2 L1): a change made on the empty choices would write over every
+        // cheat that was on and every code added.
+        if (choices == null) { com.joeysretro.joey64.JLog.w("Joey64Cheats", "cheats: a change before the file was read, not saved"); return }
         choices = next
-        scope.launch(Dispatchers.IO) { store.write(next) }
+        store.writeLater(next)
     }
 
     val current = choices ?: CheatChoices()

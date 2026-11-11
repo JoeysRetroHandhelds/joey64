@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Plain http only to this device itself: RAOfflineProxy (Settings > RetroAchievements > Account > Offline unlocks)
+     answers on http://127.0.0.1:<port>, and RaBridge.isLocalHost lets RetroAchievements go there only. Every other
+     address stays https only, as Android's default. Release builds blocked the proxy before (code audit 3, H5); debug
+     builds also use it for the stand-in feeds through `adb reverse` (files/dev_*). -->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>

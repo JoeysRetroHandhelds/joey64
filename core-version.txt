@@ -1,7 +1,7 @@
 # The core bundled in app/src/main/jniLibs (written by devtools/bundle-core.sh; the .so itself is not committed)
 repo: JoeysRetroHandhelds/joey64-core
-branch: combine-fix
-commit: c4b53390b5cb30ffe69af7c40b803e05c1004e28 2026-11-11 01:07:37 -0600 dynarec block list: correct the tick comment (the Cruis'n black was the page-0 block, not tim
+branch: audit3
+commit: 57cce56c2dbb878ddf5389eac2a0305f0f0e77d3 2026-11-11 13:50:24 -0600 retro_serialize: correct the H1 comment (the 5% was run-ahead's figure before its RSP fix; no
 uncommitted: none
-built: 2026-11-11 00:47
-md5: f9523c75c1e092d817bc869b7a95f650
+built: 2026-11-11 09:07
+md5: 322462b83e9eed9060b1bb16ff840ecd

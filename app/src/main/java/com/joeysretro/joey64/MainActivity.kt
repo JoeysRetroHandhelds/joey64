@@ -657,6 +657,25 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         JLog.e(TAG, "emulation: can't read the ROM header: $e"); null
     }
 
+    /**
+     * README item 36 (shipped block lists): a game with no block list of its own yet starts from the one in
+     * `assets/blocklists/<CRC1-CRC2-country>.txt` (recorded on the Flip), so its first play gets the early compiles too
+     * (Mario Kart 64's race-start hitch). The core checks each block against the code in RAM, so a list from another
+     * copy only compiles the blocks that match; from then on the core adds to the game's own copy.
+     */
+    private fun shippedBlockList(rom: String, to: File) {
+        val key = headerKeys(rom).firstOrNull() ?: return
+        try {
+            val part = File(to.path + ".part")
+            assets.open("blocklists/$key.txt").use { i -> part.outputStream().use { o -> i.copyTo(o) } }
+            if (part.renameTo(to)) JLog.i(TAG, "block list: started from the shipped list for $key")
+        } catch (e: java.io.FileNotFoundException) {
+            // none shipped for this game
+        } catch (e: Exception) {
+            JLog.e(TAG, "block list: shipped list for $key: $e")
+        }
+    }
+
     /** The cheat lists' keys for [rom]'s header ("" a 64DD disk with no cartridge: none). */
     private fun headerKeys(rom: String): List<String> = if (rom.isEmpty()) emptyList() else try {
         val buf = File(rom).inputStream().use { i -> ByteArray(0x40).also { b -> if (i.read(b) < b.size) throw java.io.IOException("short ROM") } }
@@ -1276,8 +1295,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // last time are compiled early on the compile thread as their code loads, so a scene's first compile doesn't
         // land in a frame (Flip, Mario Kart 64's race start: a 42-46 ms hitch without the list, none with it). The core
         // uses it only with the compile thread (Mali, GpuRules.settings). --es env N64_DRC_LIST=<file> or =0 (off) wins.
-        if (devString("env")?.contains("N64_DRC_LIST=") != true)
-            android.system.Os.setenv("N64_DRC_LIST", File(File(filesDir, "blocklists").apply { mkdirs() }, "$saveName.txt").path, true)
+        if (devString("env")?.contains("N64_DRC_LIST=") != true) {
+            val list = File(File(filesDir, "blocklists").apply { mkdirs() }, "$saveName.txt")
+            if (!list.exists()) shippedBlockList(rom, list)
+            android.system.Os.setenv("N64_DRC_LIST", list.path, true)
+        }
         // The router's address for a hosted room's NAT-PMP (when no UPnP router answers): from the network's default
         // route, since Android's main route table that libnatpmp reads has none. --es env N64_NETPLAY_GW=<ip> wins.
         if (devString("env")?.contains("N64_NETPLAY_GW=") != true) com.joeysretro.joey64.netplay.RouterAddress.set(this)

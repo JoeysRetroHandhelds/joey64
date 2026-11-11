@@ -116,7 +116,7 @@
         {"what": "smoother timing, CountPerOp=1 (counter factor 1), on Adreno 730 and up (Portal, Odin 3, Thor) only", "where": "libretro_host.cpp kSmootherGames, MainActivity N64_SMOOTHER", "why": "Odin 3 26.5 -> 28.1 fps; compat with it passed on the Odin 3 and Portal (odin3-/portal-smoothc), Joey 2026-11-06. Hacks with this ID get it too"}
       ],
       "issues": [
-        {"status": "open", "devices": "Flip (95 ms), Odin 3 (29 ms)", "what": "hitch the first time an area's code runs: ~2100 dynarec blocks compiled at once (not code thrown away and rebuilt). A one-off per area; fixes: compile thread (item 7) or saved block list (item 17)", "evidence": "flip-mkhitch, flip-drcinv, odin3-hitch"}
+        {"status": "fixed", "devices": "Flip", "what": "hitch the first time an area's code runs: ~2100 dynarec blocks compiled at once (95 ms before the compile thread, 46-48 ms with it at the race start). Fixed by the compile thread (Mali default) and the shipped block list (assets/blocklists, 2026-11-11): no race-start hitch in 3 of 3 first plays. Left either way: a 37-46 ms frame half a second after a save state loads (the load flushes all compiled code)", "evidence": "flip-mkhitch, flip-drcinv, flip-blkd-mk, flip-lists2-mk"}, {"status": "open", "devices": "Odin 3 (29 ms)", "what": "the same first-run hitch; block lists need the compile thread, which is Mali only, so Adreno devices are unchanged by them; not measured since 2026-11-04", "evidence": "odin3-hitch"}
       ],
       "notes": ["first launch: 98-100 ms worst frame on the Flip while shaders compile (warm 40-41 ms)", "maybe a white dash on the bottom lines of the race view on all devices (low confidence)"]
     },

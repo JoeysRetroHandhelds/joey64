@@ -126,7 +126,7 @@ internal fun NetEndedPopup(model: LibraryModel) {
                     PopupTitle("Your copy doesn't match the host's")
                     PromptText(buildAnnotatedString {
                         append("Everyone needs the same copy of ")
-                        pushStyle(bold("")); append(n.game.title); pop()
+                        pushStyle(bold("")); append(com.joeysretro.joey64.launcher.library.LibraryArrange.shortTitle(n.game.title)); pop()
                         append(" or the games fall out of step. Yours is ")
                         pushStyle(bold("")); append(n.file); pop()
                         append(".")

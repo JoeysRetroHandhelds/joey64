@@ -244,7 +244,7 @@ fun IconRow(
             .then(if (sideways) Modifier else Modifier.focusProperties { left = FocusRequester.Cancel; right = FocusRequester.Cancel })
             .rowSelection(focused, RoundedCornerShape(JoeyTheme.spacing.rowCorner))
             .pressable(source, onClick = onClick)
-            .padding(horizontal = JoeyTheme.spacing.rowPadH, vertical = 7.dp),
+            .padding(horizontal = JoeyTheme.spacing.rowPadH, vertical = JoeyTheme.spacing.rowPadV),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {

@@ -1,6 +1,6 @@
 {
   "about": "Joey64 per-game database: what each game needs, what is wrong with it and where, and what was fixed. Seed for the M3 profile DB. Rules: gamedb/README.md. Update this file in the same commit as any change to a game's status (new problem found, fixed, regressed, setting added or dropped).",
-  "updated": "2026-11-10",
+  "updated": "2026-11-11",
   "games": [
     {
       "id": "NPF", "title": "Pokemon Snap",
@@ -41,7 +41,8 @@
         {"status": "open", "what": "bench state stops on the Controller Pak notice, so its bench numbers are a static menu (150-1190 fps swings); needs a state in a race", "evidence": "README bench states item"}
       ],
       "fixed": [
-        {"what": "RSP looped on the boot screen with precise smart sync", "fix": "copies (DMA, RSP, C code) always wait, core 2938164"}
+        {"what": "RSP looped on the boot screen with precise smart sync", "fix": "copies (DMA, RSP, C code) always wait, core 2938164"},
+        {"what": "black on the Flip when started with its block list (compile thread, Mali): the game kept running but looped within 10 s of boot, from the RDRAM page-0 block compiled early from the list", "fix": "RDRAM page 0 is never listed or compiled from a list, core eb8e801 (bundled 2026-11-11 as combine-fix c4b5339, same binary)", "devices": "Flip", "evidence": "README open bugs (2); flip-cf28-compat 82/82 ok, odin2p-cf30 and o3p-audit3 compat 82/82 ok on cores built on it"}
       ]
     },
     {
@@ -115,7 +116,7 @@
         {"what": "smoother timing, CountPerOp=1 (counter factor 1), on Adreno 730 and up (Portal, Odin 3, Thor) only", "where": "libretro_host.cpp kSmootherGames, MainActivity N64_SMOOTHER", "why": "Odin 3 26.5 -> 28.1 fps; compat with it passed on the Odin 3 and Portal (odin3-/portal-smoothc), Joey 2026-11-06. Hacks with this ID get it too"}
       ],
       "issues": [
-        {"status": "open", "devices": "Flip (95 ms), Odin 3 (29 ms)", "what": "hitch the first time an area's code runs: ~2100 dynarec blocks compiled at once (not code thrown away and rebuilt). A one-off per area; fixes: compile thread (item 7) or saved block list (item 17)", "evidence": "flip-mkhitch, flip-drcinv, odin3-hitch"}
+        {"status": "fixed", "devices": "Flip", "what": "hitch the first time an area's code runs: ~2100 dynarec blocks compiled at once (95 ms before the compile thread, 46-48 ms with it at the race start). Fixed by the compile thread (Mali default) and the shipped block list (assets/blocklists, 2026-11-11): no race-start hitch in 3 of 3 first plays. Left either way: a 37-46 ms frame half a second after a save state loads (the load flushes all compiled code)", "evidence": "flip-mkhitch, flip-drcinv, flip-blkd-mk, flip-lists2-mk"}, {"status": "open", "devices": "Odin 3 (29 ms)", "what": "the same first-run hitch; block lists need the compile thread, which is Mali only, so Adreno devices are unchanged by them; not measured since 2026-11-04", "evidence": "odin3-hitch"}
       ],
       "notes": ["first launch: 98-100 ms worst frame on the Flip while shaders compile (warm 40-41 ms)", "maybe a white dash on the bottom lines of the race view on all devices (low confidence)"]
     },
@@ -126,7 +127,7 @@
       ],
       "issues": [
         {"status": "open", "devices": "Flip", "what": "first launch stutters while shaders compile: 93-108 ms worst frames, 40 slow frames per window (warm 40-43 ms)", "evidence": "hitch bench; shader pre-build list is item 20"},
-        {"status": "open", "devices": "Flip", "what": "white glow over the floor in one of two runs with the new parallel-RDP; check in the next Flip screenshots", "evidence": "screenshot review 2026-11-04"}
+        {"status": "parked", "devices": "Flip", "what": "white glow over the floor in one of two runs with the new parallel-RDP (2026-11-04); not seen since: 2 runs from Joey's MM state (Majora's Wrath fight), 6 screenshots, floor drawn normally (core audit3-1, 2026-11-11); parked until it shows again", "evidence": "screenshot review 2026-11-04; flip-lists1-mm (next128)"}
       ],
       "notes": ["HLE audio: +14-19% on the Flip", "mixes louder than SM64, as on hardware", "intro at ~30 s: a short burst of audio underruns on the Duo, 12-13 with the smoothed audio wait (default above 60 Hz since 6de8bb8) vs 5-6 without (chain72)"]
     },

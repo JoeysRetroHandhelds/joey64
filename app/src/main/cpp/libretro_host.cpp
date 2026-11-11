@@ -924,7 +924,9 @@ void logStats() {
     double fillMs, targetMs; int underruns;
     const int refill = g_audioRefillWindows.load();
     if (refill > 0) g_audioRefillWindows = refill - 1;
-    g_audio.takeStats(!g_fastForward && !g_bench && refill == 0 && g_statRuns / secs >= 58.5, fillMs, targetMs, underruns);
+    // Full speed is 97.5% of the game's own rate (2026-11-11: it was a fixed 58.5 fps, so a PAL game at 50 never
+    // counted as keeping up and its underruns never raised the target).
+    g_audio.takeStats(!g_fastForward && !g_bench && refill == 0 && g_statRuns / secs >= 0.975 * g_av.timing.fps, fillMs, targetMs, underruns);
     Thermal::update();
     // Reports: underruns and lag from the third window on. The first 10 s are the boot and the audio buffer
     // settling (Super Mario 64 on the Thor 2026-11-08: 89 + 40 underruns and a 486 ms lag max, then none).
@@ -941,12 +943,14 @@ void logStats() {
         if (!std::isnan(hr) && hr > g_sessHeadroomMax.load()) g_sessHeadroomMax = hr;
         g_sessGovernorDrops = Thermal::governorDrops();
     }
+    double audioIn, audioOut; g_audio.takeRates(secs, audioIn, audioOut);
     LOGI("stats: %.1f emu fps, %.1f presented, %.1f dupes (%ux%u), run %.2f ms, wait %.2f ms, "
-         "audio wait %.2f ms, fill %.0f/%.0f ms, %d underruns, device %.0f ms%s, slowest frame %.1f ms, %d over 33 ms%s%s",
+         "audio wait %.2f ms, fill %.0f/%.0f ms, %d underruns, device %.0f ms%s, slowest frame %.1f ms, %d over 33 ms%s%s, "
+         "audio in %.0f Hz, out %.0f Hz",
          g_statRuns / secs, g_statPresents / secs, g_statDupes / secs, g_lastW, g_lastH,
          g_statRunMs / g_statRuns, g_statWaitMs / g_statRuns, g_statAudioWaitMs / g_statRuns, fillMs,
          targetMs, underruns, g_audio.outputLatencyMs(), lat, g_statSlowestMs, g_statSlowFrames,
-         gpuClockText().c_str(), Thermal::text().c_str());
+         gpuClockText().c_str(), Thermal::text().c_str(), audioIn, audioOut);
     g_statRuns = g_statPresents = g_statDupes = 0;
     g_statRunMs = g_statWaitMs = g_statAudioWaitMs = g_statSlowestMs = 0;
     g_statSlowFrames = 0;

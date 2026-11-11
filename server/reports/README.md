@@ -46,7 +46,7 @@ read: signal, fault address, abort message, the crashing thread's frames (librar
 204 stored, 400 bad report, 413 too big, 429 too many (10 posts a minute per IP address, an IPv6 address by
 its /64; 6 reports a day per install; 3,000 rows written or 1 MB posted a day per address block, an IPv4 /24
 or an IPv6 /64; 80,000 rows written a day in all, under D1's free 100,000), 404/405 anything else.
-`GET /health` says `ok`. The daily caps came with code audit 3 (M3): before them one address could post about
+`GET /health` says `ok`. The daily caps came with code audit 3 (M23): before them one address could post about
 250 full reports in 25 minutes, use up D1's day, and every real report failed until 00:00 UTC.
 
 ## What is kept out

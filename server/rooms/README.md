@@ -16,7 +16,7 @@ same Wi-Fi are found by the app's own UDP beacons, not through this Worker.
   from one address 429; a full list (300) 503. A new room with the same code, posted from that address,
   replaces the old one.
 - A post over IPv6 (a dual-stack phone or home network) can't show that the code's IPv4 is its own, so since
-  code audit 3 (M4, not deployed yet) such a room: never replaces another room's code (409 "code in use");
+  code audit 3 (M24, not deployed yet) such a room: never replaces another room's code (409 "code in use");
   gets one room per /64 (429); and shares 50 places in all with the other IPv6-posted rooms (503), so they can't
   fill the list. To count one per /64 without keeping the address, the room keeps a hash of its /64 with a
   salt made for the day (`via`, table `salts`; the salt goes the next day, the hash with the room). A room

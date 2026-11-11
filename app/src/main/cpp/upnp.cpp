@@ -17,6 +17,8 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
+#include <deque>
+#include <functional>
 #include <mutex>
 #include <thread>
 
@@ -232,22 +234,61 @@ void work(int port) {
 }
 } // namespace
 
-void open(int port) {
-    // Already asked for this port (the room screen opened it before the game's room server starts on the same
-    // port): keep that mapping, so the router line and the room code stay as they are.
-    { std::lock_guard<std::mutex> lk(g_mutex); if (g_run && g_port == port) return; }
-    close();
-    { std::lock_guard<std::mutex> lk(g_mutex); g_run = true; g_port = port; g_outside.clear(); }
-    g_state = Looking;
-    g_thread = std::thread(work, port);
+namespace {
+// Opens and closes run on one thread of their own, one at a time and in the order asked (code audit 3, M13: a close
+// joined the worker on the caller's thread, the main thread when a room's game quit, for as long as a slow router took;
+// and two closes at once from two threads could join the same thread, which ends the app). Started at the first ask.
+std::mutex g_qMutex;
+std::condition_variable g_qCv;
+std::deque<std::function<void()>> g_q;
+bool g_qStarted = false;
+
+void post(std::function<void()> f) {
+    std::lock_guard<std::mutex> lk(g_qMutex);
+    g_q.push_back(std::move(f));
+    if (!g_qStarted) {
+        g_qStarted = true;
+        std::thread([] {
+            for (;;) {
+                std::function<void()> job;
+                {
+                    std::unique_lock<std::mutex> lk(g_qMutex);
+                    g_qCv.wait(lk, [] { return !g_q.empty(); });
+                    job = std::move(g_q.front()); g_q.pop_front();
+                }
+                job();
+            }
+        }).detach();
+    }
+    g_qCv.notify_one();
 }
 
-void close() {
+void closeNow() {
     { std::lock_guard<std::mutex> lk(g_mutex); g_run = false; }
     g_cv.notify_all();
     if (g_thread.joinable()) g_thread.join();
     g_state = Off;
     std::lock_guard<std::mutex> lk(g_mutex); g_outside.clear();
+}
+
+void openNow(int port) {
+    // Already asked for this port (the room screen opened it before the game's room server starts on the same
+    // port): keep that mapping, so the router line and the room code stay as they are.
+    { std::lock_guard<std::mutex> lk(g_mutex); if (g_run && g_port == port) return; }
+    closeNow();
+    { std::lock_guard<std::mutex> lk(g_mutex); g_run = true; g_port = port; g_outside.clear(); }
+    g_state = Looking;
+    g_thread = std::thread(work, port);
+}
+} // namespace
+
+void open(int port) { post([port] { openNow(port); }); }
+
+// Off at once, so a new room's router line doesn't read the old room's mapping while this one is still being removed.
+void close() {
+    g_state = Off;
+    { std::lock_guard<std::mutex> lk(g_mutex); g_outside.clear(); }
+    post([] { closeNow(); });
 }
 
 State state() { return (State)g_state.load(); }

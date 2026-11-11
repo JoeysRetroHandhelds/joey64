@@ -13,8 +13,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.io.PrintWriter
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -44,6 +42,12 @@ object PlayTogether {
     private const val CONNECT_MS = 5000
     /** How long the host waits for its game's room server before telling the others the room closed. */
     private const val SERVER_WAIT_MS = 30_000L
+    /**
+     * Connections that haven't said HELLO yet, and how long one may take (code audit 3, H6: anyone who reached the room's
+     * port could open sockets without end, each holding one of Dispatchers.IO's 64 threads). Past it new ones are closed.
+     */
+    private const val MAX_WAITING = 4
+    private const val HELLO_MS = 10_000L
 
     data class Me(val name: String, val device: String)
     /** [places]: how many players the room takes, the game's most (Joey 2026-11-10: a 2-player game's room has 2). */
@@ -235,24 +239,38 @@ object PlayTogether {
         }
     }
 
+    /** Connections not yet past HELLO ([MAX_WAITING]). */
+    private val waiting = java.util.concurrent.atomic.AtomicInteger()
+
     private fun acceptLoop(s: ServerSocket) {
         while (!s.isClosed) {
             val sock = try { s.accept() } catch (e: Exception) { return }
+            if (waiting.incrementAndGet() > MAX_WAITING) {
+                waiting.decrementAndGet()
+                JLog.i(TAG, "a connection turned away: $MAX_WAITING are already waiting to say hello")
+                try { sock.close() } catch (e: Exception) { }
+                continue
+            }
             scope.launch { serveJoiner(sock) }
         }
     }
 
+    /** Serves one connection; it holds a [waiting] place until its HELLO is taken. */
     private fun serveJoiner(sock: Socket) {
         var joiner: Joiner? = null
+        val helloed = java.util.concurrent.atomic.AtomicBoolean(false)
+        fun stopWaiting() { if (helloed.compareAndSet(false, true)) waiting.decrementAndGet() }
+        // No HELLO in time: the socket is closed, which ends a read however slowly its bytes come.
+        val deadline = scope.launch { delay(HELLO_MS); if (!helloed.get()) { JLog.i(TAG, "a connection said no hello in time"); try { sock.close() } catch (e: Exception) { } } }
         try {
             sock.tcpNoDelay = true
             sock.soTimeout = 15_000
             val out = PrintWriter(sock.getOutputStream().bufferedWriter(Charsets.UTF_8))
-            val input = BufferedReader(InputStreamReader(sock.getInputStream(), Charsets.UTF_8))
+            val input = sock.getInputStream().buffered()
             val me = hostMe ?: return; val game = hostGame ?: return
             synchronized(out) { out.print(LobbyLines.line("ROOM", LobbyLines.PROTO, me.name, me.device, game.title, game.md5, game.file) + "\n"); out.flush() }
             while (true) {
-                val l = input.readLine() ?: break
+                val l = LobbyLines.readLine(input) ?: break
                 val f = LobbyLines.split(l)
                 when (f[0]) {
                     "HELLO" -> {
@@ -263,6 +281,7 @@ object PlayTogether {
                         val slot = synchronized(lock) { LobbyLines.freeSlot(slots.values, game.places)?.also { slots[j] = it } }
                         if (slot == null) { synchronized(out) { out.print("FULL\n"); out.flush() }; JLog.i(TAG, "${j.name} turned away: the room is full"); break }
                         joiner = j
+                        stopWaiting(); deadline.cancel()
                         j.send(LobbyLines.line("WELCOME", slot))
                         JLog.i(TAG, "${j.name} (${j.device}) joined as player $slot" + if (j.thisWifi) ", this Wi-Fi" else ", from outside")
                         publishHost(); sendPlayers()
@@ -276,6 +295,7 @@ object PlayTogether {
             // A socket this room closed itself (Close the room, a missed PING) ends the read as expected: not logged.
             if (joiner != null && !sock.isClosed) JLog.i(TAG, "${joiner.name}: $e")
         } finally {
+            stopWaiting(); deadline.cancel()
             val j = joiner
             if (j != null && !handingOver) {
                 synchronized(lock) { slots.remove(j) }
@@ -469,13 +489,13 @@ object PlayTogether {
                 sock.soTimeout = 15_000
                 val out = PrintWriter(sock.getOutputStream().bufferedWriter(Charsets.UTF_8))
                 fun send(l: String) = synchronized(out) { out.print(l); out.print('\n'); out.flush() }
-                val input = BufferedReader(InputStreamReader(sock.getInputStream(), Charsets.UTF_8))
+                val input = sock.getInputStream().buffered()
                 var slot = 0
                 var players = emptyList<Player>()
                 var hostPing: Int? = null
                 pinger = launch { while (isActive) { delay(1000); try { send(LobbyLines.line("PING", System.currentTimeMillis())) } catch (e: Exception) { } } }
                 while (isActive) {
-                    val l = input.readLine() ?: break
+                    val l = LobbyLines.readLine(input) ?: break
                     val f = LobbyLines.split(l)
                     when (f[0]) {
                         "ROOM" -> {

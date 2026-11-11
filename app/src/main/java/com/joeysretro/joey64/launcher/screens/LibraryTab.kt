@@ -276,7 +276,7 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
                             addStatus = null
                             library.removeFolder(tree)
                             // The data folder or a Game Boy folder may be the same folder: its grant stays.
-                            if (tree != DataFolders.treeUri(context) && tree !in store.settings.first().gbFolders) try { RomFolders.release(context, tree.toUri()) } catch (e: Exception) {}
+                            RomFolders.releaseIfUnused(context, tree)
                             JLog.i(TAG, "ROM folder removed")
                         }
                     }

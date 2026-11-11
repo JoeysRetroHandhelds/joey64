@@ -184,10 +184,8 @@ internal fun GameBoyFoldersPopup(onDismiss: () -> Unit) {
                     removing = null
                     scope.launch {
                         store.removeGbFolder(tree)
-                        val s = store.settings.first()
                         // A ROM folder or the data folder may be the same folder: its grant stays.
-                        if (tree !in s.romFolders && tree != DataFolders.treeUri(context))
-                            try { RomFolders.release(context, tree.toUri()) } catch (e: Exception) {}
+                        RomFolders.releaseIfUnused(context, tree)
                         JLog.i("Joey64GameBoy", "Game Boy folder removed")
                         scanned++
                     }

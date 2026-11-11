@@ -22,7 +22,8 @@ enum State : int {
 // from the network's default route; Android's main route table has none, so libnatpmp can't find it itself).
 // Dev: N64_NETPLAY_UPNP=0 skips both, =natpmp only NAT-PMP, =upnp only UPnP.
 void open(int port);
-// Removes the mappings (waits up to ~2 s for the router).
+// Removes the mappings. Returns at once: opens and closes run in order on Upnp's own thread, which waits for the router
+// (up to ~2 s).
 void close();
 State state();
 std::string outside(); // "ip:port" once Open or DoubleNat, else ""

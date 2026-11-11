@@ -7,6 +7,8 @@ import android.net.Uri
 import android.os.storage.StorageManager
 import android.provider.DocumentsContract
 import java.io.File
+import androidx.core.net.toUri
+import kotlinx.coroutines.flow.first
 
 /** A ROM found in a picked folder. [uri] is its document URI, opened through the folder's permission. */
 data class RomFile(val uri: Uri, val treeUri: Uri, val path: List<String>, val size: Long, val modified: Long) {
@@ -120,7 +122,22 @@ object RomFolders {
         context.contentResolver.takePersistableUriPermission(treeUri, flags)
     }
 
-    /** Gives a folder's grant back when the user removes it (Android caps persisted grants per app). */
+    /**
+     * Gives [tree]'s grant back unless another role still uses the folder: a ROM folder, a Game Boy folder, the data
+     * folder, the RetroArch presets or overlays folder (code audit 3, M3: moving the data folder off a folder that was
+     * also a ROM folder, or replacing a lost ROM folder, took the permission the other role still needed). Call it once the
+     * role that let go of the folder is saved without it.
+     */
+    suspend fun releaseIfUnused(context: Context, tree: String) {
+        val s = com.joeysretro.joey64.launcher.settings.SettingsStore(context).settings.first()
+        val used = tree in s.romFolders || tree in s.gbFolders || tree == DataFolders.treeUri(context) ||
+            tree == com.joeysretro.joey64.video.SlangStore(context).folder()?.uri ||
+            tree == com.joeysretro.joey64.video.RaOverlayStore(context).folder()?.uri
+        if (used) { com.joeysretro.joey64.JLog.i("Joey64Folders", "a folder's permission is kept: another setting still uses it"); return }
+        try { release(context, tree.toUri()) } catch (e: Exception) { com.joeysretro.joey64.JLog.w("Joey64Folders", "can't give a folder's permission back: $e") }
+    }
+
+    /** Gives a folder's grant back (Android caps persisted grants per app). Through [releaseIfUnused] when the user removes one. */
     fun release(context: Context, treeUri: Uri) {
         val held = context.contentResolver.persistedUriPermissions.firstOrNull { it.uri == treeUri } ?: return
         var flags = 0

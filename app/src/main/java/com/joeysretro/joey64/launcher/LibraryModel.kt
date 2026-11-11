@@ -744,7 +744,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
                 } else {
                     if (!listed) {
                         db.forgetFolder(tree)
-                        if (tree != com.joeysretro.joey64.launcher.storage.DataFolders.treeUri(app) && tree !in settings.settings.first().gbFolders) try { RomFolders.release(app, folder) } catch (e: Exception) {}
+                        RomFolders.releaseIfUnused(app, tree)
                     }
                     null
                 }
@@ -1056,7 +1056,7 @@ class LibraryModel(app: Application) : AndroidViewModel(app) {
             settings.addRomFolder(uri.toString())
             settings.removeRomFolder(ask.tree)
             withContext(Dispatchers.IO) { db.forgetFolder(ask.tree) }
-            try { RomFolders.release(app, ask.tree.toUri()) } catch (e: Exception) { JLog.w(TAG, "can't release ${ask.tree}: $e") }
+            RomFolders.releaseIfUnused(app, ask.tree)
             JLog.i(TAG, "ROM folder ${ask.path} replaced by a picked one with ${look.roms} games")
             _lostFolder.value = null
             _greyed.value = emptySet()

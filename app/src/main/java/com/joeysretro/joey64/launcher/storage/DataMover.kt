@@ -33,6 +33,11 @@ data class MoveResult(
     val conflicts: List<String>,
     /** Couldn't be copied (no space, permission gone, ...): left where it was. */
     val failed: List<String>,
+    /**
+     * Saves of the same name already in the new place, kept in its `backups/` before Joey64's own took their place
+     * ([DataMover.settleSaves]); counted in [moved] too.
+     */
+    val keptAside: Int = 0,
 ) {
     val complete get() = conflicts.isEmpty() && failed.isEmpty()
 }
@@ -88,5 +93,37 @@ object DataMover {
             if (from.list(root).isEmpty()) from.delete(root)
         }
         return MoveResult(moved, already, conflicts, failed)
+    }
+
+    /**
+     * After [move]: a save in `saves/` that the new place already had under the same name, with other content (code
+     * audit 3, H1). Left as a conflict, Joey64's copy stayed in the old place, which for Joey64's own storage is the
+     * core's working copy, and the game's next start pulled the folder's copy over it (the data folder's switch forgets
+     * what was in step), so everything played since was lost. Now the new place's copy is kept in its `backups/`
+     * ([com.joeysretro.joey64.saves.SaveBackups.keepAside]: Restore a backup lists it), Joey64's goes in its place, checked,
+     * and leaves the old place. Joey64's copy is the one in use: the old place is the data folder it plays from (its
+     * working copies were pushed there first).
+     *
+     * One that can't be settled stays a conflict. When [from] is Joey64's own storage ([fromIsWorkingCopy]), its copy
+     * then goes to the old place's `backups/` instead, out of the working copies the next start would overwrite.
+     */
+    fun settleSaves(from: FileSpace, to: FileSpace, res: MoveResult, fromIsWorkingCopy: Boolean, now: Long = System.currentTimeMillis()): MoveResult {
+        var kept = 0
+        val left = ArrayList<String>()
+        for (shown in res.conflicts) {
+            val path = shown.split("/")
+            val save = path.size == 2 && path[0] == DataKind.Saves.dir && com.joeysretro.joey64.saves.SaveBackups.isSaveFile(path[1])
+            if (save && com.joeysretro.joey64.saves.SaveBackups.keepAside(to, path[1], now) && FileCopy.replaceChecked(from, path, to, path)) {
+                kept++
+                from.delete(path)
+                continue
+            }
+            left += shown
+            if (save && fromIsWorkingCopy && com.joeysretro.joey64.saves.SaveBackups.keepAside(from, path[1], now)) from.delete(path)
+        }
+        if (kept == 0) return res
+        val saves = listOf(DataKind.Saves.dir)
+        if (from.list(saves).isEmpty()) from.delete(saves)
+        return res.copy(moved = res.moved + kept, conflicts = left, keptAside = res.keptAside + kept)
     }
 }

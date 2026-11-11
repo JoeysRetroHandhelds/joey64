@@ -25,6 +25,25 @@ object LobbyLines {
 
     fun split(line: String): List<String> = line.trimEnd('\r', '\n').split('\t')
 
+    /** The longest line either side takes: a PLAYERS line with four players is under 1 KB (each field at most 48 characters). */
+    const val MAX_LINE = 4096
+
+    /**
+     * One line from [input] (UTF-8, without its line end), or null at the end of the stream (code audit 3, H6:
+     * BufferedReader.readLine took a line of any length from anyone who reached the room's port, and the
+     * OutOfMemoryError that ends is no Exception, so the launcher died). Throws past [max] bytes. [input] should be buffered.
+     */
+    fun readLine(input: java.io.InputStream, max: Int = MAX_LINE): String? {
+        val buf = java.io.ByteArrayOutputStream(128)
+        while (true) {
+            val b = input.read()
+            if (b < 0) return if (buf.size() == 0) null else buf.toString("UTF-8")
+            if (b == '\n'.code) return buf.toString("UTF-8")
+            if (buf.size() >= max) throw java.io.IOException("a lobby line longer than $max bytes")
+            buf.write(b)
+        }
+    }
+
     data class Entry(val slot: Int, val name: String, val device: String, val where: String, val ping: Int?)
 
     fun players(list: List<Entry>) = list.joinToString(";") {

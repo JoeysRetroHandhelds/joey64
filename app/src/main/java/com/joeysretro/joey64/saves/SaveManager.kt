@@ -68,18 +68,20 @@ class SaveManager(private val context: Context, val saveName: String) {
         }.sortedByDescending { it.at }
     }
 
-    /** Back up now: the new backups' names; empty when each save is the same as its newest backup. */
-    fun backUpNow(): List<String> {
+    /** Back up now: the new backups' names; empty when each save is the same as its newest backup; null when one couldn't be backed up. */
+    fun backUpNow(): List<String>? {
         SrmSync.push(context, saveName)
         val keep = SavesStore(context).read().backupsKeep.coerceAtLeast(1)
-        return SaveBackups.maybeBackUp(space, saveName, BackupWhen.OnStart, keep)
+        val run = SaveBackups.backUp(space, saveName, BackupWhen.OnStart, keep)
+        return if (run.ok) run.made else null
     }
 
     /** Puts [b] back in place of its save. Today's save is backed up first (kept when it's the same as a backup already). */
     fun restore(b: Backup): Boolean = try {
         // Read before backing up: the new backup can push the oldest out, and that may be this one.
         val bytes = space.openRead(listOf(DataKind.Backups.dir, b.name))?.use { it.readBytes() } ?: throw IOException("${b.name} is gone")
-        backUpNow()
+        // Not without today's save kept first (code audit 3, M6: a failed backup went unnoticed and the save was replaced).
+        backUpNow() ?: throw IOException("today's save couldn't be backed up first")
         val data = if (b.name.endsWith(".zip")) unzipOne(bytes) else bytes
         if (!FileCopy.writeChecked(ByteArrayInputStream(data), space, listOf(DataKind.Saves.dir, b.of))) throw IOException("can't write ${b.of}")
         dropWorkingCopy(b.of)
@@ -89,9 +91,9 @@ class SaveManager(private val context: Context, val saveName: String) {
         JLog.e(TAG, "can't restore ${b.name}: $e"); false
     }
 
-    /** Deletes [save] after backing it up. */
+    /** Deletes [save] after backing it up; not when the backup fails (code audit 3, M6: the popup promises Restore a backup brings it back). */
     fun delete(save: GameSave): Boolean {
-        backUpNow()
+        if (backUpNow() == null) { JLog.e(TAG, "${save.name} not deleted: it couldn't be backed up first"); return false }
         val ok = space.delete(listOf(DataKind.Saves.dir, save.name))
         dropWorkingCopy(save.name)
         JLog.i(TAG, "deleted ${save.name}: $ok")

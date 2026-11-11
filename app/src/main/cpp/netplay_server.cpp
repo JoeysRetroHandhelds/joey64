@@ -17,6 +17,7 @@
 #include <cstring>
 #include <deque>
 #include <map>
+#include <mutex>
 #include <random>
 #include <string>
 #include <thread>
@@ -46,6 +47,18 @@ enum : uint8_t { TCP_SEND_SAVE = 1, TCP_RECEIVE_SAVE = 2, TCP_SEND_SETTINGS = 3,
 constexpr int kSettingsSize = 24;     // SETTINGS_SIZE: six 32-bit settings
 constexpr int kMaxPerPacket = 56;     // (512 - 5) / 9 input events in one reply
 constexpr uint8_t kBufferTarget = 2;  // the client's local buffer above which it may catch up (fast-forward)
+// What the network can make the room hold (code audit 3, H8: a client could grow its buffer, the saves, the
+// connections and the UDP maps without end, until the low-memory killer ended the host's game)
+constexpr size_t kMaxIn = 4096;          // a connection's bytes not handled yet; player 1's game may send a save on top
+constexpr uint32_t kMaxSave = 1u << 20;  // one save file (the core's largest, FlashRAM or the Controller Paks, is 128 KB)
+constexpr size_t kMaxSaves = 8;          // save files kept (the core sends eep, sra, fla and mpk)
+constexpr size_t kMaxExt = 32;           // a save file's extension
+constexpr size_t kMaxWaitingSaves = 8;   // saves one connection waits for
+constexpr size_t kMaxOut = 4u << 20;     // bytes waiting for a connection that stopped reading: it's dropped (H7)
+constexpr size_t kMaxClients = 8;        // connections: four players' games, with room to spare
+constexpr int kRegisterSecs = 60;        // a connection that hasn't registered by then is closed (the core does within ~30 s)
+constexpr size_t kMaxPeers = 8;          // addresses inputs are sent to
+constexpr size_t kMaxMapped = 8192;      // the adaptive delay's slot maps
 
 uint32_t r32(const uint8_t* p) { return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3]; }
 void w32(uint8_t* p, uint32_t v) { p[0] = v >> 24; p[1] = v >> 16; p[2] = v >> 8; p[3] = (uint8_t)v; }
@@ -63,10 +76,17 @@ struct Client {
     bool local = false;               // connected from this device: the host's own game
     std::string romAsked;             // a TCP_JOEY_ROM_CHECK waiting for the host's ROM
     std::chrono::steady_clock::time_point romAskedAt;
+    // Sent from the room thread without ever waiting (code audit 3, H7): what didn't go yet waits here for POLLOUT
+    std::vector<uint8_t> out;
+    size_t outAt = 0;
+    std::chrono::steady_clock::time_point at; // when it connected
+    sockaddr_storage addr{};          // where from: its game's UDP must come from the same address (M21)
+    bool drop = false;                // closed at the end of this pass
 };
 struct Peer { sockaddr_storage addr; socklen_t len; };
 
 std::atomic<bool> g_running{false};
+std::mutex g_life; // start() and stop(), from the main thread and the emulation thread (code audit 3, p5 L3)
 std::atomic<uint8_t> g_regMask{0}, g_status{0};
 std::atomic<int> g_delay{0};
 std::thread g_thread;
@@ -113,6 +133,7 @@ struct Room {
     }
     void arrived(int p, uint32_t slot) {
         if (!adaptive) return;
+        if (times.size() >= kMaxMapped) times.erase(times.begin());
         auto& s = times[(uint64_t)p << 32 | slot];
         if (s.hasArr) return;
         s.arr = std::chrono::steady_clock::now(); s.hasArr = true;
@@ -120,6 +141,7 @@ struct Room {
     }
     void asked(int p, uint32_t slot, int r) {
         if (!adaptive || r < 0 || !active(p)) return;
+        if (times.size() >= kMaxMapped) times.erase(times.begin());
         auto& s = times[(uint64_t)p << 32 | slot];
         if (s.reqMask & (1 << r)) return;
         s.reqMask |= (uint8_t)(1 << r); s.req[r] = std::chrono::steady_clock::now();
@@ -278,17 +300,59 @@ struct Room {
     int registered() const { int n = 0; for (auto& r : reg) n += r.id != 0; return n; }
     int playerOf(uint32_t id) const { for (int i = 0; i < 4; i++) if (id && reg[i].id == id) return i; return -1; }
 
-    void sendAll(int fd, const uint8_t* d, size_t n) {
-        size_t done = 0;
-        while (done < n) {
-            ssize_t k = send(fd, d + done, n - done, MSG_NOSIGNAL);
-            if (k < 0 && errno == EINTR) continue;
-            if (k <= 0) return;
-            done += (size_t)k;
+    // A message to a connection: sent as far as its socket takes now, the rest when poll says it can take more.
+    // One that has more than kMaxOut waiting stopped reading: it's dropped rather than holding every player.
+    void queue(Client& c, const uint8_t* d, size_t n) {
+        if (c.drop) return;
+        if (c.out.size() - c.outAt + n > kMaxOut) {
+            NLOGE("netplay server: a connection stopped reading (%zu bytes waiting), closed", c.out.size() - c.outAt);
+            c.drop = true; return;
         }
+        c.out.insert(c.out.end(), d, d + n);
+        flush(c);
     }
+    void flush(Client& c) {
+        while (c.outAt < c.out.size()) {
+            ssize_t k = send(c.fd, c.out.data() + c.outAt, c.out.size() - c.outAt, MSG_NOSIGNAL | MSG_DONTWAIT);
+            if (k < 0 && errno == EINTR) continue;
+            if (k < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) break;
+            if (k <= 0) { c.drop = true; return; }
+            c.outAt += (size_t)k;
+        }
+        if (c.outAt == c.out.size()) { c.out.clear(); c.outAt = 0; }
+        else if (c.outAt >= (1u << 16)) { c.out.erase(c.out.begin(), c.out.begin() + (long)c.outAt); c.outAt = 0; }
+    }
+    // The address without its port, IPv4 as IPv4-mapped IPv6, so a game's TCP and UDP compare alike.
+    static bool sameHost(const sockaddr_storage& a, const sockaddr_storage& b) {
+        auto v6 = [](const sockaddr_storage& s, uint8_t out[16]) {
+            memset(out, 0, 16);
+            if (s.ss_family == AF_INET6) { memcpy(out, &((const sockaddr_in6&)s).sin6_addr, 16); return true; }
+            if (s.ss_family == AF_INET) { out[10] = out[11] = 0xFF; memcpy(out + 12, &((const sockaddr_in&)s).sin_addr, 4); return true; }
+            return false;
+        };
+        uint8_t x[16], y[16];
+        return v6(a, x) && v6(b, y) && memcmp(x, y, 16) == 0;
+    }
+    // UDP is taken only from where a registered player's game connected (code audit 3, M21: any sender could post any
+    // player's inputs, pause them, flag a de-sync, and use the room to reflect traffic at a forged address).
+    const Client* clientOf(int player) const {
+        if (player < 0 || player > 3 || !reg[player].id) return nullptr;
+        for (auto& c : clients) if (c.regId == reg[player].id && !c.drop) return &c;
+        return nullptr;
+    }
+    bool fromPlayer(const sockaddr_storage& from, int player) const {
+        const Client* c = clientOf(player);
+        return c && sameHost(c->addr, from);
+    }
+    bool fromAnyPlayer(const sockaddr_storage& from) const {
+        for (int i = 0; i < 4; i++) if (fromPlayer(from, i)) return true;
+        return false;
+    }
+    // The game that feeds saves and settings: player 1's (the host's own, or a joiner's when the host moved itself)
+    bool feeds(const Client& c) const { return c.local || (c.regId && c.regId == reg[0].id); }
     void addPeer(const sockaddr_storage& a, socklen_t len) {
         for (auto& p : peers) if (p.len == len && memcmp(&p.addr, &a, len) == 0) return;
+        if (peers.size() >= kMaxPeers) return;
         peers.push_back({a, len});
     }
     void markLeft(int player) {
@@ -303,12 +367,15 @@ struct Room {
         if (!disconnected[p]) return;
         for (uint32_t c = count; c < count + (uint32_t)delay + 1; c++)
             if (!inputs[p].count(c)) inputs[p][c] = {0, reg[p].plugin};
+        // the others keep asking for the left player's inputs: keep the last ~10 s, as gotInput does (code audit 3, H8:
+        // they piled up for the rest of the session)
+        while (!inputs[p].empty() && inputs[p].begin()->first + 600 < count) inputs[p].erase(inputs[p].begin());
     }
 
     // --- TCP ---
     std::string hostRom;
     void answerRom(Client& c, uint8_t a) {
-        sendAll(c.fd, &a, 1);
+        queue(c, &a, 1);
         NLOGI("netplay server: ROM check %s from %08x: %s", c.romAsked.c_str(), c.regId,
               a == 2 ? "the host's" : a == 1 ? "NOT the host's" : "no host ROM yet");
         c.romAsked.clear();
@@ -322,32 +389,37 @@ struct Room {
                 std::chrono::steady_clock::now() - c.regAskedAt > std::chrono::seconds(30))) {
             uint8_t out[24]; size_t k = 0;
             for (int i = 0; i < 4; i++) { w32(out + k, reg[i].id); k += 4; out[k++] = reg[i].plugin; out[k++] = reg[i].raw; }
-            sendAll(c.fd, out, sizeof out);
+            queue(c, out, sizeof out);
             c.waitingRegistration = false;
             NLOGI("netplay server: registration sent to %08x (%d of %d players)", c.regId, registered(), players);
         }
         if (c.waitingSettings && haveSettings) {
-            sendAll(c.fd, settings.data(), settings.size());
+            queue(c, settings.data(), settings.size());
             c.waitingSettings = false;
         }
         for (size_t i = 0; i < c.waitingSaves.size();) {
             auto it = saves.find(c.waitingSaves[i]);
             if (it == saves.end()) { i++; continue; }
-            sendAll(c.fd, it->second.data(), it->second.size());
-            c.waitingSaves.erase(c.waitingSaves.begin() + i);
+            queue(c, it->second.data(), it->second.size());
+            c.waitingSaves.erase(c.waitingSaves.begin() + (long)i);
         }
     }
-    // One whole message from the start of c.in, or 0 if more bytes are needed.
+    // One whole message from the start of c.in, or 0 if more bytes are needed; (size_t)-1 closes the connection.
     size_t handleTcp(Client& c) {
         const auto& b = c.in;
         if (b.empty()) return 0;
-        auto strEnd = [&](size_t from) -> long { for (size_t i = from; i < b.size(); i++) if (!b[i]) return (long)i; return -1; };
+        // A save's extension, NUL-ended right after the id: its end, 0 while more bytes are needed, -1 when too long
+        auto extEnd = [&]() -> long {
+            for (size_t i = 1; i < b.size() && i <= kMaxExt + 1; i++) if (!b[i]) return (long)i;
+            return b.size() > kMaxExt + 1 ? -1 : 0;
+        };
         switch (b[0]) {
         case TCP_REGISTER_PLAYER: {
             if (b.size() < 8) return 0;
             int p = b[1]; uint32_t id = r32(&b[4]);
             uint8_t ok = 0;
-            if (p >= 0 && p < 4 && (reg[p].id == 0 || reg[p].id == id)) {
+            // one place a connection (M21: one connection could take every free place)
+            if (p >= 0 && p < 4 && id && (c.regId == 0 || c.regId == id) && (reg[p].id == 0 || reg[p].id == id)) {
                 reg[p] = {id, b[2], b[3]}; ok = 1; c.regId = id;
                 uint8_t m = 0; for (int i = 0; i < 4; i++) if (reg[i].id) m |= 1 << i;
                 g_regMask = m;
@@ -357,7 +429,7 @@ struct Room {
             }
             NLOGI("netplay server: player %d register %08x: %s", p + 1, id, ok ? "ok" : "taken");
             uint8_t out[2] = {ok, kBufferTarget};
-            sendAll(c.fd, out, 2);
+            queue(c, out, 2);
             return 8;
         }
         case TCP_GET_REGISTRATION:
@@ -365,24 +437,34 @@ struct Room {
             return 1;
         case TCP_SEND_SETTINGS:
             if (b.size() < 1 + kSettingsSize) return 0;
+            // only player 1's game sets them for everyone (M21)
+            if (!feeds(c)) { NLOGE("netplay server: settings from a game that isn't player 1's, closing that connection"); return (size_t)-1; }
             settings.assign(b.begin() + 1, b.begin() + 1 + kSettingsSize); haveSettings = true;
             return 1 + kSettingsSize;
         case TCP_RECEIVE_SETTINGS:
             c.waitingSettings = true;
             return 1;
         case TCP_SEND_SAVE: {
-            long e = strEnd(1);
-            if (e < 0 || b.size() < (size_t)e + 5) return 0;
+            long e = extEnd();
+            if (e < 0) { NLOGE("netplay server: a save's name too long, closing that connection"); return (size_t)-1; }
+            if (e == 0 || b.size() < (size_t)e + 5) return 0;
+            // only player 1's game gives everyone its saves (M21: any connection could replace them)
+            if (!feeds(c)) { NLOGE("netplay server: a save from a game that isn't player 1's, closing that connection"); return (size_t)-1; }
             uint32_t size = r32(&b[e + 1]);
+            if (size > kMaxSave) { NLOGE("netplay server: a %u-byte save, more than any game has, closing that connection", size); return (size_t)-1; }
             if (b.size() < (size_t)e + 5 + size) return 0;
             std::string ext((const char*)&b[1]);
-            saves[ext].assign(b.begin() + e + 5, b.begin() + e + 5 + size);
-            NLOGI("netplay server: save .%s from player 1 (%u bytes)", ext.c_str(), size);
+            if (saves.size() < kMaxSaves || saves.count(ext)) {
+                saves[ext].assign(b.begin() + e + 5, b.begin() + e + 5 + size);
+                NLOGI("netplay server: save .%s from player 1 (%u bytes)", ext.c_str(), size);
+            } else NLOGE("netplay server: save .%s not kept: %zu saves already", ext.c_str(), saves.size());
             return (size_t)e + 5 + size;
         }
         case TCP_RECEIVE_SAVE: {
-            long e = strEnd(1);
-            if (e < 0) return 0;
+            long e = extEnd();
+            if (e < 0) { NLOGE("netplay server: a save's name too long, closing that connection"); return (size_t)-1; }
+            if (e == 0) return 0;
+            if (c.waitingSaves.size() >= kMaxWaitingSaves) { NLOGE("netplay server: too many saves asked for, closing that connection"); return (size_t)-1; }
             c.waitingSaves.emplace_back((const char*)&b[1]);
             return (size_t)e + 1;
         }
@@ -393,10 +475,14 @@ struct Room {
             c.romAsked = md5; c.romAskedAt = std::chrono::steady_clock::now();
             return 33;
         }
-        case TCP_DISCONNECT_NOTICE:
+        case TCP_DISCONNECT_NOTICE: {
             if (b.size() < 5) return 0;
-            markLeft(playerOf(r32(&b[1])));
+            // a game says it leaves itself, no other (M21: the ids TCP_GET_REGISTRATION hands out let anyone kick a player)
+            uint32_t id = r32(&b[1]);
+            if (id && id == c.regId) markLeft(playerOf(id));
+            else NLOGE("netplay server: a leave notice for another player's id, ignored");
             return 5;
+        }
         default:
             NLOGE("netplay server: unknown TCP message %u, closing that connection", b[0]);
             return (size_t)-1;
@@ -437,30 +523,35 @@ struct Room {
         if (n < 1) return;
         switch (d[0]) {
         case UDP_JOEY_KEY_BATCH: {
-            if (n < 3 || d[1] >= 4) return;
+            if (n < 3 || d[1] >= 4 || !fromPlayer(from, d[1])) return;
             addPeer(from, len);
             for (int i = 0, k = 3; i < d[2] && k + 9 <= n; i++, k += 9) gotInput(d[1], r32(d + k), r32(d + k + 4), d[k + 8]);
             break;
         }
         case UDP_SEND_KEY_INFO: {
-            if (n < 11 || d[1] >= 4) return;
+            if (n < 11 || d[1] >= 4 || !fromPlayer(from, d[1])) return;
             addPeer(from, len);
             gotInput(d[1], r32(d + 2), r32(d + 6), d[10]);
             break;
         }
         case UDP_REQUEST_KEY_INFO: {
             if (n < 12 || d[1] >= 4) return;
-            addPeer(from, len);
             int p = d[1]; uint32_t id = r32(d + 2), count = r32(d + 6);
-            lastAsked[p][id] = count;
+            // from a registered player's game only, and not far past what the player asked about has sent (H8: each
+            // id and count asked for was kept): a game can't run past the inputs it's waiting for
             int me = playerOf(id);
-            if (me >= 0) { heard(me); ns[me].requests++; }
+            if (me < 0 || !fromPlayer(from, me)) return;
+            if (!disconnected[p] && started[p] && count - hi[p] < 0x80000000u && count - hi[p] > 600) return;
+            addPeer(from, len);
+            lastAsked[p][id] = count;
+            heard(me); ns[me].requests++;
             uint32_t lead = count;
             for (auto& [rid, c] : lastAsked[p]) if (c > lead && c - lead < 0x80000000u) lead = c;
             fillLeft(p, count);
             asked(p, count, me);
             if (adaptive && active(p) && !inputs[p].count(count)) {
                 auto now = std::chrono::steady_clock::now();
+                if (missing.size() >= kMaxMapped) missing.erase(missing.begin());
                 tp askedAt = missing.emplace((uint64_t)p << 32 | count, now).first->second;
                 // a slot nobody's input goes to, with later ones there: fill it with the input before (everyone gets
                 // the same from the room, so no desync) and say what the slots look like
@@ -479,7 +570,7 @@ struct Room {
             break;
         }
         case UDP_PAUSE_NOTICE: {
-            if (n < 3 || d[1] >= 4) return;
+            if (n < 3 || d[1] >= 4 || !fromPlayer(from, d[1])) return;
             // Joey64 2026-11-10: [.., seq32, ping ms u16, name length, name] adds the player's name and its own
             // measured ping; the room sends everyone the list (sendRoster)
             if (n >= 10) {
@@ -499,7 +590,7 @@ struct Room {
             break;
         }
         case UDP_SYNC_DATA: {
-            if (n < 5) return;
+            if (n < 5 || !fromAnyPlayer(from)) return;
             uint32_t vi = r32(d + 1);
             auto it = sync.find(vi);
             if (it == sync.end()) { sync[vi].assign(d + 5, d + n); syncReports[vi] = 1; }
@@ -525,7 +616,7 @@ struct Room {
             fds.push_back({g_wake[0], POLLIN, 0});
             fds.push_back({tcp, POLLIN, 0});
             fds.push_back({udp, POLLIN, 0});
-            for (auto& c : clients) fds.push_back({c.fd, POLLIN, 0});
+            for (auto& c : clients) fds.push_back({c.fd, (short)(POLLIN | (c.out.size() > c.outAt ? POLLOUT : 0)), 0});
             int r = poll(fds.data(), fds.size(), late.empty() ? 100 : 1);
             sendLate();
             if (r < 0 && errno != EINTR) break;
@@ -533,9 +624,14 @@ struct Room {
             if (fds[1].revents & POLLIN) {
                 sockaddr_storage from{}; socklen_t flen = sizeof from;
                 int fd = accept(tcp, (sockaddr*)&from, &flen);
-                if (fd >= 0) {
+                if (fd >= 0 && clients.size() >= kMaxClients) {
+                    NLOGE("netplay server: a connection turned away: %zu already", clients.size());
+                    close(fd);
+                } else if (fd >= 0) {
                     const int one = 1; setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
-                    Client c; c.fd = fd;
+                    // never waits in send() (H7): a player that stops reading can't hold the room thread
+                    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
+                    Client c; c.fd = fd; c.at = std::chrono::steady_clock::now(); c.addr = from;
                     if (from.ss_family == AF_INET)
                         c.local = ntohl(((const sockaddr_in&)from).sin_addr.s_addr) == INADDR_LOOPBACK;
                     else if (from.ss_family == AF_INET6) {
@@ -555,26 +651,40 @@ struct Room {
                     handleUdp(buf.data(), n, from, len);
                 }
             }
+            // Clients are only removed after this pass, so fds[i + 3] stays client i's (code audit 3, p5 L7); one accepted
+            // in this pass has no pollfd yet.
+            auto now = std::chrono::steady_clock::now();
             for (size_t i = 0; i < clients.size(); i++) {
                 Client& c = clients[i];
-                bool closed = false;
-                if (i + 3 < fds.size() && (fds[i + 3].revents & (POLLIN | POLLHUP | POLLERR))) {
+                short ev = i + 3 < fds.size() ? fds[i + 3].revents : 0;
+                if (ev & POLLOUT) flush(c);
+                if (ev & (POLLIN | POLLHUP | POLLERR)) {
                     ssize_t n = recv(c.fd, buf.data(), buf.size(), MSG_DONTWAIT);
                     if (n > 0) c.in.insert(c.in.end(), buf.begin(), buf.begin() + n);
-                    else if (n == 0 || (errno != EAGAIN && errno != EINTR)) closed = true;
+                    else if (n == 0 || (errno != EAGAIN && errno != EINTR)) c.drop = true;
                 }
-                for (;;) {
+                while (!c.drop) {
                     size_t used = handleTcp(c);
-                    if (used == (size_t)-1) { closed = true; break; }
+                    if (used == (size_t)-1) { c.drop = true; break; }
                     if (!used) break;
-                    c.in.erase(c.in.begin(), c.in.begin() + used);
+                    c.in.erase(c.in.begin(), c.in.begin() + (long)used);
                 }
-                if (!closed) answerPending(c);
-                if (closed) {
-                    markLeft(playerOf(c.regId));
-                    close(c.fd);
-                    clients.erase(clients.begin() + i); i--;
+                // what's left must fit (H8), a save from player 1's game on top
+                if (c.in.size() > kMaxIn + (feeds(c) ? kMaxSave + kMaxExt + 8 : 0)) {
+                    NLOGE("netplay server: %zu bytes from a connection that aren't a message, closed", c.in.size());
+                    c.drop = true;
                 }
+                if (!c.drop && !c.regId && !c.local && now - c.at > std::chrono::seconds(kRegisterSecs)) {
+                    NLOGE("netplay server: a connection didn't register in %d s, closed", kRegisterSecs);
+                    c.drop = true;
+                }
+                if (!c.drop) answerPending(c);
+            }
+            for (size_t i = 0; i < clients.size();) {
+                if (!clients[i].drop) { i++; continue; }
+                markLeft(playerOf(clients[i].regId));
+                close(clients[i].fd);
+                clients.erase(clients.begin() + (long)i);
             }
             g_status = statusByte();
             logNet();
@@ -611,8 +721,13 @@ int openSocket(int type, int port) {
 
 } // namespace
 
+namespace {
+void stopLocked();
+}
+
 bool start(int port, int players, int delay) {
-    if (g_running) stop();
+    std::lock_guard<std::mutex> life(g_life);
+    if (g_running) stopLocked();
     auto* room = new Room();
     room->players = players < 1 ? 1 : players > 4 ? 4 : players;
     room->adaptive = delay < 0;
@@ -644,8 +759,13 @@ bool start(int port, int players, int delay) {
 }
 
 void stop() {
-    if (!g_running) return;
-    g_running = false;
+    std::lock_guard<std::mutex> life(g_life);
+    stopLocked();
+}
+
+namespace {
+void stopLocked() {
+    if (!g_running.exchange(false)) return;
     if (g_wake[1] >= 0) { char c = 0; (void)!write(g_wake[1], &c, 1); }
     if (g_thread.joinable()) g_thread.join();
     close(g_room->tcp); close(g_room->udp);
@@ -654,6 +774,7 @@ void stop() {
     Upnp::close();
     NLOGI("netplay server: room closed");
 }
+} // namespace
 
 bool running() { return g_running; }
 uint8_t registeredMask() { return g_regMask; }

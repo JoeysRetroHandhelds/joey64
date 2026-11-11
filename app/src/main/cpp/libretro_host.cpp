@@ -70,7 +70,11 @@ static std::string npName() {
     __system_property_get("ro.product.model", m);
     return *m ? std::string(m).substr(0, 40) : "Player";
 }
+static void npPauseStop();
 static void npPauseStart(const char* np) {
+    // One a process: a thread still running (a start that failed before this guard was there) would end the app when
+    // assigned over (code audit 3, M11).
+    npPauseStop();
     std::string s(np);
     size_t c2 = s.rfind(':'), c1 = c2 == std::string::npos ? c2 : s.rfind(':', c2 - 1);
     if (c1 == std::string::npos) return;
@@ -2028,6 +2032,16 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
     { const char* np = getenv("N64_NETPLAY"); g_netplay = np && *np; }
     if (g_netplay) LOGI("netplay: on (%s): state loads, Reset, rewind, fast-forward, slow motion, frame advance and cheat changes are off", getenv("N64_NETPLAY"));
     if (g_netplay) { g_npPausedNow = false; g_netplayPausedBy = 0; npPauseStart(getenv("N64_NETPLAY")); }
+    // A start that fails from here on undoes what it started (code audit 3, M11: the room, its router mapping and the
+    // pause notices ran on, and the next netplay start in this process ended the app assigning to the joinable pause
+    // thread; p5 L5: the GLES context stayed current on the main thread and the next start's init leaked it).
+    auto failed = [&]() -> jboolean {
+        npPauseStop();
+        NetplayServer::stop();
+        g_netplay = false;
+        if (!g_vulkan) g_egl.destroy();
+        return JNI_FALSE;
+    };
     retro_game_info info{ p, buf.data(), buf.size(), nullptr };
     bool ok;
     if (disk) {
@@ -2053,7 +2067,7 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
         ok = !buf.empty() && core.load_game(&info);
     }
     env->ReleaseStringUTFChars(rom, p);
-    if (!ok) { LOGE("retro_load_game failed"); return JNI_FALSE; }
+    if (!ok) { LOGE("retro_load_game failed"); return failed(); }
 
     g_portsChanged = false;
     applyPorts();
@@ -2084,9 +2098,9 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
 
     if (g_vulkan) {
         if (!g_hwRequested || g_hw.context_type != RETRO_HW_CONTEXT_VULKAN) {
-            LOGE("core did not request a Vulkan context"); return JNI_FALSE;
+            LOGE("core did not request a Vulkan context"); return failed();
         }
-        if (!g_vk.init(g_negotiation)) return JNI_FALSE;
+        if (!g_vk.init(g_negotiation)) return failed();
         applySurfaceIfChanged();
         if (g_hw.context_reset) g_hw.context_reset();
     } else {

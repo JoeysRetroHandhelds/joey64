@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,6 +38,7 @@ import com.joeysretro.joey64.launcher.components.SectionLabel
 import com.joeysretro.joey64.launcher.components.initialFocus
 import com.joeysretro.joey64.launcher.settings.SettingsStore
 import com.joeysretro.joey64.launcher.storage.DataFolder
+import com.joeysretro.joey64.launcher.storage.DataFolderMove
 import com.joeysretro.joey64.launcher.storage.DataFolders
 import com.joeysretro.joey64.launcher.storage.DataMover
 import com.joeysretro.joey64.launcher.storage.FolderNames
@@ -77,10 +79,26 @@ fun SavesTab(onHints: (List<Hint>) -> Unit, onImport: () -> Unit, modifier: Modi
     var backupParts by remember { mutableStateOf(BackupChoice.Everything.parts) }
     var restoring by remember { mutableStateOf<Pair<Uri, BackupInfo>?>(null) }
     var folderTree by remember { mutableStateOf(DataFolders.treeUri(context)) }
+    // What the last move did that the row's value can't say: the description line shows it while Data folder has focus, until the tab closes.
+    var folderNote by remember { mutableStateOf<String?>(null) }
     val busy = status?.second?.endsWith("…") == true
 
     fun set(next: SavesOptions) { store.save(next); o = next }
     fun show(row: String, text: String) { status = row to text }
+
+    // A move runs on its own (code audit 3, M5: leaving this tab mid-move cut it off half done), so coming back shows it.
+    val move by DataFolderMove.state.collectAsState()
+    LaunchedEffect(move) {
+        when (move) {
+            is DataFolderMove.State.Moving -> show("folder", "Moving…")
+            is DataFolderMove.State.Done -> DataFolderMove.take()?.let { d ->
+                folderTree = DataFolders.treeUri(context)
+                show("folder", moveText(d.outcome))
+                folderNote = moveNote(d.outcome)
+            }
+            else -> {}
+        }
+    }
 
     val createZip = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         landing?.arm()
@@ -109,7 +127,7 @@ fun SavesTab(onHints: (List<Hint>) -> Unit, onImport: () -> Unit, modifier: Modi
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { tree ->
         landing?.arm()
         tree ?: return@rememberLauncherForActivityResult
-        moveData(context, scope, tree.toString(), { show("folder", it) }) { folderTree = it }
+        DataFolderMove.start(context, tree.toString())
     }
 
     LaunchedEffect(busy) { onBusy(busy) }
@@ -141,7 +159,7 @@ fun SavesTab(onHints: (List<Hint>) -> Unit, onImport: () -> Unit, modifier: Modi
             row("rec", "Recovery state", recoveryLabel(o.recoveryMinutes) + "  ›") { popup = "rec" }
         }
         Spacer(Modifier.height(6.dp))
-        val (title, text) = describe(focused, o)
+        val (title, text) = describe(focused, o).let { d -> folderNote?.takeIf { focused == "folder" }?.let { d.first to it } ?: d }
         DescriptionLine(title, text)
     }
 
@@ -178,7 +196,7 @@ fun SavesTab(onHints: (List<Hint>) -> Unit, onImport: () -> Unit, modifier: Modi
         "folder" -> FolderPopup(folderTree == null, close) { pick ->
             popup = null
             if (pick) pickFolder.launch(null)
-            else if (folderTree != null) moveData(context, scope, null, { show("folder", it) }) { folderTree = it }
+            else if (folderTree != null) DataFolderMove.start(context, null)
         }
     }
 }
@@ -190,19 +208,29 @@ private fun recoveryLabel(min: Int) = if (min == 0) "Off" else "Every $min min"
 private fun folderLabel(context: android.content.Context, tree: String?): String =
     if (tree == null) "Joey64's own" else try { FolderNames.of(context, tree.toUri()).folders.lastOrNull() ?: FolderNames.of(context, tree.toUri()).place } catch (e: Exception) { "Picked folder" }
 
-/**
- * Moves the data to [tree] (null: back to Joey64's own storage) and switches to it. A file that
- * couldn't be moved stays where it was, and the row says how many.
- */
-private fun moveData(context: android.content.Context, scope: kotlinx.coroutines.CoroutineScope, tree: String?, show: (String) -> Unit, done: (String?) -> Unit) {
-    show("Moving…")
-    scope.launch {
-        val r = com.joeysretro.joey64.launcher.storage.DataFolderMove.to(context, tree)
-        if (r == null) { show("Couldn't move"); return@launch }
-        done(tree)
+/** The Data folder row's value after a move. A file that couldn't be moved stays where it was, and the row says how many. */
+private fun moveText(o: DataFolderMove.Outcome): String = when (o) {
+    is DataFolderMove.Outcome.Failed -> "Couldn't move"
+    is DataFolderMove.Outcome.OldUnreadable -> "Switched · nothing moved"
+    is DataFolderMove.Outcome.Moved -> {
+        val r = o.result
         val left = r.conflicts.size + r.failed.size
-        show(if (left == 0) "Moved · ${r.moved + r.alreadyThere} files" else "Moved · $left files left behind")
+        when {
+            left > 0 -> "Moved · $left files left behind"
+            r.keptAside > 0 -> "Moved · ${r.keptAside} old ${if (r.keptAside == 1) "save" else "saves"} in backups"
+            else -> "Moved · ${r.moved + r.alreadyThere} files"
+        }
     }
+}
+
+/** What the row's value leaves out, for the description line: saves kept aside (code audit 3, H1), an old folder that couldn't be read (M4). */
+private fun moveNote(o: DataFolderMove.Outcome): String? = when (o) {
+    is DataFolderMove.Outcome.OldUnreadable -> "Joey64 couldn't read the old folder, so nothing was moved: its files are still there."
+    is DataFolderMove.Outcome.Moved -> o.result.keptAside.takeIf { it > 0 }?.let { n ->
+        (if (n == 1) "A save with the same name was" else "$n saves with the same names were") +
+            " already in the new folder: they're in its backups now, so a game's Saves page can restore them. Yours took their place."
+    }
+    else -> null
 }
 
 private fun describe(row: String, o: SavesOptions): Pair<String, String> = when (row) {

@@ -2,6 +2,7 @@ package com.joeysretro.joey64.launcher.screens
 
 import android.graphics.BitmapFactory
 import androidx.activity.compose.BackHandler
+import com.joeysretro.joey64.JLog
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -101,6 +102,11 @@ fun SavesScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onPlay: (String) ->
     // Back up now's pop-up (approved mockup 2026-11-08, build_backupmsg.py): (made a new one, the time it names); 3 s like Profiles loaded.
     var backedUp by remember { mutableStateOf<Pair<Boolean, Long>?>(null) }
     LaunchedEffect(backedUp) { if (backedUp != null) { kotlinx.coroutines.delay(3_000L); backedUp = null } }
+    // An action that didn't work (code audit 3, M6 and p2 L7): the same pop-up in the error colour, with what stayed as it was.
+    var problem by remember { mutableStateOf<Pair<String, String>?>(null) }
+    LaunchedEffect(problem) { if (problem != null) { kotlinx.coroutines.delay(3_000L); problem = null } }
+    // One action at a time (p2 L6: a second A while a restore or delete ran started another on the same save).
+    var working by remember { mutableStateOf(false) }
     val landing = LocalFocusLanding.current
     // Back from a game played from here: its states and save changed.
     LifecycleResumeEffect(Unit) { version++; onPauseOrDispose { } }
@@ -117,11 +123,22 @@ fun SavesScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onPlay: (String) ->
     // After each read (a delete or restore changes the rows): the focused row may be gone, so land on the page again, not the rail.
     LaunchedEffect(data) { if (data != null) landing?.arm() }
     fun changed() { popup = null; version++ }
-    fun work(job: () -> Unit) { scope.launch { withContext(Dispatchers.IO) { job() }; changed() } }
+    val name = shortName(g.game.title)
+    /** [job] off the main thread; false or an exception (a picked folder's permission half gone) shows [failed] with [stays]. */
+    fun work(failed: String, stays: String, job: () -> Boolean) {
+        if (working) return
+        working = true
+        popup = null
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) { try { job() } catch (e: Exception) { JLog.e("Joey64SavesPage", "$failed: $e"); false } }
+            working = false
+            if (!ok) problem = failed to "$name · $stays"
+            changed()
+        }
+    }
 
     val now = System.currentTimeMillis()
     val d = data
-    val name = shortName(g.game.title)
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().padding(horizontal = s.margin).padding(top = 14.dp, bottom = 8.dp)) {
         PageHeader("Saves") { InfoChip(g.game.title, R.drawable.ic_device_floppy) }
@@ -136,12 +153,18 @@ fun SavesScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onPlay: (String) ->
             SectionLabel("In-game save")
             JoeyRow("Back up now", Modifier.initialFocus(at == "bu"), enabled = hasSave,
                 onFocused = { if (it) focused = "bu" }) {
-                if (hasSave) scope.launch {
-                    val made = withContext(Dispatchers.IO) { manager.backUpNow().isNotEmpty() }
-                    // Nothing new: the save matches its newest backup, whose time the pop-up names.
-                    val at = if (made) System.currentTimeMillis() else withContext(Dispatchers.IO) { manager.backups().firstOrNull()?.at } ?: System.currentTimeMillis()
-                    backedUp = made to at
-                    changed()
+                if (hasSave && !working) {
+                    working = true
+                    scope.launch {
+                        val names = withContext(Dispatchers.IO) { try { manager.backUpNow() } catch (e: Exception) { JLog.e("Joey64SavesPage", "back up now: $e"); null } }
+                        working = false
+                        if (names == null) { problem = "Couldn't back up" to "$name · its save is as it was"; changed(); return@launch }
+                        val made = names.isNotEmpty()
+                        // Nothing new: the save matches its newest backup, whose time the pop-up names.
+                        val at = if (made) System.currentTimeMillis() else withContext(Dispatchers.IO) { try { manager.backups().firstOrNull()?.at } catch (e: Exception) { null } } ?: System.currentTimeMillis()
+                        backedUp = made to at
+                        changed()
+                    }
                 }
             }
             JoeyRow("Restore a backup", Modifier.initialFocus(at == "rs"), value = if (hasBackups) "${d.backups.size}  ›" else null, enabled = hasBackups,
@@ -210,6 +233,10 @@ fun SavesScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onPlay: (String) ->
             if (made) "$name · ${SlotDates.withTime(at, now)}" else "Same as the backup from ${SlotDates.withTime(at, now)}",
             Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 16.dp), iconTint = if (made) null else c.textDim)
     }
+    problem?.let { (what, line) ->
+        com.joeysretro.joey64.launcher.components.JoeyToast(R.drawable.ic_alert, "Saves", what, line,
+            Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 16.dp), iconTint = c.error)
+    }
     }
 
     val hints = listOf(Hint("A", "Select"), Hint("B", "Close"))
@@ -223,7 +250,7 @@ fun SavesScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onPlay: (String) ->
                     PopupTitle("Restore a backup", "Today's save is backed up first.")
                     list.forEachIndexed { i, b ->
                         JoeyRow(SlotDates.withTime(b.at, now), if (i == 0) Modifier.initialFocus() else Modifier, value = SaveManager.sizeLabel(b.size),
-                            detail = if (both) SaveManager.GameSave(b.of, 0, 0).label else null) { work { manager.restore(b) } }
+                            detail = if (both) SaveManager.GameSave(b.of, 0, 0).label else null) { work("Couldn't restore", "its save is as it was") { manager.restore(b) } }
                     }
                 }
             }
@@ -233,7 +260,7 @@ fun SavesScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onPlay: (String) ->
                 PopupTitle("Delete $name's save?",
                     "Your in-game progress goes. States aren't touched. A backup is kept first, so Restore a backup can bring it back.")
                 JoeyOption("Keep it", Modifier.initialFocus()) { popup = null }
-                JoeyOption("Delete") { work { d?.saves.orEmpty().forEach { manager.delete(it) } } }
+                JoeyOption("Delete") { work("Couldn't delete the save", "it's still there") { d?.saves.orEmpty().map { manager.delete(it) }.all { it } } }
             }
         }
         is SvPopup.StateOptions -> JoeyDialog(onDismiss = { popup = null }, hints = hints, width = 330.dp) {
@@ -254,7 +281,7 @@ fun SavesScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onPlay: (String) ->
             Column {
                 PopupTitle("Delete ${SaveManager.stateLabel(p.state.slot)}?", "The state and its picture go. This can't be undone.")
                 JoeyOption("Keep it", Modifier.initialFocus()) { popup = null }
-                JoeyOption("Delete") { work { manager.deleteState(p.state.slot) } }
+                JoeyOption("Delete") { work("Couldn't delete the state", "it's still there") { manager.deleteState(p.state.slot) } }
             }
         }
     }

@@ -30,46 +30,81 @@ object SaveBackups {
     private const val TAG = "Joey64Backups"
 
     /** Backs up [saveName]'s save RAM and disk save if [mode] says it's due. The new copies' names. Blocks: call it off the main thread. */
-    fun maybeBackUp(space: FileSpace, saveName: String, mode: BackupWhen, keep: Int, now: Long = System.currentTimeMillis()): List<String> {
-        if (mode == BackupWhen.Off || saveName.isEmpty()) return emptyList()
-        return listOfNotNull(backUpSrm(space, saveName, mode, keep, now)) +
-            SrmSync.names(saveName).drop(1).mapNotNull { backUpDisk(space, saveName, it, mode, keep, now) }
+    fun maybeBackUp(space: FileSpace, saveName: String, mode: BackupWhen, keep: Int, now: Long = System.currentTimeMillis()): List<String> =
+        backUp(space, saveName, mode, keep, now).made
+
+    /** What [backUp] did: the new copies' names, and the save files that couldn't be backed up. */
+    data class Run(val made: List<String>, val failed: List<String>) {
+        val ok get() = failed.isEmpty()
     }
 
-    private fun backUpSrm(space: FileSpace, saveName: String, mode: BackupWhen, keep: Int, now: Long): String? = try {
-        val srm = space.openRead(listOf(DataKind.Saves.dir, "$saveName.srm"))?.use { it.readBytes() }
-        if (srm == null) null else {
-            val mine = BackupRules.backupsOf(saveName, backupNames(space))
-            val newest = mine.lastOrNull()
-            val same = newest != null && space.openRead(listOf(DataKind.Backups.dir, newest))?.use { it.readBytes() }?.contentEquals(srm) == true
-            if (newest != null && (same || !BackupRules.due(mode, BackupRules.stampOf(saveName, newest), now))) null
-            else put(space, saveName, mine, keep, now, ".srm") { it.write(srm) }.also { JLog.i(TAG, "backed up $saveName.srm as $it (${srm.size} bytes)") }
-        }
-    } catch (e: IOException) {
-        JLog.e(TAG, "can't back up $saveName.srm: $e"); null
-    }
-
-    /** [file] is "<save name>.ndd.disk_save" (or .d64): zipped into "<save name> <stamp>.ndd.disk_save.zip". */
-    private fun backUpDisk(space: FileSpace, saveName: String, file: String, mode: BackupWhen, keep: Int, now: Long): String? = try {
-        val path = listOf(DataKind.Saves.dir, file)
-        val sum = space.openRead(path)?.use { DiskZip.sum(it) }
-        if (sum == null) null else {
-            val ext = file.removePrefix(saveName) + ".zip"
-            val mine = BackupRules.backupsOf(saveName, backupNames(space), ext)
-            val newest = mine.lastOrNull()
-            val same = newest != null && space.openRead(listOf(DataKind.Backups.dir, newest))?.use { DiskZip.sumOf(it) } == sum
-            if (newest != null && (same || !BackupRules.due(mode, BackupRules.stampOf(saveName, newest, ext), now))) null
-            else {
-                val t0 = System.nanoTime()
-                val name = put(space, saveName, mine, keep, now, ext) { out ->
-                    space.openRead(path)?.use { DiskZip.write(it, out, file, sum, now) } ?: throw IOException("$file went away")
-                }
-                JLog.i(TAG, "backed up $file as $name (${sum.second} bytes, ${(System.nanoTime() - t0) / 1_000_000} ms)")
-                name
+    /**
+     * [maybeBackUp], also saying which save files couldn't be backed up (code audit 3, M6: Delete save and Restore a
+     * backup keep a backup first, and went ahead when it had failed: a failure read as "the same as the newest backup").
+     */
+    fun backUp(space: FileSpace, saveName: String, mode: BackupWhen, keep: Int, now: Long = System.currentTimeMillis()): Run {
+        if (mode == BackupWhen.Off || saveName.isEmpty()) return Run(emptyList(), emptyList())
+        val made = ArrayList<String>()
+        val failed = ArrayList<String>()
+        for (file in SrmSync.names(saveName)) {
+            try {
+                (if (file == "$saveName.srm") backUpPlain(space, saveName, file, ".srm", mode, keep, now) else backUpDisk(space, saveName, file, mode, keep, now))
+                    ?.let { made += it }
+            } catch (e: Exception) {
+                JLog.e(TAG, "can't back up $file: $e"); failed += file
             }
         }
-    } catch (e: IOException) {
-        JLog.e(TAG, "can't back up $file: $e"); null
+        return Run(made, failed)
+    }
+
+    /** The save files a data-folder move settles ([keepAside]): save RAM, disk saves, the Transfer Pak's Game Boy save copy. */
+    private val SAVE_ENDINGS = listOf(".srm", ".ndd.disk_save", ".d64.disk_save", ".gb.sav")
+
+    fun isSaveFile(name: String) = SAVE_ENDINGS.any { name.endsWith(it) && name.length > it.length }
+
+    /**
+     * Keeps [space]'s `saves/[file]` in its `backups/` under a backup's name, before a data-folder move puts Joey64's own
+     * copy in its place (code audit 3, H1). Save RAM and disk saves are named as the per-start backups, so the Saves
+     * page's Restore a backup lists them; a Transfer Pak copy ("<save name>.gb.sav") is kept the same way, unlisted.
+     * Nothing older is removed. True when it's kept (or its newest backup is the same), false when it couldn't be.
+     */
+    fun keepAside(space: FileSpace, file: String, now: Long = System.currentTimeMillis()): Boolean = try {
+        val ending = SAVE_ENDINGS.first { file.endsWith(it) }
+        val saveName = file.removeSuffix(ending)
+        when (ending) {
+            ".srm", ".gb.sav" -> backUpPlain(space, saveName, file, ending, BackupWhen.OnStart, Int.MAX_VALUE, now)
+            else -> backUpDisk(space, saveName, file, BackupWhen.OnStart, Int.MAX_VALUE, now)
+        }
+        true
+    } catch (e: Exception) {
+        JLog.e(TAG, "can't keep $file aside: $e"); false
+    }
+
+    /** [file] ("<save name>.srm", or a Transfer Pak copy) copied as it is to "<save name> <stamp>[ext]". Throws when it can't be. */
+    private fun backUpPlain(space: FileSpace, saveName: String, file: String, ext: String, mode: BackupWhen, keep: Int, now: Long): String? {
+        val bytes = space.openRead(listOf(DataKind.Saves.dir, file))?.use { it.readBytes() } ?: return null
+        val mine = BackupRules.backupsOf(saveName, backupNames(space), ext)
+        val newest = mine.lastOrNull()
+        val same = newest != null && space.openRead(listOf(DataKind.Backups.dir, newest))?.use { it.readBytes() }?.contentEquals(bytes) == true
+        if (newest != null && (same || !BackupRules.due(mode, BackupRules.stampOf(saveName, newest, ext), now))) return null
+        return put(space, saveName, mine, keep, now, ext) { it.write(bytes) }.also { JLog.i(TAG, "backed up $file as $it (${bytes.size} bytes)") }
+    }
+
+    /** [file] is "<save name>.ndd.disk_save" (or .d64): zipped into "<save name> <stamp>.ndd.disk_save.zip". Throws when it can't be. */
+    private fun backUpDisk(space: FileSpace, saveName: String, file: String, mode: BackupWhen, keep: Int, now: Long): String? {
+        val path = listOf(DataKind.Saves.dir, file)
+        val sum = space.openRead(path)?.use { DiskZip.sum(it) } ?: return null
+        val ext = file.removePrefix(saveName) + ".zip"
+        val mine = BackupRules.backupsOf(saveName, backupNames(space), ext)
+        val newest = mine.lastOrNull()
+        val same = newest != null && space.openRead(listOf(DataKind.Backups.dir, newest))?.use { DiskZip.sumOf(it) } == sum
+        if (newest != null && (same || !BackupRules.due(mode, BackupRules.stampOf(saveName, newest, ext), now))) return null
+        val t0 = System.nanoTime()
+        val name = put(space, saveName, mine, keep, now, ext) { out ->
+            space.openRead(path)?.use { DiskZip.write(it, out, file, sum, now) } ?: throw IOException("$file went away")
+        }
+        JLog.i(TAG, "backed up $file as $name (${sum.second} bytes, ${(System.nanoTime() - t0) / 1_000_000} ms)")
+        return name
     }
 
     private fun backupNames(space: FileSpace) = space.list(listOf(DataKind.Backups.dir)).filter { !it.isDir }.map { it.name }

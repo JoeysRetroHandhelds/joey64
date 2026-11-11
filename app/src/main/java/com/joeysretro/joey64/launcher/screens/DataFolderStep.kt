@@ -8,7 +8,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -28,7 +28,7 @@ import com.joeysretro.joey64.launcher.components.initialFocus
 import com.joeysretro.joey64.launcher.storage.DataFolderMove
 import com.joeysretro.joey64.launcher.storage.FolderName
 import com.joeysretro.joey64.launcher.storage.FolderNames
-import kotlinx.coroutines.launch
+import androidx.core.net.toUri
 
 /**
  * First run, screens 3-4 (Play-safe first run, approved by Joey 2026-11-05: scratchpad build_first2.py;
@@ -45,25 +45,35 @@ import kotlinx.coroutines.launch
 @Composable
 fun DataFolderStep(debugOnly: Boolean = false, onDone: () -> Unit) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val landing = LocalFocusLanding.current
     // null: the question; else the folder in use (screen 4).
     var using by remember { mutableStateOf<FolderName?>(null) }
-    var moving by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
+    // The move runs on its own (code audit 3, M5), so leaving this page doesn't cut it off; its outcome comes back here.
+    val move by DataFolderMove.state.collectAsState()
+    val moving = move is DataFolderMove.State.Moving
+    LaunchedEffect(move) {
+        val done = (move as? DataFolderMove.State.Done)?.let { DataFolderMove.take() } ?: return@LaunchedEffect
+        val o = done.outcome
+        if (o is DataFolderMove.Outcome.Failed) failed = true else {
+            failed = false
+            using = done.tree?.let { t -> try { FolderNames.of(context, t.toUri()) } catch (e: Exception) { null } } ?: FolderName("Picked folder", emptyList())
+        }
+        JLog.i("Joey64Setup", "first run: data folder " + when (o) {
+            is DataFolderMove.Outcome.Failed -> "not used"
+            is DataFolderMove.Outcome.OldUnreadable -> "in use, nothing moved (the old place can't be read)"
+            is DataFolderMove.Outcome.Moved -> "in use, ${o.result.conflicts.size + o.result.failed.size} files left behind, ${o.result.keptAside} saves kept aside"
+        })
+        landing?.arm()
+    }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
         if (uri == null) { landing?.arm(); return@rememberLauncherForActivityResult }
-        val name = try { FolderNames.of(context, uri) } catch (e: Exception) { FolderName("Picked folder", emptyList()) }
-        if (debugOnly) { using = name; failed = false; landing?.arm(); return@rememberLauncherForActivityResult }
-        moving = true
-        scope.launch {
-            val r = DataFolderMove.to(context, uri.toString())
-            moving = false
-            if (r == null) failed = true else { failed = false; using = name }
-            JLog.i("Joey64Setup", "first run: data folder ${if (r == null) "not used" else "in use, ${r.conflicts.size + r.failed.size} files left behind"}")
-            landing?.arm()
+        if (debugOnly) {
+            using = try { FolderNames.of(context, uri) } catch (e: Exception) { FolderName("Picked folder", emptyList()) }
+            failed = false; landing?.arm(); return@rememberLauncherForActivityResult
         }
+        DataFolderMove.start(context, uri.toString())
     }
     val choose = { picker.launch(null) }
     // Coming from the ROMs step, the button A pressed is gone: land on this step's first button

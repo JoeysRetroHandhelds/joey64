@@ -12,9 +12,12 @@ enum State : int {
     Refused = 4,     // the router answered but would not open the port
     DoubleNat = 5,   // opened, but the router's own outside address is private (a second router or the carrier's
                      // NAT in front of it): players outside still can't reach the room
+    AllTaken = 6,    // every outside port a room code can hold (45000-45007) is held by other rooms on this network
 };
-// Opens `port` (TCP and UDP) to this device on the router, on its own thread; renewed every 30 minutes. Asked again for
-// the port already open, it keeps that mapping.
+// Opens `port` (TCP and UDP) to this device on the router, on its own thread, on the first free outside port of
+// 45000-45007. Leased for 2 minutes and renewed every minute, so a room that crashed frees its outside port within
+// about 2 minutes (a router that only takes permanent mappings gets one). Asked again for the port already open, it
+// keeps that mapping.
 void open(int port);
 // Removes the mappings (waits up to ~2 s for the router).
 void close();

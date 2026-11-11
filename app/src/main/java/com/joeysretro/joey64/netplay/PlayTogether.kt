@@ -47,7 +47,7 @@ object PlayTogether {
 
     data class Me(val name: String, val device: String)
     data class Game(val title: String, val md5: String, val file: String)
-    enum class Reach { Looking, Anywhere, RouterSaidNo, SharedAddress }
+    enum class Reach { Looking, Anywhere, RouterSaidNo, SharedAddress, AllPortsTaken }
     data class Player(val slot: Int, val name: String, val device: String, val pingMs: Int?, val you: Boolean, val host: Boolean, val thisWifi: Boolean)
 
     sealed interface State
@@ -178,6 +178,10 @@ object PlayTogether {
     private var lanCode: String? = null
     private var outsideCode: String? = null
     private var reach = Reach.Looking
+
+    /** Debug builds (`SHOW --es what net-reach-<state>`, `net-reach-off`): the next room takes this UPnP state
+     *  (upnp.h) instead of the router's, to see each Reach line without changing the router. */
+    @Volatile var debugRouterState: Int? = null
     @Volatile private var public = false
 
     /** Opens a room for [game] on the first free port of 45000-45007. False when none could be opened. */
@@ -218,8 +222,8 @@ object PlayTogether {
 
     private suspend fun routerLoop() {
         while (true) {
-            val (st, outside) = NativeBridge.netplayOutside().split(' ', limit = 2).let { (it.getOrNull(0)?.toIntOrNull() ?: 0) to it.getOrNull(1).orEmpty().trim() }
-            val r = when (st) { 1 -> Reach.Looking; 2 -> Reach.Anywhere; 5 -> Reach.SharedAddress; 0 -> Reach.Looking; else -> Reach.RouterSaidNo }
+            val (st, outside) = NativeBridge.netplayOutside().split(' ', limit = 2).let { (debugRouterState ?: it.getOrNull(0)?.toIntOrNull() ?: 0) to it.getOrNull(1).orEmpty().trim() }
+            val r = when (st) { 1 -> Reach.Looking; 2 -> Reach.Anywhere; 5 -> Reach.SharedAddress; 6 -> Reach.AllPortsTaken; 0 -> Reach.Looking; else -> Reach.RouterSaidNo }
             // The router may give another outside port than the room's own (another room on this network holds it).
             if (r == Reach.Anywhere) outsideCode = RoomCode.encode(outside.substringBeforeLast(':'), outside.substringAfterLast(':').toIntOrNull() ?: hostPort)
             if (r != reach) { reach = r; JLog.i(TAG, "the router: $r" + if (r == Reach.Anywhere) " ($outside)" else ""); publishHost() }

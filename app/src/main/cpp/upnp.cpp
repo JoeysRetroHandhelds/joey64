@@ -11,6 +11,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
+#include <cstring>
 #include <mutex>
 #include <thread>
 
@@ -25,13 +26,16 @@ bool g_run = false;
 int g_port = 0; // the port asked for while g_run
 std::atomic<int> g_state{Off};
 std::string g_outside;
-constexpr int kLeaseSeconds = 3600; // the router drops it by itself an hour after a crash
-constexpr auto kRenewEvery = std::chrono::minutes(30);
+// Short, so a room that crashed (no close) frees its outside port soon: another room on this network may want it.
+constexpr int kLeaseSeconds = 120;
+constexpr auto kRenewEvery = std::chrono::seconds(60);
+constexpr int kOnlyPermanentLeases = 725; // UPnP OnlyPermanentLeasesSupported: such a router takes lease 0 only
 
 const char* stateName(int s) {
     switch (s) {
     case Open: return "open"; case NoRouter: return "no UPnP router"; case Refused: return "router refused";
-    case DoubleNat: return "opened, but the router is behind another NAT"; default: return "?";
+    case DoubleNat: return "opened, but the router is behind another NAT";
+    case AllTaken: return "every outside port (45000-45007) is held by other rooms"; default: return "?";
     }
 }
 
@@ -50,12 +54,18 @@ void work(int port) {
     int igd = devs ? UPNP_GetValidIGD(devs, &urls, &data, lan, sizeof lan, wan, sizeof wan) : UPNP_NO_IGD;
     freeUPNPDevlist(devs);
     bool haveUrls = igd != UPNP_NO_IGD;
-    // The outside port [extStr] leads to the room's own port [portStr] on this device.
-    auto addBoth = [&]() -> int {
+    // The outside port [extStr] leads to the room's own port [portStr] on this device. A first add that half
+    // worked is undone; a renewal leaves the mapping alone (it runs out by itself if the router is gone).
+    auto addBoth = [&](bool renewal = false) -> int {
         int r = UPNP_AddPortMapping(urls.controlURL, data.first.servicetype, extStr, portStr, lan, "Joey64 netplay", "TCP", nullptr, lease);
+        if (r == kOnlyPermanentLeases && strcmp(lease, "0") != 0) {
+            ULOGI("netplay: UPnP: the router takes only permanent mappings: asking for one (removed when the room closes)");
+            snprintf(lease, sizeof lease, "0");
+            r = UPNP_AddPortMapping(urls.controlURL, data.first.servicetype, extStr, portStr, lan, "Joey64 netplay", "TCP", nullptr, lease);
+        }
         if (r == UPNPCOMMAND_SUCCESS) {
             r = UPNP_AddPortMapping(urls.controlURL, data.first.servicetype, extStr, portStr, lan, "Joey64 netplay", "UDP", nullptr, lease);
-            if (r != UPNPCOMMAND_SUCCESS) UPNP_DeletePortMapping(urls.controlURL, data.first.servicetype, extStr, "TCP", nullptr);
+            if (r != UPNPCOMMAND_SUCCESS && !renewal) UPNP_DeletePortMapping(urls.controlURL, data.first.servicetype, extStr, "TCP", nullptr);
         }
         return r;
     };
@@ -70,7 +80,10 @@ void work(int port) {
             snprintf(extStr, sizeof extStr, "%d", ext);
             r = addBoth();
         }
-        if (r == UPNPCOMMAND_SUCCESS) {
+        if (r == 718) {
+            g_state = AllTaken;
+            ULOGI("netplay: UPnP: every outside port a room code can hold (%d-%d) is held by other rooms", kCodeBase, kCodeBase + kCodePorts - 1);
+        } else if (r == UPNPCOMMAND_SUCCESS) {
             char ext[64] = "";
             if (UPNP_GetExternalIPAddress(urls.controlURL, data.first.servicetype, ext) != UPNPCOMMAND_SUCCESS || !*ext)
                 snprintf(ext, sizeof ext, "%s", wan);
@@ -88,12 +101,16 @@ void work(int port) {
           stateName(g_state), igd, *lan ? lan : "?", g_outside.empty() ? "-" : g_outside.c_str(), ms);
 
     std::unique_lock<std::mutex> lk(g_mutex);
+    int lastRenew = UPNPCOMMAND_SUCCESS;
     while (g_run) {
         if (g_cv.wait_for(lk, kRenewEvery, [] { return !g_run; })) break;
-        if (g_state == Open || g_state == DoubleNat) {
+        if ((g_state == Open || g_state == DoubleNat) && strcmp(lease, "0") != 0) {
             lk.unlock();
-            int r = addBoth();
-            ULOGI("netplay: UPnP: renewed outside port %s: %s", extStr, r == UPNPCOMMAND_SUCCESS ? "ok" : "failed");
+            int r = addBoth(true);
+            // Every minute: logged only when it starts or stops failing.
+            if ((r == UPNPCOMMAND_SUCCESS) != (lastRenew == UPNPCOMMAND_SUCCESS))
+                ULOGI("netplay: UPnP: renewing outside port %s %s (%d)", extStr, r == UPNPCOMMAND_SUCCESS ? "works again" : "failed", r);
+            lastRenew = r;
             lk.lock();
         }
     }

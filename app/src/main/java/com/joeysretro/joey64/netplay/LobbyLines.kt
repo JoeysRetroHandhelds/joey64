@@ -7,7 +7,7 @@ package com.joeysretro.joey64.netplay
  * Over TCP on the room's port, one line a message, fields split by tabs:
  *  host -> joiner on connect: `ROOM <proto> <host name> <device> <game title> <md5> <file>`
  *  joiner -> host: `HELLO <proto> <name> <device> <md5>`
- *  host -> joiner: `WELCOME <slot>`, `FULL`, `MISMATCH`, `PLAYERS <slot|name|device|where|ping;...>`, `START`,
+ *  host -> joiner: `WELCOME <slot>`, `FULL`, `MISMATCH`, `PLAYERS <slot|name|device|where|ping;...>`, `START <key>` (this joiner's key, so it can still register if the lobby closes before GO; older joiners read only the first field),
  *                  `GO <slot> <port> <key>`, `CLOSED`
  *    (key: 8 hex digits, made for this joiner and this place when the game starts; its game registers with it, and the
  *    game's room takes no other registration for that place: code audit 3, M21. A host without keys sends none.)

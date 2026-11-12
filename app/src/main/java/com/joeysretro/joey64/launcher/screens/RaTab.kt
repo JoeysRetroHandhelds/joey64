@@ -257,12 +257,10 @@ private fun SignedIn(account: RaBridge.Account, onHints: (List<Hint>) -> Unit, m
         while (true) { value = RaBridge.unsentCount(); kotlinx.coroutines.delay(2_000L) }
     }
 
-    LaunchedEffect(focused) {
-        onHints(when (focused) {
-            "hc", "lb" -> tabHints
-            "out" -> listOf(Hint("A", "Sign out")) + tabHints
-            else -> listOf(Hint("A", "Change")) + tabHints
-        })
+    val hints = when (focused) {
+        "hc", "lb" -> tabHints
+        "out" -> listOf(Hint("A", "Sign out")) + tabHints
+        else -> listOf(Hint("A", "Change")) + tabHints
     }
 
     @Composable
@@ -272,9 +270,18 @@ private fun SignedIn(account: RaBridge.Account, onHints: (List<Hint>) -> Unit, m
             modifier = if (first) Modifier.initialFocus() else Modifier,
             onFocused = { if (it) focused = key }) { set { change(it, !on) } }
 
-    Column(modifier.fillMaxSize()) {
-        // The two columns scroll together (as approved), so one scroll around both.
-        TwoColumns(Modifier.weight(1f).verticalScroll(rememberScrollState()), scroll = false, left = {
+    // One list with the panel beside it (approved 2026-11-11). The pickers here (places, how long, sounds, offline
+    // unlocks) have pictures or previews of their own, so A opens them; the panel shows what's set.
+    val panel = com.joeysretro.joey64.launcher.components.rememberListPanel()
+    val (title, text) = if (focused == "off") "Offline unlocks" to OfflineRoute.describe(o.offlineBy, proxyRunning, waiting)
+        else describe(focused, account)
+    val now = when (focused) {
+        "place" -> o.popPlace.label; "bplace" -> o.badgePlace.label; "dur" -> "${o.popSeconds} seconds"
+        "snd" -> o.unlockSound.label; "off" -> OfflineRoute.rowValue(o.offlineBy, proxyRunning, waiting); else -> null
+    }
+    val info = com.joeysretro.joey64.launcher.components.PanelInfo(title, text, lines = listOfNotNull(now?.let { "Now" to it }))
+    com.joeysretro.joey64.launcher.components.ListPanel(panel, info, hints, onHints, modifier) {
+        run {
                 SectionLabel("Account")
                 AccountBlock(account)
                 Toggle("ach", "Achievements", o.achievements, first = true) { x, v -> x.copy(achievements = v) }
@@ -292,7 +299,6 @@ private fun SignedIn(account: RaBridge.Account, onHints: (List<Hint>) -> Unit, m
                 Toggle("shot", "Screenshot on unlock", o.screenshotOnUnlock) { x, v -> x.copy(screenshotOnUnlock = v) }
                 Toggle("badge", "Save badges for offline", o.saveBadges) { x, v -> x.copy(saveBadges = v) }
                 Toggle("rp", "Rich presence", o.richPresence) { x, v -> x.copy(richPresence = v) }
-        }) {
                 SectionLabel("Pop-ups")
                 Toggle("pun", "Unlocks", o.popUnlocks) { x, v -> x.copy(popUnlocks = v) }
                 Toggle("ppr", "Progress", o.popProgress) { x, v -> x.copy(popProgress = v) }
@@ -311,10 +317,6 @@ private fun SignedIn(account: RaBridge.Account, onHints: (List<Hint>) -> Unit, m
                     UnlockSound.play(context, o.unlockSound, v)
                 }
         }
-        Spacer(Modifier.height(6.dp))
-        val (title, text) = if (focused == "off") "Offline unlocks" to OfflineRoute.describe(o.offlineBy, proxyRunning, waiting)
-            else describe(focused, account)
-        DescriptionLine(title, text)
     }
 
     when (picker) {

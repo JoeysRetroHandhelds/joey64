@@ -131,36 +131,43 @@ fun SavesTab(onHints: (List<Hint>) -> Unit, onImport: () -> Unit, modifier: Modi
     }
 
     LaunchedEffect(busy) { onBusy(busy) }
-    LaunchedEffect(focused, busy) {
-        onHints(if (busy && status?.first == focused) listOf(Hint("B", "Back"))
-            else listOf(Hint("A", "Change"), Hint("B", "Back")))
+    val hints = if (busy && status?.first == focused) listOf(Hint("B", "Back")) else listOf(Hint("A", "Change"), Hint("B", "Back"))
+    // One list with the panel beside it (approved 2026-11-11).
+    val panel = com.joeysretro.joey64.launcher.components.rememberListPanel()
+    val (title, text) = describe(focused, o).let { d -> folderNote?.takeIf { focused == "folder" }?.let { d.first to it } ?: d }
+    fun <T> pick(all: List<T>, cur: T, label: (T) -> String, detail: (T) -> String?, set: (T) -> Unit) =
+        com.joeysretro.joey64.launcher.components.PanelInfo(title, text,
+            all.map { com.joeysretro.joey64.launcher.components.PanelChoice(label(it), detail(it), it == cur) }) { i -> set(all[i]) }
+    val info = when (focused) {
+        "cont" -> pick(ContinueOnPlay.entries, o.continueOnPlay, { it.label }, { it.detail }) { set(o.copy(continueOnPlay = it)) }
+        "keep" -> pick(SavesOptions.QUIT_SAVES, o.quitSaves, { "$it" }, { if (it == 1) "Each quit replaces the last" else null }) { set(o.copy(quitSaves = it)) }
+        "rec" -> pick(SavesOptions.RECOVERY_MINUTES, o.recoveryMinutes, { recoveryLabel(it) }, { null }) { set(o.copy(recoveryMinutes = it)) }
+        "bk" -> com.joeysretro.joey64.launcher.components.PanelInfo(title, text,
+            lines = listOf("When" to o.backups.label, "Copies to keep" to "${o.backupsKeep}"))
+        else -> com.joeysretro.joey64.launcher.components.PanelInfo(title, text)
     }
 
-    Column(modifier.fillMaxSize()) {
+    com.joeysretro.joey64.launcher.components.ListPanel(panel, info, hints, onHints, modifier) {
         @Composable
         // Focus lands back on the row that was in use (after Android's file and folder pickers too).
         fun row(key: String, label: String, value: String, open: () -> Unit) =
             JoeyRow(label, Modifier.initialFocus(key == focused), value = status?.takeIf { it.first == key }?.second ?: value,
                 sideways = true, onFocused = { if (it) focused = key }) { if (!busy) open() }
-        TwoColumns(Modifier.weight(1f), left = {
+        run {
             SectionLabel("When you quit and play")
             row("quit", "Save on quit", if (o.saveOnQuit) "On" else "Off") { set(o.copy(saveOnQuit = !o.saveOnQuit)) }
-            row("cont", "Continue on Play", o.continueOnPlay.label + "  ›") { popup = "cont" }
-            row("keep", "Quit saves to keep", "${o.quitSaves}  ›") { popup = "keep" }
+            row("cont", "Continue on Play", o.continueOnPlay.label + "  ›") { if (!panel.enter()) popup = "cont" }
+            row("keep", "Quit saves to keep", "${o.quitSaves}  ›") { if (!panel.enter()) popup = "keep" }
             SectionLabel("Save backups")
             row("bk", "Back up saves", o.backups.label + "  ›") { popup = "bk" }
-        }) {
             SectionLabel("Your data")
             row("backup", "Back up Joey64", "›") { popup = "backup" }
             row("restore", "Restore a backup", "›") { openZip.launch(arrayOf("application/zip", "application/octet-stream")) }
             row("import", "Import from RetroArch", "›") { onImport() }
             row("folder", "Data folder", folderLabel(context, folderTree) + "  ›") { popup = "folder" }
             SectionLabel("Advanced")
-            row("rec", "Recovery state", recoveryLabel(o.recoveryMinutes) + "  ›") { popup = "rec" }
+            row("rec", "Recovery state", recoveryLabel(o.recoveryMinutes) + "  ›") { if (!panel.enter()) popup = "rec" }
         }
-        Spacer(Modifier.height(6.dp))
-        val (title, text) = describe(focused, o).let { d -> folderNote?.takeIf { focused == "folder" }?.let { d.first to it } ?: d }
-        DescriptionLine(title, text)
     }
 
     val close = { popup = null }

@@ -86,34 +86,46 @@ fun OnScreenTab(onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean
     LaunchedEffect(Unit) {
         onControl { ctl -> if (ctl == Control.Search) onY() else false }
     }
-    LaunchedEffect(focused, custom) {
-        val y = Hint("Y", "Reset to default")
-        onHints(when {
-            focused == "what" && !custom -> listOf(Hint("B", "Back"))
-            focused == "size" || focused == "graph" -> listOf(Hint("◀▶", "Change"), y, Hint("B", "Back"))
-            else -> listOf(Hint("A", "Change"), y, Hint("B", "Back"))
-        })
+    val y = Hint("Y", "Reset to default")
+    val hints = when {
+        focused == "what" && !custom -> listOf(Hint("B", "Back"))
+        focused == "size" || focused == "graph" -> listOf(Hint("◀▶", "Change"), y, Hint("B", "Back"))
+        else -> listOf(Hint("A", "Change"), y, Hint("B", "Back"))
+    }
+    // One list with the panel beside it (approved 2026-11-11).
+    val panel = com.joeysretro.joey64.launcher.components.rememberListPanel()
+    val (title, text) = describe(focused)
+    val help = if (focused == "what" && !custom) "Pick Custom in Stats to choose the lines." else text
+    fun <T> pick(all: List<T>, cur: T, label: (T) -> String, detail: (T) -> String?, set: (T) -> Unit) =
+        com.joeysretro.joey64.launcher.components.PanelInfo(title, help,
+            all.map { com.joeysretro.joey64.launcher.components.PanelChoice(label(it), detail(it), it == cur) }) { i -> set(all[i]) }
+    val info = when (focused) {
+        "stats" -> pick(StatsMode.entries, o.stats, { it.label }, { it.detail }) { set(o.copy(stats = it)) }
+        "layout" -> pick(StatsLayout.entries, o.layout, { it.label }, { it.detail }) { set(o.copy(layout = it)) }
+        "pos" -> pick(StatsCorner.entries, o.corner, { it.label }, { null }) { set(o.copy(corner = it)) }
+        "what" -> com.joeysretro.joey64.launcher.components.PanelInfo(title, help,
+            lines = if (custom) StatsLine.entries.map { it.label to (if (it in o.custom) "On" else "Off") } else emptyList())
+        else -> com.joeysretro.joey64.launcher.components.PanelInfo(title, help)
     }
 
-    Column(modifier.fillMaxSize()) {
+    com.joeysretro.joey64.launcher.components.ListPanel(panel, info, hints, onHints, modifier) {
         @Composable
         fun toggle(key: String, label: String, on: Boolean, change: () -> Unit) =
             JoeyRow(label, value = if (on) "On" else "Off", sideways = true, onFocused = { if (it) focused = key }) { change() }
-        TwoColumns(Modifier.weight(1f), left = {
+        run {
             SectionLabel("Stats overlay")
             JoeyRow("Stats", Modifier.initialFocus(), value = o.stats.label + "  ›", sideways = true,
-                onFocused = { if (it) focused = "stats" }) { popup = "stats" }
-            JoeyRow("Layout", value = o.layout.label + "  ›", sideways = true, onFocused = { if (it) focused = "layout" }) { popup = "layout" }
+                onFocused = { if (it) focused = "stats" }) { if (!panel.enter()) popup = "stats" }
+            JoeyRow("Layout", value = o.layout.label + "  ›", sideways = true, onFocused = { if (it) focused = "layout" }) { if (!panel.enter()) popup = "layout" }
             val graphs = StatsGraph.entries
             StepRow("Graph", o.graph.label, graphs.indices.toList(), o.graph.ordinal, focused == "graph", first = false,
                 onFocused = { if (it) focused = "graph" }) { set(o.copy(graph = graphs[it])) }
-            JoeyRow("Position", value = o.corner.label + "  ›", sideways = true, onFocused = { if (it) focused = "pos" }) { popup = "pos" }
+            JoeyRow("Position", value = o.corner.label + "  ›", sideways = true, onFocused = { if (it) focused = "pos" }) { if (!panel.enter()) popup = "pos" }
             val sizes = StatsSize.entries
             StepRow("Size", o.size.label, sizes.indices.toList(), o.size.ordinal, focused == "size", first = false,
                 onFocused = { if (it) focused = "size" }) { set(o.copy(size = sizes[it])) }
             JoeyRow("What it shows", value = if (custom) "${o.custom.size} of ${StatsLine.entries.size}  ›" else "Custom only",
                 enabled = custom, sideways = true, onFocused = { if (it) focused = "what" }) { popup = "what" }
-        }) {
             SectionLabel("Pop-ups")
             toggle("st", "Save states", o.popStates) { set(o.copy(popStates = !o.popStates)) }
             toggle("sh", "Screenshots", o.popScreenshots) { set(o.copy(popScreenshots = !o.popScreenshots)) }
@@ -123,9 +135,6 @@ fun OnScreenTab(onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean
             toggle("pr", "Achievement progress", r.popProgress) { setRa { it.copy(popProgress = !it.popProgress) } }
             toggle("gm", "Game start banner", r.popSummary) { setRa { it.copy(popSummary = !it.popSummary) } }
         }
-        Spacer(Modifier.height(6.dp))
-        val (title, text) = describe(focused)
-        DescriptionLine(title, if (focused == "what" && !custom) "Pick Custom in Stats to choose the lines." else text)
     }
 
     when (popup) {

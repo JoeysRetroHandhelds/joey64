@@ -139,8 +139,6 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
         }
     }
 
-    LaunchedEffect(Unit) { onHints(listOf(Hint("A", "Change"), Hint("B", "Back"))) }
-
     fun set(block: suspend SettingsStore.() -> Unit) { scope.launch { store.block() } }
     @Composable
     fun row(key: String, label: String, value: String?, enabled: Boolean = true, onClick: () -> Unit) =
@@ -148,20 +146,41 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
             onFocused = { if (it) focused = key }, onClick = onClick)
 
     val gamesWord = { n: Int -> if (n == 1) "1 game" else "$n games" }
-    Column(modifier.fillMaxSize()) {
-        TwoColumns(Modifier.weight(1f), left = {
+    // One list with the panel beside it (approved 2026-11-11).
+    val panel = com.joeysretro.joey64.launcher.components.rememberListPanel()
+    val base = LocalScreenLayout.current.boxArtColumns
+    val (title, text) = describe(focused)
+    fun <T> pick(all: List<T>, cur: T, label: (T) -> String, detail: (T) -> String?, on: (T) -> Unit) =
+        com.joeysretro.joey64.launcher.components.PanelInfo(title, text,
+            all.map { com.joeysretro.joey64.launcher.components.PanelChoice(label(it), detail(it), it == cur) }) { i -> on(all[i]) }
+    val info = when (focused) {
+        "size" -> pick(CoverSize.entries, s.coverSize, { it.label }, { "${LibraryArrange.columns(base, it)} across on this screen" }) { z -> set { setCoverSize(z) } }
+        "names" -> pick(NamesMode.entries, s.names, { it.label }, { it.detail }) { n -> set { setNames(n) } }
+        "style" -> if (s.names == NamesMode.Off) com.joeysretro.joey64.launcher.components.PanelInfo(title, text)
+            else pick(NameStyle.entries, s.nameStyle, { it.label }, { if (it == NameStyle.Short) "Conker's Bad Fur Day" else "Conker's Bad Fur Day (Europe)" }) { n -> set { setNameStyle(n) } }
+        "look" -> pick(LookFor.entries, s.lookFor, { it.label }, { it.detail }) { l -> set { setLookFor(l) } }
+        // Rows that open a popup of their own: what's set inside.
+        "sort" -> com.joeysretro.joey64.launcher.components.PanelInfo(title, text,
+            lines = listOf("Sort by" to s.sortBy.label, "Favourites first" to (if (s.favouritesFirst) "On" else "Off")))
+        "regions" -> com.joeysretro.joey64.launcher.components.PanelInfo(title, text,
+            lines = listOf("Regions" to LibraryArrange.regionsLabel(s.regions), "One version per game" to (if (s.oneVersion) "On" else "Off"),
+                "Betas and demos" to s.betas.label))
+        "hidden" -> com.joeysretro.joey64.launcher.components.PanelInfo(title, text, lines = hidden.take(8).map { it.title to "Hidden" })
+        else -> com.joeysretro.joey64.launcher.components.PanelInfo(title, text)
+    }
+    com.joeysretro.joey64.launcher.components.ListPanel(panel, info, listOf(Hint("A", "Change"), Hint("B", "Back")), onHints, modifier) {
+        run {
             SectionLabel("Show")
             row("sort", "Sort by", s.sortBy.label + "  ›") { popup = LibPopup.Sort }
             row("regions", "Regions", LibraryArrange.regionsLabel(s.regions) + "  ›") { backFromBetas = false; popup = LibPopup.Regions }
             row("hidden", "Hidden games", (if (hidden.isEmpty()) "None" else gamesWord(hidden.size)) + "  ›") { popup = LibPopup.Hidden }
             SectionLabel("Covers")
-            row("size", "Cover size", s.coverSize.label + "  ›") { popup = LibPopup.Size }
-            row("names", "Names", s.names.label + "  ›") { popup = LibPopup.Names }
-            row("style", "Name style", s.nameStyle.label + "  ›", enabled = s.names != NamesMode.Off) { popup = LibPopup.Style }
-        }) {
+            row("size", "Cover size", s.coverSize.label + "  ›") { if (!panel.enter()) popup = LibPopup.Size }
+            row("names", "Names", s.names.label + "  ›") { if (!panel.enter()) popup = LibPopup.Names }
+            row("style", "Name style", s.nameStyle.label + "  ›", enabled = s.names != NamesMode.Off) { if (!panel.enter()) popup = LibPopup.Style }
             SectionLabel("Games")
             row("folders", "ROM folders", (if (folders.size == 1) "1 folder" else "${folders.size} folders") + "  ›") { popup = LibPopup.Folders }
-            row("look", "Look for new games", s.lookFor.label + "  ›") { popup = LibPopup.Look }
+            row("look", "Look for new games", s.lookFor.label + "  ›") { if (!panel.enter()) popup = LibPopup.Look }
             val r = reading
             row("now", "Look now", when { r != null -> "Reading ${r.done} of ${r.total}"; looking -> "Looking…"; else -> lookResult }) {
                 library.lookNow(folders.map { it.toUri() })
@@ -176,12 +195,8 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
             row("artq", "Box art quality", if (s.boxArtLow) "Low" else "High") { set { setBoxArtLow(!s.boxArtLow) } }
             row("cheats", "Download cheats", if (s.downloadCheats) "On" else "Off") { set { setDownloadCheats(!s.downloadCheats) } }
         }
-        Spacer(Modifier.height(6.dp))
-        val (title, text) = describe(focused)
-        DescriptionLine(title, text)
     }
 
-    val base = LocalScreenLayout.current.boxArtColumns
     val close = { popup = null }
     when (popup) {
         LibPopup.Sort -> JoeyDialog(onDismiss = close, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 470.dp) {

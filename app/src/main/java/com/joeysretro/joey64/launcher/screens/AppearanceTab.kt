@@ -1,6 +1,5 @@
 package com.joeysretro.joey64.launcher.screens
 
-import com.joeysretro.joey64.launcher.components.TwoColumns
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -50,23 +49,23 @@ fun AppearanceTab(onHints: (List<Hint>) -> Unit, modifier: Modifier = Modifier) 
     val scope = rememberCoroutineScope()
     var focused by remember { mutableStateOf("theme") }
     var picker by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) { onHints(listOf(Hint("A", "Change"), Hint("B", "Back"))) }
-
-    Column(modifier.fillMaxSize()) {
-        TwoColumns(Modifier.weight(1f), left = {
-            SectionLabel("Theme")
-            JoeyRow("Theme", value = s.theme.label, sideways = true,
-                modifier = Modifier.initialFocus(),
-                onFocused = { if (it) focused = "theme" }) { picker = "theme" }
-        }) {
-            SectionLabel("During play")
-            JoeyRow("Pop-ups", value = s.popupTheme.label, sideways = true,
-
-                onFocused = { if (it) focused = "pop" }) { picker = "pop" }
-        }
-        Spacer(Modifier.height(6.dp))
-        if (focused == "theme") DescriptionLine("Theme", THEME_TEXT)
-        else DescriptionLine("Pop-ups", POPUPS_TEXT)
+    // One list with the panel beside it (approved 2026-11-11).
+    val panel = com.joeysretro.joey64.launcher.components.rememberListPanel()
+    val info = if (focused == "theme") ThemeChoice.entries.let { all ->
+        com.joeysretro.joey64.launcher.components.PanelInfo("Theme", THEME_TEXT,
+            all.map { com.joeysretro.joey64.launcher.components.PanelChoice(it.label, on = it == s.theme) }) { i -> scope.launch { store.setTheme(all[i]) } }
+    } else PopupTheme.entries.let { all ->
+        com.joeysretro.joey64.launcher.components.PanelInfo("Pop-ups", POPUPS_TEXT,
+            all.map { com.joeysretro.joey64.launcher.components.PanelChoice(it.label, on = it == s.popupTheme) }) { i -> scope.launch { store.setPopupTheme(all[i]) } }
+    }
+    com.joeysretro.joey64.launcher.components.ListPanel(panel, info, listOf(Hint("A", "Change"), Hint("B", "Back")), onHints, modifier) {
+        SectionLabel("Theme")
+        JoeyRow("Theme", value = s.theme.label, sideways = true,
+            modifier = Modifier.initialFocus(),
+            onFocused = { if (it) focused = "theme" }) { if (!panel.enter()) picker = "theme" }
+        SectionLabel("During play")
+        JoeyRow("Pop-ups", value = s.popupTheme.label, sideways = true,
+            onFocused = { if (it) focused = "pop" }) { if (!panel.enter()) picker = "pop" }
     }
 
     when (picker) {

@@ -314,20 +314,37 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
     val scope = rememberCoroutineScope()
     val logSessions = remember { com.joeysretro.joey64.LogFiles.sessionCount(context) }
 
-    LaunchedEffect(focused, row) {
-        onHints(when (focused) {
-            "chk" -> if (row == RowState.Checking) listOf(Hint("B", "Back")) else listOf(Hint("A", "Check"), Hint("B", "Back"))
-            "copy" -> listOf(Hint("A", "Copy"), Hint("B", "Back"))
-            "logs" -> listOf(Hint("A", "Share"), Hint("B", "Back"))
-            "gpl", "oss" -> listOf(Hint("A", "Read"), Hint("B", "Back"))
-            "rep" -> listOf(Hint("A", "Change"), Hint("B", "Back"))
-            "src" -> listOf(Hint("A", "Open"), Hint("B", "Back"))
-            else -> listOf(Hint("B", "Back"))
-        })
+    val aboutHints = when (focused) {
+        "chk" -> if (row == RowState.Checking) listOf(Hint("B", "Back")) else listOf(Hint("A", "Check"), Hint("B", "Back"))
+        "copy" -> listOf(Hint("A", "Copy"), Hint("B", "Back"))
+        "logs" -> listOf(Hint("A", "Share"), Hint("B", "Back"))
+        "gpl", "oss" -> listOf(Hint("A", "Read"), Hint("B", "Back"))
+        "rep" -> listOf(Hint("A", "Change"), Hint("B", "Back"))
+        "src" -> listOf(Hint("A", "Open"), Hint("B", "Back"))
+        else -> listOf(Hint("B", "Back"))
     }
-
-    Column(modifier.fillMaxWidth()) {
-        TwoColumns(Modifier.weight(1f), left = {
+    val (aboutTitle, aboutText) = when (focused) {
+        "chk" -> "Check for updates" to checkText(row, testing, updates.installed)
+        "core" -> "Core" to "The emulator core this build runs: ${info.coreDetail}."
+        "rdr" -> "Renderer" to "What draws the games on this device, picked when a game starts."
+        "dev" -> "Device" to info.deviceDetail
+        "rep" -> "Send reports" to "Off: Joey64 sends nothing. On: how games run on this device, games with no cover, and crashes, to help make Joey64 better."
+        "gpl" -> "Joey64 is free software" to "Under the GNU General Public License 3.0 or later: use it, share it, change it. Select to read it."
+        // The core is GPL code we changed, so its source is named too (code audit 3, M25).
+        "src" -> "Source code" to "The code this build is made from: ${JOEY64_LICENCE.url}, and its emulator core: ${info.coreSource}."
+        "oss" -> "Open-source licences" to "The projects Joey64 is built from, and the licence each one is under."
+        "art" -> "Box art" to "Covers come from ScreenScraper (screenscraper.fr), downloaded once per game. A hack without a cover of its own gets the original game's."
+        "db" -> "Game list" to "Game names from No-Intro's lists, through libretro-database."
+        "cht" -> "Cheats" to "From Project64, Rosalie's Mupen GUI, M64Plus FZ (retroben's codes) and libretro-database, each under its own licence."
+        "ctl" -> "Controllers" to "Auto map's controller table is built from SDL_GameControllerDB and RetroArch's joypad autoconfig."
+        "logs" -> "Share logs" to "Puts the logs of the last times Joey64 ran in one zip and opens Android's share sheet, to send with a bug report."
+        else -> "Copy device info" to "Copies the version, core, renderer and device, for a bug report."
+    }
+    // One list with the panel beside it (approved 2026-11-11).
+    val aboutPanel = com.joeysretro.joey64.launcher.components.rememberListPanel()
+    com.joeysretro.joey64.launcher.components.ListPanel(aboutPanel,
+        com.joeysretro.joey64.launcher.components.PanelInfo(aboutTitle, aboutText), aboutHints, onHints, modifier) {
+        run {
             Row(Modifier.padding(start = 8.dp, top = 2.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Image(painterResource(R.drawable.rail_logo), contentDescription = null, modifier = Modifier.size(52.dp))
                 Column(Modifier.padding(start = 14.dp)) {
@@ -351,7 +368,6 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
             // Share logs (Joey 2026-11-10: in Settings › About): the kept sessions' logs in one zip, through Android's share sheet.
             JoeyRow("Share logs", value = "$logSessions ${if (logSessions == 1) "session" else "sessions"} ›", sideways = true,
                 onFocused = { if (it) focused = "logs" }) { shareLogs(context, scope) }
-        }) {
             // Reports (approved reports mockup 2026-11-08, screen 1): at the top of the right column.
             SectionLabel("Reports")
             JoeyRow("Send reports", value = if (reportsOn) "On ›" else "Off ›", sideways = true, onFocused = { if (it) focused = "rep" }) { open = "reports" }
@@ -376,25 +392,6 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             }
         }
-        Spacer(Modifier.height(6.dp))
-        val (title, text) = when (focused) {
-            "chk" -> "Check for updates" to checkText(row, testing, updates.installed)
-            "core" -> "Core" to "The emulator core this build runs: ${info.coreDetail}."
-            "rdr" -> "Renderer" to "What draws the games on this device, picked when a game starts."
-            "dev" -> "Device" to info.deviceDetail
-            "rep" -> "Send reports" to "Off: Joey64 sends nothing. On: how games run on this device, games with no cover, and crashes, to help make Joey64 better."
-            "gpl" -> "Joey64 is free software" to "Under the GNU General Public License 3.0 or later: use it, share it, change it. Select to read it."
-            // The core is GPL code we changed, so its source is named too (code audit 3, M25).
-            "src" -> "Source code" to "The code this build is made from: ${JOEY64_LICENCE.url}, and its emulator core: ${info.coreSource}."
-            "oss" -> "Open-source licences" to "The projects Joey64 is built from, and the licence each one is under."
-            "art" -> "Box art" to "Covers come from ScreenScraper (screenscraper.fr), downloaded once per game. A hack without a cover of its own gets the original game's."
-            "db" -> "Game list" to "Game names from No-Intro's lists, through libretro-database."
-            "cht" -> "Cheats" to "From Project64, Rosalie's Mupen GUI, M64Plus FZ (retroben's codes) and libretro-database, each under its own licence."
-            "ctl" -> "Controllers" to "Auto map's controller table is built from SDL_GameControllerDB and RetroArch's joypad autoconfig."
-            "logs" -> "Share logs" to "Puts the logs of the last times Joey64 ran in one zip and opens Android's share sheet, to send with a bug report."
-            else -> "Copy device info" to "Copies the version, core, renderer and device, for a bug report."
-        }
-        DescriptionLine(title, text)
     }
     when (open) {
         "oss" -> OssListPopup { open = null }

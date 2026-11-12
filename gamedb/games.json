@@ -345,8 +345,11 @@
     },
     {
       "disk": "Nihon Pro Golf Tour 64 (Japan) [b]", "title": "Nihon Pro Golf Tour 64 (64DD)",
-      "issues": [
-        {"status": "open", "devices": "Duo", "what": "draws for about 30 s, then no new frames after Start A A (app-main-rel2, IPL_JPN = Japan v1.2)", "evidence": "README Full-run fixes (g)(1), ddall-duo 2026-11-12; rerun with and without CountPerOp 1 queued (ddgolf-duo)"}
+      "settings": [
+        {"what": "CountPerOp=1 (counter factor 1)", "where": "core mupen64plus.ini (both copies), by disk md5 9F797A9C (core rel2 247364e)", "why": "at the default it stopped drawing after Start in 1 of 2 runs on the Duo; Project64's database gives its cartridge conversion Counter Factor 1"}
+      ],
+      "fixed": [
+        {"what": "stopped drawing about 30 s in, after Start A A, in some runs (Duo, app-main-rel2; ddall-duo, ddgolf-duo 2026-11-12)", "fix": "CountPerOp 1, core rel2 247364e; ddgolf2-duo: 3 of 3 runs drew to the end"}
       ],
       "notes": [
         "Flip: boots to its menu, 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)",

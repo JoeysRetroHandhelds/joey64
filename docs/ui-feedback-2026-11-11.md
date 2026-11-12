@@ -69,8 +69,13 @@ Controls, then Settings tabs, then popups.
       is scanned (with the covers and game list), once signed in to RetroAchievements.
 - [ ] D4 (approved as drawn 2026-11-11, feedback1_mock.png screen 7) Send reports popup: a Send now row (mockup).
 - [ ] D5 (approved 2026-11-11: Your name as an action in the Netplay rows, netrows_mock.png; its popup as drawn in feedback1_mock.png screen 9) Netplay: set your own name (now: the RetroAchievements username, else the device name). Mockup.
-- [ ] D6 Fast-forward speed: already there (Controls › Hotkeys › Fast forward › Speed, 125 to 400% in
-      steps of 25, default 400%). Joey to say if it should be somewhere easier to find.
+- [ ] D6 Fast-forward speed, approved 2026-11-11 (Joey: "looks good", scratchpad build_emuspeed.py / emuspeed_mock.png):
+      Settings › Emulation gets a Speed group, the same settings as Controls › Hotkeys' popups (one setting, two
+      places): Fast-forward speed (◀▶) and mode, Slow motion speed (◀▶) and mode, Rewind, Rewind: how far back;
+      Thermal fallback moves from Advanced into Speed. Same for every game: greyed "Same for every game" with a
+      game picked. Hotkeys' panel shows each hotkey's button, mode and speed too. To build.
+      Expansion Pak under All games (Joey: "yes on"): the greyed row reads On, and the panel says "On for every
+      game. To turn it off for one game, pick that game in the chip above." (was "Set for one game"). To build.
 - [ ] D7 Unhiding a game: already there (Settings › Library › Hidden games). Joey to say if the library
       needs its own way (a Show hidden filter, say).
 

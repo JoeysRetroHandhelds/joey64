@@ -7,7 +7,7 @@
 // app (version), state (a RetroArch state file, RZIP: the app wraps the ring's raw M64+SAVE data with StateFormat.wrap,
 // java.util.zip only; Frontend 2026-11-12) and optionally save (the game's .srm, gzipped).
 // Answers: 204 stored; 400 a bad field; 404 the game isn't wanted (don't send again); 410 we have enough of it (don't
-// send again); 413 too big; 429 with Retry-After (seconds) when a limit is reached; 503 the wanted list didn't load.
+// send again; the app tells them apart by the body "not wanted", so keep it); 413 too big; 429 with Retry-After (seconds) when a limit is reached; 503 the wanted list didn't load.
 import { blockOf, limiterKeyOf, scramble } from "./address.js";
 import { today } from "./store.js";
 

@@ -87,9 +87,16 @@ test("bad fields are refused and store nothing", async () => {
 
 test("a game not on the wanted list gets 404, a game with enough 410", async () => {
   const e = env();
-  assert.equal((await worker.fetch(post(good({ md5: "f".repeat(32) })), e)).status, 404);
+  // The app stops asking only on a 404 whose body starts "not wanted" (any other 404, such as a route the live
+  // server doesn't have yet, is retried): keep these bodies as they are (Frontend 2026-11-12).
+  const nw = await worker.fetch(post(good({ md5: "f".repeat(32) })), e);
+  assert.equal(nw.status, 404);
+  assert.ok((await nw.text()).startsWith("not wanted"));
   for (let i = 0; i < 3; i++) assert.equal((await worker.fetch(post(good(), "10.0." + i + ".1"), e)).status, 204);
-  assert.equal((await worker.fetch(post(good(), "10.9.9.9"), e)).status, 410);
+  const full = await worker.fetch(post(good(), "10.9.9.9"), e);
+  assert.equal(full.status, 410);
+  assert.equal(await full.text(), "have enough");
+  assert.notEqual(await (await worker.fetch(new Request("https://x/v1/nothing", { method: "POST" }), env())).status, 204);
   assert.equal(DEFAULT_ENOUGH > 3, true);
 });
 

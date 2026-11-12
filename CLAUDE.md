@@ -3,6 +3,8 @@
 Joey64: standalone Android N64 emulator for handhelds (Retroid, Odin, AYN, Anbernic), hosting the
 mupen64plus-next libretro core from a Kotlin app with a C++ libretro frontend.
 
+**Work queue and internal notes: the private repo JoeysRetroHandhelds/joey64-notes** (local `C:\GithubProjects\joey64-notes`, moved 2026-11-12, Joey: "clean up the public facing readmes"). `queue.md` there is the old README queue: "README item N", "README work order (N)" and "README T9" in code, commits, gamedb evidence and below all mean it. Its `docs/` has audit 3, the launcher build plan, the settings and launcher audits, the latency plan and the emulator review. Add and update queue items and internal docs there, commit and push them there (private). This repo's README.md is the public one: what Joey64 is, building, licence; never queue items, dates, device ids or run tags.
+
 ## Goals (priority order)
 1. Automatic renderer + settings per game (ROM hash) and per device (GPU vendor/driver): parallel-RDP vs GLideN64.
 2. Smooth frame pacing: Swappy, audio/video sync modes, big-core pinning, thermal fallback.

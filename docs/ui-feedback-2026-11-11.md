@@ -85,7 +85,7 @@ Controls, then Settings tabs, then popups.
 ## Added later the same day
 
 - [x] E1 Resolution's choices show their sizes and the screen each suits (Joey; 8419f38).
-- [ ] E2 Ocarina of Time on the Thor and the Odin 2 Portal: a small box glitch top left (Joey). Screenshot taken
+- [x] E2 (done on main 04d475d + 5b35552, the Joey64 perf session, 2026-11-12: the game draws the mark itself, on both renderers, at the edge a TV hid; on Joey's "Yes, OoT only" Ocarina of Time defaults to Crop edges Normal, 8 lines, when Crop edges isn't set for All games or the game, and the Video row reads "Normal (this game's default)", checked on the Odin 2 Portal. Merging phase0: keep main's GameCrop, VideoTab and CropPopups changes) Ocarina of Time on the Thor and the Odin 2 Portal: a small box glitch top left (Joey). Screenshot taken
       2026-11-11 23:00 (Thor, parallel-RDP, 0.1.0.1, a dungeon room): a teal "]" about 2 N64 pixels wide in the first
       ~3 N64 pixels of the top and left edges, the overscan border. Guess, unchecked: junk the game draws where a TV hid
       it (Crop edges would hide it). Handed to the Joey64 (perf) session for its rendering list.

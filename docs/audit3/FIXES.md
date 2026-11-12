@@ -7,7 +7,7 @@ Numbers are REPORT.md's (H/M) and the part files' (pN Lx). [ ] to do, [x] done (
 - [x] H1 data-folder move over a same-named save (p3 H1, p1 H1) (a233f71)
 - [x] H2 second game's ROM unpacked on the main thread, crash on failure (p1 H2) (8f19472)
 - [x] H3 two quick cheat changes delete the cheats file (p2 H1) (8f19472)
-- [C] H4 save states refused with an RSP task running (p6 H1): fixed by the core session on core branch audit3 61533c2 (not bundled yet; its checks run first)
+- [C] H4 save states refused with an RSP task running (p6 H1): fixed by the core session on core branch audit3 61533c2 (bundled: core rel2 c994aa7, then rel3 cd9f4a0 2026-11-12)
 - [x] H5 release builds can't reach RAOfflineProxy (p4 H1, p7 M1) (8f19472)
 - [x] H6 lobby reads unbounded lines (p3 H2) (a233f71)
 - [x] H7 room thread blocks in send() (p5 H1) (a233f71)
@@ -31,8 +31,8 @@ Numbers are REPORT.md's (H/M) and the part files' (pN Lx). [ ] to do, [x] done (
 - [x] M13 Upnp::close on the main thread (p5 M3) (a233f71)
 - [x] M14 NewStringUTF with unchecked UTF-8 (p5 M5) (8419abe)
 - [x] M15 rewind has no byte cap (p5 M6) (8419abe)
-- [C] M16 compile worker reads protected RDRAM (p6 M1): core audit3 61533c2, not bundled yet
-- [C] M17 run-ahead on async parallel-RDP (p6 M2, dev switch): core audit3 61533c2, not bundled yet
+- [C] M16 compile worker reads protected RDRAM (p6 M1): core audit3 61533c2, bundled (rel2, rel3)
+- [C] M17 run-ahead on async parallel-RDP (p6 M2, dev switch): core audit3 61533c2, bundled (rel2, rel3)
 - [x] M18 whole-ROM MD5 on the main thread (p1 M1) (8419abe)
 - [x] M19 SAF cheats read on the main thread (p1 M3) (8419abe)
 - [x] M20 own image copied on the main thread, same-name replace (p2 M6) (8419abe)
@@ -109,7 +109,7 @@ Part 5
 - [x] p5 L5 failed GLES loadGame leaks the context (a233f71)
 - [x] p5 L6 32-bit size checks (8419abe)
 - [x] p5 L7 wrong pollfd after a removal (a233f71)
-Part 6: [C] L1-L7: core audit3 61533c2, not bundled yet
+Part 6: [C] L1-L7: core audit3 61533c2, bundled (rel2, rel3). Part 6b L1-L5: core 1367fb5 (audit6b-fixes 0707895), bundled in rel3 cd9f4a0 2026-11-12
 Part 7
 - [x] p7 L1 release check that core and drivers exist and match (8419abe)
 - [x] p7 L2 driver names hard-coded, meta.json stale (8419abe)

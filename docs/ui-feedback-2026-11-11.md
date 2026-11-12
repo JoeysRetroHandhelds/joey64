@@ -408,7 +408,11 @@ viewer, the tile's Start popup and Delete, using a copied picture that the page'
 Seen, for Joey:
 
 - A greyed row takes focus in some places (options › Screenshots "None", Saves' Back up now / Restore / Delete with
-  no save) while options › Netplay "1 player only" is skipped.
+  no save) while options › Netplay "1 player only" is skipped. Joey: "Focus them everywhere". Every greyed JoeyRow
+  already was a focus stop; the Thor showed Netplay "1 player only" takes focus too (the sweep's note was a miscounted
+  Down). The one greyed item focus skipped was the pause menu's Save state picker's dimmed Auto: now a focus stop, A
+  does nothing, the title line says "Auto · Quitting saves here" and the hints drop A (95c0eaa). Seen on the Thor
+  (p20, p21-a07fb764) in Duke Nukem 64; the app's data was backed up first and put back after (md5s match).
 - B on a new blank macro keeps an empty Macro 1. Joey: "Drop empty macros": done (`Macro.blank`: no Button and no
   step that presses something); seen on the Thor (p19-95879bec): Add a macro, B, the list is empty again with focus
   on Add a macro and the row says None.

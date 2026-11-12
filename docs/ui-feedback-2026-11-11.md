@@ -267,3 +267,6 @@ Ninth round (02:25-03:10 CST, APKs ob-0afb465d, oh-e37a843e, oi-972af808):
   with a copied picture, removed after).
 - Seen: a hack with no cheat lists (Sands of Time) opens Cheats with focus on the bar and "No cheats for this game
   yet" at the bottom of the page; B still goes back to the options.
+- A8, closed back where they were opened: Settings › Appearance › Theme's choices (▶, then B: back on Theme, nothing
+  picked); Settings › Library › Sort by's popup (back on Sort by); B on a Settings row goes to the bar, B there to the
+  library on the tile last played from.

@@ -274,7 +274,7 @@ Ninth round (02:25-03:10 CST, APKs ob-0afb465d, oh-e37a843e, oi-972af808):
 Joey's answers to the morning report (2026-11-12, asked one by one):
 
 - [x] F1 The game screen opens and closes without Android's slide (dad49db): keep it.
-- [ ] F2 One shared popup window for every popup, so a popup over a popup keeps one dim and never flashes: build in
+- [x] F2 One shared popup window for every popup, so a popup over a popup keeps one dim and never flashes: build in
   steps, each Thor-checked.
   Joey 2026-11-12 (after asking if it's a guideline: it isn't; Material Design 2 lets other dialogs appear only over
   full-screen dialogs): shared window for swaps + an audit of every card opened over another card, each with a
@@ -314,7 +314,7 @@ Joey's answers to the morning report (2026-11-12, asked one by one):
   then Video › Colour's card over it (its own window above the page, the menu's window gone), B back on Colour;
   PROBLEM nospace taking the menu's place in the same window (d7182ae both times), OK back to the game; PROBLEM
   disconnect then back (card up, then gone with its window, game running); the Picture panel beside the game, Your
-  own's card in its place and B back on Your own. Not checked there: the netplay cards (they need a room).
+  own's card in its place and B back on Your own. The netplay cards through new debug triggers (PROBLEM net-paused | net-outofstep | net-left, no room needed): Player 2 paused, B swapping to the menu in the same window (35da926); out of step over the menu, same window, Keep playing back to the game; Sam left, B does nothing, Carry on back to the game.
 - [x] F3 A clean quit clears only its own game's recovery state (b3a5d04: `files/recovery/games/<save name>/`; Thor 2026-11-12: the old OoT state moved in unchanged, b099ac2d / f4823052, the popup still offers it; compat_53 got its own after 2 min and quitting it removed only that one; OoT's Saves page still lists Recovery).
 - [x] F4 Send reports' line with only the day known: "Last sent today" / "Last sent Nov 11", not "Nothing sent yet" (627c875, `ReportPrefs.sentDayLabel`, ReportsTest; Thor 2026-11-12: sent_day today with no sent_at, Send now reads "Last sent today").
 - [x] F5 With focus on a tab row or the top bar the panel shows that tab's or place's own help, as Controls' tab row does (`LocalPanelHelp`; Thor 2026-11-12: Settings' tab row follows the focused tab, the bar shows Settings / Controls help, Down brings the tab's and then the row's help back; Game settings' Video / Emulation tabs).

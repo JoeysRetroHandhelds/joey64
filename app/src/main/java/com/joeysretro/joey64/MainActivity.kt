@@ -3183,7 +3183,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         }
         // Approved problem screens (2026-11-08), checks without pulling a controller or filling the disk:
         // adb shell am broadcast -a com.joeysretro.joey64.PROBLEM --es what disconnect [--ei player 1] [--es name "8BitDo Pro 2"]
-        //   (the player's controller went), back (it came back), nospace | nospace-shot | nospace-save (a full disk: 1 MB free).
+        //   (the player's controller went), back (it came back), nospace | nospace-shot | nospace-save (a full disk: 1 MB free),
+        //   net-paused | net-outofstep | net-left [--es name Sam] (the netplay cards, no room needed).
         debugProblem = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, i: Intent) {
                 JLog.i(TAG, "debug PROBLEM: ${i.getStringExtra("what")}")
@@ -3200,6 +3201,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
                     "nospace" -> noSpace(com.joeysretro.joey64.saves.NoSpace.What.State, 4 * mb, slotName(currentSlot()), devFree = mb)
                     "nospace-shot" -> noSpace(com.joeysretro.joey64.saves.NoSpace.What.Screenshot, 900 * 1024L, devFree = mb / 2)
                     "nospace-save" -> noSpace(com.joeysretro.joey64.saves.NoSpace.What.GameSave, 290 * 1024L, devFree = 100 * 1024L)
+                    // The netplay cards without a room (F2 step 2 checks): another player's menu is open, the games are
+                    // out of step, a player left. Their room-only buttons (Leave) quit to the library as in a room.
+                    "net-paused" -> overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.NetPaused(2, i.getStringExtra("name") ?: "Sam")
+                    "net-outofstep" -> { if (!menuOpen) openMenu(); overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.NetOutOfStep(true) }
+                    "net-left" -> { if (!menuOpen) openMenu(); overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.NetLeft(2, i.getStringExtra("name") ?: "Sam") }
                 }
             }
         }

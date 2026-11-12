@@ -54,14 +54,16 @@ fun WhatsSentPopup(onDismiss: () -> Unit) = TextBoxPopup("What's sent", null, WH
 @Composable
 fun SendReportsPopup(on: Boolean, onDismiss: () -> Unit, onSet: (Boolean) -> Unit, onResetId: () -> Unit) {
     var whatsSent by remember { mutableStateOf(false) }
+    // B on What's sent comes back to its row (A8 2026-11-12; it landed on On).
+    var fromSent by remember { mutableStateOf(false) }
     var reset by remember { mutableStateOf(false) }
-    if (whatsSent) { WhatsSentPopup { whatsSent = false }; return }
+    if (whatsSent) { WhatsSentPopup { whatsSent = false; fromSent = true }; return }
     JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 470.dp) {
         Column {
             PopupTitle("Send reports", "Helps find the best driver and settings for each device, the games that need box art, and crashes to fix.")
-            JoeyRow("Off", Modifier.initialFocus(!on), detail = "Joey64 sends nothing",
+            JoeyRow("Off", Modifier.initialFocus(!fromSent && !on), detail = "Joey64 sends nothing",
                 trailing = if (!on) { _ -> PickerTick() } else null) { onSet(false) }
-            JoeyRow("On", Modifier.initialFocus(on), detail = "At most once a day, when the library opens",
+            JoeyRow("On", Modifier.initialFocus(!fromSent && on), detail = "At most once a day, when the library opens",
                 trailing = if (on) { _ -> PickerTick() } else null) { onSet(true) }
             // Send now (approved feedback1 screen 7): what's waiting goes at once, even if a report already went today.
             val ctx = androidx.compose.ui.platform.LocalContext.current
@@ -89,7 +91,7 @@ fun SendReportsPopup(on: Boolean, onDismiss: () -> Unit, onSet: (Boolean) -> Uni
                 }
             }
             PopupDivider()
-            JoeyOption("What's sent", value = "›") { whatsSent = true }
+            JoeyOption("What's sent", Modifier.initialFocus(fromSent), value = "›") { whatsSent = true }
             JoeyRow("Report ID", value = if (reset) "New ID made" else "Reset  ›", detail = "A random number, not tied to you or this device") {
                 onResetId(); reset = true
             }
@@ -101,16 +103,17 @@ fun SendReportsPopup(on: Boolean, onDismiss: () -> Unit, onSet: (Boolean) -> Uni
 @Composable
 fun AskReportsPopup(onAnswer: (Boolean) -> Unit) {
     var whatsSent by remember { mutableStateOf(false) }
-    if (whatsSent) { WhatsSentPopup { whatsSent = false }; return }
+    var fromSent by remember { mutableStateOf(false) }
+    if (whatsSent) { WhatsSentPopup { whatsSent = false; fromSent = true }; return }
     JoeyDialog(onDismiss = { onAnswer(false) }, hints = listOf(Hint("A", "Select"), Hint("B", "No thanks")), width = 470.dp) {
         Column {
             PopupTitle("Help make Joey64 better?")
             PromptText(AnnotatedString("Send reports on how games run on this device, games without box art, and crashes? " +
                 "Nothing about you, and you can turn it off any time in Settings › About."))
             JoeyOption("Send reports") { onAnswer(true) }
-            JoeyOption("No thanks", modifier = Modifier.initialFocus()) { onAnswer(false) }
+            JoeyOption("No thanks", modifier = Modifier.initialFocus(!fromSent)) { onAnswer(false) }
             PopupDivider()
-            JoeyOption("What's sent", value = "›") { whatsSent = true }
+            JoeyOption("What's sent", Modifier.initialFocus(fromSent), value = "›") { whatsSent = true }
         }
     }
 }

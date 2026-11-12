@@ -138,6 +138,10 @@ fun ossText(context: Context, entry: OssEntry): String = entry.files.joinToStrin
 @Composable
 fun OssListPopup(onDismiss: () -> Unit) {
     var reading by remember { mutableStateOf<OssEntry?>(null) }
+    // The text takes the list's place (one card at a time, F2) and B comes back to the entry read (A8 2026-11-12:
+    // it opened over the list, and B landed on the first entry).
+    var lastRead by remember { mutableStateOf<OssEntry?>(null) }
+    reading?.let { LicenceTextPopup(it) { lastRead = it; reading = null }; return }
     JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Read licence"), Hint("D-pad", "Move"), Hint("B", "Close")), width = 600.dp) {
         Column {
             PopupTitle("Open-source licences", "Select one to read its licence text and copyright notice.")
@@ -146,7 +150,7 @@ fun OssListPopup(onDismiss: () -> Unit) {
             fun group(g: String) {
                 SectionLabel(g)
                 for (e in groups[g].orEmpty()) {
-                    JoeyRow(e.name, Modifier.initialFocus(e === OSS_ENTRIES.first()), value = e.licence, detail = e.note,
+                    JoeyRow(e.name, Modifier.initialFocus(e === (lastRead ?: OSS_ENTRIES.first())), value = e.licence, detail = e.note,
                         sideways = true) { reading = e }
                 }
             }
@@ -154,7 +158,6 @@ fun OssListPopup(onDismiss: () -> Unit) {
                 left = { group("Emulator") }) { group("App"); group("Data") }
         }
     }
-    reading?.let { LicenceTextPopup(it) { reading = null } }
 }
 
 /** One licence: the notice and licence text in a box the D-pad scrolls (approved mockup). */

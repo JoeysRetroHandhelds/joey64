@@ -176,9 +176,10 @@ fun SavesTab(onHints: (List<Hint>) -> Unit, onImport: () -> Unit, modifier: Modi
             sub = "When a game has a quit save, Play:") { set(o.copy(continueOnPlay = ContinueOnPlay.entries[it])); popup = null }
         "keep" -> ChoiceList("Quit saves to keep", SavesOptions.QUIT_SAVES.map { Triple("$it", if (it == 1) "Each quit replaces the last" else null, it == o.quitSaves) }, close,
             sub = "Each quit keeps the ones before, newest first. Continue loads the newest.") { set(o.copy(quitSaves = SavesOptions.QUIT_SAVES[it])); popup = null }
-        "bk" -> BackupsPopup(o, close, { set(o.copy(backups = it)); popup = null }) { popup = "bkkeep" }
-        "bkkeep" -> ChoiceList("Copies to keep", SavesOptions.BACKUPS_KEEP.map { Triple("$it", null, it == o.backupsKeep) }, { popup = "bk" },
-            sub = "Per game, oldest removed first.") { set(o.copy(backupsKeep = SavesOptions.BACKUPS_KEEP[it])); popup = "bk" }
+        // Copies to keep's B or pick comes back to its row ("bkback", A8 2026-11-12; it landed on On start).
+        "bk", "bkback" -> BackupsPopup(o, popup == "bkback", close, { set(o.copy(backups = it)); popup = null }) { popup = "bkkeep" }
+        "bkkeep" -> ChoiceList("Copies to keep", SavesOptions.BACKUPS_KEEP.map { Triple("$it", null, it == o.backupsKeep) }, { popup = "bkback" },
+            sub = "Per game, oldest removed first.") { set(o.copy(backupsKeep = SavesOptions.BACKUPS_KEEP[it])); popup = "bkback" }
         "rec" -> ChoiceList("Recovery state", SavesOptions.RECOVERY_MINUTES.map { Triple(recoveryLabel(it), null, it == o.recoveryMinutes) }, close,
             sub = "Saved every few minutes while you play, and offered if Joey64 closes by itself.") { set(o.copy(recoveryMinutes = SavesOptions.RECOVERY_MINUTES[it])); popup = null }
         "backup" -> ChoiceList("Back up Joey64", BackupChoice.entries.map { Triple(it.label, it.detail, false) }, close,
@@ -255,14 +256,14 @@ private fun describe(row: String, o: SavesOptions): Pair<String, String> = when 
 
 /** Back up saves (mockup screen 6): On start, Daily, Off, then Copies to keep. */
 @Composable
-private fun BackupsPopup(o: SavesOptions, onDismiss: () -> Unit, onPick: (BackupWhen) -> Unit, onKeep: () -> Unit) {
+private fun BackupsPopup(o: SavesOptions, fromKeep: Boolean, onDismiss: () -> Unit, onPick: (BackupWhen) -> Unit, onKeep: () -> Unit) {
     JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 470.dp) {
         Column {
             PopupTitle("Back up saves", "Copies of each game's in-game save into backups/.")
-            for (w in BackupWhen.entries) JoeyRow(w.label, Modifier.initialFocus(w == o.backups), detail = w.detail.ifEmpty { null },
+            for (w in BackupWhen.entries) JoeyRow(w.label, Modifier.initialFocus(!fromKeep && w == o.backups), detail = w.detail.ifEmpty { null },
                 trailing = if (w == o.backups) { _ -> PickerTick() } else null) { onPick(w) }
             PopupDivider()
-            JoeyRow("Copies to keep", value = "${o.backupsKeep}  ›", detail = "Per game, oldest removed first", onClick = onKeep)
+            JoeyRow("Copies to keep", Modifier.initialFocus(fromKeep), value = "${o.backupsKeep}  ›", detail = "Per game, oldest removed first", onClick = onKeep)
         }
     }
 }

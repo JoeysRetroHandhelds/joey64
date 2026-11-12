@@ -108,7 +108,12 @@ fun RaTab(onHints: (List<Hint>) -> Unit, modifier: Modifier = Modifier) {
     val landing = com.joeysretro.joey64.launcher.components.LocalFocusLanding.current
     // Signed in from the popup: it closes by itself. Signed in or out, the button or rows that had
     // focus are gone, so focus lands on the new screen's first stop (not the rail).
-    LaunchedEffect(signedIn) { if (signedIn) signingIn = false; landing?.arm() }
+    // Only on a change, not when the tab opens (A8 2026-11-12: A on the tab dropped focus into the list).
+    val wasSignedIn = remember { mutableStateOf(signedIn) }
+    LaunchedEffect(signedIn) {
+        if (signedIn) signingIn = false
+        if (signedIn != wasSignedIn.value) { wasSignedIn.value = signedIn; landing?.arm() }
+    }
 
     if (account == null) SignedOut(onHints, modifier) { signingIn = true }
     else SignedIn(account!!, onHints, modifier)

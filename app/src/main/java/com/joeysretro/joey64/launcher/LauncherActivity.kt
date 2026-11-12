@@ -185,6 +185,8 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
     val scope = rememberCoroutineScope()
     val s = settings
     JoeyTheme(s?.theme ?: com.joeysretro.joey64.launcher.theme.ThemeChoice.Dark) {
+    // A long press on a page's row offers its key-only actions (review sheet M30).
+    com.joeysretro.joey64.launcher.components.ProvidePageRowActions {
         val landing = remember { FocusLanding() }
         // A controller screen first: focus shows at once, even after a tap opened the app.
         val inputMode = LocalInputModeManager.current
@@ -309,6 +311,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             if (home) com.joeysretro.joey64.launcher.screens.NetplayRoomPopups(model)
         }
         } } }
+    }
     }
 }
 

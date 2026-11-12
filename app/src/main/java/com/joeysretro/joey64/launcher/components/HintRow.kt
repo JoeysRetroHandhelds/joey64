@@ -45,6 +45,7 @@ data class Hint(val key: String, val action: String)
  */
 @Composable
 fun HintRow(hints: List<Hint>, modifier: Modifier = Modifier, end: String? = null) {
+    ReportPageHints(hints) // a page's long press offers its X / Y / Start (review sheet M30)
     // A TV remote has OK and Back, not a controller's buttons (approved Android TV mockup 2026-11-09, screen 4).
     val hints = if (com.joeysretro.joey64.launcher.layout.RemoteKeys.active) com.joeysretro.joey64.launcher.layout.RemoteKeys.hints(hints) else hints
     val c = JoeyTheme.colors

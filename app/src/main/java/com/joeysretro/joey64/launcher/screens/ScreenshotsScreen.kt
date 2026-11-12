@@ -128,12 +128,13 @@ fun ScreenshotsScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onClose: () -
     val now = System.currentTimeMillis()
     Column(Modifier.fillMaxSize().padding(horizontal = s.margin).padding(top = 14.dp, bottom = 8.dp)) {
         PageHeader("Screenshots") { InfoChip("${g.game.title} · ${l?.size ?: 0}", R.drawable.ic_camera) }
-        Spacer(Modifier.height(12.dp))
         if (l == null || l.isEmpty()) return@Column
         // As many across as fit, like the covers: tiles at least 180 dp wide.
         // Each picture's size in pixels, read with its tile: the description line shows it once it's in.
         val sizes = remember { androidx.compose.runtime.mutableStateMapOf<String, Pair<Int, Int>>() }
+        // Room round the tiles for the focused one's outline and grow (it was cut at the top and covered the date).
         LazyVerticalGrid(GridCells.Adaptive(180.dp), Modifier.weight(1f).fillMaxWidth(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             itemsIndexed(l, key = { _, it -> it.name }) { i, shot ->
                 val (source, isFocused) = rememberFocusState()
@@ -157,7 +158,7 @@ fun ScreenshotsScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onClose: () -
                         picture?.let { Image(it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
                     }
                     Text(SlotDates.withTime(shot.takenAt, now), style = JoeyTheme.type.thumbLabel, color = c.textSecondary,
-                        modifier = Modifier.padding(top = 5.dp).clearAndSetSemantics { })
+                        modifier = Modifier.padding(top = 11.dp).clearAndSetSemantics { })
                 }
             }
         }

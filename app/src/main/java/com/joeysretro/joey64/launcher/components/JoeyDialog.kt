@@ -314,12 +314,12 @@ fun JoeyDialog(
                         },
                 ) {
                     CompositionLocalProvider(LocalDialogBack provides backRegistry, LocalFocusLanding provides landing, LocalRowActions provides rowActions,
-                        LocalPopupBack provides (if (fullScreen && !bare) ({ requestClose() }) else null)) {
+                        LocalPageHints provides null, LocalPopupBack provides (if (fullScreen && !bare) ({ requestClose() }) else null)) {
                         content()
                     }
                 }
             }
-            if (!bare) HintRow(hints, end = hintEnd)
+            if (!bare) CompositionLocalProvider(LocalPageHints provides null) { HintRow(hints, end = hintEnd) }
         }
         } } }
         // Nothing marked: enter the popup at its first item. After the content, so a marked item

@@ -66,8 +66,50 @@ object RowActions {
     }
 }
 
-/** The host a [JoeyRow] long press reaches; null outside a page or popup (the library). */
+/** The host a [JoeyRow] long press reaches; null outside a page or popup. */
 val LocalRowActions = staticCompositionLocalOf<RowActionsHost?> { null }
+
+/** The page hint rows showing in the launcher's window, newest last: pages draw their own [HintRow]. */
+class PageHints internal constructor() {
+    internal val shown = mutableListOf<Array<List<Hint>>>()
+    internal fun current(): List<Hint> = shown.lastOrNull()?.get(0) ?: emptyList()
+}
+
+/** Where a page's [HintRow] reports its hints; null inside a [JoeyDialog], which hosts its own rows. */
+val LocalPageHints = staticCompositionLocalOf<PageHints?> { null }
+
+/**
+ * The host for the launcher's pages (Settings, Controls, Netplay...): the hints are the page hint row's, and a key's
+ * action goes to the page as the key itself would ([ControlBus]: X Extra, Y Search, Start Options).
+ */
+@Composable
+fun ProvidePageRowActions(content: @Composable () -> Unit) {
+    val sink = remember { PageHints() }
+    val host = rememberRowActionsHost({ sink.current() }) { key ->
+        when (key) {
+            "Start" -> com.joeysretro.joey64.launcher.controls.ControlBus.dispatch(com.joeysretro.joey64.launcher.controls.Control.Options)
+            "X" -> com.joeysretro.joey64.launcher.controls.ControlBus.dispatch(com.joeysretro.joey64.launcher.controls.Control.Extra)
+            "Y" -> com.joeysretro.joey64.launcher.controls.ControlBus.dispatch(com.joeysretro.joey64.launcher.controls.Control.Search)
+        }
+    }
+    androidx.compose.runtime.DisposableEffect(host) {
+        RowActions.push(host)
+        onDispose { RowActions.pop(host) }
+    }
+    androidx.compose.runtime.CompositionLocalProvider(LocalPageHints provides sink, LocalRowActions provides host, content = content)
+}
+
+/** A page's [HintRow] tells the page host what it shows (the newest one showing wins). */
+@Composable
+internal fun ReportPageHints(hints: List<Hint>) {
+    val sink = LocalPageHints.current ?: return
+    val slot = remember(sink) { arrayOf(hints) }
+    slot[0] = hints
+    androidx.compose.runtime.DisposableEffect(sink) {
+        sink.shown.add(slot)
+        onDispose { sink.shown.remove(slot) }
+    }
+}
 
 /** A host for a page or popup: [hints] read when a long press asks, [press] runs a key's action. */
 @Composable

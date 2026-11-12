@@ -197,8 +197,10 @@ private fun StepButton(step: Int, rowFocused: Boolean, row: FocusRequester) {
                 awaitEachGesture {
                     val down = awaitFirstDown()
                     down.consume()
+                    // The first step always goes (a quick tap lifts before the row has focus); the lift stops the repeat only.
+                    val first = scope.launch { focusRow(); send() }
                     val repeat = scope.launch {
-                        focusRow(); send()
+                        first.join()
                         kotlinx.coroutines.delay(400)
                         while (true) { send(); kotlinx.coroutines.delay(90) }
                     }
@@ -211,7 +213,7 @@ private fun StepButton(step: Int, rowFocused: Boolean, row: FocusRequester) {
                     repeat.cancel()
                 }
             }
-            .size(width = 24.dp, height = 22.dp)
+            .size(width = 24.dp, height = 18.dp) // no taller than the value, so a stepped row is as tall as the rest
             .background(if (rowFocused && !c.isDark) c.navy.copy(alpha = 0.12f) else if (c.isDark) c.border else c.chip,
                 RoundedCornerShape(5.dp)),
         contentAlignment = Alignment.Center,

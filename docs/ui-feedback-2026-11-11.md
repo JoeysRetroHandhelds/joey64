@@ -117,3 +117,27 @@ Nothing below is checked on a device; the Thor waits for Joey's OK. APK joey64-d
   (LibraryScreen, keeps the column and reaches rows not composed yet). Changing it needs the grid tried on a device first.
 - Frame waits still in: RowActions (3 frames for the hints before Hold OK's menu) and Rows' ◀ ▶ touch arrows (focus the
   row, a frame, then the key). PicturePopups' delay(350) is the RetroArch preset preview's debounce, not focus code.
+
+## Thor checks (2026-11-12, about 00:20-01:10 CST; APK 484f362a, core 42f48854 as installed)
+
+Checked on the Thor, one key per step with a screenshot after each (the OoT recovery prompt was answered Later each time):
+
+- E4 Play popup: Where you quit with its picture, SLOTS, Start fresh with the cover; the big picture follows focus; Y only on
+  Where you quit and Start fresh; B closes onto the cover. Found: the popup grew when Start fresh's two-line text showed;
+  the line keeps two lines now (4d284f0). Slot 1 has no picture because it's RetroArch's `.state` copied without a `.png`.
+- A3: R1 / L1 move along the bar and wrap (Library to Settings). A6: Achievements' filter chip first under the bar.
+- A4 + C2 (Host a room): L2 / R2 go two rows (a page less one) and back; the bottom row's names show when focused. Found:
+  the ring ran through the focused name; the name sits 8 dp under the cover now.
+- Netplay page: the "No rooms" lines started a margin left of their headings; lined up (4d284f0).
+- C3: a focused chip's ring stays off Auto map and Profiles. C4: "R stick ↑" sits above its button. C6: Hotkeys is the
+  fifth tab. Found: on Hotkeys the tabs' panel was a bare title; it has the tabs' help now.
+- D6: the Hotkeys panel shows Button, Mode and Speed for Slow motion (and Fast-forward); with a game picked every Speed row
+  reads a greyed "Same for every game"; the chip set back to All games after.
+- A5 gap found and built: L2 / R2 did nothing in Settings-type lists. ListPanel pages them now (a ControlBus pager taken
+  only while its list has focus; the focus system's own moves, no frame wait); checked on Video: down a page twice, up
+  stops on the first row, and at an end the list scrolls all the way (3bfdda1).
+- Found: the recovery popup's minutes grew with every install ("32 minutes", then "40"): it measured to the newest exit.
+  It measures to the first exit after the state now: "1 minute" (state 22:49, force stop 22:51:22) (3bfdda1).
+- Found: Settings' game chip showed the rows' hints with no A; it has "A Change, B Back" (3bfdda1).
+
+Still not device-checked: A1, A2, A7, A9, D3 (first run), D4 Send now, D5, D7 Hidden, E3, the TV paths, the B flashes, C5.

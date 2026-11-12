@@ -2513,6 +2513,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
      * (Joey 2026-11-11). From Joey64's own library the bars were already hidden, so it didn't show there.
      */
     private fun hideSystemBars() {
+        // Install the decor first: called from onCreate (before any setContentView), PhoneWindow.getInsetsController()
+        // reads a null decor and throws (crashed every game start on 6cc2c6f, Duo + Odin 2 Portal).
+        window.decorView
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.setDecorFitsSystemWindows(false)
             window.insetsController?.let {

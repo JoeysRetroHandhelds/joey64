@@ -213,3 +213,15 @@ Fifth round (01:45-01:55 CST, APK net-fc09ebed), looked at and closed, nothing s
   "Nothing sent yet" until the next report goes (tomorrow: one a day).
 - Seen: Settings' tab row doesn't wrap (Left on Appearance stays); About's panel shows Check for updates' help while
   the tab has focus; Check for updates says Couldn't check (the release check gets 404 while the repo is private).
+
+Sixth round (01:55-02:15 CST, APKs net-fc09ebed, then kb-24a4594d), looked at and closed, nothing saved:
+
+- A8, closed back where they were opened: Settings › About › Joey64 is free software (back on the row); the
+  library's Options › Details (back on Details), Options itself (back on the game); Show › New collection (back on
+  New collection). Down from the bar lands on a page's first row (Core on About), the page's normal landing.
+- Found: New collection took three B presses to close, though its hint says B Close: the keyboard (on the Thor it
+  opens full screen on the lower screen), then typing, then the popup. The keyboard hides itself on B and doesn't
+  tell the app. B is now taken before the keyboard sees it (905a4db): one B stops typing and hides the keyboard,
+  the next closes the popup; the same on Search, where the page stays put. Checked with Back and the controller's B.
+- Seen: the recovery popup came back on its own while I was testing: the screen timed out and waking it brought
+  the launcher to the front, which asks again after Later (as built). Its minutes still say 1 after a reinstall.

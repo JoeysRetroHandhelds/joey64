@@ -77,7 +77,7 @@ optional icon).
 6. **B doesn't return to where you were** (Joey on the Thor: "not correct almost every time"; A8). Needs the
    Thor to find each case.
 7. **The ‹ back arrow** in full-screen popups shows on TV too. Google: no on-screen back button on TV. It's
-   for touch and takes no focus, so hide it when there's no touchscreen (`Tv.hasTouch`).
+   for touch and takes no focus, so hide it when there's no touchscreen (`Tv.hasTouch`). Joey 2026-11-11: "Yes, hide it". To build.
 8. **Tabs inside a page use the page-level pill** (Controls' players, achievement sets, Netplay's two lists).
    Google: pill for a page's sections, the bar indicator inside content. Only matters much with top bar B.
 9. **The portrait bottom bar is icons only.** Google's drawer shows names when open; the portrait bar never

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -70,6 +71,10 @@ import com.joeysretro.joey64.launcher.ingame.SlotDates
 import com.joeysretro.joey64.launcher.theme.JoeyTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import com.joeysretro.joey64.launcher.components.ListPager
+import com.joeysretro.joey64.launcher.components.pagedItem
 import org.json.JSONObject
 import java.io.File
 
@@ -111,7 +116,7 @@ fun GameAchievementsScreen(game: AchievementsGame, onHints: (List<Hint>) -> Unit
     }
     var showing by remember { mutableStateOf(false) }
     val tabs = remember { SetTabStep() }
-    PageShell(onClose = { if (showing) showing = false else onClose() }, onTab = { tabs.step(it) })
+    PageShell(onClose = { if (showing) showing = false else onClose() }, onTab = { tabs.step(it) }, onPage = { tabs.page(it) })
     GameAchievementsContent(game.title, data, live = false, onHints = onHints, showing = showing, onShow = { showing = it }, tabs = tabs, tabHint = "Set")
 }
 
@@ -131,6 +136,8 @@ fun InGameAchievements(title: String, focusId: Int? = null, backLabel: String = 
         when (key) {
             android.view.KeyEvent.KEYCODE_BUTTON_L1 -> tabs.step(-1)
             android.view.KeyEvent.KEYCODE_BUTTON_R1 -> tabs.step(1)
+            android.view.KeyEvent.KEYCODE_BUTTON_L2 -> tabs.page(-1)
+            android.view.KeyEvent.KEYCODE_BUTTON_R2 -> tabs.page(1)
         }
     }) {
         Box(Modifier.heightIn(max = 520.dp)) {
@@ -142,21 +149,26 @@ fun InGameAchievements(title: String, focusId: Int? = null, backLabel: String = 
 
 private data class GameData(val game: RaGame?, val list: List<RaAchievement>, val keptAt: Long)
 
-/** L1/R1 from the page or the panel, to the set tabs (approved mockup 2026-11-08, subsets_mock.png). */
+/** L1/R1 from the page or the panel, to the set tabs (approved mockup 2026-11-08, subsets_mock.png); L2/R2 a page of the list. */
 private class SetTabStep {
     var onStep: ((Int) -> Unit)? = null
+    var onPage: ((Int) -> Unit)? = null
     fun step(delta: Int) { onStep?.invoke(delta) }
+    fun page(dir: Int) { onPage?.invoke(dir) }
 }
 
 /** B / Back and the launcher's buttons while a page is up (as Cheats does): the page takes them. */
 @Composable
-private fun PageShell(onClose: () -> Unit, onTab: ((Int) -> Unit)? = null) {
+private fun PageShell(onClose: () -> Unit, onTab: ((Int) -> Unit)? = null, onPage: ((Int) -> Unit)? = null) {
     BackHandler(onBack = onClose)
     DisposableEffect(Unit) {
         val handler: (Control) -> Boolean = { ctl ->
             when (ctl) {
                 Control.TabPrev -> onTab?.invoke(-1)
                 Control.TabNext -> onTab?.invoke(1)
+                // L2 / R2: a page of the list (Joey 2026-11-11: "l2/r2 should work ... to scroll").
+                Control.PagePrev -> onPage?.invoke(-1)
+                Control.PageNext -> onPage?.invoke(1)
                 else -> {}
             }
             true
@@ -177,7 +189,11 @@ private fun GamesList(onHints: (List<Hint>) -> Unit, onClose: () -> Unit, focusG
     var filter by remember { mutableStateOf(GameFilter.All) }
     var sort by remember { mutableStateOf(GameSort.RecentlyPlayed) }
     var showing by remember { mutableStateOf(false) }
-    PageShell(onClose = { if (showing) showing = false else onClose() })
+    val pager = remember { ListPager() }
+    val gamesState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    var count by remember { mutableStateOf(0) }
+    PageShell(onClose = { if (showing) showing = false else onClose() }, onPage = { dir -> scope.launch { pager.page(gamesState, dir, count) } })
     LaunchedEffect(Unit) {
         games = withContext(Dispatchers.IO) {
             val rows = RaBridge.debugCache?.map { (id, p) -> Triple(id, p.first, 0L) } ?: LibraryDb.get(context).achievementGames()
@@ -190,6 +206,7 @@ private fun GamesList(onHints: (List<Hint>) -> Unit, onClose: () -> Unit, focusG
     LaunchedEffect(onChip) { onHints(listOf(Hint("A", if (onChip) "Show" else "Open"), Hint("B", "Back"))) }
     val all = games ?: return
     val shown = remember(all, filter, sort) { RaLists.games(all, filter, sort) }
+    count = shown.size
     val now = System.currentTimeMillis()
     Column(Modifier.fillMaxSize().padding(horizontal = JoeyTheme.spacing.margin).padding(top = 14.dp, bottom = 6.dp)) {
         val a = account
@@ -202,10 +219,10 @@ private fun GamesList(onHints: (List<Hint>) -> Unit, onClose: () -> Unit, focusG
         )
         if (all.isEmpty()) Empty("Play a game that has RetroAchievements, and it shows here with your progress.", holdFocus = true)
         else if (shown.isEmpty()) Empty("No games here")
-        LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(top = 8.dp)) {
-            items(shown, key = { it.gameId }) { g ->
+        LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(top = 8.dp), state = gamesState) {
+            itemsIndexed(shown, key = { _, g -> g.gameId }) { i, g ->
                 val first = if (focusGame != null && shown.any { it.gameId == focusGame }) g.gameId == focusGame else g === shown.first()
-                IconRow(g.title, RaLists.gameLine(g), Modifier.initialFocus(first), bar = g.fraction,
+                IconRow(g.title, RaLists.gameLine(g), Modifier.initialFocus(first).pagedItem(pager, i), bar = g.fraction,
                     rightText = if (g.mastered) gold("Mastered") else if (g.lastPlayed > 0) AnnotatedString(SlotDates.label(g.lastPlayed, now)) else null,
                     picture = { Picture(badgeFile(g.badge), 40.dp) }) { onOpen(AchievementsGame(g.gameId, g.title)) }
             }
@@ -236,12 +253,13 @@ private fun GameAchievementsContent(
     val setIdx = if (setPicked in sets.indices) setPicked
         else focusId?.let { id -> data?.list?.firstOrNull { it.id == id } }?.let { a -> sets.indexOfFirst { it.id == a.set } }?.takeIf { it >= 0 } ?: 0
     val landing = LocalFocusLanding.current
-    var tabChanged by remember { mutableStateOf(0) }
-    tabs?.onStep = { delta -> if (tabbed) { setPicked = (setIdx + delta + sets.size) % sets.size; tabChanged++ } }
-    // A new tab: focus lands on its first row, as when the page opens.
     // The set tabs have focus (Joey 2026-11-09, D-pad tabs): a set opened there keeps focus on the row.
     var onTabs by remember { mutableStateOf(false) }
-    LaunchedEffect(tabChanged) { if (tabChanged > 0 && !onTabs) landing?.arm() }
+    // A new tab: focus lands on its first row, as when the page opens. Armed in the event that changes the tab
+    // (JoeyOS docs/input-rewrite.md): it was armed from an effect a frame later, and for that frame the old rows were
+    // gone and focus fell out of the page to the rail (Joey 2026-11-11: "l1/r1 on achievements page jumps to the rail").
+    fun pickSet(i: Int) { setPicked = i; if (!onTabs) landing?.arm() }
+    tabs?.onStep = { delta -> if (tabbed) pickSet((setIdx + delta + sets.size) % sets.size) }
     LaunchedEffect(onChip, tabbed, onTabs) {
         onHints(listOfNotNull(if (onChip) Hint("A", "Show") else if (onTabs) Hint("A", "Open") else null,
             if (tabbed) Hint("L/R", tabHint) else null, Hint("B", "Back")))
@@ -253,6 +271,9 @@ private fun GameAchievementsContent(
     val shown = remember(inSet, filter, sort) { RaLists.achievements(inSet, filter, sort, live) }
     val now = System.currentTimeMillis()
     val listState = rememberLazyListState()
+    val pager = remember { ListPager() }
+    val scope = rememberCoroutineScope()
+    tabs?.onPage = { dir -> scope.launch { pager.page(listState, dir, shown.size) } }
     Column((if (inPanel) Modifier.fillMaxWidth() else Modifier.fillMaxSize().padding(horizontal = JoeyTheme.spacing.margin).padding(top = 14.dp, bottom = 6.dp))) {
         Header(
             title = g?.title?.ifEmpty { null } ?: title,
@@ -266,7 +287,7 @@ private fun GameAchievementsContent(
             // In game, a dot on a set with an active challenge, so it isn't missed on another tab.
             dots = if (!live) emptySet() else sets.indices.filter { i -> d.list.any { it.set == sets[i].id && it.section == RaAchievement.ACTIVE_CHALLENGE } }.toSet(),
             onFocused = { onTabs = it },
-        ) { setPicked = it; tabChanged++ }
+        ) { pickSet(it) }
         if (g == null) Empty(if (live) "This game has no RetroAchievements set, or it wasn't found." else "Play this game once, and its achievements show here.", holdFocus = true)
         else if (!live && d.list.any { !it.isUnlocked && it.progress.isNotEmpty() })
             Text("Progress from the last time you played, ${SlotDates.label(d.keptAt, now)}", style = JoeyTheme.type.small, color = c.textDim,
@@ -277,9 +298,9 @@ private fun GameAchievementsContent(
             if (i > 0) listState.scrollToItem(maxOf(0, i - 2))
         }
         LazyColumn(Modifier.then(if (inPanel) Modifier.fillMaxWidth() else Modifier.weight(1f).fillMaxWidth()).padding(top = 6.dp), state = listState) {
-            items(shown, key = { it.id }) { a ->
+            itemsIndexed(shown, key = { _, a -> a.id }) { i, a ->
                 val first = if (focusId != null && shown.any { it.id == focusId }) a.id == focusId else a === shown.first()
-                AchievementRow(a, now, live, Modifier.initialFocus(first))
+                AchievementRow(a, now, live, Modifier.initialFocus(first).pagedItem(pager, i))
             }
         }
     }

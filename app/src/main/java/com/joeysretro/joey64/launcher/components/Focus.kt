@@ -204,6 +204,37 @@ fun Modifier.revealWholeOnFocus(): Modifier = composed {
         .onFocusChanged { if (it.hasFocus) scope.launch { requester.bringIntoView() } }
 }
 
+/**
+ * L2 / R2 in a long lazy list (Joey 2026-11-11: "l2/r2 should work ... to scroll"): focus moves a page's worth of rows
+ * and the list follows. The JoeyOS way: the row a page away is marked and armed, the list scrolls to it if it isn't
+ * composed, and the row asks for focus itself once it is ([landFocus]); no frame waits. Each row carries
+ * [pagedItem] with its index; the page calls [page] from its PagePrev / PageNext control.
+ */
+@Stable
+class ListPager {
+    internal var focused = -1
+    internal val landing = FocusLanding(armed = false)
+    internal var target by mutableIntStateOf(-1)
+
+    /** [dir] -1 a page up, 1 a page down, in a list of [count] rows shown by [state]. False when it didn't move. */
+    suspend fun page(state: androidx.compose.foundation.lazy.LazyListState, dir: Int, count: Int): Boolean {
+        val from = focused
+        if (from !in 0 until count || landing.pending) return false
+        val per = maxOf(1, state.layoutInfo.visibleItemsInfo.size - 1)
+        val to = (from + dir * per).coerceIn(0, count - 1)
+        if (to == from) return false
+        target = to
+        landing.arm()
+        if (state.layoutInfo.visibleItemsInfo.none { it.index == to }) state.scrollToItem(if (dir < 0) to else maxOf(0, to - per + 1))
+        return true
+    }
+}
+
+/** A row of a [ListPager]'s list: [index] is its place in the list. */
+fun Modifier.pagedItem(pager: ListPager, index: Int): Modifier = composed {
+    this.onFocusChanged { if (it.hasFocus) pager.focused = index }.landFocus(pager.landing, pager.target == index)
+}
+
 /** On a page (not in a popup window) a field being typed in takes Back first. */
 @Composable
 internal fun TypingBackHandler(typing: Boolean, inDialog: Boolean, stop: () -> Unit) {

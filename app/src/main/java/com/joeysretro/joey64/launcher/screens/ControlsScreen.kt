@@ -809,7 +809,14 @@ private fun HotkeysPage(editor: ControlsEditor, version: Int, focused: String, h
             "Hold it with another button for a hotkey. Pressed alone it does nothing in the game while it's the hotkey button.",
             lines = listOf("Now" to hotkeyKey(h.button)))
         else HotkeyAction.entries.firstOrNull { "hk" + it.name == focused }?.let { a ->
-            com.joeysretro.joey64.launcher.components.PanelInfo(a.label, hotkeyDescription(a) ?: "", lines = listOf("Button" to hotkeyValue(h, a)))
+            com.joeysretro.joey64.launcher.components.PanelInfo(a.label, hotkeyDescription(a) ?: "", lines = listOf("Button" to hotkeyValue(h, a)) + when (a) {
+                // D6 (approved 2026-11-11): the panel shows each speed hotkey's mode and speed too.
+                HotkeyAction.FastForward -> listOf("Mode" to h.ffMode.label, "Speed" to "${h.ffSpeed}%")
+                HotkeyAction.SlowMotion -> listOf("Mode" to h.slowMode.label, "Speed" to "${h.slowSpeed}%")
+                HotkeyAction.Rewind -> listOf("Rewind" to (if (h.rewindOn) "On" else "Off"),
+                    "How far back" to Hotkeys.rewindSecondsLabel(h.rewindSeconds))
+                else -> emptyList()
+            })
         } ?: com.joeysretro.joey64.launcher.components.PanelInfo("Hotkeys", "")
     com.joeysretro.joey64.launcher.components.ListPanel(hkPanel, hkInfo, hints, onHints, Modifier.weight(1f)) {
             SectionLabel("Hotkey button")

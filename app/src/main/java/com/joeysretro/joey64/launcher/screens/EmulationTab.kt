@@ -163,16 +163,16 @@ fun EmulationTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((C
         })
         SectionLabel("Speed")
         val h = hk
-        StepRow("Fast-forward speed", "${h.ffSpeed}%", com.joeysretro.joey64.controls.Hotkeys.FF_SPEEDS, h.ffSpeed, focused == SPEED_FF,
+        StepRow("Fast-forward speed", if (game) SAME else "${h.ffSpeed}%", com.joeysretro.joey64.controls.Hotkeys.FF_SPEEDS, h.ffSpeed, focused == SPEED_FF,
             first = focused == SPEED_FF, enabled = !game, onFocused = { if (it) focused = SPEED_FF }) { v -> setHk { it.copy(ffSpeed = v) } }
-        speedRow(SPEED_FF_MODE, "Fast-forward mode", h.ffMode.label + "  ›")
-        StepRow("Slow motion speed", "${h.slowSpeed}%", com.joeysretro.joey64.controls.Hotkeys.SLOW_SPEEDS, h.slowSpeed, focused == SPEED_SLOW,
+        speedRow(SPEED_FF_MODE, "Fast-forward mode", if (game) SAME else h.ffMode.label + "  ›")
+        StepRow("Slow motion speed", if (game) SAME else "${h.slowSpeed}%", com.joeysretro.joey64.controls.Hotkeys.SLOW_SPEEDS, h.slowSpeed, focused == SPEED_SLOW,
             first = focused == SPEED_SLOW, enabled = !game, onFocused = { if (it) focused = SPEED_SLOW }) { v -> setHk { it.copy(slowSpeed = v) } }
-        speedRow(SPEED_SLOW_MODE, "Slow motion mode", h.slowMode.label + "  ›")
-        speedRow(SPEED_RW, "Rewind", if (h.rewindOn) "On" else "Off")
-        speedRow(SPEED_RW_BACK, "Rewind: how far back", com.joeysretro.joey64.controls.Hotkeys.rewindSecondsLabel(h.rewindSeconds) + "  ›")
+        speedRow(SPEED_SLOW_MODE, "Slow motion mode", if (game) SAME else h.slowMode.label + "  ›")
+        speedRow(SPEED_RW, "Rewind", if (game) SAME else if (h.rewindOn) "On" else "Off")
+        speedRow(SPEED_RW_BACK, "Rewind: how far back", com.joeysretro.joey64.controls.Hotkeys.rewindSecondsLabel(h.rewindSeconds).let { if (game) SAME else "$it  ›" })
         // Thermal fallback moved here from Advanced: it only changes the fast-forward speed (emuspeed_mock screen 4).
-        row(EmuKey.Thermal, "Thermal fallback", if (game) "Same for every game" else EmuChoices.label(EmuKey.Thermal, e[EmuKey.Thermal]))
+        row(EmuKey.Thermal, "Thermal fallback", if (game) SAME else EmuChoices.label(EmuKey.Thermal, e[EmuKey.Thermal]))
         SectionLabel("Advanced")
         row(EmuKey.Overclock, "Overclock")
         row(EmuKey.CpuCore, "CPU core")
@@ -196,6 +196,8 @@ fun EmulationTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((C
     }
 }
 
+/** D6: the Speed group with a game picked (these are set once for every game). */
+private const val SAME = "Same for every game"
 private const val SPEED_FF = "speed_ff"
 private const val SPEED_FF_MODE = "speed_ff_mode"
 private const val SPEED_SLOW = "speed_slow"

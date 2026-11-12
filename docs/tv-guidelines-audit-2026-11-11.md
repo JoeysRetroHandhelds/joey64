@@ -31,6 +31,12 @@ optional icon).
   under it. A page's own tabs (Settings, Controls' players, a game's achievement sets) are reached with the
   D-pad only. Where the bar isn't on screen (popups, the pause menu's pages, the picture viewer) L1/R1 keep
   their own job (my reading, to confirm on the device). The library's L1/R1 for views is dropped.
+- Back (Joey 2026-11-11, "Yes, that order"): in a popup, B closes it onto the row it came from; on a page
+  opened from a game's options (Cheats, Saves, Screenshots, Game settings, its Achievements), B goes back to
+  the Library on that game's cover; on any page's content, B scrolls to the top and focuses that page's tab in
+  the bar; on the bar, B on Library leaves Joey64 without asking, on any other place it opens the Library with
+  focus still on the bar. Search: the first B clears the words. Netplay room: B leaves it, the host is asked
+  first with Cancel focused. In game nothing changes. This settles failures 1 and 2 below.
 
 ## Where it fails
 

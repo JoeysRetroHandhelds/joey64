@@ -325,8 +325,12 @@ fun JoeyDialog(
         // Nothing marked: enter the popup at its first item. After the content, so a marked item
         // that's already attached asks first. (view.requestFocus() only focuses the window, not an
         // item in it: found on device in JoeyOS.)
-        LaunchedEffect(Unit) {
-            if (landing.pending) body.requestFocus(FocusDirection.Enter)
+        // Both wait for the window's focus (A7, 2026-11-11): this one ran at once, before the window had focus, while a
+        // marked row's own request ([landFocus]) waited for it, so the first row lit and then focus jumped to the marked
+        // one (Player 2 › Controller moving to None). Keyed the same, the marked row's effect, launched first, lands first.
+        val windowFocused = androidx.compose.ui.platform.LocalWindowInfo.current.isWindowFocused
+        LaunchedEffect(windowFocused) {
+            if (windowFocused && landing.pending) body.requestFocus(FocusDirection.Enter)
         }
     }
 }

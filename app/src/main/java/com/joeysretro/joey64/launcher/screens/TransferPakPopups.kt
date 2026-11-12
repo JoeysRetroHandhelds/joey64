@@ -125,11 +125,10 @@ internal fun GameBoyListPopup(games: Boolean, setup: PlayerSetup, onDismiss: () 
             // Focus landed on None while it looked: land again once the rows are in (the folder row, or the pick). None
             // keeps its focus without moving into view, under the rows that came in above it: the list goes down to it.
             val landing = LocalFocusLanding.current
-            LaunchedEffect(found != null) {
-                if (found == null) return@LaunchedEffect
-                landing?.arm()
-                if (current == null && !none) { androidx.compose.runtime.withFrameNanos { }; scroll.scrollTo(scroll.maxValue) }
-            }
+            LaunchedEffect(found != null) { if (found != null) landing?.arm() }
+            // Down to None once the rows are in: keyed on the list's height, so no frame wait.
+            val bottom = scroll.maxValue
+            LaunchedEffect(found != null, bottom) { if (found != null && current == null && !none && bottom > 0) scroll.scrollTo(bottom) }
             if (found == null) PopupNote("Looking…")
             else if (none && picker != null) JoeyRow(if (games) "Choose your Game Boy folder" else "Choose your saves folder", Modifier.initialFocus(true),
                 detail = if (games) "Your gb or gbc folder, or the ROMs folder that holds them"

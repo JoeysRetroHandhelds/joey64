@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher.screens
 
+import com.joeysretro.joey64.launcher.components.landFocus
 import android.net.Uri
 import android.view.KeyEvent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -25,7 +26,6 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -157,7 +157,9 @@ internal fun RaOverlayPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
             u
         }
     }
-    val requesters = remember { HashMap<Int, FocusRequester>() }
+    // L1 / R1's jump: the row takes focus itself once the list has composed it (FocusLanding, no frame wait).
+    val jumpLanding = remember { com.joeysretro.joey64.launcher.components.FocusLanding(armed = false) }
+    var jumpTo by remember { androidx.compose.runtime.mutableIntStateOf(-1) }
     val start = (if (matchOn) list.indexOf(OvRow.Match) else -1).takeIf { it >= 0 }
         ?: list.indexOfFirst { it is OvRow.Overlay && raOn && it.value == sel }.takeIf { it >= 0 }
         ?: list.indexOfFirst { it is OvRow.Overlay || it == OvRow.Match }.takeIf { it >= 0 } ?: list.lastIndex
@@ -167,11 +169,9 @@ internal fun RaOverlayPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
         val at = list.indexOf(focused).takeIf { it >= 0 } ?: start
         val target = (if (dir > 0) sections.firstOrNull { it > at }
             else sections.lastOrNull { it < (sections.lastOrNull { s -> s <= at } ?: at) }) ?: return
-        scope.launch {
-            state.scrollToItem((target - 1).coerceAtLeast(0))
-            withFrameNanos { }
-            requesters[target]?.requestFocus()
-        }
+        jumpTo = target
+        jumpLanding.arm()
+        scope.launch { state.scrollToItem((target - 1).coerceAtLeast(0)) }
     }
     fun use(value: String) = scope.launch {
         val e = withContext(Dispatchers.IO) { store.import(value) }
@@ -224,9 +224,7 @@ internal fun RaOverlayPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
                     else if (folder != null && index?.isEmpty() == true) PopupNote("No RetroArch overlays in that folder.")
                     LazyColumn(Modifier.heightIn(max = 360.dp), state = state) {
                         itemsIndexed(list, key = { i, _ -> keys[i] }) { i, r ->
-                            val fr = remember { FocusRequester() }
-                            DisposableEffect(i) { requesters[i] = fr; onDispose { if (requesters[i] === fr) requesters.remove(i) } }
-                            val m = Modifier.focusRequester(fr).then(if (i == start) Modifier.initialFocus() else Modifier)
+                            val m = Modifier.landFocus(jumpLanding, enabled = i == jumpTo).then(if (i == start) Modifier.initialFocus() else Modifier)
                             when (r) {
                                 is OvRow.Section -> SectionLabel(r.title)
                                 OvRow.Divider -> PopupDivider()

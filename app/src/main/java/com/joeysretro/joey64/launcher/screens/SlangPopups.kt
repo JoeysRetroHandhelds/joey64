@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher.screens
 
+import com.joeysretro.joey64.launcher.components.landFocus
 import android.net.Uri
 import android.view.KeyEvent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -28,7 +29,6 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -129,7 +129,9 @@ internal fun SlangPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
         }
     }
     val state = rememberLazyListState()
-    val requesters = remember { HashMap<Int, FocusRequester>() }
+    // L1 / R1's jump: the row takes focus itself once the list has composed it (FocusLanding, no frame wait).
+    val jumpLanding = remember { com.joeysretro.joey64.launcher.components.FocusLanding(armed = false) }
+    var jumpTo by remember { androidx.compose.runtime.mutableIntStateOf(-1) }
     val start = list.indexOfFirst { it is SlRow.Preset && it.value == current }.takeIf { it >= 0 }
         ?: list.indexOfFirst { it is SlRow.Preset }.takeIf { it >= 0 } ?: list.lastIndex
     LaunchedEffect(index != null) { if (start > 2) state.scrollToItem(start - 2) }
@@ -139,11 +141,9 @@ internal fun SlangPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
         // A section's first preset; up goes to the one before the section [at] is in.
         val target = (if (dir > 0) sections.firstOrNull { it > at }
             else sections.lastOrNull { it < (sections.lastOrNull { s -> s <= at } ?: at) }) ?: return
-        scope.launch {
-            state.scrollToItem((target - 1).coerceAtLeast(0))
-            withFrameNanos { }
-            requesters[target]?.requestFocus()
-        }
+        jumpTo = target
+        jumpLanding.arm()
+        scope.launch { state.scrollToItem((target - 1).coerceAtLeast(0)) }
     }
     val f = focused
     val fv = (f as? SlRow.Preset)?.value
@@ -179,9 +179,7 @@ internal fun SlangPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
                     else if (folder != null && index?.isEmpty() == true) PopupNote("No .slangp presets in that folder.")
                     LazyColumn(Modifier.heightIn(max = 360.dp), state = state) {
                         itemsIndexed(list) { i, r ->
-                            val fr = remember { FocusRequester() }
-                            DisposableEffect(i) { requesters[i] = fr; onDispose { if (requesters[i] === fr) requesters.remove(i) } }
-                            val m = Modifier.focusRequester(fr).then(if (i == start) Modifier.initialFocus() else Modifier)
+                            val m = Modifier.landFocus(jumpLanding, enabled = i == jumpTo).then(if (i == start) Modifier.initialFocus() else Modifier)
                             when (r) {
                                 is SlRow.Section -> SectionLabel(r.title)
                                 SlRow.Divider -> PopupDivider()

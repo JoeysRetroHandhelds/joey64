@@ -24,7 +24,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -56,12 +55,14 @@ class ListPanelState {
     internal var inside by mutableStateOf(false)
     internal var info: PanelInfo? = null
     internal val list = FocusRequester()
-    internal val first = FocusRequester()
+    /** Where focus goes on [enter]: the ticked choice, else the first one ([landFocus], no frame wait). */
+    internal val landing = FocusLanding(armed = false)
 
     /** Into the panel's choices; false on a narrow screen (no panel there: the row opens its popup) or with no choices. */
     fun enter(): Boolean {
         if (!wide || info?.pickable != true) return false
         inside = true
+        landing.arm()
         return true
     }
 
@@ -126,9 +127,6 @@ private fun Panel(state: ListPanelState, info: PanelInfo, modifier: Modifier) {
     val c = JoeyTheme.colors
     val inside = state.inside
     val shown = info.choices
-    LaunchedEffect(inside) {
-        if (inside) { withFrameNanos { }; runCatching { state.first.requestFocus() } }
-    }
     Column(modifier
         .background(c.surface, RoundedCornerShape(10.dp))
         .onPreviewKeyEvent { e ->
@@ -150,7 +148,7 @@ private fun Panel(state: ListPanelState, info: PanelInfo, modifier: Modifier) {
         shown.forEachIndexed { i, ch ->
             JoeyRow(ch.label,
                 Modifier
-                    .then(if (i == firstAt) Modifier.focusRequester(state.first) else Modifier)
+                    .landFocus(state.landing, enabled = inside && i == firstAt)
                     .focusProperties {
                         canFocus = inside
                         if (i == 0) up = FocusRequester.Cancel

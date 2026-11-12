@@ -87,6 +87,9 @@ struct Client {
 struct Peer { sockaddr_storage addr; socklen_t len; };
 
 std::atomic<bool> g_running{false};
+// The host is closing the room (Joey 2026-11-12: say "the host closed the room"): the room marks the host's own player as
+// left, so the others' cores log "player N has disconnected" before the room goes and their connection is lost.
+std::atomic<bool> g_closing{false};
 std::mutex g_life; // start() and stop(), from the main thread and the emulation thread (code audit 3, p5 L3)
 std::atomic<uint8_t> g_regMask{0}, g_status{0};
 std::atomic<int> g_delay{0};
@@ -630,7 +633,12 @@ struct Room {
     void loop() {
         std::vector<pollfd> fds;
         std::vector<uint8_t> buf(65536);
+        bool hostMarked = false;
         while (g_running) {
+            if (g_closing && !hostMarked) {
+                hostMarked = true;
+                for (auto& c : clients) if (c.local && c.regId) markLeft(playerOf(c.regId));
+            }
             fds.clear();
             fds.push_back({g_wake[0], POLLIN, 0});
             fds.push_back({tcp, POLLIN, 0});
@@ -779,6 +787,7 @@ bool start(int port, int players, int delay) {
     }
     g_room = room;
     g_regMask = 0; g_status = 0;
+    g_closing = false;
     g_running = true;
     g_thread = std::thread([room] { room->loop(); });
     NLOGI("netplay server: room open on port %d for %d players, input delay %d%s", port, room->players, room->delay,
@@ -795,6 +804,13 @@ void stop() {
 
 namespace {
 void stopLocked() {
+    if (!g_running) return;
+    // Others in the room: tell them the host left (their next input replies carry it), then close. The room thread
+    // wakes every 100 ms at most, and each player asks for input every frame.
+    if (__builtin_popcount(g_regMask.load()) > 1) {
+        g_closing = true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(400));
+    }
     if (!g_running.exchange(false)) return;
     if (g_wake[1] >= 0) { char c = 0; (void)!write(g_wake[1], &c, 1); }
     if (g_thread.joinable()) g_thread.join();

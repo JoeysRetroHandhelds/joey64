@@ -96,6 +96,9 @@ fun JoeyRow(
     val tap = { if (enabled) onClick() }
     val actions = rememberRowLongPress(label, self, tap)
     ReportFocusedRow(focused, label, self, tap)
+    // In a ListPanel's list: ◀ / B from the panel come back to this row.
+    val panel = LocalListPanel.current
+    if (panel != null && focused) androidx.compose.runtime.SideEffect { panel.lastRow = self }
     Row(
         modifier = modifier
             .fillMaxWidth()

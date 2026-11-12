@@ -63,6 +63,11 @@ class ListPanelState {
     internal var viewport = 0
     /** Where focus goes on [enter]: the ticked choice, else the first one ([landFocus], no frame wait). */
     internal val landing = FocusLanding(armed = false)
+    /**
+     * The list's row that last had focus ([JoeyRow] reports it through [LocalListPanel]): ◀ and B from the panel go
+     * back to it. The list's focusRestorer didn't (A8 2026-11-12, Thor: focus went to the tab's first row).
+     */
+    internal var lastRow: FocusRequester? = null
 
     /** Into the panel's choices; false on a narrow screen (no panel there: the row opens its popup) or with no choices. */
     fun enter(): Boolean {
@@ -73,7 +78,8 @@ class ListPanelState {
     }
 
     internal fun leave() {
-        runCatching { list.requestFocus() }
+        val row = lastRow
+        if (row == null || runCatching { row.requestFocus() }.isFailure) runCatching { list.requestFocus() }
         inside = false
     }
 }
@@ -86,6 +92,9 @@ fun rememberListPanel() = remember { ListPanelState() }
  * in use while the tab row has focus, the focused place while the top bar has it. Null: the row's own help.
  */
 val LocalPanelHelp = androidx.compose.runtime.compositionLocalOf<PanelInfo?> { null }
+
+/** The list a row is in, so the row can say it has focus ([ListPanelState.lastRow]); null in popups and the panel. */
+val LocalListPanel = androidx.compose.runtime.compositionLocalOf<ListPanelState?> { null }
 
 /**
  * A Settings-type page as one list with a panel beside it (approved 2026-11-11: every Settings tab, Game settings,
@@ -145,7 +154,7 @@ fun ListPanel(state: ListPanelState, info: PanelInfo, hints: List<Hint>, onHints
     if (!wide) {
         Column(modifier.fillMaxSize()) {
             Column(Modifier.weight(1f).fillMaxWidth().then(tracked).focusRequester(state.list).focusRestorer().focusGroup()
-                .verticalScroll(listScroll), content = list)
+                .verticalScroll(listScroll)) { androidx.compose.runtime.CompositionLocalProvider(LocalListPanel provides state) { list() } }
             Spacer(Modifier.height(6.dp))
             DescriptionLine(shownInfo.title, shownInfo.help)
         }
@@ -160,7 +169,7 @@ fun ListPanel(state: ListPanelState, info: PanelInfo, hints: List<Hint>, onHints
                 if (n.action == KeyEvent.ACTION_DOWN) state.enter() else info.pickable
             }
             .focusRequester(state.list).focusRestorer().focusGroup()
-            .verticalScroll(listScroll), content = list)
+            .verticalScroll(listScroll)) { androidx.compose.runtime.CompositionLocalProvider(LocalListPanel provides state) { list() } }
         Panel(state, shownInfo, Modifier.weight(0.44f).fillMaxHeight().padding(bottom = 6.dp))
     }
 }

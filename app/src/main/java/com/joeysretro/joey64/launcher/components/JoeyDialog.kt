@@ -465,7 +465,8 @@ private fun PopupCard(entry: PopupEntry, active: Boolean) {
                 },
         ) {
             CompositionLocalProvider(LocalDialogBack provides entry.backRegistry, LocalFocusLanding provides landing, LocalRowActions provides rowActions,
-                LocalPageHints provides null, LocalPopupBack provides (if (fullScreen && !bare) ({ entry.requestClose() }) else null)) {
+                LocalPageHints provides null, LocalListPanel provides null,
+                LocalPopupBack provides (if (fullScreen && !bare) ({ entry.requestClose() }) else null)) {
                 sp.content()
             }
         }

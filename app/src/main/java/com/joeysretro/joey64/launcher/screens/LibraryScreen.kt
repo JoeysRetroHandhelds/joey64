@@ -154,12 +154,15 @@ fun LibraryScreen(model: LibraryModel, updateAsking: Boolean = false, onSearch: 
                 ProgressLine(r, width = 320.dp, centred = false)
             }
         }
+        // The page can go (L1 / R1) with the chip focused: the hint row mustn't keep its hints then.
+        androidx.compose.runtime.DisposableEffect(Unit) { onDispose { model.chipFocused.value = false } }
         // The filter chip, and at the right end of its line (Joey 2026-11-07) covers downloading, the same
         // progress line as reading, or why they paused.
         androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().padding(start = JoeyTheme.spacing.margin, end = JoeyTheme.spacing.margin, top = 12.dp),
             verticalAlignment = Alignment.CenterVertically) {
             com.joeysretro.joey64.launcher.components.PageChip(view.label, com.joeysretro.joey64.R.drawable.ic_filter,
-                on = view != com.joeysretro.joey64.launcher.library.LibraryView.All) { showing = true }
+                on = view != com.joeysretro.joey64.launcher.library.LibraryView.All,
+                onFocused = { model.chipFocused.value = it }) { showing = true }
             androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
             art?.takeIf { reading == null }?.let { a ->
                 ProgressLine(a, width = 160.dp, label = "Getting box art")

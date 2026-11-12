@@ -155,6 +155,8 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
 
     /** The library grid's focused tile, for the hint row's line (approved mockup 2A); null while focus is elsewhere. */
     val focusedTile = MutableStateFlow<Long?>(null)
+    /** The library's filter chip has focus: the hint row says what A does there. */
+    val chipFocused = MutableStateFlow(false)
 
     /** The hint row's right end on a tile that stands for several copies (approved mockup 2A): "Plays USA · 4 versions". */
     val tileEnd: StateFlow<String?> = combine(focusedTile, arranged) { id, a ->
@@ -179,15 +181,25 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
      * takes the library back to All games (approved D7 2026-11-11).
      */
     fun setHidden(game: LibraryGame, hide: Boolean, onDone: () -> Unit = {}) {
+        // Focus lands where it was (Thor 2026-11-12: it went to the first game both ways): a hidden game's place goes to
+        // the game after it (the one before for the last); a game shown again keeps focus on itself.
+        val shownNow = shown.value.orEmpty()
+        val at = shownNow.indexOfFirst { it.id == game.id }
+        val next = if (hide && at >= 0) (shownNow.getOrNull(at + 1) ?: shownNow.getOrNull(at - 1))?.id else game.id
         viewModelScope.launch {
-            _all.value = withContext(Dispatchers.IO) {
+            val games = withContext(Dispatchers.IO) {
                 db.setHidden(game.id, if (hide) System.currentTimeMillis() else null); db.libraryGames()
             }
+            // Set with the new list, after the closing popup gave focus back to the tile (which would set it again).
+            libraryFocus = next
+            _all.value = games
             JLog.i(TAG, "${game.title} ${if (hide) "hidden" else "shown again"}")
             if (!hide) {
                 _libraryNote.value = "${game.title} is back in the library"
-                if (_view.value == com.joeysretro.joey64.launcher.library.LibraryView.Hidden && _all.value.orEmpty().none { it.hiddenAt != null })
+                if (_view.value == com.joeysretro.joey64.launcher.library.LibraryView.Hidden && _all.value.orEmpty().none { it.hiddenAt != null }) {
                     show(com.joeysretro.joey64.launcher.library.LibraryView.All)
+                    libraryFocus = game.id
+                }
             }
             onDone()
         }

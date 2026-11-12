@@ -346,11 +346,14 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                 place == RailPlace.Netplay || cheatsFor != null || achievementsFor != null || gameSettingsFor != null || savesFor != null || screenshotsFor != null
             // On the library's grid: what the focused tile plays, when it stands for several copies (approved mockup 2A).
             val tileEnd by model.tileEnd.collectAsStateWithLifecycle()
+            val libraryChip by model.chipFocused.collectAsStateWithLifecycle()
             HintRow(when {
                 !home -> listOf(Hint("A", "Select"))
                 importAgain -> listOf(Hint("A", "Select"), Hint("B", "Back"))
                 onRail -> listOf(Hint("A", "Open"))
                 onPage -> settingsHints
+                // The filter chip (it showed the grid's Play and Options, Thor 2026-11-12).
+                libraryChip -> listOf(Hint("A", "Change"), Hint("Y", "Search"))
                 else -> listOf(Hint("A", "Play"), Hint("Start", "Options"), Hint("Y", "Search"))
             }, end = tileEnd.takeIf { home && !importAgain && !onRail && !onPage })
             if (home) updates.prompt.collectAsStateWithLifecycle().value?.let { UpdatePopup(it, updates) }

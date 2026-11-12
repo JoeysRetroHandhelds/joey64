@@ -63,11 +63,15 @@ object RomFolderRules {
     /**
      * Where the picker opens, as a document id: the chosen volume's N64 folder when its `ROMs`
      * has one (`6439-6232:ROMs/n64`), else its `ROMs` (Joey, 2026-11-06: open at ROMs/n64 when
-     * it's there).
+     * it's there). With no `ROMs` folder there, the volume's top: a document id for a folder that doesn't exist breaks
+     * Android's picker on the Retroid Pocket Duo ("Can't use this folder", no items, even after going to the top), so the
+     * user couldn't pick any folder (found 2026-11-11).
      */
     fun startFolder(looks: List<RomsLook>): String {
         val volume = startVolume(looks)
-        val n64 = looks.firstOrNull { it.volumeId == volume }?.n64Name
+        val look = looks.firstOrNull { it.volumeId == volume }
+        if (look?.romsEntries == null) return "$volume:"
+        val n64 = look.n64Name
         return "$volume:ROMs" + (if (n64 != null) "/$n64" else "")
     }
 
@@ -93,8 +97,8 @@ object RomFolders {
     /**
      * Where the picker opens: the `ROMs` folder that has the games ([RomFolderRules.startVolume]),
      * on internal storage or a card, so in an ES-DE layout it's one tap (plan). Given as
-     * EXTRA_INITIAL_URI (ActivityResultContracts.OpenDocumentTree's input); when the folder
-     * doesn't exist the picker opens where it would anyway. Reads a few folders: call it off the
+     * EXTRA_INITIAL_URI (ActivityResultContracts.OpenDocumentTree's input); without a `ROMs`
+     * folder, the top of internal storage ([RomFolderRules.startFolder]). Reads a few folders: call it off the
      * main thread where possible (a card can be slow to wake).
      */
     fun initialPickerUri(context: Context): Uri =

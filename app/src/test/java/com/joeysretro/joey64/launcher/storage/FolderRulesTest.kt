@@ -94,5 +94,8 @@ class FolderRulesTest {
         assertEquals("6439-6232:ROMs/Nintendo 64", RomFolderRules.startFolder(listOf(RomsLook("6439-6232", 42, 82, "Nintendo 64"))))
         // No N64 folder: the ROMs folder.
         assertEquals("primary:ROMs", RomFolderRules.startFolder(listOf(RomsLook("primary", 3, null))))
+        // No ROMs folder anywhere (the Duo): the top of internal storage, never a folder that isn't there.
+        assertEquals("primary:", RomFolderRules.startFolder(listOf(RomsLook("primary", null, null))))
+        assertEquals("primary:", RomFolderRules.startFolder(emptyList()))
     }
 }

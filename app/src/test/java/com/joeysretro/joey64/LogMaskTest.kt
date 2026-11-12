@@ -31,6 +31,8 @@ class LogMaskTest {
 
     @Test fun extrasAsTheLogKeepsThem() {
         assertEquals("<name>", LogMask.extra("com.joeysretro.joey64.NETPLAY_NAME", "Joey"))
+        assertEquals("<key>", LogMask.extra("com.joeysretro.joey64.NETPLAY_KEY", "68c44e79"))
+        assertEquals("<key>", LogMask.extra("com.joeysretro.joey64.NETPLAY_KEYS", "0,68c44e79,0,0"))
         assertEquals("<public address>:45000:2", LogMask.extra("com.joeysretro.joey64.NETPLAY_JOIN", "81.2.69.160:45000:2"))
         assertEquals("127.0.0.1:45000:1", LogMask.extra("com.joeysretro.joey64.NETPLAY_JOIN", "127.0.0.1:45000:1"))
         assertEquals("content://a.b/…/Doshin.ndd", LogMask.extra("com.joeysretro.joey64.DD_CART", "content://a.b/tree/x%3AJohn%2FDoshin.ndd"))

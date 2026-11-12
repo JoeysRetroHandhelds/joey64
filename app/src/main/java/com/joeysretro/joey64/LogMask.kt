@@ -33,6 +33,7 @@ object LogMask {
     fun extra(key: String, value: Any?): String = when {
         value == null -> "null"
         key.endsWith("NETPLAY_NAME") -> "<name>"
+        key.endsWith("NETPLAY_KEY") || key.endsWith("NETPLAY_KEYS") -> "<key>" // one-time netplay keys (M21)
         value is String && looksLikeUri(value) -> uri(value)
         else -> addresses(value.toString())
     }

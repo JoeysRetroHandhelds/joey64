@@ -304,6 +304,14 @@ struct Room {
     }
 
     int registered() const { int n = 0; for (auto& r : reg) n += r.id != 0; return n; }
+    // Who a connection is, for the log: a keyed room's ids are the places' keys, which aren't logged (session logs can
+    // be shared), so its player number instead ("player 2", "a player not registered yet").
+    std::string who(const Client& c) const {
+        char s[40];
+        if (!keyed) { snprintf(s, sizeof s, "%08x", c.regId); return s; }
+        for (int i = 0; i < 4; i++) if (c.regId && reg[i].id == c.regId) { snprintf(s, sizeof s, "player %d", i + 1); return s; }
+        return "a player not registered yet";
+    }
     int playerOf(uint32_t id) const { for (int i = 0; i < 4; i++) if (id && reg[i].id == id) return i; return -1; }
 
     // A message to a connection: sent as far as its socket takes now, the rest when poll says it can take more.
@@ -382,7 +390,7 @@ struct Room {
     std::string hostRom;
     void answerRom(Client& c, uint8_t a) {
         queue(c, &a, 1);
-        NLOGI("netplay server: ROM check %s from %08x: %s", c.romAsked.c_str(), c.regId,
+        NLOGI("netplay server: ROM check %s from %s: %s", c.romAsked.c_str(), who(c).c_str(),
               a == 2 ? "the host's" : a == 1 ? "NOT the host's" : "no host ROM yet");
         c.romAsked.clear();
     }
@@ -397,7 +405,7 @@ struct Room {
             for (int i = 0; i < 4; i++) { w32(out + k, reg[i].id); k += 4; out[k++] = reg[i].plugin; out[k++] = reg[i].raw; }
             queue(c, out, sizeof out);
             c.waitingRegistration = false;
-            NLOGI("netplay server: registration sent to %08x (%d of %d players)", c.regId, registered(), players);
+            NLOGI("netplay server: registration sent to %s (%d of %d players)", who(c).c_str(), registered(), players);
         }
         if (c.waitingSettings && haveSettings) {
             queue(c, settings.data(), settings.size());

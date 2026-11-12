@@ -1,6 +1,6 @@
 {
   "about": "Joey64 per-game database: what each game needs, what is wrong with it and where, and what was fixed. Seed for the M3 profile DB. Rules: gamedb/README.md. Update this file in the same commit as any change to a game's status (new problem found, fixed, regressed, setting added or dropped).",
-  "updated": "2026-11-11",
+  "updated": "2026-11-12",
   "games": [
     {
       "id": "NPF", "title": "Pokemon Snap",
@@ -318,6 +318,12 @@
       ]
     },
     {
+      "disk": "Mario Artist - Paint Studio (Japan) (Beta) (1999-02-11)", "title": "Mario Artist: Paint Studio beta (64DD)",
+      "issues": [
+        {"status": "parked", "devices": "Duo", "what": "with IPL_DEV (Tool IPL beta, md5 aad37b) it boots (CIC 8401) and draws one frame, then nothing; with IPL_JPN the missing-BIOS path closes it, as it should", "evidence": "README Full-run fixes (g)(2), ddall-duo and dddev-duo 2026-11-12; no report of this beta found"}
+      ]
+    },
+    {
       "disk": "Kyojin no Doshin (Japan)", "title": "Kyojin no Doshin (64DD)",
       "settings": [
         {"what": "CountPerOp=1 (counter factor 1), retail and store demo disks", "where": "core mupen64plus.ini (both copies), by disk md5", "why": "at 2 the game crashes loading after Start; Project64's database gives the Doshin cartridge conversions Counter Factor 1"}
@@ -339,6 +345,9 @@
     },
     {
       "disk": "Nihon Pro Golf Tour 64 (Japan) [b]", "title": "Nihon Pro Golf Tour 64 (64DD)",
+      "issues": [
+        {"status": "open", "devices": "Duo", "what": "draws for about 30 s, then no new frames after Start A A (app-main-rel2, IPL_JPN = Japan v1.2)", "evidence": "README Full-run fixes (g)(1), ddall-duo 2026-11-12; rerun with and without CountPerOp 1 queued (ddgolf-duo)"}
+      ],
       "notes": [
         "Flip: boots to its menu, 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)",
         "With the VI fix: 58-60 fps, underruns 0-55 per 5 s (was 15 fps in play with ~770); Flip flip-dd11/flip-dd16 (2026-11-07, core dd 0ac9d17 = VI event removed by type + Doshin CountPerOp 1)",

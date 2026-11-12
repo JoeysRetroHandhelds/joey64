@@ -568,10 +568,12 @@ void log_cb(enum retro_log_level level, const char* fmt, ...) {
         int jf;
         if (sscanf(line, "Netplay: can't join (%d)", &jf) == 1 && jf >= 4 && jf <= 6) g_netplayJoinFailed = jf;
         if (strstr(line, "Netplay: players have de-synced")) g_netplayStatus |= 1;
-        unsigned left;
-        if (sscanf(line, "Netplay: player %u has disconnected", &left) == 1 && left >= 1 && left <= 4) g_netplayStatus |= (uint8_t)(1 << left);
-        unsigned pp;
-        if (sscanf(line, "Netplay: player %u paused", &pp) == 1 && pp >= 1 && pp <= 4) g_netplayPausedBy = (int)pp;
+        // %n: sscanf returns 1 once %u is read even when the words after it differ, so without it
+        // "Netplay: player 1 paused" counted as player 1 leaving (the pause showed "left the game", 2026-11-11).
+        unsigned left; int leftEnd = 0;
+        if (sscanf(line, "Netplay: player %u has disconnected%n", &left, &leftEnd) == 1 && leftEnd > 0 && left >= 1 && left <= 4) g_netplayStatus |= (uint8_t)(1 << left);
+        unsigned pp; int ppEnd = 0;
+        if (sscanf(line, "Netplay: player %u paused%n", &pp, &ppEnd) == 1 && ppEnd > 0 && pp >= 1 && pp <= 4) g_netplayPausedBy = (int)pp;
         if (strstr(line, "Netplay: nobody is paused")) g_netplayPausedBy = 0;
         unsigned wp;
         if (sscanf(line, "Netplay: waiting for player %u", &wp) == 1 && wp >= 1 && wp <= 4) g_netplayWaitingFor = (int)wp;

@@ -152,7 +152,7 @@ Second round (00:38-00:48 CST, APK 30a2498f):
   above the first column). Mario Kart 64's "Where you quit" picture (20:41) is a black frame; its log was rotated out,
   and trying again means quitting Mario Kart over Joey's quit save, so it's left.
 
-Still not device-checked: A9 (needs a room), D3's real first run, D4's Send now press, the TV paths.
+Still not device-checked: A9 (needs a room), D3's real first run, D4's Send now press, a real TV (the TV paths were checked on the Thor as a TV).
 
 Third round (00:55-01:25 CST, APKs b4-fe7358fa to b5b-7bfb63d3, screen recordings read frame by frame):
 
@@ -225,3 +225,19 @@ Sixth round (01:55-02:15 CST, APKs net-fc09ebed, then kb-24a4594d), looked at an
   the next closes the popup; the same on Search, where the page stays put. Checked with Back and the controller's B.
 - Seen: the recovery popup came back on its own while I was testing: the screen timed out and waking it brought
   the launcher to the front, which asks again after Later (as built). Its minutes still say 1 after a reinstall.
+
+Seventh round (02:15-02:40 CST, the Thor as a TV through files/dev_tv, APKs kb-24a4594d, then cp-9dbcb699; the
+switch removed after, nothing started):
+
+- TV paths, all with the remote's keys (D-pad, OK, Hold OK, Back): the launcher inside the safe area; the hint row
+  turns to OK Play / Hold OK Options after a remote press; Hold OK opens the game's options (OK Select / Back
+  Close, mockup screen 5); with no controller ("nopad"), Play asks Connect a controller (mockup screen 6) and Not
+  now lands back on the game, nothing started. The bar doesn't fit the safe area's 864 dp (Settings cut off): it
+  scrolls as focus moves along it, the logo going off the left, which is the approved "the bar scrolls" case.
+- Found: on a TV the Play popup's big picture pushed its date and Start fresh's two lines below the popup. The
+  picture now gets the height they leave, still 4:3 (1a5a03f); checked on Majora's Mask as a TV, and as a handheld
+  (unchanged: the column's width).
+- Seen: Mario Kart 64's and Sands of Time's quit pictures are black (640x480 all black, and a 1x1): both from
+  2026-11-11 about 20:41-20:50, before tonight's builds, the logs gone. Most likely quits before the game's first
+  frame (about 0.65 s after A), when the core has drawn nothing yet. Every other state picture is fine.
+- Down from Settings on the bar lands on the nearest tile below (Mario Kart), not on the All games chip.

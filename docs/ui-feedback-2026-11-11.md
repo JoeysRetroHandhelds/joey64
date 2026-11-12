@@ -299,6 +299,9 @@ Joey's answers to the morning report (2026-11-12, asked one by one):
       then; proposed: they wait until no card is open, as the reports question does.
   Already swaps: the pause menu, Controls (one popup at a time), Settings tabs, Saves, Screenshots, Profiles,
   Macros, Picture, Game settings, Game Boy folders, a game's options (Play closes them first).
+  Joey 2026-11-12: "Yes, all ten". Built as swaps (commit below), B coming back to the row it was opened from; 8 also
+  covers the popups that say why a join ended (Couldn't reach the room and the like). Unit tests pass; not yet
+  checked on the Thor (it dropped off adb), and 5 (Change box art) and 9 (hosting a room) won't be pressed there.
 - [x] F3 A clean quit clears only its own game's recovery state (b3a5d04: `files/recovery/games/<save name>/`; Thor 2026-11-12: the old OoT state moved in unchanged, b099ac2d / f4823052, the popup still offers it; compat_53 got its own after 2 min and quitting it removed only that one; OoT's Saves page still lists Recovery).
 - [x] F4 Send reports' line with only the day known: "Last sent today" / "Last sent Nov 11", not "Nothing sent yet" (627c875, `ReportPrefs.sentDayLabel`, ReportsTest; Thor 2026-11-12: sent_day today with no sent_at, Send now reads "Last sent today").
 - [x] F5 With focus on a tab row or the top bar the panel shows that tab's or place's own help, as Controls' tab row does (`LocalPanelHelp`; Thor 2026-11-12: Settings' tab row follows the focused tab, the bar shows Settings / Controls help, Down brings the tab's and then the row's help back; Game settings' Video / Emulation tabs).

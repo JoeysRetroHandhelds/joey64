@@ -442,8 +442,19 @@ fun NetplayGamePopup(model: LibraryModel) {
     val pings = PlayTogether.pings.collectAsStateWithLifecycle().value
     val games = model.games.collectAsStateWithLifecycle().value.orEmpty()
     var joinCode by remember { mutableStateOf(false) }
-    // The room screens take over while there's a room.
-    if (state is PlayTogether.Hosting || state is PlayTogether.InRoom) return
+    // Back from Join by code, focus lands on its row (F2 audit 7).
+    var backToCode by remember { mutableStateOf(false) }
+    // A join that starts from Join by code: the code popup is done; the card comes back on its row.
+    LaunchedEffect(state) { if (state is PlayTogether.Connecting && joinCode) { joinCode = false; backToCode = true } }
+    // The room screens take over while there's a room, and so do Joining… and the popups that say why a join ended
+    // (F2 audit 8, Joey 2026-11-12: one card at a time); this card comes back after them.
+    val ended = model.netEnded.collectAsStateWithLifecycle().value
+    if (state is PlayTogether.Hosting || state is PlayTogether.InRoom || state is PlayTogether.Connecting || state is PlayTogether.Closed || ended != null) return
+    // Join by code takes this card's place (F2 audit 7).
+    if (joinCode) {
+        JoinByCodePopup(model, title = "Join by code", subtitle = "Ask the host for their room code.") { joinCode = false; backToCode = true }
+        return
+    }
     val wifiCodes = wifi.map { RoomCode.clean(it.code) }.toSet()
     val publicHere = listed.filter { it.players < model.netPlaces(it.md5) && it.code !in wifiCodes && it.md5.equals(game.md5, true) }
         .sortedBy { pings["${it.ip}:${it.port}"] ?: Int.MAX_VALUE }.take(3)
@@ -455,7 +466,7 @@ fun NetplayGamePopup(model: LibraryModel) {
             val most = model.netPlaces(game)
             Text("Up to $most players. Everyone needs Joey64 and the same copy of the game.", style = JoeyTheme.type.small, color = JoeyTheme.colors.textDim,
                 modifier = Modifier.padding(horizontal = JoeyTheme.spacing.rowPadH).padding(bottom = 6.dp))
-            NetOption("Host a room", Modifier.initialFocus(), detail = "On this Wi-Fi it shows up by itself. Anywhere else, share the room code") { model.netplayHost(game) }
+            NetOption("Host a room", Modifier.initialFocus(!backToCode), detail = "On this Wi-Fi it shows up by itself. Anywhere else, share the room code") { model.netplayHost(game) }
             SectionLabel("Rooms on this Wi-Fi")
             if (wifi.isEmpty()) RoomsEmpty("No rooms on this Wi-Fi.", onPage = false)
             for (r in wifi) {
@@ -468,10 +479,9 @@ fun NetplayGamePopup(model: LibraryModel) {
             for (r in publicHere) NetOption("${r.name}'s room", detail = roomLine(r.game, r.players, model.netPlaces(r.md5)), pingMs = pings["${r.ip}:${r.port}"]) {
                 model.netplayJoin(PlayTogether.Target(r.ip, r.port, r.name))
             }
-            NetOption("Join by code", detail = "For a private room", value = "›") { joinCode = true }
+            NetOption("Join by code", Modifier.initialFocus(backToCode), detail = "For a private room", value = "›") { joinCode = true }
         }
     }
-    if (joinCode) JoinByCodePopup(model, title = "Join by code", subtitle = "Ask the host for their room code.") { joinCode = false }
 }
 
 /** [JoeyOption] with a grey line under it. */
@@ -622,6 +632,22 @@ private fun YourRoom(model: LibraryModel, s: PlayTogether.Hosting) {
     // does nothing (code audit 3, M31).
     // X only on a player's row, where it works (a long press offers it there too: review sheet M30).
     var askClose by remember { mutableStateOf(false) }
+    // Close the room? takes the room's place (F2 audit 9, Joey 2026-11-12: one card at a time); Cancel comes back to
+    // the row B or Close the room was pressed on ("start", "who", "close", or a player's "p<n>").
+    var roomRow by remember { mutableStateOf("start") }
+    var landOn by remember { mutableStateOf<String?>(null) }
+    if (askClose) {
+        JoeyDialog(onDismiss = { askClose = false; landOn = roomRow }, hints = listOf(Hint("A", "Select"), Hint("B", "Cancel")), width = 420.dp) {
+            Column {
+                PopupTitle("Close the room?", "The game ends for everyone in it.")
+                com.joeysretro.joey64.launcher.components.JoeyOption("Cancel", Modifier.initialFocus()) { askClose = false; landOn = roomRow }
+                com.joeysretro.joey64.launcher.components.JoeyOption("Close the room") { askClose = false; PlayTogether.leave() }
+            }
+        }
+        return
+    }
+    fun land(row: String) = Modifier.initialFocus(if (landOn != null) landOn == row else row == "start")
+    fun seen(row: String): (Boolean) -> Unit = { if (it) roomRow = row }
     JoeyDialog(onDismiss = { askClose = true }, width = 640.dp,
         hints = if (focusedSlot in 1..s.game.places) listOf(Hint("A", "Select"), Hint("X", "Move a player"), Hint("B", "Close the room"))
             else listOf(Hint("A", "Select"), Hint("B", "Close the room")),
@@ -652,29 +678,22 @@ private fun YourRoom(model: LibraryModel, s: PlayTogether.Hosting) {
                         p.you -> "You · ${p.device}"
                         else -> p.device + if (p.thisWifi) " · this Wi-Fi" else ""
                     }
-                    key(n) { PlayerRow(n, p, line, Modifier.focusRequester(slotFocus[n])) { if (it) focusedSlot = n else if (focusedSlot == n) focusedSlot = 0 } }
+                    key(n) { PlayerRow(n, p, line, Modifier.focusRequester(slotFocus[n]).then(land("p$n"))) { if (it) { focusedSlot = n; roomRow = "p$n" } else if (focusedSlot == n) focusedSlot = 0 } }
                 }
             }, right = {
                 com.joeysretro.joey64.launcher.components.SectionLabel("Room")
-                JoeyRow("Start the game", Modifier.initialFocus(), detail = "Everyone plays with your save and settings", sideways = true) {
+                JoeyRow("Start the game", land("start"), detail = "Everyone plays with your save and settings", sideways = true, onFocused = seen("start")) {
                     model.netplayStartHosted { context.startActivity(it) }
                 }
                 val canList = s.reach == PlayTogether.Reach.Anywhere
                 when {
                     s.reach == PlayTogether.Reach.Looking -> JoeyRow("Who can join", detail = "Waiting for the router…", value = if (s.public) "Public" else "Private", enabled = false, sideways = true)
                     !canList -> JoeyRow("Who can join", detail = "Only this Wi-Fi: Netplay can't list it", value = "This Wi-Fi", enabled = false, sideways = true)
-                    else -> JoeyRow("Who can join", detail = if (s.public) "Anyone can join from Netplay" else "Listed as private: players need the code",
-                        value = if (s.public) "Public" else "Private", sideways = true) { PlayTogether.setPublic(!s.public) }
+                    else -> JoeyRow("Who can join", land("who"), detail = if (s.public) "Anyone can join from Netplay" else "Listed as private: players need the code",
+                        value = if (s.public) "Public" else "Private", sideways = true, onFocused = seen("who")) { PlayTogether.setPublic(!s.public) }
                 }
-                JoeyRow("Close the room", sideways = true) { askClose = true }
+                JoeyRow("Close the room", land("close"), sideways = true, onFocused = seen("close")) { askClose = true }
             })
-        }
-    }
-    if (askClose) JoeyDialog(onDismiss = { askClose = false }, hints = listOf(Hint("A", "Select"), Hint("B", "Cancel")), width = 420.dp) {
-        Column {
-            PopupTitle("Close the room?", "The game ends for everyone in it.")
-            com.joeysretro.joey64.launcher.components.JoeyOption("Cancel", Modifier.initialFocus()) { askClose = false }
-            com.joeysretro.joey64.launcher.components.JoeyOption("Close the room") { askClose = false; PlayTogether.leave() }
         }
     }
 }

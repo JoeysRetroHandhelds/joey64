@@ -74,9 +74,21 @@ fun ShowPopup(model: LibraryModel, onDismiss: () -> Unit) {
     val hidden by model.hidden.collectAsStateWithLifecycle()
     var options by remember { mutableStateOf<GameCollection?>(null) }
     var naming by remember { mutableStateOf(false) }
+    // Back from a swap (F2 audit 1-3, Joey 2026-11-12): the row it was opened from ("new" or a collection's id).
+    var landOn by remember { mutableStateOf<Any?>(null) }
     fun pick(v: LibraryView) { model.show(v); onDismiss() }
     // One just deleted never reports losing focus: drop it.
     if (focusedCollection != null && collections.none { it.id == focusedCollection?.id }) focusedCollection = null
+    // Collection options and the name entry take Show's place, and B comes back to it (one card at a time).
+    options?.let { col ->
+        CollectionOptionsPopup(col, model, onDismiss = { options = null; landOn = col.id; focusedCollection = null })
+        return
+    }
+    if (naming) {
+        NamePopup("New collection", "", null, null, model, onDismiss = { naming = false; landOn = "new" }) { name -> model.newCollection(name, null) }
+        return
+    }
+    fun land(v: LibraryView, own: GameCollection?) = Modifier.initialFocus(if (landOn != null) own?.id == landOn else view == v)
 
     JoeyDialog(
         onDismiss = onDismiss,
@@ -86,52 +98,50 @@ fun ShowPopup(model: LibraryModel, onDismiss: () -> Unit) {
     ) {
         Column {
             PopupTitle("Show")
-            JoeyRow(LibraryView.All.label, Modifier.initialFocus(view == LibraryView.All),
+            JoeyRow(LibraryView.All.label, land(LibraryView.All, null),
                 trailing = { f -> TickCount(view == LibraryView.All, counts[LibraryView.All], f) }) { pick(LibraryView.All) }
             TwoColumns(Modifier.weight(1f, fill = false), gap = 14.dp, left = {
                 GroupLabel("Collections")
                 val list = listOf(LibraryView.Favourites) + collections.map { LibraryView.Collection(it.id, it.name) }
                 for (v in list) {
                     val own = (v as? LibraryView.Collection)?.let { GameCollection(it.id, it.name) }
-                    JoeyRow(v.label, Modifier.initialFocus(view == v), sideways = true,
+                    JoeyRow(v.label, land(v, own), sideways = true,
                         onFocused = { on -> if (on) focusedCollection = own else if (focusedCollection == own) focusedCollection = null },
                         onLongClick = own?.let { { options = it } },
                         trailing = { f -> TickCount(view == v, counts[v], f) }) { pick(v) }
                 }
-                JoeyRow("New collection…", sideways = true) { naming = true }
+                JoeyRow("New collection…", Modifier.initialFocus(landOn == "new"), sideways = true) { naming = true }
             }) {
                 GroupLabel("Filters")
                 // Has achievements only while signed in to RetroAchievements (as the Achievements rows).
                 for (f in AutoFilter.entries.filter { it != AutoFilter.HasAchievements || signedIn }) {
                     val v = LibraryView.Filter(f)
-                    JoeyRow(f.label, Modifier.initialFocus(view == v), sideways = true,
+                    JoeyRow(f.label, land(v, null), sideways = true,
                         trailing = { fo -> TickCount(view == v, counts[v], fo) }) { pick(v) }
                 }
                 // Hidden, last, only while a game is hidden (approved D7 2026-11-11, hidden_mock.png screen 1).
-                if (hidden.isNotEmpty() || view == LibraryView.Hidden) JoeyRow(LibraryView.Hidden.label, Modifier.initialFocus(view == LibraryView.Hidden), sideways = true,
+                if (hidden.isNotEmpty() || view == LibraryView.Hidden) JoeyRow(LibraryView.Hidden.label, land(LibraryView.Hidden, null), sideways = true,
                     trailing = { fo -> TickCount(view == LibraryView.Hidden, hidden.size, fo) }) { pick(LibraryView.Hidden) }
             }
         }
     }
-    options?.let { col ->
-        CollectionOptionsPopup(col, model, onDismiss = { options = null })
-    }
-    if (naming) NamePopup("New collection", "", null, null, model, onDismiss = { naming = false }) { name -> model.newCollection(name, null) }
 }
 
 /** Start on a collection in Show (approved): Rename, Delete ("Deleting keeps the games"). No "are you sure" (Joey's rule). */
 @Composable
 private fun CollectionOptionsPopup(col: GameCollection, model: LibraryModel, onDismiss: () -> Unit) {
     var renaming by remember { mutableStateOf(false) }
+    // Rename takes this card's place (F2 audit 3); done or B goes back to Show, as before.
+    if (renaming) {
+        NamePopup("Rename collection", col.name, null, col.id, model, onDismiss = onDismiss) { name -> model.renameCollection(col.id, name) }
+        return
+    }
     JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 340.dp) {
         Column {
             PopupTitle(col.name)
             JoeyOption("Rename", modifier = Modifier.initialFocus()) { renaming = true }
             JoeyRow("Delete", detail = "Deleting keeps the games") { model.deleteCollection(col.id); onDismiss() }
         }
-    }
-    if (renaming) NamePopup("Rename collection", col.name, null, col.id, model, onDismiss = { renaming = false; onDismiss() }) { name ->
-        model.renameCollection(col.id, name)
     }
 }
 
@@ -141,7 +151,7 @@ private fun CollectionOptionsPopup(col: GameCollection, model: LibraryModel, onD
  * bottom, and the game goes into the new one. Shown inside [GamePopups]' window.
  */
 @Composable
-fun AddToCollectionBody(game: LibraryGame, model: LibraryModel, onNew: () -> Unit) {
+fun AddToCollectionBody(game: LibraryGame, model: LibraryModel, landOnNew: Boolean = false, onNew: () -> Unit) {
     val games = model.games.collectAsStateWithLifecycle().value.orEmpty()
     val collections by model.collections.collectAsStateWithLifecycle()
     val facts = model.facts.collectAsStateWithLifecycle().value ?: return
@@ -149,7 +159,7 @@ fun AddToCollectionBody(game: LibraryGame, model: LibraryModel, onNew: () -> Uni
     val now = games.firstOrNull { it.id == game.id } ?: game
     Column {
         PopupTitle("Add to collection", game.title)
-        JoeyRow(LibraryDb.FAVOURITES, Modifier.initialFocus(),
+        JoeyRow(LibraryDb.FAVOURITES, Modifier.initialFocus(!landOnNew),
             trailing = { f -> TickCount(now.favourite, games.count { it.favourite }, f) }) {
             model.setInCollection(now, null, !now.favourite)
         }
@@ -160,7 +170,7 @@ fun AddToCollectionBody(game: LibraryGame, model: LibraryModel, onNew: () -> Uni
                 model.setInCollection(now, col.id, !inIt)
             }
         }
-        JoeyRow("New collection…", onClick = onNew)
+        JoeyRow("New collection…", Modifier.initialFocus(landOnNew), onClick = onNew)
     }
 }
 

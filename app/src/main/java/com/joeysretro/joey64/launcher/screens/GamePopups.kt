@@ -83,6 +83,8 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
     val gridLanding = LocalFocusLanding.current
     var boxArt by remember { mutableStateOf(false) }
     var naming by remember { mutableStateOf(false) }
+    var backToNew by remember { mutableStateOf(false) }
+    LaunchedEffect(popup) { if (popup != GamePopup.Collections) backToNew = false }
     // Back from Details or Add to collection, Options lands on that row, not on Play.
     var from by remember { mutableStateOf<GamePopup?>(null) }
     // Read again after a Box art choice, so the popup shows the new cover.
@@ -103,6 +105,18 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
     fun at(row: String) = Modifier.initialFocus(back == row)
     // The copies its tile stands for, when more than one (approved mockup 3); null for a game on its own.
     val versions = model.arranged.collectAsState().value?.versions?.get(game.id)
+    // New collection and Change box art take this card's place, and B comes back to it (F2 audit 4-5, Joey
+    // 2026-11-12): one card at a time. Back on Add to collection focus lands on New collection…; on Details, the cover.
+    if (naming) {
+        NamePopup("New collection", "", "${game.title} goes in it", null, model, onDismiss = { naming = false; backToNew = true }) { name ->
+            model.newCollection(name, game)
+        }
+        return
+    }
+    if (boxArt) {
+        BoxArtPopup(game, details, model) { changed -> boxArt = false; if (changed) version++ }
+        return
+    }
     JoeyDialog(
         onDismiss = { onPopup(null) },
         hints = when (popup) {
@@ -124,7 +138,7 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
             view.viewTreeObserver.addOnDrawListener(drawn)
             onDispose { view.viewTreeObserver.removeOnDrawListener(drawn) }
         }
-        if (popup == GamePopup.Collections) AddToCollectionBody(game, model) { naming = true }
+        if (popup == GamePopup.Collections) AddToCollectionBody(game, model, landOnNew = backToNew) { naming = true }
         // Scrolls: with Saves and Screenshots the list is taller than a 1080p handheld's popup room (Thor, 2026-11-08).
         else Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())) {
             if (popup == GamePopup.Versions) PopupTitle("Versions", "The tile plays the ticked one. Each keeps its own saves.")
@@ -182,10 +196,6 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
             }
         }
     }
-    if (naming) NamePopup("New collection", "", "${game.title} goes in it", null, model, onDismiss = { naming = false }) { name ->
-        model.newCollection(name, game)
-    }
-    if (boxArt) BoxArtPopup(game, details, model) { changed -> boxArt = false; if (changed) version++ }
 }
 
 /**

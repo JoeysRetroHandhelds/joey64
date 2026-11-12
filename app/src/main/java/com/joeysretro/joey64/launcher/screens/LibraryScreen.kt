@@ -116,7 +116,21 @@ fun LibraryScreen(model: LibraryModel, updateAsking: Boolean = false, onSearch: 
     // On opening, and after picking what to show: focus lands on the first game. Back from a game's page or a game,
     // on the game you left from (GamesGrid's keepPlace).
     LaunchedEffect(view) { landing?.arm() }
-    if (model.offline.collectAsStateWithLifecycle().value) OfflinePopup(model::offlineSeen)
+    // The offline note and the lost ROM folder come up on a return to the launcher: they wait until no card is open
+    // (F2 audit 10, Joey 2026-11-12), then stay up until answered. One at a time, too: the second waits for the first.
+    val popupHost = com.joeysretro.joey64.launcher.components.LocalPopupHost.current
+    val cardsOpen = popupHost?.entries?.size ?: 0
+    val offline = model.offline.collectAsStateWithLifecycle().value
+    val lost = model.lostFolder.collectAsStateWithLifecycle().value
+    var offlineUp by remember { mutableStateOf(false) }
+    var lostUp by remember { mutableStateOf(false) }
+    LaunchedEffect(offline, lost, cardsOpen) {
+        if (!offline) offlineUp = false
+        if (lost == null) lostUp = false
+        if (cardsOpen == 0 && offline && !offlineUp) offlineUp = true
+        else if (cardsOpen == 0 && lost != null && !lostUp && !offlineUp) lostUp = true
+    }
+    if (offline && offlineUp) OfflinePopup(model::offlineSeen)
     model.recovery.collectAsStateWithLifecycle().value?.let { offer ->
         RecoveryPopup(offer) { carryOn -> model.recoveryAnswered(carryOn) { context.startActivity(it) } }
     }
@@ -132,7 +146,7 @@ fun LibraryScreen(model: LibraryModel, updateAsking: Boolean = false, onSearch: 
     NeedsCartPopup(model) { context.startActivity(it) }
     StartFailedPopup(model)
     NetEndedPopup(model)
-    LostFolderPopup(model)
+    if (lostUp) LostFolderPopup(model)
     var showing by remember { mutableStateOf(false) }
     if (showing) ShowPopup(model) { showing = false }
 

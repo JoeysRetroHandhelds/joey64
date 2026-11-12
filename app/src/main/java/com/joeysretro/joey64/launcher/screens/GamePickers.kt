@@ -77,6 +77,21 @@ fun GamesForPopup(
     var focusedGame by remember { mutableStateOf<String?>(null) }
     // X asks first (review sheet M28, approved 2026-11-11): it took all of a game's own settings at once, no undo.
     var asking by remember { mutableStateOf<String?>(null) }
+    // The question takes the list's place, and Keep them / Remove come back to it (F2 audit 6, Joey 2026-11-12): on the
+    // game's row, or after Remove on All games (the row is gone).
+    var backTo by remember { mutableStateOf<String?>(null) }
+    asking?.let { g ->
+        val own = info[g]
+        val n = own?.changes ?: 0
+        ResetTabPopup("Remove the game's $what settings?",
+            "${own?.title ?: g}'s " + (if (n == 1) "1 change goes" else "$n changes go") + ", and it uses All games' again.",
+            keep = "Keep them", reset = "Remove", onDismiss = { asking = null; backTo = g; focusedGame = null }) {
+            asking = null; backTo = ""
+            onRemoved(g); games = gamesWithOwn(); focusedGame = null
+            if (chosen(g)) onPick(null, null)
+        }
+        return
+    }
     JoeyDialog(onDismiss = onDismiss, width = 470.dp,
         hints = if (focusedGame != null) listOf(Hint("A", "Select"), Hint("X", "Remove"), Hint("B", "Close"))
             else listOf(Hint("A", "Select"), Hint("B", "Close")),
@@ -86,29 +101,18 @@ fun GamesForPopup(
         }) {
         Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
             PopupTitle(title, subtitle)
-            JoeyRow("All games", Modifier.initialFocus(target == null), detail = "Every game without its own",
+            JoeyRow("All games", Modifier.initialFocus(if (backTo != null) backTo == "" else target == null), detail = "Every game without its own",
                 trailing = if (target == null) { _ -> PickerTick() } else null) { onPick(null, null) }
             if (games.isNotEmpty()) PopupDivider()
             for (g in games) {
                 val own = info[g]
                 // "" until the count is read: the row keeps its height.
-                JoeyRow(own?.title ?: g, Modifier.initialFocus(chosen(g)), detail = own?.changes?.let { n -> if (n == 1) "1 change" else "$n changes" } ?: "",
+                JoeyRow(own?.title ?: g, Modifier.initialFocus(if (backTo != null) backTo == g else chosen(g)), detail = own?.changes?.let { n -> if (n == 1) "1 change" else "$n changes" } ?: "",
                     onFocused = { if (it) focusedGame = g else if (focusedGame == g) focusedGame = null },
                     trailing = if (chosen(g)) { _ -> PickerTick() } else null) { onPick(own?.save ?: g, own?.title ?: g) }
             }
             PopupDivider()
             JoeyRow("Pick a game", value = "›") { onPickGame() }
-        }
-    }
-    asking?.let { g ->
-        val own = info[g]
-        val n = own?.changes ?: 0
-        ResetTabPopup("Remove the game's $what settings?",
-            "${own?.title ?: g}'s " + (if (n == 1) "1 change goes" else "$n changes go") + ", and it uses All games' again.",
-            keep = "Keep them", reset = "Remove", onDismiss = { asking = null }) {
-            asking = null
-            onRemoved(g); games = gamesWithOwn(); focusedGame = null
-            if (chosen(g)) onPick(null, null)
         }
     }
 }

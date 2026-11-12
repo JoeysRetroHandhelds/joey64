@@ -104,6 +104,13 @@ class FocusLanding(armed: Boolean = true) {
     internal var armedAt by mutableIntStateOf(if (armed) 1 else 0)
     internal var landedAt by mutableIntStateOf(0)
     val pending: Boolean get() = armedAt != landedAt
+    /**
+     * The marked element that's attached now, while the landing is pending: where focus goes when it first enters the
+     * popup ([JoeyDialog]'s onEnter). Android moves focus into a window's first item the moment the window gets focus,
+     * before any effect runs, so the first row lit for a few frames and then focus jumped to the marked one (A7, Thor
+     * 2026-11-12: Player 2 › Controller lit Built-in controls for 25 ms, then None).
+     */
+    internal var target: FocusRequester? = null
     /** Land again, on the next marked element that is attached (at once if one already is). */
     fun arm() { armedAt = maxOf(armedAt, landedAt) + 1 }
 }
@@ -120,6 +127,8 @@ fun Modifier.landFocus(landing: FocusLanding?, enabled: Boolean = true): Modifie
     val requester = remember { FocusRequester() }
     if (landing != null && enabled && landing.pending) {
         val generation = landing.armedAt
+        androidx.compose.runtime.SideEffect { if (landing.pending) landing.target = requester }
+        androidx.compose.runtime.DisposableEffect(landing) { onDispose { if (landing.target === requester) landing.target = null } }
         // A landing still pending tries again when the window gets focus back (a system picker
         // closing) and when the first controller key leaves touch mode (the picker was tapped):
         // without that, first-run came back from the folder picker with nothing highlighted.

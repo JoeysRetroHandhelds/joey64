@@ -260,7 +260,14 @@ fun JoeyDialog(
                         // (FocusDirection.Exit). In a popup that must be answered nothing closes,
                         // so focus fell out of the card and the D-pad was dead (found on the Thor:
                         // Android's Back; the pad's B is handled above and never gets there).
-                        .focusProperties { onExit = { cancelFocusChange() } }
+                        .focusProperties {
+                            onExit = { cancelFocusChange() }
+                            // Focus coming into the popup (the window getting focus) goes straight to the marked row (A7).
+                            onEnter = {
+                                val t = landing.target
+                                if (landing.pending && t != null && t.requestFocus()) landing.landedAt = landing.armedAt
+                            }
+                        }
                         .focusGroup()
                         .onPreviewKeyEvent { event ->
                             val native = event.nativeKeyEvent

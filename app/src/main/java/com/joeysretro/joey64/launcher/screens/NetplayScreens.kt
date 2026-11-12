@@ -567,12 +567,14 @@ private fun YourRoom(model: LibraryModel, s: PlayTogether.Hosting) {
     LaunchedEffect(followTo, s.players) {
         if (followTo in 1..s.game.places) { try { slotFocus[followTo].requestFocus() } catch (e: IllegalStateException) { }; followTo = 0 }
     }
-    // B and a tap outside closed the room for everyone, the hint saying "Back" (code audit 3, M31): the room closes
-    // only from its Close the room row now.
+    // B asks first, Cancel focused, since closing ends the room for everyone (A9, approved 2026-11-11); a tap outside
+    // does nothing (code audit 3, M31).
     // X only on a player's row, where it works (a long press offers it there too: review sheet M30).
-    JoeyDialog(onDismiss = { PlayTogether.leave() }, width = 640.dp,
-        hints = if (focusedSlot in 1..s.game.places) listOf(Hint("A", "Select"), Hint("X", "Move a player")) else listOf(Hint("A", "Select")),
-        dismissible = false,
+    var askClose by remember { mutableStateOf(false) }
+    JoeyDialog(onDismiss = { askClose = true }, width = 640.dp,
+        hints = if (focusedSlot in 1..s.game.places) listOf(Hint("A", "Select"), Hint("X", "Move a player"), Hint("B", "Close the room"))
+            else listOf(Hint("A", "Select"), Hint("B", "Close the room")),
+        tapOutsideCloses = false,
         onPadButton = { k ->
             if (k == KeyEvent.KEYCODE_BUTTON_X && focusedSlot in 1..s.game.places && PlayTogether.movePlayer(focusedSlot))
                 followTo = com.joeysretro.joey64.netplay.LobbyLines.nextSlot(focusedSlot, s.game.places)
@@ -613,8 +615,15 @@ private fun YourRoom(model: LibraryModel, s: PlayTogether.Hosting) {
                     else -> JoeyRow("Who can join", detail = if (s.public) "Anyone can join from Netplay" else "Listed as private: players need the code",
                         value = if (s.public) "Public" else "Private", sideways = true) { PlayTogether.setPublic(!s.public) }
                 }
-                JoeyRow("Close the room", sideways = true) { PlayTogether.leave() }
+                JoeyRow("Close the room", sideways = true) { askClose = true }
             })
+        }
+    }
+    if (askClose) JoeyDialog(onDismiss = { askClose = false }, hints = listOf(Hint("A", "Select"), Hint("B", "Cancel")), width = 420.dp) {
+        Column {
+            PopupTitle("Close the room?", "The game ends for everyone in it.")
+            com.joeysretro.joey64.launcher.components.JoeyOption("Cancel", Modifier.initialFocus()) { askClose = false }
+            com.joeysretro.joey64.launcher.components.JoeyOption("Close the room") { askClose = false; PlayTogether.leave() }
         }
     }
 }

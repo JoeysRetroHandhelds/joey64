@@ -528,7 +528,11 @@ internal fun CarryOnPopup(ask: LibraryModel.AskContinue, model: LibraryModel, on
                 }
                 if (!narrow) Column(Modifier.weight(0.54f)) {
                     val shape = RoundedCornerShape(6.dp)
-                    Box(Modifier.fillMaxWidth().aspectRatio(4f / 3f).clip(shape).background(c.chip, shape), contentAlignment = Alignment.Center) {
+                    // The picture gets the height the name and two lines under it leave: on a TV (the safe area) the full
+                    // 4:3 at the column's width pushed them below the popup (Thor as a TV, 2026-11-12). Kept 4:3; with room
+                    // it is the column's width, as before.
+                    Box(Modifier.weight(1f, fill = false).aspectRatio(4f / 3f, matchHeightConstraintsFirst = true).clip(shape)
+                        .background(c.chip, shape), contentAlignment = Alignment.Center) {
                         val big = if (focused == FRESH) cover else pictures[focused]
                         if (big != null) Image(big, contentDescription = null,
                             contentScale = if (focused == FRESH) ContentScale.Fit else ContentScale.Crop,

@@ -85,7 +85,9 @@ fun TabRow(
             .onFocusChanged { rowFocused.value = it.hasFocus; onFocused?.invoke(it.hasFocus) }
             .focusProperties { onEnter = { req.getOrNull(current.value)?.requestFocus() } }
             .focusGroup(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        // C3 (Joey 2026-11-11, borders overlapped): a focused tab's outline reaches 5 dp past it (8 in light mode) and it
+        // grows 3 %, so the tabs sit 12 dp apart; 6 put the outline over the next tab.
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         for (i in 0 until count) {
@@ -98,17 +100,17 @@ fun TabRow(
 }
 
 /**
- * A tab row's sideways scroll: the scroll area reaches 6 dp past each end, so a focused tab's outline isn't cut off
+ * A tab row's sideways scroll: the scroll area reaches 10 dp past each end, so a focused tab's outline isn't cut off
  * there, and the tabs stay where they were.
  */
 fun Modifier.tabScroll(state: androidx.compose.foundation.ScrollState): Modifier = this
     .layout { m, c ->
-        val extra = 12.dp.roundToPx()
+        val extra = 20.dp.roundToPx()
         val p = m.measure(c.copy(minWidth = c.minWidth + extra, maxWidth = if (c.hasBoundedWidth) c.maxWidth + extra else c.maxWidth))
         layout(p.width - extra, p.height) { p.place(-extra / 2, 0) }
     }
     .horizontalScroll(state)
-    .padding(horizontal = 6.dp)
+    .padding(horizontal = 10.dp)
 
 /**
  * A chip that's read, not pressed, never a focus stop: Game settings' game name (approved mockup

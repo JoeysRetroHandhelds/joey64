@@ -65,10 +65,12 @@ fun ControllerDiagram(player: Int, name: String, setup: PlayerSetup, face: AutoM
             Dot(c.good, 470.dp, 118.dp, 36.dp, "B"); Value(v(N64Button.B), 470.dp, 158.dp)
             Dot(c.buttonPrimary, 535.dp, 186.dp, 40.dp, "A"); Value(v(N64Button.A), 535.dp, 230.dp)
             val cx = 625.dp; val cy = 134.dp
-            Dot(c.gold, cx, cy - 26.dp, 26.dp, null); Value(v(N64Button.CUp), cx, cy - 50.dp)
+            // C4 (Joey 2026-11-11: "R stick up" sat behind the yellow circle): C up's value ends 4 dp above its button, growing
+            // upward with the font size; C left's and right's keep 4 dp from theirs.
+            Dot(c.gold, cx, cy - 26.dp, 26.dp, null); ValueAbove(v(N64Button.CUp), cx, cy - 26.dp - 13.dp - 4.dp)
             Dot(c.gold, cx, cy + 26.dp, 26.dp, null); Value(v(N64Button.CDown), cx, cy + 54.dp)
-            Dot(c.gold, cx - 26.dp, cy, 26.dp, null); Value(v(N64Button.CLeft), cx - 80.dp, cy - 10.dp, width = 92.dp)
-            Dot(c.gold, cx + 26.dp, cy, 26.dp, null); Value(v(N64Button.CRight), cx + 80.dp, cy - 10.dp, width = 92.dp)
+            Dot(c.gold, cx - 26.dp, cy, 26.dp, null); Value(v(N64Button.CLeft), cx - 85.dp, cy - 10.dp, width = 88.dp)
+            Dot(c.gold, cx + 26.dp, cy, 26.dp, null); Value(v(N64Button.CRight), cx + 85.dp, cy - 10.dp, width = 88.dp)
             Caption("C buttons", cx, cy + 80.dp)
         }
     }
@@ -86,6 +88,13 @@ private fun Centered(x: Dp, y: Dp, width: Dp, content: @Composable () -> Unit) {
 private fun Value(text: String, x: Dp, y: Dp, width: Dp = W) = Centered(x, y, width) {
     Text(text, style = JoeyTheme.type.rowValue, color = JoeyTheme.colors.value, textAlign = TextAlign.Center, maxLines = 1)
 }
+
+/** A value centred on [x] whose bottom is at [bottom]. */
+@Composable
+private fun ValueAbove(text: String, x: Dp, bottom: Dp, width: Dp = W) =
+    Box(Modifier.offset(x - width / 2, 0.dp).width(width).height(bottom), contentAlignment = Alignment.BottomCenter) {
+        Text(text, style = JoeyTheme.type.rowValue, color = JoeyTheme.colors.value, textAlign = TextAlign.Center, maxLines = 1)
+    }
 
 @Composable
 private fun Caption(text: String, x: Dp, y: Dp) = Centered(x, y, W) {

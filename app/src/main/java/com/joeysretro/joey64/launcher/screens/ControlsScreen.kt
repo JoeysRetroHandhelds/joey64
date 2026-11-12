@@ -353,7 +353,8 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             if (hotkeysOpen) {
                 HotkeysPage(editor, version, focused, ctlHints, onHints, onFocused = { focused = it }, onOpen = { popup = it }) { popup = Popup.Remap(it) }
             } else {
-            Row(Modifier.padding(top = 6.dp, bottom = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            // C3: 12 dp apart and 12 under the tabs, so a focused chip's or tab's outline stays off its neighbours.
+            Row(Modifier.padding(top = 12.dp, bottom = 2.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 PageChip("Auto map", R.drawable.ic_wand, onFocused = { if (it) focused = "chipAuto" }) { if (!off) popup = Popup.AutoConfirm }
                 PageChip("View controller", R.drawable.ic_eye, onFocused = { if (it) focused = "chipView" }) { popup = Popup.Diagram }
                 PageChip("Profiles", R.drawable.ic_bookmark, onFocused = { if (it) focused = "chipProfiles" }) { if (!off) popup = Popup.Profiles }

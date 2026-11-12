@@ -47,6 +47,15 @@ optional icon).
   an actions row (Host a room, Join by code, Your name), On this Wi-Fi (private rooms only here, with a lock),
   Public rooms with All games / Games I have at the start of its heading; room cards with cover, name, game,
   players, ping. Settles failure 3.
+- Settings-type pages (Joey 2026-11-11: "yes one list + panel for everything, thats perfect", scratchpad
+  build_setlist.py / setlist_mock.png): the two independent columns become **one list with a detail panel**,
+  on every Settings tab, Game settings, Controls and Touch controls. One column of rows in group order
+  (Picture, Look, Advanced...), so Down goes through all of them; the panel on the right shows the focused
+  row's help and its choices with the current one ticked, and follows focus at once. A or ▶ goes into the
+  panel (Up/Down move, A picks and the row changes at once, B or ◀ back to the row); this replaces the popup
+  for rows with a short list. Rows with a page of their own (Colour, Sides of the picture, Renderer, driver,
+  pacing) show what's set inside, and A opens the popup as today. On 4:3 screens there's no room for the
+  panel: one list, A opens the popup. About 11 rows on screen instead of 14.
 
 ## Where it fails
 

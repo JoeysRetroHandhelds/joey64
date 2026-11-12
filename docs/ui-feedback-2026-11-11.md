@@ -80,7 +80,11 @@ Controls, then Settings tabs, then popups.
 - [ ] E2 Ocarina of Time on the Thor and the Odin 2 Portal: a small box glitch top left (Joey). Needs a
       screenshot; rendering, so it goes to the perf session's list.
 - [ ] E3 The rail as a row across the top in landscape (Joey: "show me a mockup"): toprail_mock.png,
-      version A icons only, version B icons with names; waiting for Joey.
+      version A icons only, version B icons with names. Decided: the top bar with names (topbar2_mock.png),
+      with the rest of the decisions in docs/tv-guidelines-audit-2026-11-11.md. To build.
 - [ ] E4 Game options: how to carry on from a state. Today: Saves › the state › Play from here, or Settings ›
       Saves › Continue on Play (Never by default). Joey to say if Play should ask by default, or game options
       get a Continue row.
+- [ ] E5 Settings-type pages as one list with a detail panel (Joey: "yes one list + panel for everything,
+      thats perfect", setlist_mock.png): every Settings tab, Game settings, Controls, Touch controls. Details
+      in docs/tv-guidelines-audit-2026-11-11.md. To build.

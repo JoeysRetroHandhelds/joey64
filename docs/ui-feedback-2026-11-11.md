@@ -270,3 +270,12 @@ Ninth round (02:25-03:10 CST, APKs ob-0afb465d, oh-e37a843e, oi-972af808):
 - A8, closed back where they were opened: Settings › Appearance › Theme's choices (▶, then B: back on Theme, nothing
   picked); Settings › Library › Sort by's popup (back on Sort by); B on a Settings row goes to the bar, B there to the
   library on the tile last played from.
+
+Joey's answers to the morning report (2026-11-12, asked one by one):
+
+- [x] F1 The game screen opens and closes without Android's slide (dad49db): keep it.
+- [ ] F2 One shared popup window for every popup, so a popup over a popup keeps one dim and never flashes: build in
+  steps, each Thor-checked.
+- [ ] F3 A clean quit clears only its own game's recovery state (today any clean quit deletes the one recovery state).
+- [ ] F4 Send reports' line with only the day known: "Last sent today" / "Last sent Nov 11", not "Nothing sent yet".
+- [ ] F5 With focus on a tab row or the top bar the panel shows that tab's or place's own help, as Controls' tab row does.

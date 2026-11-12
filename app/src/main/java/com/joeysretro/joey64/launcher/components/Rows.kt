@@ -180,8 +180,9 @@ private fun StepButton(step: Int, rowFocused: Boolean, row: FocusRequester) {
     }
     suspend fun focusRow() {
         inputMode.requestInputMode(androidx.compose.ui.input.InputMode.Keyboard)
+        // Focus moves at once, and the row's Left / Right handler is on the row itself: the key can follow
+        // straight away (TV audit 4: it waited a frame).
         row.requestFocus()
-        androidx.compose.runtime.withFrameNanos { } // the row has focus before its key arrives
     }
     val glyph = if (step < 0) "◀" else "▶"
     Box(

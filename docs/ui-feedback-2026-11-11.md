@@ -116,8 +116,15 @@ Nothing below is checked on a device; the Thor waits for Joey's OK. APK joey64-d
 - Key interception (TV audit item 4): `onPreviewKeyEvent` handlers that move focus by hand. Most of the 49 change a value
   (◀ ▶ steps) or enter the list panel, which is what they're for; the one that moves focus is the library grid's Up / Down
   (LibraryScreen, keeps the column and reaches rows not composed yet). Changing it needs the grid tried on a device first.
-- Frame waits still in: RowActions (3 frames for the hints before Hold OK's menu) and Rows' ◀ ▶ touch arrows (focus the
-  row, a frame, then the key). PicturePopups' delay(350) is the RetroArch preset preview's debounce, not focus code.
+  Tried on the Thor 2026-11-12 (variant var-nogrid-646f4325, the handler off, not kept): Compose's own search lost the
+  column as soon as the grid scrolled (Down from Conker's Bad Fur Day, column 3, landed on Cruis'n World, column 1). The
+  handler stays; it is what keeps the column.
+- Frame waits: Rows' ◀ ▶ touch arrows no longer wait a frame (focus moves at once and the row's Left / Right handler is
+  on the row; Thor 2026-11-12, t4-fd81034f: a tap on Rumble strength's ◀ with focus elsewhere focused it and stepped
+  once, 100% to 90%, ▶ back to 100%). RowActions' 3 frames stay: waiting for the row to report itself focused instead
+  was too early, since Controls builds its hints a recomposition later (Hold OK on A from Controller showed only Reset
+  tab; with the frames back, Clear X, Reset to default Y, Reset tab). PicturePopups' delay(350) is the RetroArch preset
+  preview's debounce, not focus code.
 
 ## Thor checks (2026-11-12, 00:20-00:37 CST; APK 484f362a, core 42f48854 as installed)
 

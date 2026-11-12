@@ -132,7 +132,9 @@ fun rememberRowLongPress(title: String, focus: FocusRequester?, tap: () -> Unit)
             scope.launch {
                 inputMode.requestInputMode(InputMode.Keyboard)
                 runCatching { focus?.requestFocus() }
-                // The screen's hints follow focus through an effect and a recomposition: three frames covers both.
+                // The screen's hints follow focus through an effect and a recomposition: three frames covers both. Waiting
+                // for the row to report itself focused instead was too early: Controls builds its hints from its own
+                // focused-row state a recomposition later (Thor 2026-11-12: Hold OK on A showed only Reset tab, no X / Y).
                 repeat(3) { withFrameNanos { } }
                 val actions = RowActions.of(host.hints())
                 if (actions.isEmpty()) latestTap.value() else host.open = RowActionsHost.Opened(latestTitle.value, actions)

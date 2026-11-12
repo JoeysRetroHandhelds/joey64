@@ -116,11 +116,24 @@ internal fun accented(label: String, accent: androidx.compose.ui.graphics.Color)
     }
 }
 
-/** A badge picture from its kept file, decoded off the main thread; null until it's read (or with none). */
+/**
+ * A badge picture from its kept file; null while it's read (or with none). Decoded badges are kept in memory, and a
+ * small file (badges are 64 x 64, about 6 KB, 21 KB at most on the Thor) is decoded at once, so a list's badges come
+ * in the same frame as its rows (B2's leftover, Thor 2026-11-12: they came a frame after the list). Bigger files are
+ * read off the main thread.
+ */
 @Composable
 internal fun rememberBadge(file: File?): ImageBitmap? {
-    val bmp by produceState<ImageBitmap?>(null, file) {
-        value = file?.let { f -> withContext(Dispatchers.IO) { runCatching { BitmapFactory.decodeFile(f.path)?.asImageBitmap() }.getOrNull() } }
+    val first = androidx.compose.runtime.remember(file) {
+        file?.let { f -> badgeCache.get(f.path) ?: if (f.length() in 1..BADGE_AT_ONCE_MAX) decodeBadge(f) else null }
+    }
+    val bmp by produceState(first, file) {
+        value = first ?: file?.let { f -> withContext(Dispatchers.IO) { decodeBadge(f) } }
     }
     return bmp
 }
+
+private const val BADGE_AT_ONCE_MAX = 32L * 1024
+private val badgeCache = android.util.LruCache<String, ImageBitmap>(300)
+private fun decodeBadge(f: File): ImageBitmap? =
+    runCatching { BitmapFactory.decodeFile(f.path)?.asImageBitmap() }.getOrNull()?.also { badgeCache.put(f.path, it) }

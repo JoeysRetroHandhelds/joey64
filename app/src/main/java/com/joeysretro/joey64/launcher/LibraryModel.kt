@@ -373,7 +373,7 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
                 screenScraperOne.withLock { boxArt.fetch(maxWidth = if (settings.settings.first().boxArtLow) BoxArt.LOW_WIDTH else BoxArt.HIGH_WIDTH,
                     onProgress = { done, total -> _art.value = Progress(done, total, started) }) {
                 // Covers appear as they come, a few at a time.
-                if (++got % 4 == 0) _all.value = db.libraryGames()
+                if (++got % 4 == 0) { _all.value = db.libraryGames(); com.joeysretro.joey64.launcher.boxart.CoverImages.changed() }
             } }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -387,6 +387,7 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
             }
             _artPaused.value = outcome is BoxArt.Outcome.Done && outcome.busy
             _all.value = withContext(Dispatchers.IO) { db.libraryGames() }
+            if (got > 0) com.joeysretro.joey64.launcher.boxart.CoverImages.changed()
             waitingForNetwork = outcome is BoxArt.Outcome.Offline
             if (outcome is BoxArt.Outcome.Offline) {
                 val prefs = getApplication<Application>().getSharedPreferences("box_art", android.content.Context.MODE_PRIVATE)

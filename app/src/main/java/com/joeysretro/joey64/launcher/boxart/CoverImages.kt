@@ -31,14 +31,26 @@ object CoverImages {
 
     /** A replaced cover (Change box art) is a new file date, so a new key. */
     private fun key(file: File) = file.path + "@" + file.lastModified()
+
+    /**
+     * Goes up when a box art run has written covers. A tile's file is the same path when its cover is replaced
+     * (Joey64's own cover over ScreenScraper's), and its game row doesn't change, so nothing made the tile look
+     * again: the old picture stayed until the app restarted (Thor 2026-11-12, Sands of Time). [rememberCover] reads it.
+     */
+    val version = androidx.compose.runtime.mutableIntStateOf(0)
+
+    fun changed() { version.intValue++ }
 }
 
 /** [file]'s picture, null while it loads or when it can't be read. */
 @Composable
-fun rememberCover(file: File?): State<ImageBitmap?> =
-    produceState(file?.let { CoverImages.cached(it) }, file) {
+fun rememberCover(file: File?): State<ImageBitmap?> {
+    val version = CoverImages.version.intValue
+    return produceState(file?.let { CoverImages.cached(it) }, file, version) {
         // A new key keeps the old picture until it's set: set it each time, so No box art (null)
-        // or a new image doesn't leave the last cover up.
-        value = file?.let { CoverImages.cached(it) }
-        if (file != null && value == null) value = CoverImages.load(file)
+        // or a new image doesn't leave the last cover up. A replaced file keeps the old picture until the new one is
+        // decoded, so it doesn't blink.
+        if (file == null) { value = null; return@produceState }
+        value = CoverImages.cached(file) ?: CoverImages.load(file)
     }
+}

@@ -111,7 +111,8 @@ fun GameAchievementsScreen(game: AchievementsGame, onHints: (List<Hint>) -> Unit
             val row = RaBridge.debugCache?.get(game.gameId)?.let { Triple(it.first, it.second, System.currentTimeMillis() - 3_600_000) }
                 ?: LibraryDb.get(context).achievementsOf(game.gameId)
             if (row == null) GameData(null, emptyList(), 0L)
-            else GameData(RaGame.parse(game.gameId, JSONObject(row.first), 0L), RaAchievement.parseList(row.second), row.third)
+            else GameData(RaGame.parse(game.gameId, JSONObject(row.first), 0L),
+                RaAchievement.forSetting(RaAchievement.parseList(row.second), com.joeysretro.joey64.achievements.RaSettings.current(context).unofficial), row.third)
         }
     }
     var showing by remember { mutableStateOf(false) }

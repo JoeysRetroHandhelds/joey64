@@ -422,8 +422,12 @@ Seen, for Joey:
 - A game's achievements Show popup counts more than the header: Mario Kart 64's main set "All 73 · Unlocked 4"
   against "3 of 72". The extra one is RetroAchievements' "Warning: Unknown Emulator" (id 101000000), which the server
   adds when it doesn't know the client, shown as a recent unlock; it means RetroAchievements doesn't know Joey64
-  (Hardcore would be refused). The fetched lists also keep Unofficial achievements, which All counts and the header
-  doesn't (Yoshi's Story 240 against 121).
+  (Hardcore would be refused). Joey: "Keep it shown" (no change). The fetched lists also keep Unofficial achievements,
+  which All counts and the header doesn't (Yoshi's Story 240 against 121; about 40 of the Thor's games have some).
+  Joey: "Yes, follow setting": a game's page leaves them out while Settings › Achievements › Unofficial achievements is
+  off (its default) and shows them in their Unofficial section when it's on (`RaAchievement.forSetting`; the in-game
+  list is rc_client's, which already follows it). Seen on the Thor (p22-852e3d92): Star Fox 64's tabs 51 + 17 = 68
+  (was 91), Show's All 51 matching the header; the app's data put back after (md5s match).
 - On the Settings page the tab row sat 14 dp + 6 dp under the bar. Joey: "Yes trim" (after a before/after picture): 8 dp now (2 + the row's 6 for the focus outline) when the tabs are first under the bar; Video, Emulation and Audio keep 14 above their All games chip. Thor p17-532132b9: the outline clears the bar.
 - The viewer shows ◀ ▶ Previous, next with one screenshot; the Search chip's hint row has A Search and no B.
 - Up from the set tabs on a game's achievements goes to the bar, past the All chip (Right from the last tab reaches it).

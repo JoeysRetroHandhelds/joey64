@@ -47,6 +47,14 @@ data class RaAchievement(
             o.optInt("type"), o.optInt("sectionType"), o.optInt("set"),
         )
 
+        /**
+         * [list] as the Unofficial achievements setting has it: without the Unofficial ones while it's off
+         * (Joey 2026-11-12, "Yes, follow setting"). A list kept from the website has them whatever the setting,
+         * so a game's page counted them in All (Yoshi's Story 240 against the header's 121).
+         */
+        fun forSetting(list: List<RaAchievement>, unofficial: Boolean) =
+            if (unofficial) list else list.filterNot { it.section == UNOFFICIAL }
+
         fun parseList(json: String?): List<RaAchievement> {
             if (json.isNullOrBlank()) return emptyList()
             val a = try { JSONArray(json) } catch (e: Exception) { return emptyList() }

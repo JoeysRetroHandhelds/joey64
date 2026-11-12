@@ -99,4 +99,10 @@ class RaListsTest {
         assertEquals(listOf(78008), RaLists.inSet(a, 4782).map { it.id })
         assertEquals(2, RaLists.inSet(a, null).size)
     }
+
+    @Test fun unofficialOnesFollowTheSetting() {
+        val list = listOf(ach(1), ach(2, section = RaAchievement.UNOFFICIAL), ach(3, unlocked = 1, section = RaAchievement.UNLOCKED))
+        assertEquals(listOf(1, 3), RaAchievement.forSetting(list, unofficial = false).map { it.id })
+        assertEquals(list, RaAchievement.forSetting(list, unofficial = true))
+    }
 }

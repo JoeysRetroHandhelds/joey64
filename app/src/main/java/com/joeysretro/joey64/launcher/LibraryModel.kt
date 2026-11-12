@@ -472,14 +472,17 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
     /**
      * Minutes from the recovery state to the close Android recorded (ApplicationExitInfo), or to now. The first exit
      * after the state is the close: the newest one moved on with every later stop (an update, a force stop), so the
-     * popup said 32 minutes, then 40 (Thor 2026-11-12, two installs after Ocarina of Time's close).
+     * popup said 32 minutes, then 40 (Thor 2026-11-12, two installs after Ocarina of Time's close). Android keeps only
+     * the last few exits, so after enough stops the close itself drops off the list and the first one left is later
+     * (32, 40, 46, 53, 63 minutes, Thor 2026-11-12): the close is kept here, for that state, the first time it's found.
      */
     private fun minutesBefore(app: Application, savedAt: Long): Int {
-        val closedAt = try {
+        val kept = app.getSharedPreferences("recovery", android.content.Context.MODE_PRIVATE)
+        val closedAt = kept.getLong("closed_at", 0L).takeIf { it > 0 && kept.getLong("saved_at", 0L) == savedAt } ?: try {
             app.getSystemService(android.app.ActivityManager::class.java)
                 ?.getHistoricalProcessExitReasons(app.packageName, 0, 0)
                 ?.map { it.timestamp }?.filter { it >= savedAt }?.minOrNull()
-        } catch (e: Exception) { null }
+        } catch (e: Exception) { null }?.also { kept.edit().putLong("saved_at", savedAt).putLong("closed_at", it).apply() }
         val end = closedAt ?: System.currentTimeMillis()
         return ((end - savedAt) / 60_000L).toInt()
     }

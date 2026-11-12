@@ -342,6 +342,9 @@ val LocalPopupBack = androidx.compose.runtime.compositionLocalOf<(() -> Unit)?> 
 @Composable
 fun PopupBackButton(modifier: Modifier = Modifier) {
     val back = LocalPopupBack.current ?: return
+    // Touch only: without a touchscreen (a TV, a controller-only box) there's nothing to tap, so no back arrow (Joey 2026-11-11).
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    if (!androidx.compose.runtime.remember { com.joeysretro.joey64.launcher.layout.Tv.hasTouch(ctx) }) return
     val c = JoeyTheme.colors
     Box(modifier.size(30.dp).background(c.chip, androidx.compose.foundation.shape.CircleShape)
         .focusProperties { canFocus = false }

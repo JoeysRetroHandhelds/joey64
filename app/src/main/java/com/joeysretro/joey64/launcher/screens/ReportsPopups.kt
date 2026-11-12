@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher.screens
 
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -62,6 +63,30 @@ fun SendReportsPopup(on: Boolean, onDismiss: () -> Unit, onSet: (Boolean) -> Uni
                 trailing = if (!on) { _ -> PickerTick() } else null) { onSet(false) }
             JoeyRow("On", Modifier.initialFocus(on), detail = "At most once a day, when the library opens",
                 trailing = if (on) { _ -> PickerTick() } else null) { onSet(true) }
+            // Send now (approved feedback1 screen 7): what's waiting goes at once, even if a report already went today.
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            val scope = androidx.compose.runtime.rememberCoroutineScope()
+            var result by remember { mutableStateOf<String?>(null) }
+            var sentAt by remember { mutableStateOf(com.joeysretro.joey64.reports.ReportPrefs.lastSentAt(ctx)) }
+            androidx.compose.runtime.LaunchedEffect(result) { if (result != null && result != "Sending…") { kotlinx.coroutines.delay(4_000L); result = null } }
+            JoeyRow("Send now", enabled = on, value = result,
+                detail = if (!on) "Turn reports on first" else if (sentAt == 0L) "Nothing sent yet"
+                    else "Last sent " + com.joeysretro.joey64.launcher.ingame.SlotDates.withTime(sentAt, System.currentTimeMillis())
+                        .replaceFirstChar { it.lowercase() }) {
+                if (on && result != "Sending…") {
+                    result = "Sending…"
+                    scope.launch {
+                        val out = com.joeysretro.joey64.reports.ReportSender.maybeSend(ctx, force = true)
+                        sentAt = com.joeysretro.joey64.reports.ReportPrefs.lastSentAt(ctx)
+                        result = when (out) {
+                            com.joeysretro.joey64.reports.ReportSender.Outcome.Sent -> "Sent"
+                            com.joeysretro.joey64.reports.ReportSender.Outcome.NothingToSend -> "Nothing to send"
+                            com.joeysretro.joey64.reports.ReportSender.Outcome.Failed -> "Couldn't send, no internet"
+                            null -> "Already sending"
+                        }
+                    }
+                }
+            }
             PopupDivider()
             JoeyOption("What's sent", value = "›") { whatsSent = true }
             JoeyRow("Report ID", value = if (reset) "New ID made" else "Reset  ›", detail = "A random number, not tied to you or this device") {

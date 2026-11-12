@@ -34,15 +34,20 @@ object ReportSender {
 
     fun today(): String = LocalDate.now(ZoneOffset.UTC).toString()
 
-    /** [force]: debug builds, send now even if a report went today. */
-    suspend fun maybeSend(ctx: Context, force: Boolean = false) = withContext(Dispatchers.IO) {
-        if (!ReportPrefs.on(ctx)) return@withContext
-        if (!force && ReportPrefs.lastSentDay(ctx) == today()) return@withContext
-        if (!sending.compareAndSet(false, true)) return@withContext
-        try { send(ctx) } catch (e: Exception) { JLog.w(TAG, "reports: $e") } finally { sending.set(false) }
+    /** What Send now says after a press (approved feedback1 screen 7). */
+    enum class Outcome { Sent, NothingToSend, Failed }
+
+    /** [force]: send now even if a report went today (Send reports › Send now, and debug builds). */
+    suspend fun maybeSend(ctx: Context, force: Boolean = false): Outcome? = withContext(Dispatchers.IO) {
+        if (!ReportPrefs.on(ctx)) return@withContext null
+        if (!force && ReportPrefs.lastSentDay(ctx) == today()) return@withContext null
+        if (!sending.compareAndSet(false, true)) return@withContext null
+        try { send(ctx) } catch (e: Exception) { JLog.w(TAG, "reports: $e"); Outcome.Failed } finally { sending.set(false) }
     }
 
-    private fun send(ctx: Context) {
+    private fun send(ctx: Context): Outcome {
+        var anyEvents = false
+        var failed = false
         val exits = exits(ctx)
         sweepOpen(ctx, exits)
         val pending = ReportFiles.pending(ctx).listFiles { f -> f.name.endsWith(".json") }.orEmpty().sortedBy { it.name }
@@ -80,6 +85,7 @@ object ReportSender {
             // Crashes, then sessions oldest first, then covers: what doesn't fit waits for the next report, from the end.
             val events = crashesHere.map { it.second } + sessionEvents.map { it.second } + coversHere.map { it.first }
             if (events.isEmpty()) continue
+            anyEvents = true
             val screen = mainScreen(ctx)
             val device = ReportJson.Device(Build.MANUFACTURER, Build.MODEL, if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL else null,
                 gpuDriver.first.ifEmpty { null }, gpuDriver.second.ifEmpty { null }, Build.VERSION.SDK_INT,
@@ -104,12 +110,13 @@ object ReportSender {
                     else sentCrashes.lastOrNull()?.first?.timestamp ?: 0L
                 }
                 anySent = anySent || code == 204
-            } else break
+            } else { failed = true; break }
         }
         if (maxExit > 0) ReportPrefs.setExitsAfter(ctx, maxOf(maxExit, ReportPrefs.exitsAfter(ctx).takeIf { it != Long.MAX_VALUE } ?: 0L))
         // Only a report the server took uses up the day. A check with nothing to send marked it too, so a game finished
         // later that day waited for the next one: a tester's first report never came the day they played (2026-11-11).
         if (anySent) ReportPrefs.setLastSentDay(ctx, today())
+        return when { failed -> Outcome.Failed; anySent -> Outcome.Sent; !anyEvents -> Outcome.NothingToSend; else -> Outcome.Sent }
     }
 
     /** The server takes at most 64 KB a report (server/reports/src/validate.js, MAX_BYTES); a report stays under this. */

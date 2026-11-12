@@ -59,7 +59,9 @@ object ReportPrefs {
 
     /** The UTC day (yyyy-mm-dd) of the last report the server took. */
     fun lastSentDay(ctx: Context): String? = p(ctx).getString("sent_day", null)
-    fun setLastSentDay(ctx: Context, day: String) = p(ctx).edit().putString("sent_day", day).apply()
+    fun setLastSentDay(ctx: Context, day: String) = p(ctx).edit().putString("sent_day", day).putLong("sent_at", System.currentTimeMillis()).apply()
+    /** When the last report the server took went (ms), for Send now's line; 0 before the first. */
+    fun lastSentAt(ctx: Context): Long = p(ctx).getLong("sent_at", 0L)
 
     /** Process exits recorded before this time (ms) are not reported. On by default (a testing build): since it was installed. */
     fun exitsAfter(ctx: Context): Long = p(ctx).getLong("exits_after", if (testing) installedAt(ctx) else Long.MAX_VALUE)

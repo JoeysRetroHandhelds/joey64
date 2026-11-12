@@ -197,7 +197,7 @@ Fourth round (01:30-01:45 CST, APKs c5-27ed2cc4, pic-c48804d5, rec-cbe00c86; F-Z
 - Test leftovers put back again: F-Zero X's .srm, quit state and picture, a save backup, two report files, and the
   library database (the copy without F-Zero X's plays).
 
-Fifth round (01:50-02:10 CST, APK net-fc09ebed), looked at and closed, nothing saved or sent:
+Fifth round (01:45-01:55 CST, APK net-fc09ebed), looked at and closed, nothing saved or sent:
 
 - A1: Up from Mario Kart 64 (under Achievements on the bar) lands on Library; Up from Search's box lands on Search.
 - A2: "Bomberman" (3 results): B closes the keyboard, Down lands on the first result, not the second.

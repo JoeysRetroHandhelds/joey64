@@ -279,8 +279,8 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             Control.Options -> { popup = Popup.TouchResetPage; true }
             else -> false
         } else when (control) {
-            Control.TabPrev -> { if (!hk) { player = (p + 3) % 4; open = emptySet() }; true }
-            Control.TabNext -> { if (!hk) { player = (p + 1) % 4; open = emptySet() }; true }
+            Control.TabPrev -> { val n = ((if (hk) HOTKEYS_TAB else p) + 4) % 5; hotkeysOpen = n == HOTKEYS_TAB; if (n != HOTKEYS_TAB) player = n; open = emptySet(); true }
+            Control.TabNext -> { val n = ((if (hk) HOTKEYS_TAB else p) + 1) % 5; hotkeysOpen = n == HOTKEYS_TAB; if (n != HOTKEYS_TAB) player = n; open = emptySet(); true }
             Control.Extra -> { edit { if (hk) clearHotkey(editor, row) else clearRow(editor, p, row) }; true }
             // Tap to hold and Macros: Y is Use All games on a game; on All games they have no default but none.
             Control.Search -> { if (!(row in EXTRA_ROWS && target == null)) edit { if (hk) resetHotkey(editor, row) else resetRow(editor, p, row) }; true }
@@ -289,8 +289,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
         }
     }
     sink.onBack = {
-        if (hotkeysOpen) { hotkeysOpen = false; focused = "chipHotkeys"; true }
-        else if (touchOpen) { touchOpen = false; focused = "chipTouch"; true }
+        if (touchOpen) { touchOpen = false; focused = "chipTouch"; true }
         else false
     }
 
@@ -318,7 +317,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
         }).let { if (hotkeysOpen || off) it else withResetHint(it) }
 
     val landing = LocalFocusLanding.current
-    LaunchedEffect(hotkeysOpen, touchOpen) { landing?.arm() }
+    LaunchedEffect(touchOpen) { landing?.arm() }
 
     // "Mario Kart loaded" after a profile loads (mockup 9), for 3 seconds.
     var loaded by remember { mutableStateOf<String?>(null) }
@@ -326,9 +325,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
 
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().padding(horizontal = s.margin).padding(top = 14.dp, bottom = 6.dp)) {
-        if (hotkeysOpen) {
-            HotkeysPage(editor, version, focused, ctlHints, onHints, onFocused = { focused = it }, onOpen = { popup = it }) { popup = Popup.Remap(it) }
-        } else if (touchOpen) {
+        if (touchOpen) {
             TouchControlsPage(touchNow, shown.players[0], targetTitle, if (target == null) emptySet() else touchNow.changedFrom(touchBase),
                 editor.changed(0), focused, onFocused = { focused = it }, onGames = { popup = Popup.TouchGames },
                 onEdit = { touchEdit = it },
@@ -340,18 +337,22 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             fun headerChips() {
                 PageChip((targetTitle ?: "All games") + "  ›", R.drawable.ic_sliders, on = target != null,
                     onFocused = { if (it) focused = "chipGame" }) { popup = Popup.Games }
-                Spacer(Modifier.width(8.dp))
-                PageChip("Hotkeys", R.drawable.ic_keyboard, modifier = Modifier.initialFocus(focused == "chipHotkeys"),
-                    onFocused = { if (it) focused = "chipHotkeys" }) { hotkeysOpen = true; focused = "hkButton" }
             }
             // No title under the top bar; the chips are the first thing on the page (approved top bar, 2026-11-11).
             com.joeysretro.joey64.launcher.components.PageHeader(null) { headerChips() }
             // Scrolls sideways on a narrow screen rather than wrapping "Player 4".
             // A focus stop too (Joey 2026-11-09): Up from the chips, ◀ ▶, A picks the player.
-            com.joeysretro.joey64.launcher.components.TabRow(4, player, Modifier.padding(top = 6.dp).tabScroll(rememberScrollState()),
-                onFocused = { if (it) focused = "tabs" }, onPick = { i -> if (i != player) { player = i; open = emptySet() } }) { i, m ->
-                TabChip("Player ${i + 1}", i == player, m)
+            // Hotkeys is the fifth tab, after Player 4 (Joey 2026-11-11): the same for every game and player.
+            com.joeysretro.joey64.launcher.components.TabRow(5, if (hotkeysOpen) HOTKEYS_TAB else player, Modifier.padding(top = 6.dp).tabScroll(rememberScrollState()),
+                onFocused = { if (it) focused = "tabs" }, onPick = { i ->
+                    if (i == HOTKEYS_TAB) hotkeysOpen = true
+                    else if (i != player || hotkeysOpen) { hotkeysOpen = false; player = i; open = emptySet() }
+                }) { i, m ->
+                TabChip(if (i == HOTKEYS_TAB) "Hotkeys" else "Player ${i + 1}", if (i == HOTKEYS_TAB) hotkeysOpen else (i == player && !hotkeysOpen), m)
             }
+            if (hotkeysOpen) {
+                HotkeysPage(editor, version, focused, ctlHints, onHints, onFocused = { focused = it }, onOpen = { popup = it }) { popup = Popup.Remap(it) }
+            } else {
             Row(Modifier.padding(top = 6.dp, bottom = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 PageChip("Auto map", R.drawable.ic_wand, onFocused = { if (it) focused = "chipAuto" }) { if (!off) popup = Popup.AutoConfirm }
                 PageChip("View controller", R.drawable.ic_eye, onFocused = { if (it) focused = "chipView" }) { popup = Popup.Diagram }
@@ -451,7 +452,8 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
                     dot = "Macros" in changed, onFocused = { if (it) focused = "Macros" }) { popup = Popup.Macros }
             }
         }
-    }
+        }
+        }
     loaded?.let { name ->
         com.joeysretro.joey64.launcher.components.JoeyToast(R.drawable.ic_circle_check, "Profiles", "$name loaded",
             "Player ${player + 1}, ${targetTitle ?: "All games"}", Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 16.dp))
@@ -673,7 +675,6 @@ private fun controlsRowHelp(row: String, setup: PlayerSetup, face: AutoMap.FaceC
         "Macros" -> "Macros" to "One button plays a list of presses. Up to 8 a player."
         "tabs" -> "Players" to "Each player's controller and buttons. ◀ ▶ picks one."
         "chipGame" -> "All games or one game" to "Controls for every game, or for one game only."
-        "chipHotkeys" -> "Hotkeys" to "The hotkey button and what each hotkey does."
         "chipAuto" -> "Auto map" to "Sets this player's buttons from the controller's known layout."
         "chipView" -> "View controller" to "A picture of the controller with what each button does."
         "chipProfiles" -> "Profiles" to "Save this player's buttons under a name, or load a saved one."
@@ -784,6 +785,9 @@ fun hotkeyKey(code: Int) = when (code) {
     else -> InputNames.key(code, null)
 }
 
+/** The Controls tab row's Hotkeys tab (after Player 1-4). */
+private const val HOTKEYS_TAB = 4
+
 @Composable
 private fun HotkeysPage(editor: ControlsEditor, version: Int, focused: String, hints: List<Hint>, onHints: (List<Hint>) -> Unit,
                         onFocused: (String) -> Unit, onOpen: (Popup) -> Unit, onChange: (Target) -> Unit) {
@@ -799,8 +803,6 @@ private fun HotkeysPage(editor: ControlsEditor, version: Int, focused: String, h
         onOpen(popupRows[a] ?: Popup.Hotkey(a))
     }
     Column(Modifier.fillMaxSize()) {
-    Text("Hotkeys", style = JoeyTheme.type.pageTitle, color = c.text)
-    Spacer(Modifier.height(8.dp))
     // One list with the panel beside it (approved 2026-11-11, Hotkeys included).
     val hkPanel = com.joeysretro.joey64.launcher.components.rememberListPanel()
     val hkInfo = if (focused == "hkButton") com.joeysretro.joey64.launcher.components.PanelInfo("Hotkey button",

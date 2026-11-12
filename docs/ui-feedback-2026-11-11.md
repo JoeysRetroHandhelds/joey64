@@ -26,11 +26,11 @@ Controls, then Settings tabs, then popups.
       through the shared ListPager on the games list, a game's list and the in-game panel) Achievements page: L1/R1 moves the highlight to the rail's Continue icon (should change tab);
       L2/R2 scroll a page there and in every long list.
 - [ ] A6 Pages with filters (Achievements and others): a button for the filters.
-- [ ] A7 Popups open on their marked row at once: Player 2 › Controller visibly moves the highlight to None
+- [x] A7 (built db20e54, not device-checked: JoeyDialog's first-item fallback ran before the window had focus while the marked row waited for it, so the first row lit and focus jumped; both wait for window focus now) Popups open on their marked row at once: Player 2 › Controller visibly moves the highlight to None
       after opening. JoeyOS: mark the row, open the list scrolled to it, no move after the first frame.
-- [ ] A8 B goes back to where you were, everywhere (one exit route per page and popup; containers restore
+- [ ] A8 (waits for a device: each case has to be found on one) B goes back to where you were, everywhere (one exit route per page and popup; containers restore
       the row you left). "Not correct almost every time."
-- [ ] A9 B closes a room (host: asks first, since it ends the room for everyone).
+- [x] A9 (built a04703c, not device-checked: host B asks "Close the room?" with Cancel focused; joiner B leaves) B closes a room (host: asks first, since it ends the room for everyone).
 
 ## B. Flashes (find each cause on a device, then fix)
 
@@ -51,7 +51,7 @@ Controls, then Settings tabs, then popups.
 - [ ] C3 Controls: the Auto map / View controller tabs' borders overlap (check every tab row).
 - [ ] C4 View controls: R stick up (C-up) label is behind the yellow circle.
 - [ ] C5 A on a game takes a few seconds to start: measure where the time goes (tap to first frame).
-- [ ] C6 Controls: Hotkeys moves to the right of Player 4 (Joey's layout).
+- [x] C6 (built beaf692, not device-checked: Hotkeys is the fifth tab, the chip is gone, L1/R1 go round all five) Controls: Hotkeys moves to the right of Player 4 (Joey's layout).
 - [x] C7 (eb71e7c) Library: Sort by Recently played by default (Joey). Anyone who picked a sort keeps it.
 - [x] C8 (eb71e7c) Fast forward shows an on-screen sign while it's on (Joey). Slow motion and Rewind already show the
       shared in-game popup (`InGamePopup`, MainActivity ~440); fast forward gets the same one, "Fast forward"
@@ -62,21 +62,21 @@ Controls, then Settings tabs, then popups.
 - [x] D1 (Joey: "remove the play icon"; removed ffc61e7) The rail's first (play) icon is Continue: it resumes the last game (Mario Kart 64 here), by the
       approved launcher design. Joey expected it to open the library. Decide: drop it from the rail, give it
       a different icon, or something else.
-- [ ] D2 (decided 2026-11-11 with the top bar: every filter and game chip is the first thing under the bar; see the TV audit doc) Top-right corner items are hard to reach: lay out per Android TV guidance (Joey: "we may need to
+- [x] D2 (built f817b7c with the top bar) (decided 2026-11-11 with the top bar: every filter and game chip is the first thing under the bar; see the TV audit doc) Top-right corner items are hard to reach: lay out per Android TV guidance (Joey: "we may need to
       avoid top right menu and change that everywhere"). Mockup of the new layout first.
-- [ ] D3 (approved as drawn 2026-11-11: rasetup1_mock.png, one setup page with Username, Password, Sign in, Skip; no
+- [x] D3 (built 1379db5, not device-checked: first run's page 4; RaLibraryFetch looks up achievementsets + unlocks for each game with a set after each scan, kept in ra_sets as "fetched", again after a week; a played game keeps rc_client's own) (approved as drawn 2026-11-11: rasetup1_mock.png, one setup page with Username, Password, Sign in, Skip; no
       progress page, the look-up joins the library's box art and cheats scan; wrong password shown on the same page) Achievements without playing first: fetch every library game's achievements when the ROMs folder
       is scanned (with the covers and game list), once signed in to RetroAchievements.
-- [ ] D4 (approved as drawn 2026-11-11, feedback1_mock.png screen 7) Send reports popup: a Send now row (mockup).
-- [ ] D5 (approved 2026-11-11: Your name as an action in the Netplay rows, netrows_mock.png; its popup as drawn in feedback1_mock.png screen 9) Netplay: set your own name (now: the RetroAchievements username, else the device name). Mockup.
-- [ ] D6 Fast-forward speed, approved 2026-11-11 (Joey: "looks good", scratchpad build_emuspeed.py / emuspeed_mock.png):
+- [x] D4 (built c58abd9, not device-checked) (approved as drawn 2026-11-11, feedback1_mock.png screen 7) Send reports popup: a Send now row (mockup).
+- [x] D5 (built 46e905e, not device-checked) (approved 2026-11-11: Your name as an action in the Netplay rows, netrows_mock.png; its popup as drawn in feedback1_mock.png screen 9) Netplay: set your own name (now: the RetroAchievements username, else the device name). Mockup.
+- [x] D6 (built b8b3783, not device-checked) Fast-forward speed, approved 2026-11-11 (Joey: "looks good", scratchpad build_emuspeed.py / emuspeed_mock.png):
       Settings › Emulation gets a Speed group, the same settings as Controls › Hotkeys' popups (one setting, two
       places): Fast-forward speed (◀▶) and mode, Slow motion speed (◀▶) and mode, Rewind, Rewind: how far back;
       Thermal fallback moves from Advanced into Speed. Same for every game: greyed "Same for every game" with a
       game picked. Hotkeys' panel shows each hotkey's button, mode and speed too. To build.
       Expansion Pak under All games (Joey: "yes on"): the greyed row reads On, and the panel says "On for every
       game. To turn it off for one game, pick that game in the chip above." (was "Set for one game"). To build.
-- [ ] D7 Unhiding a game, approved as drawn 2026-11-11 (Joey: "Add to the Filter", scratchpad build_hidden.py /
+- [x] D7 (built 6153885 + 9a95aa8, not device-checked) Unhiding a game, approved as drawn 2026-11-11 (Joey: "Add to the Filter", scratchpad build_hidden.py /
       hidden_mock.png): the Show popup gets Hidden as the last filter with its count, only while a game is hidden;
       the Hidden view's options have Show again where Hide game is; a line "<game> is back in the library"; the
       last one shown goes back to All games. Settings › Library › Hidden games stays. To build.
@@ -89,18 +89,31 @@ Controls, then Settings tabs, then popups.
       2026-11-11 23:00 (Thor, parallel-RDP, 0.1.0.1, a dungeon room): a teal "]" about 2 N64 pixels wide in the first
       ~3 N64 pixels of the top and left edges, the overscan border. Guess, unchecked: junk the game draws where a TV hid
       it (Crop edges would hide it). Handed to the Joey64 (perf) session for its rendering list.
-- [ ] E3 The rail as a row across the top in landscape (Joey: "show me a mockup"): toprail_mock.png,
+- [x] E3 (built f817b7c, not device-checked) The rail as a row across the top in landscape (Joey: "show me a mockup"): toprail_mock.png,
       version A icons only, version B icons with names. Decided: the top bar with names (topbar2_mock.png),
       with the rest of the decisions in docs/tv-guidelines-audit-2026-11-11.md. To build.
-- [ ] E4 Carry on from a state. Approved as drawn 2026-11-11 (scratchpad build_contplay.py / contplay_mock.png):
+- [x] E4 (built f34cf1b, not device-checked; the "Play will always ..." line is the in-game pop-up (shared JoeyToast at the pop-up place), not a bottom line of its own) Carry on from a state. Approved as drawn 2026-11-11 (scratchpad build_contplay.py / contplay_mock.png):
       Settings › Saves › Continue on Play defaults to Ask. Play on a game with states opens a list + picture popup:
       Where you quit (focused), OLDER QUIT SAVES, SLOTS, each with its picture, then Start fresh (the cover); the
       big picture follows focus; A plays, B closes. No states: Play starts at once. Y, Always do this (only on
       Where you quit and Start fresh): sets Always / Never and starts, with a line in game for a few seconds
       ("Play will always ... Change it in Settings › Saves."). Replaces today's AskContinuePopup. To build.
-- [ ] E5 Settings-type pages as one list with a detail panel (Joey: "yes one list + panel for everything,
+- [x] E5 (built b8b3783, 37d8aa2, 6a259c9, not device-checked; Video's Shader, Sides and Overlay rows stay pages of their own (their pickers have previews)) Settings-type pages as one list with a detail panel (Joey: "yes one list + panel for everything,
       thats perfect", setlist_mock.png): every Settings tab, Game settings, Controls, Touch controls. Details
       in docs/tv-guidelines-audit-2026-11-11.md. To build.
 
 Feature freeze (Joey 2026-11-11): everything approved in this review is usability, not a new feature ("these are
 necessary for usability"), so all of it is built before the first test build.
+
+
+## Waiting for a device (2026-11-12, overnight)
+
+Nothing below is checked on a device; the Thor waits for Joey's OK. APK joey64-db20e54-3d2f0234.apk (debug, core rel2).
+
+- Every item marked "not device-checked" above.
+- A8 (B back to where you were): found case by case on a device.
+- Key interception (TV audit item 4): `onPreviewKeyEvent` handlers that move focus by hand. Most of the 49 change a value
+  (◀ ▶ steps) or enter the list panel, which is what they're for; the one that moves focus is the library grid's Up / Down
+  (LibraryScreen, keeps the column and reaches rows not composed yet). Changing it needs the grid tried on a device first.
+- Frame waits still in: RowActions (3 frames for the hints before Hold OK's menu) and Rows' ◀ ▶ touch arrows (focus the
+  row, a frame, then the key). PicturePopups' delay(350) is the RetroArch preset preview's debounce, not focus code.

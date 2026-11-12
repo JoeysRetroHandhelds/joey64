@@ -253,3 +253,17 @@ Eighth round (02:10-02:30 CST, APKs bg-f144e9a3, lr-a4424742, a7-7bef8c7b):
   on a window's first item as it gets focus, before our effect runs. The popup's onEnter now sends it to the marked
   row (2dfc6dc): the first frame has no highlight, the next has None, nothing moves after. Rechecked: the recovery
   popup (Continue), Options (Play), Details and back (Details), the Controller popup's B (back on Controller).
+
+Ninth round (02:25-03:10 CST, APKs ob-0afb465d, oh-e37a843e, oi-972af808):
+
+- Checked, nothing to change: R1 / L1 along the bar; the Netplay page (lands on Host a room, Down to the Public
+  rooms filter, All games / Games I have, focus stays; set back to All games); Controls › Hotkeys from the tab row.
+- A8, found: a game's page opened from its options (Game settings, Cheats, Achievements, Saves, Screenshots) closed
+  onto the tile, the options gone. B now opens the options again on that row (2c72004), over Search results too;
+  leaving the page by the bar doesn't bring them back, and Start opens them on Play as before. The first build showed
+  the library undimmed for 2 frames between the page and the options (the options are their own window); the page's
+  last picture now stays until that window has drawn, so the page dims under the options and the library takes its
+  place under the dim 3 frames later. Checked frame by frame on Game settings, and all five rows by hand (Screenshots
+  with a copied picture, removed after).
+- Seen: a hack with no cheat lists (Sands of Time) opens Cheats with focus on the bar and "No cheats for this game
+  yet" at the bottom of the page; B still goes back to the options.

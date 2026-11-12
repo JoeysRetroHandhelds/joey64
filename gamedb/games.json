@@ -112,9 +112,11 @@
     },
     {
       "id": "CZL", "crc": "EC7011B77616D72B", "title": "Ocarina of Time",
+      "settings": [
+        {"what": "Crop edges Normal (8 lines) by default, while neither All games nor the game sets Crop edges", "where": "video/GameCrop.kt (codes CZL and NZL: every region, revision and hack), MainActivity applyVideoDisplay", "why": "the game draws a teal ']' with a dark box into its own top-left border in dungeons, where a TV hid it (README Full-run fixes (f)(1)); Thin leaves a sliver. Joey 2026-11-12: \"Yes, OoT only\"; oot5-duo: default 8 lines, All games Off still wins"}
+      ],
       "issues": [
-        {"status": "open", "devices": "all", "what": "pause-screen freezes (M6 core fixes list)", "evidence": "README core emulation fixes item"},
-        {"status": "open", "devices": "all", "what": "a teal ']' with a dark box in the top-left overscan corner in dungeons (Joey on the Thor and Odin 2 Portal, 2026-11-11)", "evidence": "README Full-run fixes (f)(1): drawn by the game itself (GLideN64 too, every parallel-RDP VI filter off); Crop edges Normal (8 lines) hides it, Thin (4) leaves a sliver; a per-game default waits for Joey"}
+        {"status": "open", "devices": "all", "what": "pause-screen freezes (M6 core fixes list)", "evidence": "README core emulation fixes item"}
       ],
       "notes": [
         "reads its depth buffer every frame (lens flare): smart sync waits 599 of 600 frames; lazy waking of the RDP worker costs it 3% on the Portal (Snap 15%, GoldenEye 6%: games where the CPU waits on GPU results)",

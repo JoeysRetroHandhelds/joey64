@@ -698,6 +698,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     /** The widescreen and 60 fps codes this game started with (Settings › Video), from [prepareGame]. */
     private var extrasOn = com.joeysretro.joey64.video.ExtrasOn.NONE
+    /** This play's header game code ("CZLE"), read at start; null before or for a disk alone. */
+    private var gameCode: String? = null
 
     /**
      * On [gameIo]: [rom]'s widescreen and 60 fps versions from its kept cheat lists (the scan downloads them; nothing is
@@ -1122,7 +1124,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val v = video
         val (aw, ah) = com.joeysretro.joey64.video.VideoApply.aspect(v, extrasOn.shape)
         NativeBridge.setDisplay(aw, ah, v.on(com.joeysretro.joey64.video.VideoKey.Integer), v.on(com.joeysretro.joey64.video.VideoKey.Bfi))
-        NativeBridge.setCrop(v.int(com.joeysretro.joey64.video.VideoKey.Crop))
+        NativeBridge.setCrop(com.joeysretro.joey64.video.GameCrop.of(gameCode, v)) // a game's default when Crop edges isn't set (OoT)
         NativeBridge.setColour(v.int(com.joeysretro.joey64.video.VideoKey.Brightness), v.int(com.joeysretro.joey64.video.VideoKey.Contrast), v.int(com.joeysretro.joey64.video.VideoKey.Saturation), v.int(com.joeysretro.joey64.video.VideoKey.Gamma))
         NativeBridge.setSharpen(when (v[com.joeysretro.joey64.video.VideoKey.Sharpen]) { "cas" -> 1; "fsr" -> 2; else -> 0 }, v.int(com.joeysretro.joey64.video.VideoKey.SharpenStrength))
     }
@@ -1382,6 +1384,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         savesOpts = p.savesOpts
         // Settings › Emulation: Overclock, CPU core, Expansion Pak (never Off for a game that needs it). --es opts wins.
         val code = romGameCode(if (RomFiles.isDiskName(rom)) ddCart ?: "" else rom)
+        gameCode = code
+        com.joeysretro.joey64.video.GameCrop.lines(code, video)?.let { JLog.i(TAG, "crop edges: this game's default, $it lines"); applyVideoDisplay() }
         val eApply = com.joeysretro.joey64.emulation.EmuApply.of(emuAtStart, com.joeysretro.joey64.emulation.ExpansionPak.needed(code))
         val devOpts = devString("opts").orEmpty()
         for ((k, v) in eApply.coreOptions) if (!devOpts.contains("$k=")) NativeBridge.setOption(k, v)

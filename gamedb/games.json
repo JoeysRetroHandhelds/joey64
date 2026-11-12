@@ -69,6 +69,16 @@
         "Title screen: a strip at the left edge (x 0-31, about 12 pixels shown) can blink. The game draws the still title from x 32 with no clear, so each of its three framebuffers keeps what earlier frames left there, set by when Start / A land in the intro. Same presses replayed (N64_PRESS_SCRIPT): 1x 53%, 4x 44-45% of title frames lit, so it isn't upscaling (Thor 2026-11-10, results/flick/sm-rep*). A TV hides it in overscan; Crop edges Wide hides it."]
     },
     {
+      "id": "NBC", "title": "Blast Corps",
+      "settings": [
+        {"what": "synchronous parallel-RDP, also in fast-forward", "where": "kSyncRdpGames", "why": "async on the recompiler: Blast Corps (USA) freezes on the Rareware logo ~2 s in on the Flip (Mali); all four copies (USA, USA Rev 1, Europe, Blastdozer) are NBC"}
+      ],
+      "issues": [
+        {"status": "fixed", "devices": "Flip (Mali; Adreno is sync by default)", "what": "Blast Corps (USA) froze on the Rareware logo ~2 s in on the recompiler with async parallel-RDP (compile thread and jump cache either way); the cached interpreter and sync parallel-RDP play it", "evidence": "full-run attract f0100 timeout; scratchpad compat/results bc-flip (a, b, d, e, a2 freeze; c interpreter plays), bc-duo (Duo, sync: plays), bc3-flip (s, s2 sync: play; q Mali GPU rules off: freezes)"}
+      ],
+      "notes": ["Why async breaks only on the recompiler is open: README full-run fixes (a)"]
+    },
+    {
       "id": "NTQ", "title": "Tony Hawk's Pro Skater 2",
       "fixed": [
         {"devices": "all (upscaled parallel-RDP)", "what": "the picture shook every frame at 2x/4x/8x: Bob deinterlacing moves each 480i field a quarter line x scale (Joey saw it on the Thor, 2026-11-10)", "fix": "Weave is the default deinterlace since 2026-11-10 (Joey); shake.py back-and-forth shifts: Bob 4x 2451, 2x 3220, 1x none, Weave 4x 0 (results/flick)"}

@@ -1,7 +1,7 @@
 # The core bundled in app/src/main/jniLibs (written by devtools/bundle-core.sh; the .so itself is not committed)
 repo: JoeysRetroHandhelds/joey64-core
 branch: rel2
-commit: 247364e975ce6dd5563c4c7710e3b3d72b221de3 2026-11-12 00:54:10 -0600 mupen64plus.ini: Nihon Pro Golf Tour 64 (64DD disk) CountPerOp 1, as Project64 gives its cart
+commit: c994aa7517c448249c4daba6daedd0f798e4c1dc 2026-11-12 03:06:18 -0600 pif: a ROM whose header CRC1/CRC2 isn't its boot checksum (four Wii VC copies) boots with the
 uncommitted: none
-built: 2026-11-12 00:54
-md5: b303fbcc4b5041b6ea8fd61444f599f2
+built: 2026-11-12 03:06
+md5: 9fb52e9eec3e3fd0a0bf39f1d507b2df

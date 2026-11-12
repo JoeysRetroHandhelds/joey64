@@ -145,11 +145,13 @@
     {
       "id": "NMW", "title": "Mario Party 2",
       "fixed": [
+        {"devices": "all", "what": "the Japanese Wii Virtual Console copy hung before its first frame (no VI line, 300 s; upstream mupen64plus-next too): VC kept the cartridge header CRC over changed code, so the boot code's checksum never matched", "fix": "core rel2 c994aa7 (vc-hook, bundled 2026-11-12) boots with the computed checksum; vc3-flip and vc4-duo, compat 82/82 on all four run devices"},
         {"devices": "Duo (Adreno 722)", "what": "text boxes showed lines (old text strokes) with the bundled Turnip Gen8 V38", "fix": "faux123 Turnip v1.2.5 made the Duo's driver, 2026-11-04"}
       ]
     },
     {
       "id": "NM8", "title": "Mario Tennis",
+      "fixed": [{"devices": "all", "what": "each (USA, Europe, Mario Tennis 64 Japan) Wii Virtual Console copy hung before its first frame (no VI line, 300 s; upstream mupen64plus-next too): VC kept the cartridge header CRC over changed code, so the boot code's checksum never matched", "fix": "core rel2 c994aa7 (vc-hook, bundled 2026-11-12) boots with the computed checksum; vc3-flip and vc4-duo, compat 82/82 on all four run devices"}],
       "notes": ["Flip: one dip window at match start, 51.7-56.3 fps on today's build (flip-dip22); the present thread does not help"]
     },
     {
@@ -223,7 +225,7 @@
     },
     {
       "id": "NOB", "title": "Ogre Battle 64",
-      "fixed": [{"devices": "Portal", "what": "mixed two backgrounds (async build of 2026-11-03)", "fix": "current build, portal-prdp"}]
+      "fixed": [{"devices": "all", "what": "the USA, Europe (Rev 1) Wii Virtual Console copy hung before its first frame (no VI line, 300 s; upstream mupen64plus-next too): VC kept the cartridge header CRC over changed code, so the boot code's checksum never matched", "fix": "core rel2 c994aa7 (vc-hook, bundled 2026-11-12) boots with the computed checksum; vc3-flip and vc4-duo, compat 82/82 on all four run devices"}, {"devices": "Portal", "what": "mixed two backgrounds (async build of 2026-11-03)", "fix": "current build, portal-prdp"}]
     },
     {
       "id": "NGE", "title": "GoldenEye 007",

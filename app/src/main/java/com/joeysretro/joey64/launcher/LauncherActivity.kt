@@ -302,7 +302,10 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                 gameSettingsFor == null && savesFor == null && screenshotsFor == null
             androidx.activity.compose.BackHandler(enabled = libraryOpen) { if (onRail) (context as? android.app.Activity)?.finish() else { model.libraryToTop(); bar.focus(RailPlace.Library) } }
             com.joeysretro.joey64.launcher.components.RailLayout(Modifier.weight(1f).fillMaxWidth(), rail = { bottom ->
-                LauncherRail(if (home) place else RailPlace.Library, bar, enabled = home,
+                // No bar during the first run (Joey 2026-11-12): its places did nothing there but looked as if they
+                // would, and the setup pages get the whole screen. The debug setup pages leave it out too.
+                val setupDebug by model.debugSetup.collectAsStateWithLifecycle()
+                if (home && setupDebug == null) LauncherRail(if (home) place else RailPlace.Library, bar, enabled = home,
                     showAchievements = home && raAccount != null, bottom = bottom, onFocused = { onRail = it; if (!it) barPlace = null },
                     onPlaceFocused = { barPlace = it }) {
                     place = it
@@ -383,8 +386,10 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             // On the library's grid: what the focused tile plays, when it stands for several copies (approved mockup 2A).
             val tileEnd by model.tileEnd.collectAsStateWithLifecycle()
             val libraryChip by model.chipFocused.collectAsStateWithLifecycle()
+            // The debug setup pages get the first run's row, not the library's under them.
+            val setupShown by model.debugSetup.collectAsStateWithLifecycle()
             HintRow(when {
-                !home -> listOf(Hint("A", "Select"))
+                !home || setupShown != null -> listOf(Hint("A", "Select"))
                 importAgain -> listOf(Hint("A", "Select"), Hint("B", "Back"))
                 onRail -> listOf(Hint("A", "Open"))
                 // The held page keeps its hints too, until the options draw their own.
@@ -392,7 +397,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                 // The filter chip (it showed the grid's Play and Options, Thor 2026-11-12).
                 libraryChip -> listOf(Hint("A", "Change"), Hint("Y", "Search"))
                 else -> listOf(Hint("A", "Play"), Hint("Start", "Options"), Hint("Y", "Search"))
-            }, end = tileEnd.takeIf { home && !importAgain && !onRail && !onPage && heldPage == null })
+            }, end = tileEnd.takeIf { home && setupShown == null && !importAgain && !onRail && !onPage && heldPage == null })
             if (home) updates.prompt.collectAsStateWithLifecycle().value?.let { UpdatePopup(it, updates) }
             com.joeysretro.joey64.launcher.screens.NeedsControllerPopup(model)
             // Netplay: a game's options › Netplay, and the room screens wherever a room was opened or joined.

@@ -351,6 +351,12 @@ Seventh round (2026-11-12 10:50-12:25 CST, APKs p1-5d0f142a, p2-0ab4f904, p3-b69
   Pokémon Snap (114, 3), each with its list. AeroGauge and Wave Race 64 got none: their copies' MD5s aren't in
   RetroAchievements' N64 hash list (files/ra/n64-sets.json), so that's right. Put back after as above (fb70c6e3, file
   list and library.db identical, external folder).
+- Top bar on the setup pages (Joey: "should the top bar be in the setup screens?", then "Yes, hide it"): the bar could
+  take no controller focus there and the setup page always won over a tapped place, so nothing could be skipped, but
+  its places looked usable. Now no bar on any first-run page; the pages get the whole screen. The debug setup pages
+  (SHOW ra-setup, first-run, data, import) leave it out too and show the first run's "A Select" hint row (they showed
+  the library's A Play / Start Options / Y Search, which a real first run never did). Thor p6-3f0091ba: all four
+  pages without the bar, the sign-in page with A Select, the library with its bar and hints after `none`.
 - OoT's in-game Crop panel on the Odin 2 Portal, with main's build (app-cropdef-1, 5b35552 + rel3; phase0 hasn't
   the OoT default yet): Game settings › Video's row "Normal (this game's default)", the panel opens on Normal (Exact
   8) over the live game, B back on the row with the default kept, Resume, the game moving at 60 fps. Seen: a phase0

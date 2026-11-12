@@ -19,15 +19,19 @@ object FramePicture {
         return w.toInt() to h.toInt()
     }
 
-    /** The picture as PNG bytes, or null if the core has none (nothing drawn yet). Blocks briefly. */
-    fun capturePng(timeoutMs: Int = 2000): ByteArray? {
+    /**
+     * The picture as PNG bytes, or null if the core has none (nothing drawn yet). Blocks briefly. [maxWidth]: made
+     * no wider than that, keeping its shape (a state's picture: at 4x upscaling the 2560x1920 PNG took 650 ms of a
+     * quit on the Thor, 2026-11-12).
+     */
+    fun capturePng(timeoutMs: Int = 2000, maxWidth: Int = Int.MAX_VALUE): ByteArray? {
         val capture = NativeBridge.captureFrame(timeoutMs) ?: return null
         val (w, h) = size(capture) ?: return null
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         // ARGB_8888's memory order is R, G, B, A: the capture's own.
         bmp.copyPixelsFromBuffer(ByteBuffer.wrap(capture, 8, capture.size - 8))
         // As it's shown: the screen is always 4:3 (parallel-RDP hands over e.g. 640x240).
-        val (sw, sh) = shownSize(w, h)
+        val (sw, sh) = shownSize(w, h).let { (fw, fh) -> if (fw <= maxWidth) fw to fh else maxWidth to (fh * maxWidth + fw / 2) / fw }
         val shown = if (sw == w && sh == h) bmp else Bitmap.createScaledBitmap(bmp, sw, sh, true).also { bmp.recycle() }
         val out = ByteArrayOutputStream(sw * sh)
         shown.compress(Bitmap.CompressFormat.PNG, 100, out)

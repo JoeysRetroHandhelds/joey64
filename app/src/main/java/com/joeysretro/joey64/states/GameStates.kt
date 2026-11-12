@@ -99,7 +99,7 @@ class GameStates(
         val data = NativeBridge.saveState(TIMEOUT_MS) ?: return null.also { JLog.e(TAG, "slot $slot: the core gave no state") }
         val achv = NativeBridge.stateProgress()
         // The same moment's picture (the game is paused or between frames, so it's the frame the state holds).
-        val png = FramePicture.capturePng()
+        val png = FramePicture.capturePng(maxWidth = PICTURE_MAX_WIDTH)
         return Shot(data, achv, png, before, SystemClock.elapsedRealtime() - t0)
     }
 
@@ -345,6 +345,8 @@ class GameStates(
     companion object {
         private const val TAG = "Joey64States"
         private const val TIMEOUT_MS = 10_000
+        /** A state's picture is shown at most about half the screen wide (the Play popup, Saves): 960 keeps it sharp there. */
+        private const val PICTURE_MAX_WIDTH = 960
         private const val RECOVERY_DIR = "recovery"
         private const val RECOVERY_STATE = "state"
         private const val RECOVERY_INFO = "info.properties"

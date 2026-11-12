@@ -83,9 +83,12 @@ Controls, then Settings tabs, then popups.
 - [ ] E3 The rail as a row across the top in landscape (Joey: "show me a mockup"): toprail_mock.png,
       version A icons only, version B icons with names. Decided: the top bar with names (topbar2_mock.png),
       with the rest of the decisions in docs/tv-guidelines-audit-2026-11-11.md. To build.
-- [ ] E4 Game options: how to carry on from a state. Today: Saves › the state › Play from here, or Settings ›
-      Saves › Continue on Play (Never by default). Joey to say if Play should ask by default, or game options
-      get a Continue row.
+- [ ] E4 Carry on from a state. Approved as drawn 2026-11-11 (scratchpad build_contplay.py / contplay_mock.png):
+      Settings › Saves › Continue on Play defaults to Ask. Play on a game with states opens a list + picture popup:
+      Where you quit (focused), OLDER QUIT SAVES, SLOTS, each with its picture, then Start fresh (the cover); the
+      big picture follows focus; A plays, B closes. No states: Play starts at once. Y, Always do this (only on
+      Where you quit and Start fresh): sets Always / Never and starts, with a line in game for a few seconds
+      ("Play will always ... Change it in Settings › Saves."). Replaces today's AskContinuePopup. To build.
 - [ ] E5 Settings-type pages as one list with a detail panel (Joey: "yes one list + panel for everything,
       thats perfect", setlist_mock.png): every Settings tab, Game settings, Controls, Touch controls. Details
       in docs/tv-guidelines-audit-2026-11-11.md. To build.

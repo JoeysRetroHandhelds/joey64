@@ -35,6 +35,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.joeysretro.joey64.launcher.theme.JoeyTheme
+import kotlinx.coroutines.launch
 
 /** One choice in the panel: as a choice popup's row (its grey line, the tick on the one in use). */
 class PanelChoice(val label: String, val detail: String? = null, val on: Boolean = false, val experimental: Boolean = false,
@@ -100,6 +101,8 @@ fun ListPanel(state: ListPanelState, info: PanelInfo, hints: List<Hint>, onHints
     // L2 / R2: a screen of rows less one, by the focus system's own moves (all rows are composed: no frame wait).
     // A move that leaves the list (Up from the first row goes to the tabs) is taken back and the paging stops there.
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val listScroll = rememberScrollState()
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     val rowPx = with(androidx.compose.ui.platform.LocalDensity.current) { 40.dp.toPx() }
     androidx.compose.runtime.DisposableEffect(state) {
         val pager: (com.joeysretro.joey64.launcher.controls.Control) -> Boolean = p@{ ctl ->
@@ -111,9 +114,11 @@ fun ListPanel(state: ListPanelState, info: PanelInfo, hints: List<Hint>, onHints
             if (!state.listFocused || state.inside) return@p false
             val back = if (dir == androidx.compose.ui.focus.FocusDirection.Up) androidx.compose.ui.focus.FocusDirection.Down
                 else androidx.compose.ui.focus.FocusDirection.Up
+            // At either end the list scrolls all the way, so the first heading shows (it stayed cut off, Thor 2026-11-12).
+            fun end() { scope.launch { listScroll.animateScrollTo(if (dir == back) listScroll.maxValue else 0) } }
             repeat(maxOf(1, (state.viewport / rowPx).toInt() - 1)) {
-                if (!focusManager.moveFocus(dir)) return@p true
-                if (!state.listFocused) { focusManager.moveFocus(back); return@p true }
+                if (!focusManager.moveFocus(dir)) { end(); return@p true }
+                if (!state.listFocused) { focusManager.moveFocus(back); end(); return@p true }
             }
             true
         }
@@ -133,7 +138,7 @@ fun ListPanel(state: ListPanelState, info: PanelInfo, hints: List<Hint>, onHints
     if (!wide) {
         Column(modifier.fillMaxSize()) {
             Column(Modifier.weight(1f).fillMaxWidth().then(tracked).focusRequester(state.list).focusRestorer().focusGroup()
-                .verticalScroll(rememberScrollState()), content = list)
+                .verticalScroll(listScroll), content = list)
             Spacer(Modifier.height(6.dp))
             DescriptionLine(info.title, info.help)
         }
@@ -148,7 +153,7 @@ fun ListPanel(state: ListPanelState, info: PanelInfo, hints: List<Hint>, onHints
                 if (n.action == KeyEvent.ACTION_DOWN) state.enter() else info.pickable
             }
             .focusRequester(state.list).focusRestorer().focusGroup()
-            .verticalScroll(rememberScrollState()), content = list)
+            .verticalScroll(listScroll), content = list)
         Panel(state, info, Modifier.weight(0.44f).fillMaxHeight().padding(bottom = 6.dp))
     }
 }

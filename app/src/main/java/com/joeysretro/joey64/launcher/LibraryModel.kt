@@ -457,13 +457,18 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
         }
     }
 
-    /** Minutes from the recovery state to the close Android recorded (ApplicationExitInfo), or to now. */
+    /**
+     * Minutes from the recovery state to the close Android recorded (ApplicationExitInfo), or to now. The first exit
+     * after the state is the close: the newest one moved on with every later stop (an update, a force stop), so the
+     * popup said 32 minutes, then 40 (Thor 2026-11-12, two installs after Ocarina of Time's close).
+     */
     private fun minutesBefore(app: Application, savedAt: Long): Int {
         val closedAt = try {
             app.getSystemService(android.app.ActivityManager::class.java)
-                ?.getHistoricalProcessExitReasons(app.packageName, 0, 1)?.firstOrNull()?.timestamp
+                ?.getHistoricalProcessExitReasons(app.packageName, 0, 0)
+                ?.map { it.timestamp }?.filter { it >= savedAt }?.minOrNull()
         } catch (e: Exception) { null }
-        val end = closedAt?.takeIf { it >= savedAt } ?: System.currentTimeMillis()
+        val end = closedAt ?: System.currentTimeMillis()
         return ((end - savedAt) / 60_000L).toInt()
     }
 

@@ -351,5 +351,7 @@ Seventh round (2026-11-12 10:50-12:25 CST, APKs p1-5d0f142a, p2-0ab4f904, p3-b69
   build moves library.db to schema 7 and main's (6) then can't open it ("Can't downgrade database"), so the Odin 2
   Portal's data was put back before main's build went on; put back again after (0285af85, 292 entries, library.db
   identical).
-- Seen, not changed: the setup pages' wordmark sits partly under the top bar on 1920x1080 (the page scrolls, as
-  recorded in the fifth round).
+- Found: the setup pages' wordmark sat partly under the top bar on 1920x1080 (the sign-in page was taller than the
+  space under the bar and scrolled to Username). Setup pages now take their smaller sizes when that space is under
+  440 dp (Joey: "fix it"); Thor (p4-6099d01b): the sign-in page fits whole with the wordmark clear of the bar, and
+  the ROMs folder, saves folder and Import pages look as before with the smaller wordmark.

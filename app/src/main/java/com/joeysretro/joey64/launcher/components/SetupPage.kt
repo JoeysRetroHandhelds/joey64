@@ -30,8 +30,11 @@ import com.joeysretro.joey64.launcher.theme.JoeyTheme
 @Composable
 fun SetupPage(content: @Composable ColumnScope.() -> Unit) {
     val l = com.joeysretro.joey64.launcher.layout.LocalScreenLayout.current
-    val small = l.widthDp < 600f || l.heightDp < 420f
+    val tooSmall = l.widthDp < 600f || l.heightDp < 420f
     BoxWithConstraints(Modifier.fillMaxSize()) {
+        // The space the page gets under the top bar, not the window: on 1920x1080 (832 x 468 dp) the sign-in page
+        // was taller than that, scrolled to its Username field, and the wordmark sat partly under the bar.
+        val small = tooSmall || maxHeight < 440.dp
         Column(
             modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight)
                 .padding(horizontal = if (small) 16.dp else 40.dp).padding(top = if (small) 12.dp else 0.dp, bottom = if (small) 12.dp else 20.dp),

@@ -18,14 +18,14 @@ Controls, then Settings tabs, then popups.
       explicit requests). "Going from right side window to left side icons is finicky."
 - [ ] A2 (built 484da07, not device-checked) Search box: Down goes to the first result, not the second (`focusProperties { down = grid }`, the
       grid's restorer picks the item; JoeyOS device finding).
-- [ ] A3 L1/R1 and L2/R2 in the library (Joey: "shoulders and triggers should work on library screen").
+- [x] A3 (built f817b7c + 484da07, not device-checked: L1/R1 move along the top bar on every page under it, L2/R2 a page of the grid) L1/R1 and L2/R2 in the library (Joey: "shoulders and triggers should work on library screen").
       L2/R2 built 484da07 (a page of the grid, not device-checked); L1/R1: Joey picked "option 1" (they move
       along the top bar everywhere; see docs/tv-guidelines-audit-2026-11-11.md).
-- [ ] A4 Host a room: L1/R1, L2/R2, and the same D-pad fix as the library.
+- [x] A4 (built 2c98d4b, not device-checked: L1/R1 are the bar's; in the game picker L2/R2 go a page of the grid (FocusLanding); its D-pad is the grid's own, like the library's, which waits for a device) Host a room: L1/R1, L2/R2, and the same D-pad fix as the library.
 - [ ] A5 (built d34a52c, not device-checked: the tab step arms the landing in the same event; L2/R2
       through the shared ListPager on the games list, a game's list and the in-game panel) Achievements page: L1/R1 moves the highlight to the rail's Continue icon (should change tab);
       L2/R2 scroll a page there and in every long list.
-- [ ] A6 Pages with filters (Achievements and others): a button for the filters.
+- [x] A6 (built f817b7c, not device-checked: the filter chip is the first thing under the bar (Library, Achievements, Settings' and Controls' game chip)) Pages with filters (Achievements and others): a button for the filters.
 - [x] A7 (built db20e54, not device-checked: JoeyDialog's first-item fallback ran before the window had focus while the marked row waited for it, so the first row lit and focus jumped; both wait for window focus now) Popups open on their marked row at once: Player 2 › Controller visibly moves the highlight to None
       after opening. JoeyOS: mark the row, open the list scrolled to it, no move after the first frame.
 - [ ] A8 (waits for a device: each case has to be found on one) B goes back to where you were, everywhere (one exit route per page and popup; containers restore
@@ -47,9 +47,9 @@ Controls, then Settings tabs, then popups.
 
 - [x] C1 (eb71e7c) Host a room shows two Conkers: its picker lists every copy (`HostPickPopup` uses `model.games`),
       not the library's one-version fold. Use the games the library shows.
-- [ ] C2 Host a room cuts off the game's title: the page moves up so the title shows.
-- [ ] C3 Controls: the Auto map / View controller tabs' borders overlap (check every tab row).
-- [ ] C4 View controls: R stick up (C-up) label is behind the yellow circle.
+- [x] C2 (built 2c98d4b, not device-checked: my reading is the game picker's bottom row, where focus scrolled to the cover and cut the name under it; the grid now scrolls a name's height more) Host a room cuts off the game's title: the page moves up so the title shows.
+- [x] C3 (built, not device-checked: a focused outline reaches 5 dp past a chip (8 in light mode) and the chips were 6 dp apart; every TabRow and Controls' chips are 12 dp apart now, the chips 12 dp under the tabs, tabScroll gives 10 dp at the ends) Controls: the Auto map / View controller tabs' borders overlap (check every tab row).
+- [x] C4 (built, not device-checked: C up's value ends 4 dp above its button and grows upward; C left / right 4 dp clear of theirs) View controls: R stick up (C-up) label is behind the yellow circle.
 - [ ] C5 A on a game takes a few seconds to start: measure where the time goes (tap to first frame).
 - [x] C6 (built beaf692, not device-checked: Hotkeys is the fifth tab, the chip is gone, L1/R1 go round all five) Controls: Hotkeys moves to the right of Player 4 (Joey's layout).
 - [x] C7 (eb71e7c) Library: Sort by Recently played by default (Joey). Anyone who picked a sort keeps it.

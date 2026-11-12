@@ -64,7 +64,7 @@ Controls, then Settings tabs, then popups.
       a different icon, or something else.
 - [x] D2 (built f817b7c with the top bar) (decided 2026-11-11 with the top bar: every filter and game chip is the first thing under the bar; see the TV audit doc) Top-right corner items are hard to reach: lay out per Android TV guidance (Joey: "we may need to
       avoid top right menu and change that everywhere"). Mockup of the new layout first.
-- [x] D3 (built 1379db5; real first run on the Odin 3 Portal 2026-11-12, uninstalled and installed fresh: ROMs folder picker, saves folder, Import, sign-in page, reports question over the library, box art downloaded. Found: the sign-in page came up with nothing highlighted; fixed 1096174, it lands on Username (also seen on the Odin 2 Portal). The look-up after the scan needs a sign-in, not checked: page 4; RaLibraryFetch looks up achievementsets + unlocks for each game with a set after each scan, kept in ra_sets as "fetched", again after a week; a played game keeps rc_client's own) (approved as drawn 2026-11-11: rasetup1_mock.png, one setup page with Username, Password, Sign in, Skip; no
+- [x] D3 (built 1379db5; real first run on the Odin 3 Portal 2026-11-12, uninstalled and installed fresh: ROMs folder picker, saves folder, Import, sign-in page, reports question over the library, box art downloaded. Found: the sign-in page came up with nothing highlighted; fixed 1096174, it lands on Username (also seen on the Odin 2 Portal). The look-up after the scan, checked 2026-11-12 with Joey's own sign-in on the same fresh install: the 4 games with a set got theirs with Joey's unlocks, the 2 whose copies aren't in RetroAchievements' list got none; page 4; RaLibraryFetch looks up achievementsets + unlocks for each game with a set after each scan, kept in ra_sets as "fetched", again after a week; a played game keeps rc_client's own) (approved as drawn 2026-11-11: rasetup1_mock.png, one setup page with Username, Password, Sign in, Skip; no
       progress page, the look-up joins the library's box art and cheats scan; wrong password shown on the same page) Achievements without playing first: fetch every library game's achievements when the ROMs folder
       is scanned (with the covers and game list), once signed in to RetroAchievements.
 - [x] D4 (built c58abd9; Send now pressed once on the Thor 2026-11-12 (Joey: "Yes, once on the Thor"): Sending…, then Sent, the line "Last sent today, 10:55 am", server 204 for 16 sessions) (approved as drawn 2026-11-11, feedback1_mock.png screen 7) Send reports popup: a Send now row (mockup).
@@ -160,7 +160,7 @@ Second round (00:38-00:48 CST, APK 30a2498f):
   above the first column). Mario Kart 64's "Where you quit" picture (20:41) is a black frame; its log was rotated out,
   and trying again means quitting Mario Kart over Joey's quit save, so it's left.
 
-Still not device-checked: D3's achievements look-up after the scan (needs a real sign-in, which only Joey types), a real TV (the TV paths were checked on the Thor as a TV). A9's joiner side, D3's first run and D4's Send now were checked 2026-11-12 (seventh round, at the end).
+Still not device-checked: a real TV (the TV paths were checked on the Thor as a TV). A9's joiner side, D3's first run and look-up after the scan, and D4's Send now were checked 2026-11-12 (seventh round, at the end).
 
 Third round (00:55-01:25 CST, APKs b4-fe7358fa to b5b-7bfb63d3, screen recordings read frame by frame):
 
@@ -345,6 +345,12 @@ Seventh round (2026-11-12 10:50-12:25 CST, APKs p1-5d0f142a, p2-0ab4f904, p3-b69
   the reports question over the library, box art downloaded. Found and fixed: the sign-in page had no highlight
   (1096174); the whole first run done again with the fix. Not done: signing in (no password typed). Put back after:
   the original build (fb70c6e3), all 110 entries and library.db identical, the external folder, the folder grant.
+- D3 look-up after the scan, Odin 3 Portal, the same fresh first run (p4-6099d01b, Joey64Test › n64, 6 games): Joey
+  signed in on the sign-in page themself; the library came up and within seconds ra_sets had a "fetched" row for
+  each game with a set: Super Mario 64 (181 achievements, 16 earned), Mario Kart 64 (129, 4), Pilotwings 64 (51, 1),
+  Pokémon Snap (114, 3), each with its list. AeroGauge and Wave Race 64 got none: their copies' MD5s aren't in
+  RetroAchievements' N64 hash list (files/ra/n64-sets.json), so that's right. Put back after as above (fb70c6e3, file
+  list and library.db identical, external folder).
 - OoT's in-game Crop panel on the Odin 2 Portal, with main's build (app-cropdef-1, 5b35552 + rel3; phase0 hasn't
   the OoT default yet): Game settings › Video's row "Normal (this game's default)", the panel opens on Normal (Exact
   8) over the live game, B back on the row with the default kept, Resume, the game moving at 60 fps. Seen: a phase0

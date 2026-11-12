@@ -76,7 +76,9 @@ enum class GamePopup { Options, Details, Collections, Versions }
 @Composable
 fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup: (GamePopup?) -> Unit,
     /** Versions picked another copy: Options goes on with that one. */
-    onGame: (Long) -> Unit = {}, onPlay: () -> Unit) {
+    onGame: (Long) -> Unit = {},
+    /** The row focus lands on instead of Play: the one whose page B just closed (A8; "settings", "cheats", ...). */
+    backRow: String? = null, onPlay: () -> Unit) {
     // The grid's landing (the popup's own is provided inside JoeyDialog): Hide game sends focus back to the first game.
     val gridLanding = LocalFocusLanding.current
     var boxArt by remember { mutableStateOf(false) }
@@ -90,9 +92,15 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
     // Achievements only while signed in to RetroAchievements (approved: no signed-out state).
     val signedIn = com.joeysretro.joey64.achievements.RaBridge.account.collectAsState().value != null
     // Game settings' value (approved mockup 2026-11-07): "3 changed" or "Same as All games".
-    val gameSettings by produceState<String?>(null, game.id) { value = model.gameSettingsLabel(game) }
+    // Opened again after a page (A8), they start with the values they last had, so the row focus goes back to is there.
+    val kept = model.optionsLabels?.takeIf { it.first == game.id }
+    val gameSettings by produceState(kept?.second, game.id) { value = model.gameSettingsLabel(game) }
     // Saves' and Screenshots' values (approved mockup 2026-11-08, screen 1): "3 states", "8".
-    val counts by produceState<LibraryModel.SavesCounts?>(null, game.id) { value = model.savesCounts(game) }
+    val counts by produceState(kept?.third, game.id) { value = model.savesCounts(game) }
+    LaunchedEffect(game.id, gameSettings, counts) { model.optionsLabels = Triple(game.id, gameSettings, counts) }
+    // A row picked in this popup (Details, Version, Add to collection) wins over the row a page was opened from.
+    val back = backRow.takeIf { from == null }
+    fun at(row: String) = Modifier.initialFocus(back == row)
     // The copies its tile stands for, when more than one (approved mockup 3); null for a game on its own.
     val versions = model.arranged.collectAsState().value?.versions?.get(game.id)
     JoeyDialog(
@@ -109,6 +117,13 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
     ) {
         val landing = LocalFocusLanding.current
         LaunchedEffect(popup) { landing?.arm() }
+        // The window has drawn: the launcher can let go of the page picture it held over the library (A8).
+        val view = androidx.compose.ui.platform.LocalView.current
+        androidx.compose.runtime.DisposableEffect(view) {
+            val drawn = android.view.ViewTreeObserver.OnDrawListener { view.post { model.optionsDrawn() } }
+            view.viewTreeObserver.addOnDrawListener(drawn)
+            onDispose { view.viewTreeObserver.removeOnDrawListener(drawn) }
+        }
         if (popup == GamePopup.Collections) AddToCollectionBody(game, model) { naming = true }
         // Scrolls: with Saves and Screenshots the list is taller than a 1080p handheld's popup room (Thor, 2026-11-08).
         else Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())) {
@@ -116,7 +131,7 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
             else PopupTitle(game.title)
             when (popup) {
                 GamePopup.Options -> {
-                    JoeyOption("Play", modifier = Modifier.initialFocus(from == null)) { onPopup(null); onPlay() }
+                    JoeyOption("Play", modifier = Modifier.initialFocus(from == null && back == null)) { onPopup(null); onPlay() }
                     // Approved mockup 3: which copy this is, and the game's other copies.
                     versions?.let { v ->
                         val label = model.versionLabels(v).getOrNull(v.copies.indexOfFirst { it.id == game.id })?.ifEmpty { null }
@@ -129,15 +144,21 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
                     if (model.onePlayerOnly(game)) JoeyOption("Netplay", value = "1 player only", enabled = false) {}
                     else JoeyOption("Netplay", value = "›") { onPopup(null); model.openNetplay(game) }
                     JoeyOption("Details", modifier = Modifier.initialFocus(from == GamePopup.Details)) { from = GamePopup.Details; onPopup(GamePopup.Details) }
-                    gameSettings?.let { JoeyOption("Game settings", value = "$it  ›") { model.openGameSettings(game) { onPopup(null) } } }
+                    gameSettings?.let { JoeyOption("Game settings", modifier = at("settings"), value = "$it  ›") {
+                        model.openGameSettings(game) { onPopup(null) }; model.openedFromOptions(game.id, "settings") } }
                     com.joeysretro.joey64.launcher.components.PopupDivider()
-                    JoeyOption("Cheats", value = "›") { model.openCheats(game) { onPopup(null) } }
-                    if (signedIn) JoeyOption("Achievements", value = "›") { model.openAchievements(game) } // no onPopup(null): see openCheats
+                    JoeyOption("Cheats", modifier = at("cheats"), value = "›") { model.openCheats(game) { onPopup(null) }; model.openedFromOptions(game.id, "cheats") }
+                    // no onPopup(null): see openCheats
+                    if (signedIn) JoeyOption("Achievements", modifier = at("achievements"), value = "›") {
+                        model.openAchievements(game); model.openedFromOptions(game.id, "achievements") }
                     // Saves always opens (on the empty save when there's none); Screenshots is grey with none.
                     counts?.let { n ->
-                        JoeyOption("Saves", value = "${n.statesLabel}  ›") { model.openSaves(game) { onPopup(null) } }
-                        JoeyOption("Screenshots", value = if (n.screenshots > 0) "${n.screenshots}  ›" else "None", enabled = n.screenshots > 0) {
-                            if (n.screenshots > 0) { model.openScreenshots(game) { onPopup(null) } }
+                        JoeyOption("Saves", modifier = at("saves"), value = "${n.statesLabel}  ›") {
+                            model.openSaves(game) { onPopup(null) }; model.openedFromOptions(game.id, "saves") }
+                        // Back from Screenshots after deleting the last one, the row is greyed: focus then starts on Play.
+                        JoeyOption("Screenshots", modifier = at("screenshots").takeIf { n.screenshots > 0 } ?: Modifier,
+                            value = if (n.screenshots > 0) "${n.screenshots}  ›" else "None", enabled = n.screenshots > 0) {
+                            if (n.screenshots > 0) { model.openScreenshots(game) { onPopup(null) }; model.openedFromOptions(game.id, "screenshots") }
                         }
                     }
                     com.joeysretro.joey64.launcher.components.PopupDivider()

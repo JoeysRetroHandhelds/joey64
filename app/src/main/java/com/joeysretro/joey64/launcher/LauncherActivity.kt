@@ -62,6 +62,8 @@ import com.joeysretro.joey64.launcher.settings.SettingsStore
 import com.joeysretro.joey64.launcher.storage.RomFolders
 import com.joeysretro.joey64.launcher.theme.JoeyTheme
 import kotlinx.coroutines.launch
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.layer.drawLayer
 
 /**
  * The app's home (plan, decision 2): first run (a ROMs folder, then Import from RetroArch) until
@@ -263,6 +265,22 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                 com.joeysretro.joey64.launcher.controls.ControlBus.bar = h
                 onDispose { if (com.joeysretro.joey64.launcher.controls.ControlBus.bar === h) com.joeysretro.joey64.launcher.controls.ControlBus.bar = null }
             }
+            // What the place area drew last, kept so B on a game's page can hold its picture over the library until the
+            // options it goes back to have drawn their window (A8; without it the library showed undimmed for 2 frames).
+            val graphics = androidx.compose.ui.platform.LocalGraphicsContext.current
+            val pageLayer = remember { graphics.createGraphicsLayer() }
+            DisposableEffect(Unit) { onDispose { graphics.releaseGraphicsLayer(pageLayer) } }
+            var heldPage by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+            fun backFromGamePage(close: () -> Unit) {
+                if (!model.backGoesToOptions()) { close(); return }
+                scope.launch {
+                    heldPage = runCatching { pageLayer.toImageBitmap() }.getOrNull()
+                    model.onOptionsDrawn = { heldPage = null }
+                    close()
+                    // Never left up: if the options don't draw (the game went), the library shows after half a second.
+                    delay(500L); heldPage = null; model.onOptionsDrawn = null
+                }
+            }
             // Cheats opens over the library or Search results (a game's options), and B goes back there; going anywhere on the rail closes it.
             LaunchedEffect(place) {
                 model.closeCheats(); model.closeAchievements(); model.closeGameSettings(); model.closeSaves(); model.closeScreenshots()
@@ -280,7 +298,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                     place = it
                 }
             }) {
-                    Box(Modifier.fillMaxSize()) {
+                    Box(Modifier.fillMaxSize().drawWithContent { pageLayer.record { this@drawWithContent.drawContent() }; drawLayer(pageLayer) }) {
                         CompositionLocalProvider(LocalFocusLanding provides landing) {
                             val debugPage by model.debugSetup.collectAsStateWithLifecycle()
                             when {
@@ -306,20 +324,20 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                                     ImportScreen(importModel, s.dataFolder) { importAgain = false }
                                 }
                                 gameSettingsFor != null -> androidx.compose.runtime.key(gameSettingsFor) {
-                                    com.joeysretro.joey64.launcher.screens.GameSettingsScreen(gameSettingsFor!!, onHints = { settingsHints = it }) { model.closeGameSettings() }
+                                    com.joeysretro.joey64.launcher.screens.GameSettingsScreen(gameSettingsFor!!, onHints = { settingsHints = it }) { backFromGamePage { model.closeGameSettings(back = true) } }
                                 }
                                 savesFor != null -> androidx.compose.runtime.key(savesFor) {
                                     com.joeysretro.joey64.launcher.screens.SavesScreen(savesFor!!, onHints = { settingsHints = it },
-                                        onPlay = { which -> model.play(savesFor!!.game, which) { intent -> context.startActivity(intent) } }) { model.closeSaves() }
+                                        onPlay = { which -> model.play(savesFor!!.game, which) { intent -> context.startActivity(intent) } }) { backFromGamePage { model.closeSaves(back = true) } }
                                 }
                                 screenshotsFor != null -> androidx.compose.runtime.key(screenshotsFor) {
-                                    com.joeysretro.joey64.launcher.screens.ScreenshotsScreen(screenshotsFor!!, onHints = { settingsHints = it }) { model.closeScreenshots() }
+                                    com.joeysretro.joey64.launcher.screens.ScreenshotsScreen(screenshotsFor!!, onHints = { settingsHints = it }) { backFromGamePage { model.closeScreenshots(back = true) } }
                                 }
                                 cheatsFor != null -> androidx.compose.runtime.key(cheatsFor) {
-                                    com.joeysretro.joey64.launcher.screens.CheatsScreen(cheatsFor!!, onHints = { settingsHints = it }) { model.closeCheats() }
+                                    com.joeysretro.joey64.launcher.screens.CheatsScreen(cheatsFor!!, onHints = { settingsHints = it }) { backFromGamePage { model.closeCheats(back = true) } }
                                 }
                                 achievementsFor != null -> androidx.compose.runtime.key(achievementsFor) {
-                                    com.joeysretro.joey64.launcher.screens.GameAchievementsScreen(achievementsFor!!, onHints = { settingsHints = it }) { model.closeAchievements() }
+                                    com.joeysretro.joey64.launcher.screens.GameAchievementsScreen(achievementsFor!!, onHints = { settingsHints = it }) { backFromGamePage { model.closeAchievements(back = true) } }
                                 }
                                 place == RailPlace.Achievements -> com.joeysretro.joey64.launcher.screens.AchievementsScreen(onHints = { settingsHints = it }) { backFromPage() }
                                 place == RailPlace.Settings -> SettingsScreen(updates, model, onHints = { settingsHints = it }, startTab = settingsTab,
@@ -334,6 +352,10 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                                 else -> LibraryScreen(model, updateAsking = updates.prompt.collectAsStateWithLifecycle().value != null) { place = RailPlace.Search }
                             }
                         }
+                        // B on a game's page that goes back to its options (A8): the page's last picture until they've drawn.
+                        // On the page colour: the place area draws none of its own (the column under it does).
+                        heldPage?.let { androidx.compose.foundation.Image(it, null, Modifier.fillMaxSize().background(JoeyTheme.colors.page),
+                            contentScale = androidx.compose.ui.layout.ContentScale.FillBounds) }
                         // "<game> is back in the library" (approved D7 2026-11-11, screen 4): at the bottom for 3 s.
                         model.libraryNote.collectAsStateWithLifecycle().value?.let { note ->
                             LaunchedEffect(note) { kotlinx.coroutines.delay(3_000L); model.libraryNoteSeen() }
@@ -352,11 +374,12 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                 !home -> listOf(Hint("A", "Select"))
                 importAgain -> listOf(Hint("A", "Select"), Hint("B", "Back"))
                 onRail -> listOf(Hint("A", "Open"))
-                onPage -> settingsHints
+                // The held page keeps its hints too, until the options draw their own.
+                onPage || heldPage != null -> settingsHints
                 // The filter chip (it showed the grid's Play and Options, Thor 2026-11-12).
                 libraryChip -> listOf(Hint("A", "Change"), Hint("Y", "Search"))
                 else -> listOf(Hint("A", "Play"), Hint("Start", "Options"), Hint("Y", "Search"))
-            }, end = tileEnd.takeIf { home && !importAgain && !onRail && !onPage })
+            }, end = tileEnd.takeIf { home && !importAgain && !onRail && !onPage && heldPage == null })
             if (home) updates.prompt.collectAsStateWithLifecycle().value?.let { UpdatePopup(it, updates) }
             com.joeysretro.joey64.launcher.screens.NeedsControllerPopup(model)
             // Netplay: a game's options › Netplay, and the room screens wherever a room was opened or joined.

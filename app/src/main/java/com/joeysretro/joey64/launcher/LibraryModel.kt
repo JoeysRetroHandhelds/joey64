@@ -714,6 +714,7 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
      * library for a frame, as the page's StateFlow reaches the screen a frame after the popup's own state).
      */
     fun openCheats(game: LibraryGame, failed: () -> Unit = {}) {
+        pageFrom = null
         viewModelScope.launch {
             // Named like the game's save, so the game finds them; a game with no readable file has no save name to file them under.
             val saveName = withContext(Dispatchers.IO) { launcher.saveNameFor(game) } ?: run {
@@ -724,7 +725,37 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
         }
     }
 
-    fun closeCheats() { _cheatsFor.value = null }
+    /** [back]: B on the page (A8: the options open again if they opened it); false when the bar or a game closes it. */
+    fun closeCheats(back: Boolean = false) { _cheatsFor.value = null; pageClosed(back) }
+
+    /**
+     * A8 (B goes back to where you were): the game and the options row a game's page was opened from, so B on the page
+     * opens the options again on that row (Thor 2026-11-12: Game settings' B landed on the tile, the options gone). Set
+     * by the options right after they open the page ([openedFromOptions]); every open clears it first, so a page opened
+     * another way goes back as before. Only B (the close functions' `back`) hands it on: leaving by the bar doesn't.
+     */
+    private var pageFrom: Pair<Long, String>? = null
+    private var optionsBack: Pair<Long, String>? = null
+    fun openedFromOptions(gameId: Long, row: String) { pageFrom = gameId to row }
+    /** The game and row to open the options on, once; null when the page wasn't opened from them. */
+    fun takeOptionsBack(): Pair<Long, String>? = optionsBack.also { optionsBack = null }
+    private fun pageClosed(back: Boolean) { optionsBack = pageFrom.takeIf { back }; pageFrom = null }
+    /** Whether B on the open page goes back to the options (the launcher then holds the page's picture, below). */
+    fun backGoesToOptions() = pageFrom != null
+
+    /**
+     * Run once the options opened again after a page have drawn their window: the launcher keeps the page's last
+     * picture over the library until then, so the library doesn't show undimmed between the two (Thor 2026-11-12: 2
+     * frames, 17 ms, as in B1 and B2).
+     */
+    var onOptionsDrawn: (() -> Unit)? = null
+    fun optionsDrawn() { onOptionsDrawn?.invoke(); onOptionsDrawn = null }
+
+    /**
+     * The options' last values (game id, Game settings' label, Saves' counts): the options opened again after a page
+     * start with them, so their rows are there in the first frame and focus lands on its row without a jump.
+     */
+    internal var optionsLabels: Triple<Long, String?, SavesCounts?>? = null
 
     private val _gameSettingsFor = MutableStateFlow<com.joeysretro.joey64.launcher.gamesettings.GameRef?>(null)
     /** The game whose Game settings page is open in the library's place (a game's options › Game settings), or null. */
@@ -732,6 +763,7 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
 
     /** [failed] as [openCheats]'s. */
     fun openGameSettings(game: LibraryGame, failed: () -> Unit = {}) {
+        pageFrom = null
         viewModelScope.launch {
             // The settings files are named like the game's save, as the game reads them.
             val saveName = withContext(Dispatchers.IO) { launcher.saveNameFor(game) } ?: run {
@@ -741,7 +773,7 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
         }
     }
 
-    fun closeGameSettings() { _gameSettingsFor.value = null }
+    fun closeGameSettings(back: Boolean = false) { _gameSettingsFor.value = null; pageClosed(back) }
 
     private val _savesFor = MutableStateFlow<com.joeysretro.joey64.launcher.screens.SavesGame?>(null)
     /** The game whose Saves page is open in the library's place (a game's options › Saves, approved mockup 2026-11-08), or null. */
@@ -752,6 +784,7 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
 
     private fun openWithSaveName(game: LibraryGame, what: String, to: MutableStateFlow<com.joeysretro.joey64.launcher.screens.SavesGame?>,
                                  failed: () -> Unit) {
+        pageFrom = null
         viewModelScope.launch {
             // The files are named after the game's save.
             val saveName = withContext(Dispatchers.IO) { launcher.saveNameFor(game) } ?: run {
@@ -762,9 +795,9 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
     }
 
     fun openSaves(game: LibraryGame, failed: () -> Unit = {}) = openWithSaveName(game, "saves", _savesFor, failed)
-    fun closeSaves() { _savesFor.value = null }
+    fun closeSaves(back: Boolean = false) { _savesFor.value = null; pageClosed(back) }
     fun openScreenshots(game: LibraryGame, failed: () -> Unit = {}) = openWithSaveName(game, "screenshots", _screenshotsFor, failed)
-    fun closeScreenshots() { _screenshotsFor.value = null }
+    fun closeScreenshots(back: Boolean = false) { _screenshotsFor.value = null; pageClosed(back) }
 
     /** The options' Saves and Screenshots values: the game's states ("3 states") and its screenshots; null when it has no readable file. */
     data class SavesCounts(val states: Int, val screenshots: Int) {
@@ -788,8 +821,8 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
     /** The game whose Achievements page is open in the library's place (a game's options › Achievements), or null. */
     val achievementsFor: StateFlow<com.joeysretro.joey64.launcher.screens.AchievementsGame?> = _achievementsFor
 
-    fun openAchievements(game: LibraryGame) { _achievementsFor.value = com.joeysretro.joey64.launcher.screens.AchievementsGame(game.id, game.title) }
-    fun closeAchievements() { _achievementsFor.value = null }
+    fun openAchievements(game: LibraryGame) { pageFrom = null; _achievementsFor.value = com.joeysretro.joey64.launcher.screens.AchievementsGame(game.id, game.title) }
+    fun closeAchievements(back: Boolean = false) { _achievementsFor.value = null; pageClosed(back) }
 
     /**
      * A 64DD disk's Play with no 64DD BIOS in the data folder's bios/ (approved 2026-11-07); [missed]: the last pick had none.

@@ -234,7 +234,10 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
     fun keep(g: LibraryGame) { if (keepPlace) model.libraryFocus = g.id; onFocused(g.id) }
     // The game whose tile has focus, for Start; null while focus is elsewhere.
     var focusedGame by remember { mutableStateOf<LibraryGame?>(null) }
-    var popup by remember { mutableStateOf<Pair<Long, GamePopup>?>(null) }
+    // B on a game's page opened from its options opens them again on that row (A8); the grid is made again under them.
+    val optionsBack = remember { model.takeOptionsBack() }
+    var popup by remember { mutableStateOf(optionsBack?.let { it.first to GamePopup.Options }) }
+    var backRow by remember { mutableStateOf(optionsBack?.second) }
     // Versions picked another copy for the tile: focus lands on it again when the popup closes.
     var switched by remember { mutableStateOf(false) }
     // The library's tiles are keyed by their game (its copies' first id), not by the copy they play, so a pick in
@@ -269,7 +272,12 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
         val g = list.firstOrNull { it.id == id } ?: model.games.value?.firstOrNull { it.id == id }
         if (g == null) popup = null
         else GamePopups(g, which, model,
-            onPopup = { next -> popup = next?.let { id to it }; if (next == null && switched) { switched = false; if (keepPlace) landing?.arm() } },
+            onPopup = { next ->
+                popup = next?.let { id to it }
+                if (next == null) backRow = null
+                if (next == null && switched) { switched = false; if (keepPlace) landing?.arm() }
+            },
+            backRow = backRow,
             onGame = { next ->
                 if (next != id) { switched = true; if (keepPlace) model.libraryFocus = next; onFocused(next) }
                 popup = next to GamePopup.Options

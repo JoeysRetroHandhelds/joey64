@@ -564,6 +564,10 @@ void log_cb(enum retro_log_level level, const char* fmt, ...) {
         vsnprintf(line, sizeof line, fmt, cp);
         va_end(cp);
         if (strstr(line, "Failed to load DD IPL ROM")) g_ddIplMissing = true;
+        // The game jumped where no code can be (Featherlight v1.1, the 64DD modem cart; README Full-run fixes (b)/(e)):
+        // the core (bogus-stop) carries on with an exception instead of closing the app, and the game stops here
+        // (coreShutDown 1: the library's "won't start" Problem screen).
+        if (strstr(line, "Compile at bogus memory address") && !g_coreShutDown.exchange(true)) LOGE("the game jumped to a bogus address: it stops");
         if (strstr(line, "Netplay: lost connection")) g_netplayLost = true;
         int jf;
         if (sscanf(line, "Netplay: can't join (%d)", &jf) == 1 && jf >= 4 && jf <= 6) g_netplayJoinFailed = jf;

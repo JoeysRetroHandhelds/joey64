@@ -705,11 +705,16 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
     /** The game whose Cheats page is open in the library's place (a game's options › Cheats), or null. */
     val cheatsFor: StateFlow<com.joeysretro.joey64.launcher.screens.CheatsGame?> = _cheatsFor
 
-    fun openCheats(game: LibraryGame) {
+    /**
+     * [failed] runs when the game has no readable file. On success the options popup isn't closed by hand: the library
+     * leaves for the page and takes the popup with it in the same frame (B1, B2: closing it first showed the bare
+     * library for a frame, as the page's StateFlow reaches the screen a frame after the popup's own state).
+     */
+    fun openCheats(game: LibraryGame, failed: () -> Unit = {}) {
         viewModelScope.launch {
             // Named like the game's save, so the game finds them; a game with no readable file has no save name to file them under.
             val saveName = withContext(Dispatchers.IO) { launcher.saveNameFor(game) } ?: run {
-                JLog.e(TAG, "cheats: no readable file for ${game.title}"); return@launch
+                JLog.e(TAG, "cheats: no readable file for ${game.title}"); failed(); return@launch
             }
             _cheatsFor.value = com.joeysretro.joey64.launcher.screens.CheatsGame(game.title, saveName,
                 com.joeysretro.joey64.cheats.CheatLogic.keys(game.headerKey))
@@ -722,11 +727,12 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
     /** The game whose Game settings page is open in the library's place (a game's options › Game settings), or null. */
     val gameSettingsFor: StateFlow<com.joeysretro.joey64.launcher.gamesettings.GameRef?> = _gameSettingsFor
 
-    fun openGameSettings(game: LibraryGame) {
+    /** [failed] as [openCheats]'s. */
+    fun openGameSettings(game: LibraryGame, failed: () -> Unit = {}) {
         viewModelScope.launch {
             // The settings files are named like the game's save, as the game reads them.
             val saveName = withContext(Dispatchers.IO) { launcher.saveNameFor(game) } ?: run {
-                JLog.e(TAG, "game settings: no readable file for ${game.title}"); return@launch
+                JLog.e(TAG, "game settings: no readable file for ${game.title}"); failed(); return@launch
             }
             _gameSettingsFor.value = com.joeysretro.joey64.launcher.gamesettings.GameRef(saveName, game.title)
         }
@@ -741,19 +747,20 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
     /** The game whose Screenshots page is open in the library's place (a game's options › Screenshots), or null. */
     val screenshotsFor: StateFlow<com.joeysretro.joey64.launcher.screens.SavesGame?> = _screenshotsFor
 
-    private fun openWithSaveName(game: LibraryGame, what: String, to: MutableStateFlow<com.joeysretro.joey64.launcher.screens.SavesGame?>) {
+    private fun openWithSaveName(game: LibraryGame, what: String, to: MutableStateFlow<com.joeysretro.joey64.launcher.screens.SavesGame?>,
+                                 failed: () -> Unit) {
         viewModelScope.launch {
             // The files are named after the game's save.
             val saveName = withContext(Dispatchers.IO) { launcher.saveNameFor(game) } ?: run {
-                JLog.e(TAG, "$what: no readable file for ${game.title}"); return@launch
+                JLog.e(TAG, "$what: no readable file for ${game.title}"); failed(); return@launch
             }
             to.value = com.joeysretro.joey64.launcher.screens.SavesGame(game, saveName)
         }
     }
 
-    fun openSaves(game: LibraryGame) = openWithSaveName(game, "saves", _savesFor)
+    fun openSaves(game: LibraryGame, failed: () -> Unit = {}) = openWithSaveName(game, "saves", _savesFor, failed)
     fun closeSaves() { _savesFor.value = null }
-    fun openScreenshots(game: LibraryGame) = openWithSaveName(game, "screenshots", _screenshotsFor)
+    fun openScreenshots(game: LibraryGame, failed: () -> Unit = {}) = openWithSaveName(game, "screenshots", _screenshotsFor, failed)
     fun closeScreenshots() { _screenshotsFor.value = null }
 
     /** The options' Saves and Screenshots values: the game's states ("3 states") and its screenshots; null when it has no readable file. */

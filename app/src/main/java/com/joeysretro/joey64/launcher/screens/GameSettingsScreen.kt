@@ -127,7 +127,13 @@ private fun GameSettingsContent(game: GameRef, inGame: Boolean, sink: ControlsSi
     val landing = LocalFocusLanding.current
     // Each view lands focus on its first row, except a tab opened from the tab row, which keeps focus there.
     var tabsFocused by remember { mutableStateOf(false) }
-    LaunchedEffect(view) { if (!(view is GsView.Tabs && tabsFocused)) landing?.arm() }
+    LaunchedEffect(Unit) { if (!(view is GsView.Tabs && tabsFocused)) landing?.arm() }
+    // Armed with the change, not after it (B1): armed only once the new view had composed, the old row was gone a frame
+    // with nothing to land on, so focus fell to the top bar's Library for that frame.
+    fun show(next: GsView) {
+        if (!(next is GsView.Tabs && tabsFocused)) landing?.arm()
+        view = next
+    }
 
     sink.onControl = { ctl ->
         when (val v = view) {
@@ -135,7 +141,7 @@ private fun GameSettingsContent(game: GameRef, inGame: Boolean, sink: ControlsSi
             is GsView.Tabs -> when (ctl) {
                 Control.TabPrev, Control.TabNext -> {
                     val i = TAB_PARTS.indexOf(v.part) + if (ctl == Control.TabNext) 1 else TAB_PARTS.size - 1
-                    view = GsView.Tabs(TAB_PARTS[i % TAB_PARTS.size], null); true
+                    show(GsView.Tabs(TAB_PARTS[i % TAB_PARTS.size], null)); true
                 }
                 else -> tabControl?.invoke(ctl) ?: false
             }
@@ -145,8 +151,8 @@ private fun GameSettingsContent(game: GameRef, inGame: Boolean, sink: ControlsSi
     sink.onBack = {
         when (view) {
             GsView.Page -> false
-            is GsView.Tabs -> { view = GsView.Page; version++; true }
-            is GsView.Controls -> { if (!inner.onBack()) { view = GsView.Page; version++ }; true }
+            is GsView.Tabs -> { show(GsView.Page); version++; true }
+            is GsView.Controls -> { if (!inner.onBack()) { show(GsView.Page); version++ }; true }
         }
     }
 
@@ -155,15 +161,15 @@ private fun GameSettingsContent(game: GameRef, inGame: Boolean, sink: ControlsSi
             val summary = remember(version) { model.summary(game.saveName) }
             GamePage(game, summary, inGame, focused, onFocused = { focused = it }, onHints = onHints,
                 onOpen = { part, row ->
-                    view = when (part) {
+                    show(when (part) {
                         GamePart.Controls -> GsView.Controls(row?.removePrefix("p")?.toIntOrNull() ?: 0)
                         else -> GsView.Tabs(part, row)
-                    }
+                    })
                 },
                 onReset = { popup = GsPopup.Reset }, onCopy = { popup = GsPopup.Copy })
             GamePopupsFor(game, summary, model, popup, onPopup = { popup = it }, onChanged = { version++ })
         }
-        is GsView.Tabs -> GameTabs(game, v, onHints, { tabControl = it }, onPicturePanel, { tabsFocused = it }) { view = GsView.Tabs(it, null) }
+        is GsView.Tabs -> GameTabs(game, v, onHints, { tabControl = it }, onPicturePanel, { tabsFocused = it }) { show(GsView.Tabs(it, null)) }
         is GsView.Controls -> Column(Modifier.fillMaxSize()) {
             GameControlsPage(game.saveName, game.title, v.player, inner, onHints)
         }

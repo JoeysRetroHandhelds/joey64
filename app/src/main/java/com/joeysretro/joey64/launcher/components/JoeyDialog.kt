@@ -160,6 +160,7 @@ fun JoeyDialog(
                 WindowCompat.setDecorFitsSystemWindows(window, false)
                 window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
                 window.setDimAmount(0f)
+                window.setWindowAnimations(com.joeysretro.joey64.R.style.JoeyPopupWindow)
                 if (!sidePanel && !bare && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && window.windowManager.isCrossWindowBlurEnabled) {
                     window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
                     window.attributes = window.attributes.apply { blurBehindRadius = blurPx }

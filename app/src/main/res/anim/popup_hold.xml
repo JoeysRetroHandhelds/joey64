@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A popup window's exit: it stays as it is for 50 ms after it closes, then goes, no fade (B1, B2). The window under
+     it draws its next screen a frame or two after the popup's window is removed; without this the screen under the
+     popup showed bare for those frames (a game's options › Game settings, Cheats, Achievements). -->
+<alpha xmlns:android="http://schemas.android.com/apk/res/android"
+    android:fromAlpha="1.0" android:toAlpha="1.0" android:duration="50" />

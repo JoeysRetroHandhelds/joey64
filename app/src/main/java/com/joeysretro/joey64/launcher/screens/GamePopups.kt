@@ -129,15 +129,15 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
                     if (model.onePlayerOnly(game)) JoeyOption("Netplay", value = "1 player only", enabled = false) {}
                     else JoeyOption("Netplay", value = "›") { onPopup(null); model.openNetplay(game) }
                     JoeyOption("Details", modifier = Modifier.initialFocus(from == GamePopup.Details)) { from = GamePopup.Details; onPopup(GamePopup.Details) }
-                    gameSettings?.let { JoeyOption("Game settings", value = "$it  ›") { onPopup(null); model.openGameSettings(game) } }
+                    gameSettings?.let { JoeyOption("Game settings", value = "$it  ›") { model.openGameSettings(game) { onPopup(null) } } }
                     com.joeysretro.joey64.launcher.components.PopupDivider()
-                    JoeyOption("Cheats", value = "›") { onPopup(null); model.openCheats(game) }
-                    if (signedIn) JoeyOption("Achievements", value = "›") { onPopup(null); model.openAchievements(game) }
+                    JoeyOption("Cheats", value = "›") { model.openCheats(game) { onPopup(null) } }
+                    if (signedIn) JoeyOption("Achievements", value = "›") { model.openAchievements(game) } // no onPopup(null): see openCheats
                     // Saves always opens (on the empty save when there's none); Screenshots is grey with none.
                     counts?.let { n ->
-                        JoeyOption("Saves", value = "${n.statesLabel}  ›") { onPopup(null); model.openSaves(game) }
+                        JoeyOption("Saves", value = "${n.statesLabel}  ›") { model.openSaves(game) { onPopup(null) } }
                         JoeyOption("Screenshots", value = if (n.screenshots > 0) "${n.screenshots}  ›" else "None", enabled = n.screenshots > 0) {
-                            if (n.screenshots > 0) { onPopup(null); model.openScreenshots(game) }
+                            if (n.screenshots > 0) { model.openScreenshots(game) { onPopup(null) } }
                         }
                     }
                     com.joeysretro.joey64.launcher.components.PopupDivider()

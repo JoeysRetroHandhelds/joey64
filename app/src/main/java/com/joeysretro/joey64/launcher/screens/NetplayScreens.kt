@@ -39,6 +39,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusRequester
+import com.joeysretro.joey64.launcher.components.landFocus
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.layout.ContentScale
@@ -333,24 +335,67 @@ private fun HostPickPopup(model: LibraryModel, onDismiss: () -> Unit, onPick: (L
         val rest = hostable.filter { it.lastPlayedAt == null }.sortedBy { it.title.lowercase() }
         (played + rest).filter { query.isBlank() || it.title.contains(query.trim(), ignoreCase = true) }
     }
+    // A4: L2 / R2 go a page of the grid up or down; the game there takes focus as it's composed (FocusLanding, no frame wait).
+    val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+    val pageLanding = remember { com.joeysretro.joey64.launcher.components.FocusLanding(armed = false) }
+    var pageTo by remember { mutableIntStateOf(-1) }
+    var focusedAt by remember { mutableIntStateOf(-1) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    fun page(dir: Int) {
+        if (focusedAt !in sorted.indices || pageLanding.pending) return
+        val per = 4 * maxOf(1, gridState.layoutInfo.visibleItemsInfo.size / 4 - 1)
+        val to = (focusedAt + dir * per).coerceIn(0, sorted.lastIndex)
+        if (to == focusedAt) return
+        pageTo = to
+        pageLanding.arm()
+        if (gridState.layoutInfo.visibleItemsInfo.none { it.index == to })
+            scope.launch { gridState.scrollToItem(if (dir < 0) to else maxOf(0, to - per)) }
+    }
     JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Host"), Hint("Y", "Search"), Hint("B", "Close")), width = 640.dp,
-        onPadButton = { k -> if (k == KeyEvent.KEYCODE_BUTTON_Y) searching = true }) {
+        onPadButton = { k -> when (k) {
+            KeyEvent.KEYCODE_BUTTON_Y -> searching = true
+            KeyEvent.KEYCODE_BUTTON_L2 -> page(-1)
+            KeyEvent.KEYCODE_BUTTON_R2 -> page(1)
+        } }) {
         Column {
             LandAgain()
             PopupTitle("Host a room", "Pick the game everyone will play.")
             if (searching) ControllerTextField(query, { query = it }, "Search your games", Modifier.padding(horizontal = 8.dp).padding(bottom = 6.dp), startTyping = true)
+            // C2: focus is on the cover, so scrolling to it left the name under the bottom row cut off; the grid scrolls
+            // a name's height more so the whole tile shows.
+            val nameRoom = with(androidx.compose.ui.platform.LocalDensity.current) { 26.dp.toPx() }
+            @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+            androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides
+                remember(nameRoom) { TileNameSpec(nameRoom) }) {
             androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-                columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(4),
+                columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(4), state = gridState,
                 modifier = Modifier.heightIn(max = 380.dp).padding(horizontal = 8.dp),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(sorted.size, key = { sorted[it].id }) { i ->
                     val g = sorted[i]
-                    PickTile(model, g, Modifier.then(if (i == 0 && !searching) Modifier.initialFocus() else Modifier)) { onPick(g) }
+                    PickTile(model, g, Modifier.onFocusChanged { if (it.hasFocus) focusedAt = i }
+                        .landFocus(pageLanding, enabled = i == pageTo)
+                        .then(if (i == 0 && !searching) Modifier.initialFocus() else Modifier)) { onPick(g) }
                 }
             }
+            }
             if (sorted.isEmpty()) RoomsEmpty("No games match.")
+        }
+    }
+}
+
+/** Brings a focused cover in with room under it for its name ([below] px) and a little above. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private class TileNameSpec(private val below: Float) : androidx.compose.foundation.gestures.BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+        val start = offset - below / 3
+        val end = offset + size + below
+        return when {
+            start < 0f -> start
+            end > containerSize -> minOf(end - containerSize, start)
+            else -> 0f
         }
     }
 }

@@ -66,8 +66,16 @@ val checkBundledFiles by tasks.registering {
             val got = md5(f)
             if (got != want.lowercase()) problems += "$f: md5 $got, $from says $want"
         }
-        expect(File(jni, "libjoey64_libretro_android.so"),
-            Regex("(?m)^md5: *([0-9a-fA-F]{32})").find(coreVersion.readText())?.groupValues?.get(1), "core-version.txt")
+        val core = File(jni, "libjoey64_libretro_android.so")
+        expect(core, Regex("(?m)^md5: *([0-9a-fA-F]{32})").find(coreVersion.readText())?.groupValues?.get(1), "core-version.txt")
+        // Netplay needs the core's netplay branch: the app offers rooms with any core, and a core without it ignores
+        // N64_NETPLAY, so no game ever reaches the room (rel1 in 0.1.0.1, Thor and a friend's handheld, 2026-11-11). The
+        // lobby's one-time keys need N64_NETPLAY_KEY too (core 60065cb): without it every joiner is turned away.
+        if (core.isFile) {
+            val text = String(core.readBytes(), Charsets.ISO_8859_1)
+            for (env in listOf("N64_NETPLAY", "N64_NETPLAY_KEY"))
+                if (!Regex("\\b$env\\b").containsMatchIn(text)) problems += "$core: the core doesn't read $env (no netplay: bundle a core with the netplay branch)"
+        }
         @Suppress("UNCHECKED_CAST")
         val list = (groovy.json.JsonSlurper().parse(bundledJson) as Map<String, Any?>)["drivers"] as List<Map<String, Any?>>
         for (d in list) expect(File(drivers, d["file"] as String), d["md5"] as String?, "bundled.json")

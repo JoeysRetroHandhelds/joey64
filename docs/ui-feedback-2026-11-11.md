@@ -99,3 +99,6 @@ Controls, then Settings tabs, then popups.
 - [ ] E5 Settings-type pages as one list with a detail panel (Joey: "yes one list + panel for everything,
       thats perfect", setlist_mock.png): every Settings tab, Game settings, Controls, Touch controls. Details
       in docs/tv-guidelines-audit-2026-11-11.md. To build.
+
+Feature freeze (Joey 2026-11-11): everything approved in this review is usability, not a new feature ("these are
+necessary for usability"), so all of it is built before the first test build.

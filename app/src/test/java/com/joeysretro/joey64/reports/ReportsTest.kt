@@ -12,6 +12,16 @@ import java.io.File
 
 /** The report as server/reports/src/validate.js takes it, and the play session it's made from. */
 class ReportsTest {
+    @Test fun sentDayLabelWhenOnlyTheDayIsKnown() {
+        val today = java.time.LocalDate.of(2026, 11, 12)
+        assertEquals("today", ReportPrefs.sentDayLabel("2026-11-12", today))
+        assertEquals("yesterday", ReportPrefs.sentDayLabel("2026-11-11", today))
+        assertEquals("Nov 2", ReportPrefs.sentDayLabel("2026-11-02", today))
+        assertEquals("Dec 30, 2025", ReportPrefs.sentDayLabel("2025-12-30", today))
+        assertNull(ReportPrefs.sentDayLabel(null, today))
+        assertNull(ReportPrefs.sentDayLabel("junk", today))
+    }
+
     @get:Rule val tmp = TemporaryFolder()
 
     private val md5 = "9feee5da895fb2e115bb15d1c4a9f906"

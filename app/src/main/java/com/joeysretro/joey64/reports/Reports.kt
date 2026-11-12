@@ -63,6 +63,21 @@ object ReportPrefs {
     /** When the last report the server took went (ms), for Send now's line; 0 before the first. */
     fun lastSentAt(ctx: Context): Long = p(ctx).getLong("sent_at", 0L)
 
+    /**
+     * Send now's line when only the day of the last report is known (a report sent by a build before sent_at was
+     * kept; Joey 2026-11-12, F4): "today", "yesterday", "Nov 11", "Nov 11, 2025", by UTC day as the day is kept.
+     * Null for no day or one that doesn't read.
+     */
+    fun sentDayLabel(day: String?, today: java.time.LocalDate = java.time.LocalDate.now(java.time.ZoneOffset.UTC)): String? {
+        val d = try { java.time.LocalDate.parse(day ?: return null) } catch (e: java.time.format.DateTimeParseException) { return null }
+        return when {
+            d == today -> "today"
+            d == today.minusDays(1) -> "yesterday"
+            d.year == today.year -> java.time.format.DateTimeFormatter.ofPattern("MMM d", java.util.Locale.US).format(d)
+            else -> java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy", java.util.Locale.US).format(d)
+        }
+    }
+
     /** Process exits recorded before this time (ms) are not reported. On by default (a testing build): since it was installed. */
     fun exitsAfter(ctx: Context): Long = p(ctx).getLong("exits_after", if (testing) installedAt(ctx) else Long.MAX_VALUE)
     private fun installedAt(ctx: Context): Long =

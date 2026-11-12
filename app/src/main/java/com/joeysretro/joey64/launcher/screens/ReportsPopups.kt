@@ -68,9 +68,10 @@ fun SendReportsPopup(on: Boolean, onDismiss: () -> Unit, onSet: (Boolean) -> Uni
             val scope = androidx.compose.runtime.rememberCoroutineScope()
             var result by remember { mutableStateOf<String?>(null) }
             var sentAt by remember { mutableStateOf(com.joeysretro.joey64.reports.ReportPrefs.lastSentAt(ctx)) }
+            val sentDay = remember(sentAt) { com.joeysretro.joey64.reports.ReportPrefs.sentDayLabel(com.joeysretro.joey64.reports.ReportPrefs.lastSentDay(ctx)) }
             androidx.compose.runtime.LaunchedEffect(result) { if (result != null && result != "Sending…") { kotlinx.coroutines.delay(4_000L); result = null } }
             JoeyRow("Send now", enabled = on, value = result,
-                detail = if (!on) "Turn reports on first" else if (sentAt == 0L) "Nothing sent yet"
+                detail = if (!on) "Turn reports on first" else if (sentAt == 0L) sentDay?.let { "Last sent $it" } ?: "Nothing sent yet"
                     else "Last sent " + com.joeysretro.joey64.launcher.ingame.SlotDates.withTime(sentAt, System.currentTimeMillis())
                         .replaceFirstChar { it.lowercase() }) {
                 if (on && result != "Sending…") {

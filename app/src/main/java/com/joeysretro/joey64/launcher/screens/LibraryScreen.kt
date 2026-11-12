@@ -259,6 +259,9 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
         if (keepPlace) LaunchedEffect(gridState) {
             snapshotFlow { gridState.firstVisibleItemIndex to gridState.firstVisibleItemScrollOffset }.collect { model.libraryScroll = it }
         }
+        // B on the grid: back to the top as focus goes to the Library's tab on the bar (approved Back order).
+        val toTop by model.toTop.collectAsStateWithLifecycle()
+        LaunchedEffect(toTop) { if (toTop > 0) gridState.scrollToItem(0) }
         val scope = androidx.compose.runtime.rememberCoroutineScope()
         // Up and Down go by index (the tile [cols] before or after), so the column stays. Compose's own search goes by
         // where tiles are on screen, and with a key held the next row isn't laid out yet: holding Up from the last game

@@ -167,7 +167,7 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
         onControl { ctl -> if (ctl == Control.Search) onY() else false }
     }
     LaunchedEffect(target) {
-        onHints(listOf(Hint("A", "Change"), Hint("Y", if (target == null) "Reset to default" else "Use All games"), Hint("L/R", "Tab"), Hint("B", "Back")))
+        onHints(listOf(Hint("A", "Change"), Hint("Y", if (target == null) "Reset to default" else "Use All games"), Hint("B", "Back")))
     }
 
     Column(modifier.fillMaxSize()) {

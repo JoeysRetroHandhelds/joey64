@@ -135,13 +135,13 @@ fun NetplayScreen(model: LibraryModel, onHints: (List<Hint>) -> Unit, onClose: (
     LaunchedEffect(focusKey) {
         // The tab row: A Open, as every tab row (Chips.kt TabRow).
         val a = when (focusKey) { "host" -> "Host"; "tabs" -> "Open"; else -> "Join" }
-        onHints(listOf(Hint("A", a), Hint("L/R", "All games / Games I have"), Hint("Start", "Join by code"), Hint("B", "Back")))
+        onHints(listOf(Hint("A", a), Hint("Start", "Join by code"), Hint("B", "Back")))
     }
 
     fun gameOf(md5: String) = games.firstOrNull { it.md5.equals(md5, true) }
 
     Column(Modifier.fillMaxSize().padding(start = JoeyTheme.spacing.margin, end = JoeyTheme.spacing.margin, top = 12.dp)) {
-        PageHeader("Netplay") {
+        PageHeader(null) {
             com.joeysretro.joey64.launcher.components.TabRow(2, if (onlyMine) 1 else 0, onFocused = { if (it) focusKey = "tabs" }, onPick = { onlyMine = it == 1 }) { i, m ->
                 TabChip(if (i == 0) "All games" else "Games I have", (i == 1) == onlyMine, m)
             }

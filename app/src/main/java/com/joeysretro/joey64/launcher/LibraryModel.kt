@@ -115,6 +115,11 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
     var libraryFocus: Long?
         get() = saved.get<Long>(KEY_FOCUS)
         set(value) { saved[KEY_FOCUS] = value }
+    /** B on the grid (approved Back order): the grid goes back to the top as focus moves to the bar. */
+    private val _toTop = kotlinx.coroutines.flow.MutableStateFlow(0)
+    val toTop: kotlinx.coroutines.flow.StateFlow<Int> = _toTop
+    fun libraryToTop() { _toTop.value++; libraryFocus = null; libraryScroll = 0 to 0 }
+
     var libraryScroll: Pair<Int, Int>
         get() = (saved.get<Int>(KEY_SCROLL) ?: 0) to (saved.get<Int>(KEY_SCROLL_OFFSET) ?: 0)
         set(value) { saved[KEY_SCROLL] = value.first; saved[KEY_SCROLL_OFFSET] = value.second }

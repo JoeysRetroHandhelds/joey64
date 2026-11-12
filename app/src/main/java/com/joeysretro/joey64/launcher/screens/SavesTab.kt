@@ -132,8 +132,8 @@ fun SavesTab(onHints: (List<Hint>) -> Unit, onImport: () -> Unit, modifier: Modi
 
     LaunchedEffect(busy) { onBusy(busy) }
     LaunchedEffect(focused, busy) {
-        onHints(if (busy && status?.first == focused) listOf(Hint("L/R", "Tab"), Hint("B", "Back"))
-            else listOf(Hint("A", "Change"), Hint("L/R", "Tab"), Hint("B", "Back")))
+        onHints(if (busy && status?.first == focused) listOf(Hint("B", "Back"))
+            else listOf(Hint("A", "Change"), Hint("B", "Back")))
     }
 
     Column(modifier.fillMaxSize()) {

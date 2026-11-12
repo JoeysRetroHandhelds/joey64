@@ -99,8 +99,15 @@ object ControlBus {
     fun push(handler: (Control) -> Boolean) { handlers.addLast(handler) }
     fun pop(handler: (Control) -> Boolean) { handlers.remove(handler) }
 
+    /**
+     * The top bar's L1 / R1 (Joey 2026-11-11: they always move along the bar on every page under it). Offered first,
+     * before the page in charge; it returns false when it doesn't take the press (no bar, setup pages).
+     */
+    var bar: ((Control) -> Boolean)? = null
+
     /** Offers an intent to the handler in charge. True when it was consumed. */
     fun dispatch(control: Control): Boolean {
+        if ((control == Control.TabPrev || control == Control.TabNext) && bar?.invoke(control) == true) return true
         val handler = handlers.lastOrNull()
         if (handler == null) {
             if (!loggedNoHandler) { loggedNoHandler = true; JLog.w(TAG, "$control pressed but nothing is handling buttons") }

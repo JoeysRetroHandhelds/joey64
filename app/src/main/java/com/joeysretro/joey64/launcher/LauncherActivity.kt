@@ -47,6 +47,7 @@ import com.joeysretro.joey64.launcher.components.FocusLanding
 import com.joeysretro.joey64.launcher.components.Hint
 import com.joeysretro.joey64.launcher.components.HintRow
 import com.joeysretro.joey64.launcher.components.LauncherRail
+import androidx.compose.runtime.DisposableEffect
 import com.joeysretro.joey64.launcher.components.LocalFocusLanding
 import com.joeysretro.joey64.launcher.components.RailPlace
 import com.joeysretro.joey64.launcher.controls.KeyNormaliser
@@ -209,8 +210,6 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             var place by remember { mutableStateOf(RailPlace.Library) }
             var settingsHints by remember { mutableStateOf(listOf(Hint("B", "Back"))) }
             var onRail by remember { mutableStateOf(false) }
-            // The rail opened by a tap on its logo (review sheet L10); a tap outside or a pick closes it.
-            var railTapped by remember { mutableStateOf(false) }
             // Settings › Saves › Import from RetroArch: the first-run import pages again, then back to that tab.
             var importAgain by remember { mutableStateOf(false) }
             var settingsTab by remember { mutableStateOf(com.joeysretro.joey64.launcher.screens.SettingsTab.entries.first()) }
@@ -224,21 +223,57 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             LaunchedEffect(raAccount == null) { if (raAccount == null && place == RailPlace.Achievements) place = RailPlace.Library }
             // Signed in: the Has achievements filter's list, fetched again when a day old.
             LaunchedEffect(raAccount != null) { if (raAccount != null) model.refreshSetList() }
+            // The top bar's tabs (approved Back order, Joey 2026-11-11): B on a page's content focuses its tab, B on a
+            // tab other than Library opens the Library with focus still on the bar, B on Library leaves Joey64.
+            val bar = remember { com.joeysretro.joey64.launcher.components.BarFocus() }
+            // The Library tab is focused once the Library is up (B on another tab).
+            var barToLibrary by remember { mutableStateOf(false) }
+            LaunchedEffect(barToLibrary, place) { if (barToLibrary && place == RailPlace.Library) { bar.focus(RailPlace.Library); barToLibrary = false } }
+            /** B on a page under the bar: its content → its tab; its tab → the Library (still on the bar), or out from the Library. */
+            fun backFromPage() {
+                when {
+                    !onRail && bar.focus(place) -> {}
+                    place == RailPlace.Library -> (context as? android.app.Activity)?.finish()
+                    else -> { place = RailPlace.Library; barToLibrary = true }
+                }
+            }
+            // L1 / R1 move along the bar on every page under it (Joey 2026-11-11, option 1); popups, the pause menu
+            // and the picture viewer are their own windows and keep L1 / R1 for themselves.
+            val barPlaces = RailPlace.entries.filter { (it != RailPlace.Achievements || raAccount != null) &&
+                (!com.joeysretro.joey64.launcher.layout.LocalScreenLayout.current.bottomBar || it != RailPlace.Search) }
+            val barNow by androidx.compose.runtime.rememberUpdatedState(barPlaces)
+            val barLife = LocalLifecycleOwner.current.lifecycle
+            DisposableEffect(home) {
+                val h: (com.joeysretro.joey64.launcher.controls.Control) -> Boolean = h@{ ctl ->
+                    // Only while the launcher is in front: a game's pause menu (another activity) keeps L1 / R1.
+                    if (!barLife.currentState.isAtLeast(Lifecycle.State.RESUMED)) return@h false
+                    val step = when (ctl) { com.joeysretro.joey64.launcher.controls.Control.TabPrev -> -1
+                        com.joeysretro.joey64.launcher.controls.Control.TabNext -> 1; else -> 0 }
+                    if (step == 0 || !home || importAgain) false else {
+                        val list = barNow
+                        val i = list.indexOf(place).takeIf { it >= 0 } ?: 0
+                        val to = list[(i + step + list.size) % list.size]
+                        if (to != place) place = to
+                        true
+                    }
+                }
+                com.joeysretro.joey64.launcher.controls.ControlBus.bar = h
+                onDispose { if (com.joeysretro.joey64.launcher.controls.ControlBus.bar === h) com.joeysretro.joey64.launcher.controls.ControlBus.bar = null }
+            }
             // Cheats opens over the library or Search results (a game's options), and B goes back there; going anywhere on the rail closes it.
             LaunchedEffect(place) {
                 model.closeCheats(); model.closeAchievements(); model.closeGameSettings(); model.closeSaves(); model.closeScreenshots()
                 if (place != RailPlace.Search) model.forgetSearch()
             }
             if (home) UpdateChecks(updates)
-            // The rail on the left, or a bar along the bottom in portrait.
-            val railOpen = home && (onRail || railTapped)
-            val railFocus = androidx.compose.ui.platform.LocalFocusManager.current
-            com.joeysretro.joey64.launcher.components.RailLayout(Modifier.weight(1f).fillMaxWidth(), open = railOpen,
-                onClose = { railTapped = false; if (onRail) railFocus.moveFocus(androidx.compose.ui.focus.FocusDirection.Right) }, rail = { horizontal ->
-                LauncherRail(if (home) place else RailPlace.Library, enabled = home,
-                    showAchievements = home && raAccount != null, horizontal = horizontal, open = railOpen && !horizontal,
-                    onLogo = { if (home) railTapped = !railTapped }, onFocused = { onRail = it }) {
-                    railTapped = false
+            // The places along the top, or a bar along the bottom in portrait.
+            // B on the Library's grid: its tab on the bar, the grid back at the top; B on the tab leaves Joey64.
+            val libraryOpen = home && place == RailPlace.Library && !importAgain && cheatsFor == null && achievementsFor == null &&
+                gameSettingsFor == null && savesFor == null && screenshotsFor == null
+            androidx.activity.compose.BackHandler(enabled = libraryOpen) { if (onRail) (context as? android.app.Activity)?.finish() else { model.libraryToTop(); bar.focus(RailPlace.Library) } }
+            com.joeysretro.joey64.launcher.components.RailLayout(Modifier.weight(1f).fillMaxWidth(), rail = { bottom ->
+                LauncherRail(if (home) place else RailPlace.Library, bar, enabled = home,
+                    showAchievements = home && raAccount != null, bottom = bottom, onFocused = { onRail = it }) {
                     place = it
                 }
             }) {
@@ -280,15 +315,16 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                                 achievementsFor != null -> androidx.compose.runtime.key(achievementsFor) {
                                     com.joeysretro.joey64.launcher.screens.GameAchievementsScreen(achievementsFor!!, onHints = { settingsHints = it }) { model.closeAchievements() }
                                 }
-                                place == RailPlace.Achievements -> com.joeysretro.joey64.launcher.screens.AchievementsScreen(onHints = { settingsHints = it }) { place = RailPlace.Library }
+                                place == RailPlace.Achievements -> com.joeysretro.joey64.launcher.screens.AchievementsScreen(onHints = { settingsHints = it }) { backFromPage() }
                                 place == RailPlace.Settings -> SettingsScreen(updates, model, onHints = { settingsHints = it }, startTab = settingsTab,
                                     startRow = if (settingsTab == com.joeysretro.joey64.launcher.screens.SettingsTab.Saves) "import" else null,
                                     onImport = { importModel.restart(); settingsTab = com.joeysretro.joey64.launcher.screens.SettingsTab.Saves; importAgain = true }) {
-                                    settingsTab = com.joeysretro.joey64.launcher.screens.SettingsTab.entries.first(); place = RailPlace.Library
+                                    backFromPage()
+                                    if (place != RailPlace.Settings) settingsTab = com.joeysretro.joey64.launcher.screens.SettingsTab.entries.first()
                                 }
-                                place == RailPlace.Controls -> ControlsScreen(onHints = { settingsHints = it }) { place = RailPlace.Library }
-                                place == RailPlace.Search -> com.joeysretro.joey64.launcher.screens.SearchScreen(model, onHints = { settingsHints = it }) { place = RailPlace.Library }
-                                place == RailPlace.Netplay -> com.joeysretro.joey64.launcher.screens.NetplayScreen(model, onHints = { settingsHints = it }) { place = RailPlace.Library }
+                                place == RailPlace.Controls -> ControlsScreen(onHints = { settingsHints = it }) { backFromPage() }
+                                place == RailPlace.Search -> com.joeysretro.joey64.launcher.screens.SearchScreen(model, onHints = { settingsHints = it }) { backFromPage() }
+                                place == RailPlace.Netplay -> com.joeysretro.joey64.launcher.screens.NetplayScreen(model, onHints = { settingsHints = it }) { backFromPage() }
                                 else -> LibraryScreen(model, updateAsking = updates.prompt.collectAsStateWithLifecycle().value != null) { place = RailPlace.Search }
                             }
                         }

@@ -24,9 +24,10 @@ import androidx.compose.ui.Modifier
  * Layout by screen shape (plan, Phase 0). The launcher has one layout that adapts to the window,
  * not per-device branches (Chameleon: responsive first). These rules come from the plan:
  *  - box art columns from the grid's width: as many as fit with each cover at least [MIN_TILE_DP]
- *    wide, 2 to 4 (16:9: 4, 4:3: 3, the Thor's bottom screen: 3, portrait phones: 2; Joey
- *    2026-11-08: two across on the bottom screen was too big)
- *  - the left rail becomes a bottom bar in portrait
+ *    wide, 2 to 5 (16:9: 5, 4:3: 4, the Thor's bottom screen: 3, portrait phones: 2; Joey
+ *    2026-11-08: two across on the bottom screen was too big; 2026-11-11 under the top bar: "5 across",
+ *    covers_mock.png, Cover size Small one more, Large one fewer)
+ *  - the places are a bar along the top (Joey 2026-11-11, topbar2_mock.png), along the bottom in portrait
  *  - Settings goes to one column when the window is narrow
  *  - text never shrinks: sizes are sp and nothing scales them down to fit
  *
@@ -50,7 +51,7 @@ data class ScreenLayout(
     val heightDp: Float,
     /** Box art columns in the library grid. */
     val boxArtColumns: Int,
-    /** The rail is a bottom bar instead of a left column. */
+    /** The places are a bar along the bottom (portrait) instead of along the top. */
     val bottomBar: Boolean,
     /** Settings (and other two-column pages) in one column. */
     val singleColumnSettings: Boolean,
@@ -72,14 +73,13 @@ data class ScreenLayout(
         const val TWO_COLUMNS_FROM_DP = 700f
         /** The narrowest a cover in the library grid gets before a column goes (dp). */
         const val MIN_TILE_DP = 128f
-        /** The rail's width, the grid's side margins (18 each) and the gap between covers, as LibraryScreen draws them. */
-        private const val RAIL_DP = 56f
+        /** The grid's side margins (18 each) and the gap between covers, as LibraryScreen draws them. */
         private const val GRID_MARGINS_DP = 36f
         private const val TILE_GAP_DP = 16f
 
-        /** Columns for a grid [gridDp] wide: the most, 2 to 4, whose covers are at least [MIN_TILE_DP]. */
+        /** Columns for a grid [gridDp] wide: the most, 2 to 5, whose covers are at least [MIN_TILE_DP]. */
         fun columnsFor(gridDp: Float): Int =
-            (4 downTo 2).firstOrNull { n -> (gridDp - (n - 1) * TILE_GAP_DP) / n >= MIN_TILE_DP } ?: 2
+            (5 downTo 2).firstOrNull { n -> (gridDp - (n - 1) * TILE_GAP_DP) / n >= MIN_TILE_DP } ?: 2
 
         fun shapeOf(widthDp: Float, heightDp: Float): ScreenShape {
             val ratio = widthDp / heightDp
@@ -97,7 +97,7 @@ data class ScreenLayout(
                 shape = shape,
                 widthDp = widthDp,
                 heightDp = heightDp,
-                boxArtColumns = columnsFor(widthDp - (if (shape == ScreenShape.Portrait) 0f else RAIL_DP) - GRID_MARGINS_DP),
+                boxArtColumns = columnsFor(widthDp - GRID_MARGINS_DP),
                 bottomBar = shape == ScreenShape.Portrait,
                 singleColumnSettings = shape == ScreenShape.Portrait || widthDp < TWO_COLUMNS_FROM_DP,
             )

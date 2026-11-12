@@ -186,7 +186,7 @@ private fun GameTabs(game: GameRef, v: GsView.Tabs, onHints: (List<Hint>) -> Uni
         // The tab row has focus: its own hints; the tab's come back when focus goes down (Joey 2026-11-09, D-pad tabs).
         var onTabs by remember { mutableStateOf(false) }
         var pageHints by remember { mutableStateOf(listOf(Hint("B", "Back"))) }
-        LaunchedEffect(onTabs, pageHints) { onHints(if (onTabs) listOf(Hint("A", "Open"), Hint("L/R", "Tab"), Hint("B", "Back")) else pageHints) }
+        LaunchedEffect(onTabs, pageHints) { onHints(if (onTabs) listOf(Hint("A", "Open"), Hint("B", "Back")) else pageHints) }
         SettingsTabs(parts.map { it.label }, parts.indexOf(v.part), onFocused = { onTabs = it; onTabsFocused(it) }) { onTab(parts[it]) }
         key(v) {
             val onHints: (List<Hint>) -> Unit = { pageHints = it }

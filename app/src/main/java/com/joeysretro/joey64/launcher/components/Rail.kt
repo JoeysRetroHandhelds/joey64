@@ -3,12 +3,12 @@ package com.joeysretro.joey64.launcher.components
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -23,18 +23,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.runtime.remember
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.wrapContentWidth
-import androidx.compose.runtime.getValue
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.zIndex
 import com.joeysretro.joey64.R
 import com.joeysretro.joey64.launcher.theme.JoeyTheme
 
@@ -53,133 +43,111 @@ enum class RailPlace(@DrawableRes val icon: Int, val label: String) {
 }
 
 /**
- * The rail at the left ([content] beside it), or along the bottom when the window is portrait
- * (the plan's layout rules, [com.joeysretro.joey64.launcher.layout.ScreenLayout.bottomBar]).
+ * The places along the top with the page under them (Joey 2026-11-11, topbar2_mock.png: Google TV's top navigation,
+ * pill tabs with a name; docs/tv-guidelines-audit-2026-11-11.md), or the page with a bar along the bottom in portrait
+ * (Material's navigation bar: an icon with its name under it, five places at most, so Search is left out there and
+ * opened from the library; portrait_mock.png option A).
  */
 @Composable
-fun RailLayout(modifier: Modifier = Modifier,
-               /** The left rail is open (review sheet L10): it draws over the page, which is dimmed; a tap on the dim calls [onClose]. */
-               open: Boolean = false, onClose: () -> Unit = {},
-               rail: @Composable (horizontal: Boolean) -> Unit, content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit) {
-    if (com.joeysretro.joey64.launcher.layout.LocalScreenLayout.current.bottomBar) Column(modifier) {
+fun RailLayout(modifier: Modifier = Modifier, rail: @Composable (bottom: Boolean) -> Unit,
+               content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit) {
+    val bottom = com.joeysretro.joey64.launcher.layout.LocalScreenLayout.current.bottomBar
+    Column(modifier) {
+        if (!bottom) rail(false)
         Box(Modifier.weight(1f).fillMaxWidth(), content = content)
-        rail(true)
-    } else androidx.compose.foundation.layout.Row(modifier) {
-        // Above the page, so the open rail can widen over it.
-        Box(Modifier.zIndex(1f)) { rail(false) }
-        Box(Modifier.weight(1f).fillMaxHeight()) {
-            content()
-            if (open) Box(Modifier.fillMaxSize().background(JoeyTheme.colors.scrim)
-                .pointerInput(Unit) { detectTapGestures { onClose() } })
-        }
+        if (bottom) rail(true)
     }
+}
+
+/** Each place's focus stop on the bar, so Back from a page can put focus on its tab ([LauncherRail]). */
+class BarFocus {
+    internal val requesters = RailPlace.entries.associateWith { FocusRequester() }
+    /** Focus [place]'s tab on the bar; false when it isn't on the bar (Search in portrait). */
+    fun focus(place: RailPlace): Boolean = runCatching { requesters.getValue(place).requestFocus() }.getOrDefault(false)
 }
 
 /**
- * The slim left rail (approved library design, 2026-11-04): the J64 logo at the top, then the
- * places, Settings pinned at the bottom. Achievements while signed in ([showAchievements]). Its places are focus stops (left from the library's first column, or a tap); A
- * opens one. [open] (the focus is on it, or the J64 logo was tapped): it widens over the dimmed page with the JOEY64
- * wordmark and each place's name (that design, built 2026-11-11: review sheet L10). [onLogo]: a tap on the J64 logo.
+ * The bar of places (approved top bar, Joey 2026-11-11): J64 at the start (not a stop), then each place as a pill with
+ * its icon and name; the place you're on is filled yellow. On a narrow screen the bar scrolls sideways to the focused
+ * one (4:3, topbar2 screen 6). [bottom]: the portrait bar, icons with names under them, Search left out.
+ * Every way into the bar lands on the place you're on (JoeyOS's dock rule).
  */
 @Composable
-fun LauncherRail(selected: RailPlace, modifier: Modifier = Modifier, enabled: Boolean = true, showAchievements: Boolean = false,
-                 /** Along the bottom (portrait): the same items left to right, Settings at the right end. */
-                 horizontal: Boolean = false, open: Boolean = false, onLogo: () -> Unit = {},
+fun LauncherRail(selected: RailPlace, focus: BarFocus, modifier: Modifier = Modifier, enabled: Boolean = true,
+                 showAchievements: Boolean = false, bottom: Boolean = false,
                  onFocused: (Boolean) -> Unit = {}, onSelect: (RailPlace) -> Unit = {}) {
     val c = JoeyTheme.colors
-    val requesters = remember { RailPlace.entries.associateWith { FocusRequester() } }
-    if (horizontal) {
+    val requesters = focus.requesters
+    val places = RailPlace.entries.filter { (it != RailPlace.Achievements || showAchievements) && (!bottom || it != RailPlace.Search) }
+    val group = Modifier
+        .onFocusChanged { onFocused(it.hasFocus) }
+        .focusProperties { onEnter = { requesters.getValue(if (selected in places) selected else places.first()).requestFocus() } }
+        .focusGroup()
+    if (bottom) {
         androidx.compose.foundation.layout.Row(
-            modifier = modifier
-                .fillMaxWidth()
-                .height(56.dp)
-                .background(c.surface)
-                .padding(horizontal = 14.dp, vertical = 9.dp)
-                .onFocusChanged { onFocused(it.hasFocus) }
-                // Every way into the rail lands on the icon of the page you're on (JoeyOS's dock rule, "Focus in
-                // Compose": redirect focus on enter). Left to itself Android picked the icon nearest the row you came
-                // from, so coming back from a page didn't bring you to your icon (Joey 2026-11-11). A place not on the
-                // rail (Search, opened from the library) has no icon: the default entry applies.
-                .focusProperties { onEnter = { requesters[selected]?.requestFocus() } }
-                .focusGroup(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = modifier.fillMaxWidth().height(64.dp).background(c.surface).padding(horizontal = 4.dp).then(group),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Image(painterResource(R.drawable.rail_logo), contentDescription = "Joey64", modifier = Modifier.padding(end = 10.dp).size(30.dp))
-            for (place in RailPlace.entries) {
-                if (place == RailPlace.Achievements && !showAchievements) continue
-                if (place == RailPlace.Settings) Spacer(Modifier.weight(1f))
-                RailItem(place, place == selected, enabled, false, Modifier.width(48.dp).focusRequester(requesters.getValue(place))) { onSelect(place) }
-            }
+            for (place in places) BottomItem(place, place == selected, enabled,
+                Modifier.weight(1f).focusRequester(requesters.getValue(place))) { onSelect(place) }
         }
         return
     }
-    val width by androidx.compose.animation.core.animateDpAsState(if (open) OPEN_WIDTH else 56.dp, label = "railWidth")
-    // The rail's own slot stays 56 dp: open, it draws wider over the page (RailLayout puts it above).
-    Box(modifier.width(56.dp).fillMaxHeight().wrapContentWidth(Alignment.Start, unbounded = true)) {
-    Column(
-        modifier = Modifier
-            .width(width)
-            .fillMaxHeight()
-            .background(c.surface)
-            .then(if (open) Modifier.drawBehind {
-                // Its right edge, open (the mockup's 1 dp line).
-                drawLine(c.border, androidx.compose.ui.geometry.Offset(size.width - 0.5f, 0f),
-                    androidx.compose.ui.geometry.Offset(size.width - 0.5f, size.height), 1.dp.toPx())
-            } else Modifier)
-            .padding(horizontal = 8.dp, vertical = 14.dp)
-            .onFocusChanged { onFocused(it.hasFocus) }
-            // Every way into the rail lands on the icon of the page you're on (JoeyOS's dock rule, "Focus in
-            // Compose": redirect focus on enter). Left to itself Android picked the icon nearest the row you came
-            // from, so coming back from a page didn't bring you to your icon (Joey 2026-11-11). A place not on the
-            // rail (Search, opened from the library) has no icon: the default entry applies.
-            .focusProperties { onEnter = { requesters[selected]?.requestFocus() } }
-            .focusGroup(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+    androidx.compose.foundation.layout.Row(
+        modifier = modifier.fillMaxWidth().height(56.dp).background(c.surface)
+            .horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = 18.dp).then(group),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        // The J64 logo; open, the wordmark. A tap opens the rail by touch (it isn't a focus stop).
-        Box(Modifier.fillMaxWidth().height(30.dp).padding(bottom = 0.dp)
-            .pointerInput(Unit) { detectTapGestures { onLogo() } }
-            .semantics { contentDescription = if (open) "Joey64" else "Joey64, open the menu" },
-            contentAlignment = if (width > 120.dp) Alignment.CenterStart else Alignment.Center) {
-            if (width > 120.dp) Wordmark(Modifier.padding(start = 6.dp), width = 118.dp)
-            else Image(painterResource(R.drawable.rail_logo), contentDescription = null, modifier = Modifier.size(30.dp))
-        }
-        Spacer(Modifier.height(2.dp))
-        for (place in RailPlace.entries) {
-            if (place == RailPlace.Achievements && !showAchievements) continue
-            if (place == RailPlace.Settings) Spacer(Modifier.weight(1f))
-            RailItem(place, place == selected, enabled, width > 120.dp, Modifier.fillMaxWidth().focusRequester(requesters.getValue(place))) { onSelect(place) }
-        }
-    }
+        Image(painterResource(R.drawable.rail_logo), contentDescription = "Joey64", modifier = Modifier.padding(end = 12.dp).size(32.dp))
+        for (place in places) TopItem(place, place == selected, enabled, Modifier.focusRequester(requesters.getValue(place))) { onSelect(place) }
     }
 }
 
-/** The open rail's width (the mockup's 196 dp). */
-private val OPEN_WIDTH = 196.dp
-
+/** A pill on the top bar: icon and name; filled yellow when it's the place you're on. */
 @Composable
-private fun RailItem(place: RailPlace, on: Boolean, enabled: Boolean, labelled: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun TopItem(place: RailPlace, on: Boolean, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val c = JoeyTheme.colors
     val (source, focused) = rememberFocusState()
-    val shape = RoundedCornerShape(7.dp)
-    Box(
+    val shape = RoundedCornerShape(8.dp)
+    val look = if (on) Modifier.background(c.accent, shape).then(if (focused) Modifier.border(2.dp, if (c.isDark) c.text else c.navy, shape) else Modifier)
+        else Modifier.rowSelection(focused, shape)
+    androidx.compose.foundation.layout.Row(
         modifier = modifier
             .height(38.dp)
-            .background(if (on) c.chip else c.surface, shape)
-            .rowSelection(focused, shape)
+            .then(look)
             .focusProperties { canFocus = enabled }
-            .pressable(source, onClick = onClick),
-        contentAlignment = if (labelled) Alignment.CenterStart else Alignment.Center,
+            .pressable(source, onClick = onClick)
+            .padding(horizontal = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        val tint = rowTextColor(c, focused, if (on) c.text else c.textDim)
-        if (!labelled) Icon(painterResource(place.icon), contentDescription = place.label, tint = tint, modifier = Modifier.size(22.dp))
-        else androidx.compose.foundation.layout.Row(Modifier.padding(start = 9.dp), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Icon(painterResource(place.icon), contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
-            androidx.compose.material3.Text(place.label, style = JoeyTheme.type.row, color = rowTextColor(c, focused, if (on) c.text else c.textSecondary),
-                maxLines = 1, softWrap = false)
+        val color = if (on) c.navy else rowTextColor(c, focused, if (focused) c.accent else c.textSecondary)
+        Icon(painterResource(place.icon), contentDescription = null, tint = color, modifier = Modifier.size(20.dp))
+        androidx.compose.material3.Text(place.label, style = JoeyTheme.type.row, maxLines = 1, softWrap = false,
+            color = if (on) c.navy else rowTextColor(c, focused, if (focused) c.accent else c.text))
+    }
+}
+
+/** A place on the portrait bar: the icon in a pill (yellow when it's the place you're on) with its name under it. */
+@Composable
+private fun BottomItem(place: RailPlace, on: Boolean, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val c = JoeyTheme.colors
+    val (source, focused) = rememberFocusState()
+    val shape = RoundedCornerShape(8.dp)
+    Column(
+        modifier = modifier.rowSelection(focused, shape).focusProperties { canFocus = enabled }.pressable(source, onClick = onClick)
+            .padding(vertical = 5.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Box(Modifier.size(width = 46.dp, height = 28.dp).background(if (on) c.accent else c.surface, RoundedCornerShape(14.dp)),
+            contentAlignment = Alignment.Center) {
+            Icon(painterResource(place.icon), contentDescription = null, modifier = Modifier.size(20.dp),
+                tint = if (on) c.navy else rowTextColor(c, focused, c.textSecondary))
         }
+        androidx.compose.material3.Text(place.label, style = JoeyTheme.type.note, maxLines = 1, softWrap = false,
+            color = rowTextColor(c, focused, if (on) c.accent else c.textSecondary))
     }
 }
 

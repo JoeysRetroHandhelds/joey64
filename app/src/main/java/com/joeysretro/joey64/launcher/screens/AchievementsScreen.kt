@@ -210,8 +210,9 @@ private fun GamesList(onHints: (List<Hint>) -> Unit, onClose: () -> Unit, focusG
     val now = System.currentTimeMillis()
     Column(Modifier.fillMaxSize().padding(horizontal = JoeyTheme.spacing.margin).padding(top = 14.dp, bottom = 6.dp)) {
         val a = account
+        // A place on the top bar: no title, and the filter chip is the first thing on the page (Joey 2026-11-11).
         Header(
-            title = "Achievements",
+            title = null,
             line = RaLists.pageSummary(a?.display ?: "", a?.softcore, filter, shown.size, all.size),
             picture = { Picture(a?.avatar, 34.dp) },
             chip = filter.label, chipOn = filter != GameFilter.All, onChip = { showing = true }, onChipFocused = { onChip = it },
@@ -342,17 +343,20 @@ private fun AchievementRow(a: RaAchievement, now: Long, live: Boolean, modifier:
 
 /** The shared header (approved template): picture, the title in the page type, the line under it, the Show chip at the right. */
 @Composable
-private fun Header(title: String, line: String, picture: @Composable () -> Unit, chip: String, chipOn: Boolean, onChip: () -> Unit, chipShown: Boolean = true,
+private fun Header(title: String?, line: String, picture: @Composable () -> Unit, chip: String, chipOn: Boolean, onChip: () -> Unit, chipShown: Boolean = true,
                    onChipFocused: (Boolean) -> Unit = {}, chipFirst: Boolean = false) {
     val c = JoeyTheme.colors
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        // [title] null (the Achievements place, under the top bar): the chip first, at the start of the page.
+        if (title == null && chipShown) PageChip(chip, R.drawable.ic_filter, modifier = if (chipFirst) Modifier.initialFocus() else Modifier,
+            on = chipOn, onFocused = onChipFocused, onClick = onChip)
         picture()
         Column(Modifier.weight(1f)) {
-            Text(title, style = JoeyTheme.type.pageTitle, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (title != null) Text(title, style = JoeyTheme.type.pageTitle, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (line.isNotEmpty()) Text(line, style = JoeyTheme.type.small, color = c.textDim, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         // [chipFirst]: the list is empty, so focus lands on the chip (else it falls to the rail).
-        if (chipShown) PageChip(chip, R.drawable.ic_filter, modifier = if (chipFirst) Modifier.initialFocus() else Modifier,
+        if (title != null && chipShown) PageChip(chip, R.drawable.ic_filter, modifier = if (chipFirst) Modifier.initialFocus() else Modifier,
             on = chipOn, onFocused = onChipFocused, onClick = onChip)
     }
 }

@@ -50,7 +50,7 @@ fun AppearanceTab(onHints: (List<Hint>) -> Unit, modifier: Modifier = Modifier) 
     val scope = rememberCoroutineScope()
     var focused by remember { mutableStateOf("theme") }
     var picker by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) { onHints(listOf(Hint("A", "Change"), Hint("L/R", "Tab"), Hint("B", "Back"))) }
+    LaunchedEffect(Unit) { onHints(listOf(Hint("A", "Change"), Hint("B", "Back"))) }
 
     Column(modifier.fillMaxSize()) {
         TwoColumns(Modifier.weight(1f), left = {
@@ -60,7 +60,8 @@ fun AppearanceTab(onHints: (List<Hint>) -> Unit, modifier: Modifier = Modifier) 
                 onFocused = { if (it) focused = "theme" }) { picker = "theme" }
         }) {
             SectionLabel("During play")
-            JoeyRow("Pop-ups", value = s.popupTheme.label, sideways = true,
+            JoeyRow("Pop-ups", value = s.popupTheme.label, sideways = true,
+
                 onFocused = { if (it) focused = "pop" }) { picker = "pop" }
         }
         Spacer(Modifier.height(6.dp))

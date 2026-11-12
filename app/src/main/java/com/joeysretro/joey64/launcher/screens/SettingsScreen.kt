@@ -114,7 +114,7 @@ fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher
     // The tab row has focus: its own hints. The tab's hints are kept for when focus goes back down.
     var onTabs by remember { mutableStateOf(false) }
     var pageHints by remember { mutableStateOf(listOf(Hint("B", "Back"))) }
-    LaunchedEffect(onTabs, pageHints) { onHints(if (onTabs) listOf(Hint("A", "Open"), Hint("L/R", "Tab"), Hint("B", "Back")) else pageHints) }
+    LaunchedEffect(onTabs, pageHints) { onHints(if (onTabs) listOf(Hint("A", "Open"), Hint("B", "Back")) else pageHints) }
     val setHints: (List<Hint>) -> Unit = { pageHints = it }
     // Each tab lands focus on its first row as it opens (L1 / R1); one opened from the tab row keeps focus there.
     LaunchedEffect(tab) { if (!onTabs) landing?.arm() }
@@ -136,8 +136,9 @@ fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher
         onDispose { ControlBus.pop(handler) }
     }
     Column(Modifier.fillMaxSize().padding(horizontal = s.margin).padding(top = 14.dp, bottom = 8.dp)) {
-        com.joeysretro.joey64.launcher.components.PageHeader("Settings") {
-            if (perGame) PageChip((targetTitle ?: "All games") + "  ›", R.drawable.ic_sliders, on = target != null) { gamesPopup = 1 }
+        // No title under the top bar; the game chip is the first thing on the page (approved top bar, 2026-11-11).
+        if (perGame) com.joeysretro.joey64.launcher.components.PageHeader(null) {
+            PageChip((targetTitle ?: "All games") + "  ›", R.drawable.ic_sliders, on = target != null) { gamesPopup = 1 }
         }
         SettingsTabs(SettingsTab.entries.map { it.label }, tab.ordinal, onFocused = { onTabs = it }) { tab = SettingsTab.entries[it] }
         key(tab, target, resetGen) {
@@ -154,7 +155,7 @@ fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher
                     startRow ?: "quit", onBusy = { savesBusy = it })
                 SettingsTab.Library -> LibraryTab(library, onHints, Modifier.weight(1f))
                 SettingsTab.RetroAchievements -> RaTab(onHints, Modifier.weight(1f))
-                SettingsTab.About -> AboutTab(updates, { onHints(it.dropLast(1) + Hint("L/R", "Tab") + it.last()) }, Modifier.weight(1f))
+                SettingsTab.About -> AboutTab(updates, { onHints(it) }, Modifier.weight(1f))
             }
         }
     }

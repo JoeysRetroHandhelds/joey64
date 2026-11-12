@@ -129,13 +129,20 @@ fun InfoChip(text: String, @DrawableRes icon: Int?, on: Boolean = false) {
 }
 
 /**
- * A page's title with its chips (Settings, Game settings, Controls, Cheats): the title on one line,
- * the chips at the right of it; on the narrowest screens (under 520 dp) the chips go on their own
- * line under it. Chips beside the title get the room the title leaves, a long game name ending in "...".
+ * A page's title with its chips (Game settings, Cheats, Saves): the title on one line, the chips at the right of it;
+ * on the narrowest screens (under 520 dp) the chips go on their own line under it. Chips beside the title get the room
+ * the title leaves, a long game name ending in "...".
+ * [title] null: a page that is a place on the top bar (Settings, Controls), which has no title (the bar says where you
+ * are, approved top bar 2026-11-11); its chips are the first thing under the bar, at the start of the page (Joey:
+ * "lets be consistent ... under the bar"), never alone in the top-right corner (TV guidance: a clear path to each stop).
  */
 @Composable
-fun PageHeader(title: String, sub: String? = null, chips: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {}) {
+fun PageHeader(title: String?, sub: String? = null, chips: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {}) {
     val c = JoeyTheme.colors
+    if (title == null) {
+        Row(verticalAlignment = Alignment.CenterVertically, content = chips)
+        return
+    }
     val below = com.joeysretro.joey64.launcher.layout.LocalScreenLayout.current.widthDp < 520f
     Row(verticalAlignment = Alignment.CenterVertically) {
         // In a full-screen popup: ‹ back before the title (review sheet L2); nothing on a page with the rail.

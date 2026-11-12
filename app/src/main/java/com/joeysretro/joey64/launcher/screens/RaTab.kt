@@ -116,7 +116,7 @@ fun RaTab(onHints: (List<Hint>) -> Unit, modifier: Modifier = Modifier) {
     if (signingIn) SignInPopup(onDismiss = { signingIn = false })
 }
 
-private val tabHints = listOf(Hint("L/R", "Tab"), Hint("B", "Back"))
+private val tabHints = listOf(Hint("B", "Back"))
 
 @Composable
 private fun SignedOut(onHints: (List<Hint>) -> Unit, modifier: Modifier, onSignIn: () -> Unit) {

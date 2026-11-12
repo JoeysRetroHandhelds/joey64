@@ -89,9 +89,9 @@ fun OnScreenTab(onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean
     LaunchedEffect(focused, custom) {
         val y = Hint("Y", "Reset to default")
         onHints(when {
-            focused == "what" && !custom -> listOf(Hint("L/R", "Tab"), Hint("B", "Back"))
-            focused == "size" || focused == "graph" -> listOf(Hint("◀▶", "Change"), y, Hint("L/R", "Tab"), Hint("B", "Back"))
-            else -> listOf(Hint("A", "Change"), y, Hint("L/R", "Tab"), Hint("B", "Back"))
+            focused == "what" && !custom -> listOf(Hint("B", "Back"))
+            focused == "size" || focused == "graph" -> listOf(Hint("◀▶", "Change"), y, Hint("B", "Back"))
+            else -> listOf(Hint("A", "Change"), y, Hint("B", "Back"))
         })
     }
 

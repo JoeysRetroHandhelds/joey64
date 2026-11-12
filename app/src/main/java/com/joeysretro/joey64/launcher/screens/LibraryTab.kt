@@ -139,7 +139,7 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
         }
     }
 
-    LaunchedEffect(Unit) { onHints(listOf(Hint("A", "Change"), Hint("L/R", "Tab"), Hint("B", "Back"))) }
+    LaunchedEffect(Unit) { onHints(listOf(Hint("A", "Change"), Hint("B", "Back"))) }
 
     fun set(block: suspend SettingsStore.() -> Unit) { scope.launch { store.block() } }
     @Composable

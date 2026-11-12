@@ -97,8 +97,8 @@ fun EmulationTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((C
     }
     LaunchedEffect(target, focused, needsPak) {
         val y = Hint("Y", if (target == null) "Reset to default" else "Use All games")
-        onHints(if (fixed(focused)) listOf(Hint("L/R", "Tab"), Hint("B", "Back"))
-            else listOf(Hint("A", "Change"), y, Hint("L/R", "Tab"), Hint("B", "Back")))
+        onHints(if (fixed(focused)) listOf(Hint("B", "Back"))
+            else listOf(Hint("A", "Change"), y, Hint("B", "Back")))
     }
 
     Column(modifier.fillMaxSize()) {

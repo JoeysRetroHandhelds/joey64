@@ -299,24 +299,24 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
     LaunchedEffect(focused, hotkeysOpen, touchOpen, target, off) {
         if (touchOpen) { onHints(touchPageHints(focused, target != null, backLabel)); return@LaunchedEffect }
         onHints((when {
-            focused == "chipTouch" -> listOf(Hint("A", "Open"), Hint("L/R", "Player"), Hint("B", backLabel))
-            focused == "tabs" -> listOf(Hint("A", "Open"), Hint("L/R", "Player"), Hint("B", backLabel))
+            focused == "chipTouch" -> listOf(Hint("A", "Open"), Hint("B", backLabel))
+            focused == "tabs" -> listOf(Hint("A", "Open"), Hint("B", backLabel))
             hotkeysOpen -> listOf(Hint("A", if (focused == "hkFastForward" || focused == "hkQuit") "Open" else "Change"), Hint("X", "Clear"),
                 Hint("Y", "Reset to default"), Hint("B", "Back"))
-            focused.startsWith("chip") -> listOf(Hint("A", "Select"), Hint("L/R", "Player"), Hint("B", backLabel))
+            focused.startsWith("chip") -> listOf(Hint("A", "Select"), Hint("B", backLabel))
             focused == "DeadZone" || (focused == "RumbleStrength" && !off) -> listOf(Hint("◀▶", "Change"), Hint("Y", if (target == null) "Reset to default" else "Use All games"),
-                Hint("L/R", "Player"), Hint("B", backLabel))
-            focused == "Controller" -> listOf(Hint("A", "Change"), Hint("L/R", "Player"), Hint("B", backLabel))
+                Hint("B", backLabel))
+            focused == "Controller" -> listOf(Hint("A", "Change"), Hint("B", backLabel))
             // Pak and Rumble on: nothing for X to clear (approved paks mockup screen 1's hints).
             (focused == "Pak" || focused == "RumbleOn") && !off -> listOf(Hint("A", "Change"),
-                Hint("Y", if (target == null) "Reset to default" else "Use All games"), Hint("L/R", "Player"), Hint("B", backLabel))
+                Hint("Y", if (target == null) "Reset to default" else "Use All games"), Hint("B", backLabel))
             focused == "StickFeel" && !off -> listOf(Hint("A", "Open"), Hint("Y", if (target == null) "Reset to default" else "Use All games"),
-                Hint("L/R", "Player"), Hint("B", backLabel))
-            off -> listOf(Hint("L/R", "Player"), Hint("B", backLabel))
+                Hint("B", backLabel))
+            off -> listOf(Hint("B", backLabel))
             focused in EXTRA_ROWS -> listOfNotNull(Hint("A", "Change"), if (target == null) null else Hint("Y", "Use All games"),
-                Hint("L/R", "Player"), Hint("B", backLabel))
+                Hint("B", backLabel))
             else -> listOf(Hint("A", "Change"), Hint("X", "Clear"), Hint("Y", if (target == null) "Reset to default" else "Use All games"),
-                Hint("L/R", "Player"), Hint("B", backLabel))
+                Hint("B", backLabel))
         }).let { if (hotkeysOpen || off) it else withResetHint(it) })
     }
 
@@ -347,7 +347,8 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
                 PageChip("Hotkeys", R.drawable.ic_keyboard, modifier = Modifier.initialFocus(focused == "chipHotkeys"),
                     onFocused = { if (it) focused = "chipHotkeys" }) { hotkeysOpen = true; focused = "hkButton" }
             }
-            com.joeysretro.joey64.launcher.components.PageHeader("Controls") { headerChips() }
+            // No title under the top bar; the chips are the first thing on the page (approved top bar, 2026-11-11).
+            com.joeysretro.joey64.launcher.components.PageHeader(null) { headerChips() }
             // Scrolls sideways on a narrow screen rather than wrapping "Player 4".
             // A focus stop too (Joey 2026-11-09): Up from the chips, ◀ ▶, A picks the player.
             com.joeysretro.joey64.launcher.components.TabRow(4, player, Modifier.padding(top = 6.dp).tabScroll(rememberScrollState()),

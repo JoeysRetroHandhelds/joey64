@@ -78,9 +78,9 @@ fun AudioTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
     LaunchedEffect(target, focused) {
         val y = Hint("Y", if (target == null) "Reset to default" else "Use All games")
         onHints(when {
-            fixed(focused) -> listOf(Hint("L/R", "Tab"), Hint("B", "Back"))
-            focused == AudioKey.Volume -> listOf(Hint("◀▶", "Change"), y, Hint("L/R", "Tab"), Hint("B", "Back"))
-            else -> listOf(Hint("A", "Change"), y, Hint("L/R", "Tab"), Hint("B", "Back"))
+            fixed(focused) -> listOf(Hint("B", "Back"))
+            focused == AudioKey.Volume -> listOf(Hint("◀▶", "Change"), y, Hint("B", "Back"))
+            else -> listOf(Hint("A", "Change"), y, Hint("B", "Back"))
         })
     }
 

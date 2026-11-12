@@ -409,7 +409,9 @@ Seen, for Joey:
 
 - A greyed row takes focus in some places (options › Screenshots "None", Saves' Back up now / Restore / Delete with
   no save) while options › Netplay "1 player only" is skipped.
-- B on a new blank macro keeps an empty Macro 1.
+- B on a new blank macro keeps an empty Macro 1. Joey: "Drop empty macros": done (`Macro.blank`: no Button and no
+  step that presses something); seen on the Thor (p19-95879bec): Add a macro, B, the list is empty again with focus
+  on Add a macro and the row says None.
 - Popup titles show the file name ("Legend of Zelda, The - Ocarina of Time (USA)"), not the tidied one. Joey: "Yes
   tidy should change popup too": done (`gameName`, every popup title and page header naming a game, the pause menu
   too); seen on the Thor (p18-83c01bbe): the recovery question, OoT's options title, Saves' header and help line.

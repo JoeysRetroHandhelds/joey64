@@ -138,6 +138,9 @@ data class Macro(
     /** Playable: it has a button and a step that presses something. */
     val playable: Boolean get() = key != null && steps.any { !it.isWait }
 
+    /** Nothing set: no button and no step that presses something. B out of its editor drops it (Joey 2026-11-12: "Drop empty macros"). */
+    val blank: Boolean get() = key == null && steps.all { it.isWait }
+
     fun toJson(): JSONObject = JSONObject().put("name", name).put("key", key ?: -1).put("withHotkey", withHotkey)
         .put("repeat", repeat).put("steps", JSONArray().apply { steps.forEach { put(it.toJson()) } })
 

@@ -170,7 +170,10 @@ internal fun MacrosPopup(player: Int, macros: List<Macro>, hotkeys: Hotkeys, onS
         }
         is MacroPage.Edit -> {
             val m = macros.getOrNull(p.index) ?: run { page = MacroPage.List(); return }
-            MacroEditor(m, hotkeys, p.row, { page = MacroPage.List(p.index) },
+            MacroEditor(m, hotkeys, p.row, {
+                    // A macro left with nothing set goes (a new one: back on Add a macro, where it was made).
+                    if (m.blank) { onSet(macros.filterIndexed { i, _ -> i != p.index }); page = MacroPage.List(if (p.index >= macros.lastIndex) -1 else p.index) }
+                    else page = MacroPage.List(p.index) },
                 onName = { page = MacroPage.Name(p.index) }, onButton = { page = MacroPage.Button(p.index) },
                 onHeld = { page = MacroPage.Held(p.index) },
                 onStep = { s -> page = MacroPage.Step(p.index, s) },
@@ -210,7 +213,7 @@ private inline fun <T> List<T>.anyIndexed(pred: (Int, T) -> Boolean): Boolean { 
 
 @Composable
 private fun MacroList(player: Int, macros: List<Macro>, focus: Int, onDismiss: () -> Unit, onEdit: (Int) -> Unit, onAdd: () -> Unit, onRemove: (Int) -> Unit) {
-    var focused by remember { mutableIntStateOf(if (macros.isEmpty()) -1 else focus.coerceIn(0, macros.lastIndex)) }
+    var focused by remember { mutableIntStateOf(if (macros.isEmpty() || focus < 0) -1 else focus.coerceIn(0, macros.lastIndex)) }
     JoeyDialog(onDismiss = onDismiss, width = 520.dp,
         hints = if (focused >= 0) listOf(Hint("A", "Edit"), Hint("X", "Remove"), Hint("B", "Close")) else listOf(Hint("A", "Select"), Hint("B", "Close")),
         onPadButton = { code -> if (code == KeyEvent.KEYCODE_BUTTON_X && focused >= 0) onRemove(focused) }) {

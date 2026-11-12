@@ -186,4 +186,11 @@ class ControlsExtrasTest {
         assertEquals(setOf(N64Button.Z), applied.turbo)
         assertEquals(8, applied.turboSpeed)
     }
+
+    @Test fun blankMacroIsOnlyOneWithNothingSet() {
+        assertTrue(Macro("Macro 1").blank)
+        assertTrue(Macro("Macro 1", steps = listOf(MacroStep())).blank)
+        assertFalse(Macro("Macro 1", key = KeyEvent.KEYCODE_BUTTON_L1).blank)
+        assertFalse(Macro("Macro 1", steps = listOf(MacroStep(buttons = setOf(N64Button.A)))).blank)
+    }
 }

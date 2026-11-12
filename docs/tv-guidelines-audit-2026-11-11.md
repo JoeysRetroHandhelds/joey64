@@ -25,7 +25,8 @@ optional icon).
   doesn't use (4 across is the cap). Recommendation: keep the left drawer and fix what it fails below.
 - **Joey's choice (2026-11-11): the top bar with names** (scratchpad topbar2_mock.png, 7 screens: pill tabs
   for the places, underline tabs inside pages, no page titles, Back to the bar, the bar scrolls on 4:3).
-  Not approved as drawn yet; cover size under it is open (covers_mock.png: 4, 5 or 6 across).
+  Cover size under it (Joey 2026-11-11, covers_mock.png): **5 across** on 16:9 by default (146 dp covers;
+  M64Plus FZ gives 5 at ~154 dp on the Thor), so Cover size Small = 6 and Large = 4; 4:3 screens get 4.
 
 ## Where it fails
 

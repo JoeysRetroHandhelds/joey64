@@ -1,7 +1,7 @@
 # The core bundled in app/src/main/jniLibs (written by devtools/bundle-core.sh; the .so itself is not committed)
 repo: JoeysRetroHandhelds/joey64-core
 branch: rel2
-commit: 04cb4e4b92d6b1300a05f5f25c3df5e88e150c42 2026-11-11 19:44:57 -0600 Merge branch 'netplay' into rel2
+commit: 247364e975ce6dd5563c4c7710e3b3d72b221de3 2026-11-12 00:54:10 -0600 mupen64plus.ini: Nihon Pro Golf Tour 64 (64DD disk) CountPerOp 1, as Project64 gives its cart
 uncommitted: none
-built: 2026-11-11 19:45
-md5: 42f48854d6cb22e7b789180c93ca7866
+built: 2026-11-12 00:54
+md5: b303fbcc4b5041b6ea8fd61444f599f2

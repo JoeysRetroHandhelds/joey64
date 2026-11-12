@@ -114,9 +114,15 @@ class GameOverlay(private val activity: Activity, private val actions: PauseActi
             val store = remember { SettingsStore(context) }
             val settings by store.settings.collectAsState(initial = null)
             val s = screen
+            // The game screen's card popups share one window too (F2 step 2, Joey 2026-11-12), as in the launcher:
+            // the pause menu, the slot picker, Restart, the problem and netplay cards. A card that takes another's
+            // place (NetPaused's B to the menu) keeps the window and its dim; full-screen pages keep their own.
+            val popupHost = remember { com.joeysretro.joey64.launcher.components.PopupHost() }
             if (s != null) JoeyTheme(settings?.theme ?: ThemeChoice.Dark) {
-                CompositionLocalProvider(LocalActivityResultRegistryOwner provides resultsOwner) {
+                CompositionLocalProvider(LocalActivityResultRegistryOwner provides resultsOwner,
+                    com.joeysretro.joey64.launcher.components.LocalPopupHost provides popupHost) {
                     PausePopup(s, title, saveSlotName, System.currentTimeMillis(), actions)
+                    com.joeysretro.joey64.launcher.components.PopupHostWindow(popupHost)
                 }
             }
         }

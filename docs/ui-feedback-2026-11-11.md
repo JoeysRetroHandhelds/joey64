@@ -307,6 +307,14 @@ Joey's answers to the morning report (2026-11-12, asked one by one):
   SHOW lost-folder over the Netplay card (the note waited, then came up when the card closed), 6 with a made-up Video
   file for Duke (Keep them back on Duke, Remove back on All games; file and folder removed). Not pressed there: 5
   (Change box art) and 9 (hosting a room); Joining… needs a real room.
+  Step 2 (built, Joey 2026-11-12 "Yes, start step 2"): the game screen has its own host (GameOverlay), so the pause
+  menu, slot picker, Restart and the problem and netplay cards share one window; and every full-screen page, side
+  panel and bare popup gets a host of its own, so the cards opened over it share one window above it (in the
+  launcher too). Thor 2026-11-12 (f2e-8cb88b45, Duke): pause menu, Load state picker and B back; Game settings page,
+  then Video › Colour's card over it (its own window above the page, the menu's window gone), B back on Colour;
+  PROBLEM nospace taking the menu's place in the same window (d7182ae both times), OK back to the game; PROBLEM
+  disconnect then back (card up, then gone with its window, game running); the Picture panel beside the game, Your
+  own's card in its place and B back on Your own. Not checked there: the netplay cards (they need a room).
 - [x] F3 A clean quit clears only its own game's recovery state (b3a5d04: `files/recovery/games/<save name>/`; Thor 2026-11-12: the old OoT state moved in unchanged, b099ac2d / f4823052, the popup still offers it; compat_53 got its own after 2 min and quitting it removed only that one; OoT's Saves page still lists Recovery).
 - [x] F4 Send reports' line with only the day known: "Last sent today" / "Last sent Nov 11", not "Nothing sent yet" (627c875, `ReportPrefs.sentDayLabel`, ReportsTest; Thor 2026-11-12: sent_day today with no sent_at, Send now reads "Last sent today").
 - [x] F5 With focus on a tab row or the top bar the panel shows that tab's or place's own help, as Controls' tab row does (`LocalPanelHelp`; Thor 2026-11-12: Settings' tab row follows the focused tab, the bar shows Settings / Controls help, Down brings the tab's and then the row's help back; Game settings' Video / Emulation tabs).

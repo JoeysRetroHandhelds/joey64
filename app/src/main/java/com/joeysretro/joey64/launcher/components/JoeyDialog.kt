@@ -80,8 +80,9 @@ import com.joeysretro.joey64.launcher.theme.JoeyTheme
  * card popup doesn't open a window of its own: it draws in the host's one window ([PopupHostWindow]), so a popup
  * that takes another's place in the same frame (a swap) keeps the window, its dim and blur, with nothing in
  * between (each its own window, the old one's 80 ms close hold and the new one's dim stacked, B3). A popup opened
- * over another draws over it under the same one dim. Full-screen, side-panel and bare popups, and every popup in
- * game (no host there), still open their own window, and the popups inside those do too.
+ * over another draws over it under the same one dim. The game screen has a host of its own (GameOverlay, F2 step 2)
+ * for its cards. Full-screen, side-panel and bare popups still open their own window, and the popups inside those
+ * do too.
  *
  * Focus on open: the item marked `Modifier.initialFocus()` takes it; with no mark, focus enters
  * the popup at its first item.
@@ -154,6 +155,10 @@ fun JoeyDialog(
         }
         return
     }
+    // A full-screen page or side panel in its own window gets a host of its own (F2 step 2): the cards opened over
+    // it share one window above it, so one taking another's place there keeps it too. A card in its own window (no
+    // host where it was called) keeps the old way: what it opens opens its own window.
+    val inner = if (fullScreen || sidePanel || bare) remember { PopupHost() } else null
     Dialog(
         onDismissRequest = { entry.requestClose() },
         properties = DialogProperties(
@@ -165,9 +170,9 @@ fun JoeyDialog(
         ),
     ) {
         PopupWindowSetup(blur = !sidePanel && !bare)
-        // Popups opened from this one open their own window (above this one), as before F2.
-        CompositionLocalProvider(LocalPopupHost provides null) {
+        CompositionLocalProvider(LocalPopupHost provides inner) {
             PopupFrame(listOf(entry))
+            if (inner != null) PopupHostWindow(inner)
         }
     }
 }
@@ -178,7 +183,7 @@ class PopupHost {
     internal val entries = androidx.compose.runtime.mutableStateListOf<PopupEntry>()
 }
 
-/** Where a card popup draws: the launcher's one popup window; null (in game, inside a popup's own window): its own. */
+/** Where a card popup draws: the launcher's (or the game screen's) one popup window; null (inside a popup's own window): its own. */
 val LocalPopupHost = androidx.compose.runtime.staticCompositionLocalOf<PopupHost?> { null }
 
 /** Everything a [JoeyDialog] call was given, and the theme where it was called (its content is drawn in the host). */

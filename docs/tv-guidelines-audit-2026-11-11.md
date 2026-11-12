@@ -37,6 +37,12 @@ optional icon).
   the bar; on the bar, B on Library leaves Joey64 without asking, on any other place it opens the Library with
   focus still on the bar. Search: the first B clears the words. Netplay room: B leaves it, the host is asked
   first with Cancel focused. In game nothing changes. This settles failures 1 and 2 below.
+- Screens that cover the bar (Joey 2026-11-11, "Keep today's job"): L1/R1 keep their own use there (in-game
+  Achievements: sets; the picture viewer: pictures; long popups: a page or a folder).
+- One place for a page's filter or game chip (Joey 2026-11-11: "lets be consistent ... under the bar"): the
+  first thing under the bar, at the start of the page. Library's Filter, Settings' and Controls' game chip
+  (topbar2_mock.png), and now the Achievements page's filter. Netplay's All games / Games I have is drawn over
+  the public rooms column instead: asked whether it moves too.
 
 ## Where it fails
 

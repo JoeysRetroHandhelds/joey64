@@ -116,7 +116,23 @@ object PlayTogether {
             } catch (e: Exception) { JLog.w(TAG, "can't listen for rooms on this Wi-Fi: $e"); return@launch }
             JLog.i(TAG, "looking for rooms on this Wi-Fi")
             val buf = ByteArray(1500)
-            var lastPing = 0L
+            // by "ip:port": each round is PingBurst.COUNT pings PingBurst.GAP_MS apart, the round's best shows
+            val bursts = java.util.concurrent.ConcurrentHashMap<String, PingBurst>()
+            val pinger = launch {
+                while (isActive) {
+                    val targets = (_rooms.value.map { it.ip to it.port } + RoomList.rooms.value.orEmpty().map { it.ip to it.port }).distinct()
+                    for (i in 0 until PingBurst.COUNT) {
+                        val t = System.currentTimeMillis()
+                        val m = "J64PING\t$t".toByteArray()
+                        for ((ip, port) in targets) try {
+                            if (i == 0) bursts.getOrPut("$ip:$port") { PingBurst() }.start(t)
+                            sock.send(DatagramPacket(m, m.size, InetAddress.getByName(ip), port))
+                        } catch (e: Exception) { }
+                        if (i < PingBurst.COUNT - 1) delay(PingBurst.GAP_MS)
+                    }
+                    delay(1000 - (PingBurst.COUNT - 1) * PingBurst.GAP_MS)
+                }
+            }
             try {
                 while (isActive) {
                     val p = DatagramPacket(buf, buf.size)
@@ -130,23 +146,16 @@ object PlayTogether {
                         }
                         if (text.startsWith("J64PONG\t")) {
                             val t = text.substringAfter('\t').trim().toLongOrNull()
-                            if (t != null) {
-                                val ms = (now - t).toInt().coerceAtLeast(1)
-                                _rooms.value = _rooms.value.map { if (it.ip == ip) it.copy(pingMs = ms) else it }
+                            val ms = t?.let { bursts["$ip:${p.port}"]?.answer(it, now) }
+                            if (ms != null) {
+                                _rooms.value = _rooms.value.map { if (it.ip == ip && it.port == p.port) it.copy(pingMs = ms) else it }
                                 _pings.value = _pings.value + ("$ip:${p.port}" to ms)
                             }
                         }
                     }
                     _rooms.value = _rooms.value.filter { now - it.seenAt < ROOM_GONE_MS }
-                    if (now - lastPing >= 1000) {
-                        lastPing = now
-                        val m = "J64PING\t$now".toByteArray()
-                        for ((ip, port) in _rooms.value.map { it.ip to it.port } + RoomList.rooms.value.orEmpty().map { it.ip to it.port }) try {
-                            sock.send(DatagramPacket(m, m.size, InetAddress.getByName(ip), port))
-                        } catch (e: Exception) { }
-                    }
                 }
-            } finally { sock.close() }
+            } finally { pinger.cancel(); sock.close() }
         }
     }
 
@@ -168,7 +177,8 @@ object PlayTogether {
     // ---- hosting ----
 
     private class Joiner(val socket: Socket, val out: PrintWriter, val name: String, val device: String, val thisWifi: Boolean) {
-        @Volatile var ping: Int? = null
+        val burst = PingBurst()
+        val ping: Int? get() = burst.shown
         fun send(line: String) = synchronized(out) { out.print(line); out.print('\n'); out.flush(); !out.checkError() }
     }
 
@@ -287,7 +297,7 @@ object PlayTogether {
                         publishHost(); sendPlayers()
                     }
                     "PING" -> joiner?.send(LobbyLines.line("PONG", f.getOrElse(1) { "" })) ?: synchronized(out) { out.print(LobbyLines.line("PONG", f.getOrElse(1) { "" }) + "\n"); out.flush() }
-                    "PONG" -> f.getOrNull(1)?.toLongOrNull()?.let { t -> joiner?.ping = (System.currentTimeMillis() - t).toInt().coerceAtLeast(1) }
+                    "PONG" -> f.getOrNull(1)?.toLongOrNull()?.let { t -> joiner?.burst?.answer(t, System.currentTimeMillis()) }
                     "BYE" -> break
                 }
             }
@@ -335,10 +345,16 @@ object PlayTogether {
         for (b in broadcastAddresses()) try { u.send(DatagramPacket(m, m.size, b, DISCOVERY_PORT)) } catch (e: Exception) { }
     }
 
-    private fun pingAll() {
-        val now = System.currentTimeMillis()
+    private suspend fun pingAll() {
         val list = synchronized(lock) { slots.keys.filterNotNull() }
-        for (j in list) if (!j.send(LobbyLines.line("PING", now))) try { j.socket.close() } catch (e: Exception) { }
+        for (i in 0 until PingBurst.COUNT) {
+            val t = System.currentTimeMillis()
+            for (j in list) {
+                if (i == 0) j.burst.start(t)
+                if (!j.send(LobbyLines.line("PING", t))) try { j.socket.close() } catch (e: Exception) { }
+            }
+            if (i < PingBurst.COUNT - 1) delay(PingBurst.GAP_MS)
+        }
         if (list.isNotEmpty()) { publishHost(); sendPlayers() }
     }
 
@@ -501,7 +517,18 @@ object PlayTogether {
                 var slot = 0
                 var players = emptyList<Player>()
                 var hostPing: Int? = null
-                pinger = launch { while (isActive) { delay(1000); try { send(LobbyLines.line("PING", System.currentTimeMillis())) } catch (e: Exception) { } } }
+                val hostBurst = PingBurst()
+                pinger = launch {
+                    while (isActive) {
+                        delay(1000 - (PingBurst.COUNT - 1) * PingBurst.GAP_MS)
+                        for (i in 0 until PingBurst.COUNT) {
+                            val t = System.currentTimeMillis()
+                            if (i == 0) hostBurst.start(t)
+                            try { send(LobbyLines.line("PING", t)) } catch (e: Exception) { }
+                            if (i < PingBurst.COUNT - 1) delay(PingBurst.GAP_MS)
+                        }
+                    }
+                }
                 while (isActive) {
                     val l = LobbyLines.readLine(input) ?: break
                     val f = LobbyLines.split(l)
@@ -528,7 +555,7 @@ object PlayTogether {
                         }
                         "PING" -> send(LobbyLines.line("PONG", f.getOrElse(1) { "" }))
                         "PONG" -> f.getOrNull(1)?.toLongOrNull()?.let { t ->
-                            hostPing = (System.currentTimeMillis() - t).toInt().coerceAtLeast(1)
+                            hostPing = hostBurst.answer(t, System.currentTimeMillis())
                             game?.let { g -> _state.value = InRoom(hostName ?: "", g, players.map { if (it.host) it.copy(pingMs = hostPing) else it }, hostPing) }
                         }
                         "FULL" -> { _state.value = Full(hostName, target.copy(hostName = hostName)); gone = false; break }

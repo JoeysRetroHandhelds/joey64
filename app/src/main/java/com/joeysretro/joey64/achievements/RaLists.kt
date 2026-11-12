@@ -31,11 +31,18 @@ data class RaAchievement(
 ) {
     val isUnlocked get() = unlocked != 0
     val missable get() = type == TYPE_MISSABLE
+    /**
+     * RetroAchievements' "Warning: Unknown Emulator", which the server adds while it doesn't know the client. Shown
+     * (Joey 2026-11-12, "Keep it shown") but not counted (Joey 2026-11-12: "unknown emulator shouldnt count as a
+     * numbered achievement"): the Show counts and "N of M" match the header's.
+     */
+    val isWarning get() = id == WARNING_ID
     /** The approved "Almost there": a tracked one at 80% or more (rcheevos' own line). */
     val almostThere get() = !isUnlocked && progress.isNotEmpty() && percent >= 80f
 
     companion object {
         const val TYPE_MISSABLE = 1
+        const val WARNING_ID = 101000000
         // rc_client's buckets (RC_CLIENT_ACHIEVEMENT_BUCKET_*).
         const val LOCKED = 1; const val UNLOCKED = 2; const val UNSUPPORTED = 3; const val UNOFFICIAL = 4
         const val RECENTLY_UNLOCKED = 5; const val ACTIVE_CHALLENGE = 6; const val ALMOST_THERE = 7; const val UNSYNCED = 8
@@ -144,7 +151,10 @@ object RaLists {
         AchFilter.AlmostThere -> a.almostThere
     }
 
-    fun achCounts(list: List<RaAchievement>) = AchFilter.entries.associateWith { f -> list.count { matches(it, f) } }
+    fun achCounts(list: List<RaAchievement>) = AchFilter.entries.associateWith { f -> list.count { !it.isWarning && matches(it, f) } }
+
+    /** How many of [list] count ([RaAchievement.isWarning] doesn't): the "N" of a filtered header line. */
+    fun counted(list: List<RaAchievement>) = list.count { !it.isWarning }
 
     /**
      * RetroAchievements order (Joey 2026-11-04, RetroArch's rcheevos grouping): Active challenges,

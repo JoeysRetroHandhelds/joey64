@@ -299,7 +299,7 @@ private fun GameAchievementsContent(
     Column((if (inPanel) Modifier.fillMaxWidth() else Modifier.fillMaxSize().padding(horizontal = JoeyTheme.spacing.margin).padding(top = 14.dp, bottom = 6.dp))) {
         Header(
             title = g?.title?.ifEmpty { null } ?: title,
-            line = g?.let { if (set != null) RaLists.setSummary(RaLists.setLabel(setIdx, set), set, filter, shown.size) else RaLists.gameSummary(it, filter, shown.size) } ?: "",
+            line = g?.let { if (set != null) RaLists.setSummary(RaLists.setLabel(setIdx, set), set, filter, RaLists.counted(shown)) else RaLists.gameSummary(it, filter, RaLists.counted(shown)) } ?: "",
             picture = { Picture(g?.let { badgeFile(it.badge) }, 34.dp) },
             chip = filter.label, chipOn = filter != AchFilter.All, onChip = { onShow(true) }, chipShown = g != null, onChipFocused = { onChip = it },
             chipFirst = g != null && shown.isEmpty(),

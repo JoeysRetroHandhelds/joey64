@@ -105,4 +105,11 @@ class RaListsTest {
         assertEquals(listOf(1, 3), RaAchievement.forSetting(list, unofficial = false).map { it.id })
         assertEquals(list, RaAchievement.forSetting(list, unofficial = true))
     }
+
+    @Test fun theUnknownEmulatorWarningIsntCounted() {
+        val list = listOf(ach(RaAchievement.WARNING_ID, unlocked = 1, section = RaAchievement.UNLOCKED), ach(1, unlocked = 1, section = RaAchievement.UNLOCKED), ach(2))
+        val c = RaLists.achCounts(list)
+        assertEquals(2, c[AchFilter.All]); assertEquals(1, c[AchFilter.Unlocked])
+        assertEquals(2, RaLists.counted(list))
+    }
 }

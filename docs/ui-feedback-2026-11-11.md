@@ -214,7 +214,7 @@ Fifth round (01:45-01:55 CST, APK net-fc09ebed), looked at and closed, nothing s
 - Seen: Settings' tab row doesn't wrap (Left on Appearance stays); About's panel shows Check for updates' help while
   the tab has focus; Check for updates says Couldn't check (the release check gets 404 while the repo is private).
 
-Sixth round (01:55-02:15 CST, APKs net-fc09ebed, then kb-24a4594d), looked at and closed, nothing saved:
+Sixth round (01:55-02:00 CST, APKs net-fc09ebed, then kb-24a4594d), looked at and closed, nothing saved:
 
 - A8, closed back where they were opened: Settings › About › Joey64 is free software (back on the row); the
   library's Options › Details (back on Details), Options itself (back on the game); Show › New collection (back on
@@ -226,7 +226,7 @@ Sixth round (01:55-02:15 CST, APKs net-fc09ebed, then kb-24a4594d), looked at an
 - Seen: the recovery popup came back on its own while I was testing: the screen timed out and waking it brought
   the launcher to the front, which asks again after Later (as built). Its minutes still say 1 after a reinstall.
 
-Seventh round (02:15-02:40 CST, the Thor as a TV through files/dev_tv, APKs kb-24a4594d, then cp-9dbcb699; the
+Seventh round (02:00-02:10 CST, the Thor as a TV through files/dev_tv, APKs kb-24a4594d, then cp-9dbcb699; the
 switch removed after, nothing started):
 
 - TV paths, all with the remote's keys (D-pad, OK, Hold OK, Back): the launcher inside the safe area; the hint row

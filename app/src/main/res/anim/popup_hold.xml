@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A popup window's exit: it stays as it is for 50 ms after it closes, then goes, no fade (B1, B2). The window under
+<!-- A popup window's exit: it stays nearly as it is for 80 ms after it closes and goes
+     on an accelerating curve (alpha 1 - t^3: 96% at 27 ms, so a page under it is drawn before it shows; where a new
+     popup opens over it, the two dims ease back to one instead of jumping) (B1, B2). The window under
      it draws its next screen a frame or two after the popup's window is removed; without this the screen under the
-     popup showed bare for those frames (a game's options › Game settings, Cheats, Achievements). -->
+     popup showed bare for those frames (a game's options › Game settings, Cheats, Achievements; B3, one popup swapped for another: Thor 27 ms bare,
+     80 ms leaves room for slower phones). -->
 <alpha xmlns:android="http://schemas.android.com/apk/res/android"
-    android:fromAlpha="1.0" android:toAlpha="1.0" android:duration="50" />
+    android:fromAlpha="1.0" android:toAlpha="0.0" android:duration="80"
+    android:interpolator="@android:interpolator/accelerate_cubic" />

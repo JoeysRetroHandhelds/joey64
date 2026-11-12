@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- JoeyDialog windows: they open at once and hold for 50 ms as they close (res/anim/popup_hold.xml). -->
+    <!-- JoeyDialog windows: they open at once and hold for 80 ms as they close (res/anim/popup_hold.xml). -->
     <style name="JoeyPopupWindow">
         <item name="android:windowEnterAnimation">@null</item>
         <item name="android:windowExitAnimation">@anim/popup_hold</item>

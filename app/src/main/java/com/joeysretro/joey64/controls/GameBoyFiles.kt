@@ -175,7 +175,8 @@ object GameBoyFiles {
     private fun leaf(name: String) = name.substringAfterLast('/').substringAfterLast('\\').takeIf { it.isNotEmpty() && it != "." && it != ".." } ?: "game.gb"
 
     /** The Game Boy save copy's name in `saves/` for a play of [saveName]. */
-    fun saveFileName(saveName: String) = "$saveName.gb.sav"
+    fun saveFileName(saveName: String, player: Int = 1) = "${tag(saveName, player)}.gb.sav"
+    private fun tag(saveName: String, player: Int) = if (player <= 1) saveName else "$saveName.p$player"
 
     /**
      * Joey64's own copy of the Game Boy save for a play of [saveName] (the N64 game): files/saves/<saveName>.gb.sav, with
@@ -185,22 +186,23 @@ object GameBoyFiles {
      * couldn't be read or the copy written (code audit 3, M8: it was marked copied anyway, and the old copy played, another
      * game's save maybe, with no word): then nothing changed, and the next start tries again.
      */
-    fun saveCopy(context: Context, saveName: String, save: String?): File? = try {
+    fun saveCopy(context: Context, saveName: String, save: String?, player: Int = 1): File? = try {
         val dir = File(context.filesDir, "transferpak").apply { mkdirs() }
-        val copy = File(File(context.filesDir, "saves").apply { mkdirs() }, saveFileName(saveName))
+        val copy = File(File(context.filesDir, "saves").apply { mkdirs() }, saveFileName(saveName, player))
         // Built 2026-11-08 with the copy in files/transferpak/<saveName>.sav: moved once.
-        File(dir, "$saveName.sav").let { old -> if (old.exists() && !copy.exists() && !old.renameTo(copy)) { old.copyTo(copy); old.delete() } }
-        val source = File(dir, "$saveName.source")
+        if (player <= 1) File(dir, "$saveName.sav").let { old -> if (old.exists() && !copy.exists() && !old.renameTo(copy)) { old.copyTo(copy); old.delete() } }
+        val t = tag(saveName, player)
+        val source = File(dir, "$t.source")
         val from = save ?: "new"
         if (source.takeIf { it.exists() }?.readText() != from) {
             // The picked save is read whole first, so one that can't be read changes nothing.
-            val tmp = File(dir, "$saveName.sav.tmp")
+            val tmp = File(dir, "$t.sav.tmp")
             if (save != null) {
                 val input = context.contentResolver.openInputStream(Uri.parse(save)) ?: throw java.io.IOException("no stream")
                 input.use { s -> tmp.outputStream().use { s.copyTo(it) } }
             }
             // The copy played until now isn't lost: it stays as <saveName>.prev.sav (one back).
-            if (copy.exists()) copy.copyTo(File(dir, "$saveName.prev.sav"), true)
+            if (copy.exists()) copy.copyTo(File(dir, "$t.prev.sav"), true)
             if (save == null) copy.delete()
             else if (!tmp.renameTo(copy)) { tmp.copyTo(copy, true); tmp.delete() }
             source.writeText(from)
@@ -208,7 +210,7 @@ object GameBoyFiles {
         copy
     } catch (e: Exception) {
         JLog.e(TAG, "can't copy the Game Boy save $save: $e")
-        File(File(context.filesDir, "transferpak"), "$saveName.sav.tmp").delete()
+        File(File(context.filesDir, "transferpak"), "${tag(saveName, player)}.sav.tmp").delete()
         null
     }
 

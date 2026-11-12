@@ -78,6 +78,10 @@ class PaksTest {
 
     @Test fun gameBoySaveCopyLivesWithTheSaves() {
         assertEquals("Pokemon Stadium 2 (USA).gb.sav", GameBoyFiles.saveFileName("Pokemon Stadium 2 (USA)"))
+        // one per player: player 1 keeps the name from before (README (44)), 2-4 get their own
+        assertEquals("Pokemon Stadium 2 (USA).gb.sav", GameBoyFiles.saveFileName("Pokemon Stadium 2 (USA)", 1))
+        assertEquals("Pokemon Stadium 2 (USA).p2.gb.sav", GameBoyFiles.saveFileName("Pokemon Stadium 2 (USA)", 2))
+        assertEquals("Pokemon Stadium 2 (USA).p4.gb.sav", GameBoyFiles.saveFileName("Pokemon Stadium 2 (USA)", 4))
     }
 
     @Test fun defaultSaveIsTheSameNameSavFirst() {

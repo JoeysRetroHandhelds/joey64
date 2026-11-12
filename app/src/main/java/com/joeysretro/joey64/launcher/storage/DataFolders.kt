@@ -60,8 +60,8 @@ object SrmSync {
      * "<save name>.ndd.disk_save", 2026-11-07).
      */
     fun names(saveName: String) = listOf("$saveName.srm", "$saveName.ndd.disk_save", "$saveName.d64.disk_save")
-    /** What goes to and from the picked folder: [names] and the Transfer Pak's Game Boy save copy (not on the Saves page). */
-    private fun syncNames(saveName: String) = names(saveName) + "$saveName.gb.sav"
+    /** What goes to and from the picked folder: [names] and each player's Transfer Pak Game Boy save copy (not on the Saves page). */
+    private fun syncNames(saveName: String) = names(saveName) + (1..4).map { com.joeysretro.joey64.controls.GameBoyFiles.saveFileName(saveName, it) }
     /** The save RAM keeps its old key (the save name). */
     private fun key(name: String) = if (name.endsWith(".srm")) name.removeSuffix(".srm") else name
 

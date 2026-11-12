@@ -451,7 +451,7 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
 
     private fun started(game: LibraryGame) {
         plays.edit().putLong("game", game.id).putLong("uptime", android.os.SystemClock.uptimeMillis())
-            .putLong("wall", System.currentTimeMillis()).apply()
+            .putLong("wall", System.currentTimeMillis()).putString("md5", game.md5).apply()
     }
 
     // ---- Continue and the recovery state (plan, Phase 3) ---------------------------------------------
@@ -521,6 +521,24 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
      */
     data class AskContinue(val game: LibraryGame, val states: List<com.joeysretro.joey64.states.GameStates.SlotFile>)
     private val _askContinue = MutableStateFlow<AskContinue?>(null)
+    /**
+     * A state request to put to the player (StateRequests.check after a session): the popup is Joey's to design, so
+     * nothing shows this yet. [stateAnswered] takes the answer.
+     */
+    private val _askState = MutableStateFlow<com.joeysretro.joey64.staterequest.StateRequests.Ask?>(null)
+    val askState: StateFlow<com.joeysretro.joey64.staterequest.StateRequests.Ask?> = _askState
+
+    fun stateAnswered(answer: com.joeysretro.joey64.staterequest.StateRequests.Answer) {
+        val ask = _askState.value ?: return
+        _askState.value = null
+        val app = getApplication<Application>()
+        viewModelScope.launch(Dispatchers.IO) {
+            val saveName = _all.value?.firstOrNull { it.md5.equals(ask.wanted.md5, ignoreCase = true) }?.let { launcher.saveNameFor(it) }
+            com.joeysretro.joey64.staterequest.StateRequests.answer(app, ask, answer, saveName)
+            if (answer == com.joeysretro.joey64.staterequest.StateRequests.Answer.Yes) com.joeysretro.joey64.staterequest.StateUpload.maybeSend(app)
+        }
+    }
+
     /** "You quit this game 2 hours ago. Go on from there?" (approved Saves mockup 2026-11-07, screen 4). */
     val askContinue: StateFlow<AskContinue?> = _askContinue
 
@@ -594,6 +612,12 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
     fun resumed() {
         val app = getApplication<Application>()
         viewModelScope.launch { com.joeysretro.joey64.reports.ReportSender.maybeSend(app) }
+        // State requests: what players said Yes to goes now; a game just played may have something to ask.
+        val playedMd5 = plays.getString("md5", null)
+        viewModelScope.launch(Dispatchers.IO) {
+            com.joeysretro.joey64.staterequest.StateUpload.maybeSend(app)
+            if (playedMd5 != null) _askState.value = com.joeysretro.joey64.staterequest.StateRequests.check(app, playedMd5)
+        }
         if (!com.joeysretro.joey64.reports.ReportPrefs.asked(app)) _askReports.value = true
         val p = plays
         if (!p.contains("game")) { checkStates(); return }

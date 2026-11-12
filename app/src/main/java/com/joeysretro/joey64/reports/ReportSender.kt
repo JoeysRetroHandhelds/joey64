@@ -139,7 +139,7 @@ object ReportSender {
     private var lastError: String? = null
 
     /** The base address: the server, or in debug builds files/dev_reports_base (a local wrangler dev through adb reverse). */
-    private fun base(ctx: Context): String {
+    internal fun base(ctx: Context): String {
         if (com.joeysretro.joey64.BuildConfig.DEBUG) File(ctx.filesDir, "dev_reports_base").takeIf { it.exists() }?.readText()?.trim()?.takeIf { it.isNotEmpty() }?.let { return it.trimEnd('/') }
         return SERVER
     }

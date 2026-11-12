@@ -58,6 +58,9 @@ class GameLauncher(private val context: Context, private val db: LibraryDb) {
             // For recently played (JoeyOS reads it): the file in the ROMs folder, not the unpacked copy, and the title.
             intent.putExtra(MainActivity.EXTRA_SOURCE_URI, f.uri).putExtra(MainActivity.EXTRA_SOURCE_NAME, f.name)
                 .putExtra(MainActivity.EXTRA_TITLE, game.title).putExtra(MainActivity.EXTRA_MD5, game.md5)
+            // A game we'd ask players for a state of keeps the host's ring of recent states (state requests).
+            if (com.joeysretro.joey64.staterequest.StateRequests.ringFor(context, game.md5))
+                intent.putExtra(com.joeysretro.joey64.staterequest.StateRequests.EXTRA_STATE_RING, true)
             JLog.i(TAG, "playing ${game.title} from ${f.name}" + (loadState?.let { ", loading the $it state" } ?: ""))
             return intent
         }

@@ -21,6 +21,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.runtime.remember
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -84,6 +87,7 @@ fun LauncherRail(selected: RailPlace, modifier: Modifier = Modifier, enabled: Bo
                  horizontal: Boolean = false, open: Boolean = false, onLogo: () -> Unit = {},
                  onFocused: (Boolean) -> Unit = {}, onSelect: (RailPlace) -> Unit = {}) {
     val c = JoeyTheme.colors
+    val requesters = remember { RailPlace.entries.associateWith { FocusRequester() } }
     if (horizontal) {
         androidx.compose.foundation.layout.Row(
             modifier = modifier
@@ -92,6 +96,11 @@ fun LauncherRail(selected: RailPlace, modifier: Modifier = Modifier, enabled: Bo
                 .background(c.surface)
                 .padding(horizontal = 14.dp, vertical = 9.dp)
                 .onFocusChanged { onFocused(it.hasFocus) }
+                // Every way into the rail lands on the icon of the page you're on (JoeyOS's dock rule, "Focus in
+                // Compose": redirect focus on enter). Left to itself Android picked the icon nearest the row you came
+                // from, so coming back from a page didn't bring you to your icon (Joey 2026-11-11). A place not on the
+                // rail (Search, opened from the library) has no icon: the default entry applies.
+                .focusProperties { onEnter = { requesters[selected]?.requestFocus() } }
                 .focusGroup(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -100,7 +109,7 @@ fun LauncherRail(selected: RailPlace, modifier: Modifier = Modifier, enabled: Bo
             for (place in RailPlace.entries) {
                 if (place == RailPlace.Achievements && !showAchievements) continue
                 if (place == RailPlace.Settings) Spacer(Modifier.weight(1f))
-                RailItem(place, place == selected, enabled, false, Modifier.width(48.dp)) { onSelect(place) }
+                RailItem(place, place == selected, enabled, false, Modifier.width(48.dp).focusRequester(requesters.getValue(place))) { onSelect(place) }
             }
         }
         return
@@ -120,6 +129,11 @@ fun LauncherRail(selected: RailPlace, modifier: Modifier = Modifier, enabled: Bo
             } else Modifier)
             .padding(horizontal = 8.dp, vertical = 14.dp)
             .onFocusChanged { onFocused(it.hasFocus) }
+            // Every way into the rail lands on the icon of the page you're on (JoeyOS's dock rule, "Focus in
+            // Compose": redirect focus on enter). Left to itself Android picked the icon nearest the row you came
+            // from, so coming back from a page didn't bring you to your icon (Joey 2026-11-11). A place not on the
+            // rail (Search, opened from the library) has no icon: the default entry applies.
+            .focusProperties { onEnter = { requesters[selected]?.requestFocus() } }
             .focusGroup(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -135,7 +149,7 @@ fun LauncherRail(selected: RailPlace, modifier: Modifier = Modifier, enabled: Bo
         for (place in RailPlace.entries) {
             if (place == RailPlace.Achievements && !showAchievements) continue
             if (place == RailPlace.Settings) Spacer(Modifier.weight(1f))
-            RailItem(place, place == selected, enabled, width > 120.dp, Modifier.fillMaxWidth()) { onSelect(place) }
+            RailItem(place, place == selected, enabled, width > 120.dp, Modifier.fillMaxWidth().focusRequester(requesters.getValue(place))) { onSelect(place) }
         }
     }
     }

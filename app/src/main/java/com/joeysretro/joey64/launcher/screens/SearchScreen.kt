@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.joeysretro.joey64.launcher.LibraryModel
 import com.joeysretro.joey64.launcher.components.ControllerTextField
+import androidx.compose.ui.focus.focusProperties
 import com.joeysretro.joey64.launcher.components.Hint
 import com.joeysretro.joey64.launcher.components.LocalFocusLanding
 import com.joeysretro.joey64.launcher.components.initialFocus
@@ -75,10 +76,14 @@ fun SearchScreen(model: LibraryModel, onHints: (List<Hint>) -> Unit, onClose: ()
     Column(Modifier.fillMaxSize()) {
         key(edit) {
             ControllerTextField(query, { query = it }, "Search your games",
-                Modifier.initialFocus(backTo == null).padding(start = JoeyTheme.spacing.margin, end = JoeyTheme.spacing.margin, top = 12.dp),
+                Modifier.initialFocus(backTo == null)
+                    // Down goes to the first result, as Enter does (JoeyOS's rule for a full-width box over a grid):
+                    // left to Android it took the tile nearest the box's middle, the second one (Joey 2026-11-11).
+                    .focusProperties { if (found.isNotEmpty()) down = firstResult }
+                    .padding(start = JoeyTheme.spacing.margin, end = JoeyTheme.spacing.margin, top = 12.dp),
                 startTyping = backTo == null,
                 // Enter goes to the first result (moving focus down landed on the tile under the box).
-                onDone = { found.isNotEmpty() && runCatching { firstResult.requestFocus() }.isSuccess },
+                onDone = { found.isNotEmpty() && firstResult.requestFocus() },
                 trailing = {
                     if (query.isNotBlank()) Text(if (found.size == 1) "1 game" else "${found.size} games",
                         style = JoeyTheme.type.note, color = c.textDim)

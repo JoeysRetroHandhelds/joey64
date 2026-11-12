@@ -67,6 +67,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.joeysretro.joey64.launcher.LibraryModel
 import com.joeysretro.joey64.launcher.components.LocalFocusLanding
+import com.joeysretro.joey64.launcher.components.FocusLanding
+import com.joeysretro.joey64.launcher.components.landFocus
+import com.joeysretro.joey64.launcher.components.revealWholeOnFocus
 import com.joeysretro.joey64.launcher.components.coverSelection
 import com.joeysretro.joey64.launcher.components.initialFocus
 import com.joeysretro.joey64.launcher.components.ProgressLine
@@ -216,6 +219,8 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
     }
     val currentFocused by rememberUpdatedState(focusedGame)
     val search by rememberUpdatedState(onSearch)
+    // L2 / R2: a page up or down (Joey 2026-11-11: "shoulders and triggers should work on library screen"); set by the grid.
+    val pageBy = remember { arrayOfNulls<(Int) -> Unit>(1) }
     LaunchedEffect(focusedGame != null) { onFocusGame(focusedGame != null) }
     DisposableEffect(Unit) {
         val handler: (Control) -> Boolean = { control ->
@@ -223,6 +228,9 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
             when {
                 control == Control.Options && g != null -> { popup = g.id to GamePopup.Options; true }
                 control == Control.Search -> { search(); true }
+                control == Control.PageNext || control == Control.PagePrev -> {
+                    pageBy[0]?.invoke(if (control == Control.PageNext) 1 else -1); pageBy[0] != null
+                }
                 else -> false
             }
         }
@@ -255,20 +263,45 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
         // Up and Down go by index (the tile [cols] before or after), so the column stays. Compose's own search goes by
         // where tiles are on screen, and with a key held the next row isn't laid out yet: holding Up from the last game
         // landed in another column (Joey 2026-11-10). Down from a row with nothing under it goes to the last game.
-        val tileFocus = remember { HashMap<Long, FocusRequester>() }
         var focusedIndex by remember { mutableStateOf(-1) }
-        var moving by remember { mutableStateOf(false) }
         val listNow by rememberUpdatedState(list)
+        // Moving focus to a game by its place in the list (Up, Down, a page, a reorder), the JoeyOS way (docs/input-rewrite.md:
+        // no frame waits, no retries): the target is marked and armed, scrolled in if it isn't on screen, and its tile asks
+        // for focus itself once it's composed ([landFocus]). It was a scroll-and-wait loop (withFrameNanos) before.
+        val move = remember { FocusLanding(armed = false) }
+        var moveTo by remember { mutableStateOf<Long?>(null) }
+        fun goTo(to: Int, up: Boolean) {
+            val games = listNow
+            if (to !in games.indices) return
+            moveTo = games[to].id
+            move.arm()
+            if (gridState.layoutInfo.visibleItemsInfo.none { it.index == to }) scope.launch {
+                // One row away: scroll by a row, so the grid moves as it does under Compose's own focus search; further
+                // (a page, a reorder): put the target's row in view.
+                val visible = gridState.layoutInfo.visibleItemsInfo
+                val near = visible.isNotEmpty() && (if (up) to >= visible.first().index - cols else to <= visible.last().index + cols)
+                val row = visible.firstOrNull()?.size?.height
+                if (near && row != null) gridState.scrollBy((if (up) -1f else 1f) * (row + gap))
+                else gridState.scrollToItem(if (up) to else maxOf(0, to - cols * maxOf(1, visible.size / cols - 1)))
+            }
+        }
+        androidx.compose.runtime.SideEffect {
+            pageBy[0] = { dir ->
+                val from = currentFocused?.let { f -> listNow.indexOfFirst { it.id == f.id } } ?: -1
+                if (from >= 0 && !move.pending) {
+                    val perPage = cols * maxOf(1, gridState.layoutInfo.visibleItemsInfo.size / cols)
+                    val to = (from + dir * perPage).coerceIn(0, listNow.lastIndex)
+                    if (to != from) goTo(to, dir < 0)
+                }
+            }
+        }
         // The list changed under the focused game (Recently played puts the game just played first, off screen; found on
         // the Odin 3 Portal 2026-11-11 with nothing lit): its row is scrolled back in and it keeps focus.
         LaunchedEffect(list) {
             val g = currentFocused ?: return@LaunchedEffect
-            androidx.compose.runtime.withFrameNanos { }
             val index = listNow.indexOfFirst { it.id == g.id }
             if (index < 0 || gridState.layoutInfo.visibleItemsInfo.any { it.index == index }) return@LaunchedEffect
-            gridState.scrollToItem(index)
-            androidx.compose.runtime.withFrameNanos { }
-            tileFocus[g.id]?.requestFocus()
+            goTo(index, up = true)
         }
         // The game to land on is off screen (the list changed while away: Recently played puts the game just played
         // first): its row is scrolled in, and focus lands on it as it's composed.
@@ -294,40 +327,26 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
                 if (from !in games.indices) return@onPreviewKeyEvent false
                 if (up && from < cols) return@onPreviewKeyEvent false   // the top row: up to the filter chip as before
                 if (k.action != android.view.KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent true
-                if (moving) return@onPreviewKeyEvent true
+                // Still landing on the last one (a held key outruns the layout): wait for it, so the column stays.
+                if (move.pending) return@onPreviewKeyEvent true
                 val to = when {
                     up -> from - cols
                     from + cols < games.size -> from + cols
                     from / cols < (games.size - 1) / cols -> games.size - 1
                     else -> return@onPreviewKeyEvent true   // the last row: stay
                 }
-                val id = games[to].id
-                moving = true
-                scope.launch {
-                    try {
-                        // Not laid out yet: scroll a row at a time until it is (a held key outruns the layout).
-                        var n = 0
-                        while (tileFocus[id] == null && n++ < 8) {
-                            val row = gridState.layoutInfo.visibleItemsInfo.firstOrNull()?.size?.height ?: break
-                            gridState.scrollBy((if (up) -1f else 1f) * (row + gap))
-                            androidx.compose.runtime.withFrameNanos { }
-                        }
-                        if (tileFocus[id] == null) { gridState.scrollToItem(to); androidx.compose.runtime.withFrameNanos { } }
-                        tileFocus[id]?.requestFocus()
-                    } finally { moving = false }
-                }
+                goTo(to, up)
                 true
             },
         ) {
             itemsIndexed(list, key = { _, g -> keys[g.id] ?: "i${g.id}" }) { i, g ->
-                val own = remember { FocusRequester() }
-                androidx.compose.runtime.DisposableEffect(g.id) { tileFocus[g.id] = own; onDispose { if (tileFocus[g.id] === own) tileFocus.remove(g.id) } }
                 // The tile plays another copy now (Versions) and still has focus: Start and the hint row follow it.
                 var hasFocus by remember { mutableStateOf(false) }
                 LaunchedEffect(g.id) { if (hasFocus && focusedGame?.id != g.id) { focusedGame = g; focusedIndex = i; keep(g) } }
                 GameTile(g, model.cover(g), names, com.joeysretro.joey64.launcher.library.LibraryArrange.title(g, style), greyed = g.id in greyed,
                     copyLine = copyLines[g.id],
-                    modifier = Modifier.initialFocus(if (landId != null) g.id == landId else firstFocus && i == 0).focusRequester(own)
+                    modifier = Modifier.initialFocus(if (landId != null) g.id == landId else firstFocus && i == 0)
+                    .landFocus(move, g.id == moveTo)
                     .then(if (i == 0 && firstTile != null) Modifier.focusRequester(firstTile) else Modifier),
                     onFocus = { on -> hasFocus = on; if (on) { focusedGame = g; focusedIndex = i; keep(g) } else if (focusedGame?.id == g.id) { focusedGame = null; focusedIndex = -1 } },
                     onOptions = { keep(g); popup = g.id to GamePopup.Options }) { keep(g); model.playAsked(g) { context.startActivity(it) } }
@@ -370,9 +389,7 @@ private fun GameTile(game: LibraryGame, cover: File?, names: com.joeysretro.joey
     val shape = RoundedCornerShape(4.dp)
     // Focus brings only the cover into view, and the name under it is taller than the row gap: the bottom row's
     // names were cut off by the hint row (Joey 2026-11-10). The whole tile comes into view instead.
-    val whole = remember { BringIntoViewRequester() }
-    LaunchedEffect(focused) { if (focused) { androidx.compose.runtime.withFrameNanos { }; whole.bringIntoView() } }
-    Column(modifier.fillMaxWidth().bringIntoViewRequester(whole)) {
+    Column(modifier.fillMaxWidth().revealWholeOnFocus()) {
     Box(
         modifier = Modifier
             .fillMaxWidth()

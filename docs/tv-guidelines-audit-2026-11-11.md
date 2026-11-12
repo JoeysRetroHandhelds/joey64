@@ -27,6 +27,10 @@ optional icon).
   for the places, underline tabs inside pages, no page titles, Back to the bar, the bar scrolls on 4:3).
   Cover size under it (Joey 2026-11-11, covers_mock.png): **5 across** on 16:9 by default (146 dp covers;
   M64Plus FZ gives 5 at ~154 dp on the Thor), so Cover size Small = 6 and Large = 4; 4:3 screens get 4.
+- L1/R1 (Joey 2026-11-11, "let's try option 1 for now"): they always move along the top bar, on every page
+  under it. A page's own tabs (Settings, Controls' players, a game's achievement sets) are reached with the
+  D-pad only. Where the bar isn't on screen (popups, the pause menu's pages, the picture viewer) L1/R1 keep
+  their own job (my reading, to confirm on the device). The library's L1/R1 for views is dropped.
 
 ## Where it fails
 

@@ -19,8 +19,8 @@ Controls, then Settings tabs, then popups.
 - [ ] A2 (built 484da07, not device-checked) Search box: Down goes to the first result, not the second (`focusProperties { down = grid }`, the
       grid's restorer picks the item; JoeyOS device finding).
 - [ ] A3 L1/R1 and L2/R2 in the library (Joey: "shoulders and triggers should work on library screen").
-      L2/R2 built 484da07 (a page of the grid, not device-checked); L1/R1 waits for Joey (proposal: step
-      through All games, Favourites and the collections).
+      L2/R2 built 484da07 (a page of the grid, not device-checked); L1/R1: Joey picked "option 1" (they move
+      along the top bar everywhere; see docs/tv-guidelines-audit-2026-11-11.md).
 - [ ] A4 Host a room: L1/R1, L2/R2, and the same D-pad fix as the library.
 - [ ] A5 (built d34a52c, not device-checked: the tab step arms the landing in the same event; L2/R2
       through the shared ListPager on the games list, a game's list and the in-game panel) Achievements page: L1/R1 moves the highlight to the rail's Continue icon (should change tab);

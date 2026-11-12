@@ -154,6 +154,11 @@ fun LibraryScreen(model: LibraryModel, updateAsking: Boolean = false, onSearch: 
             if (artPaused && art == null && reading == null) {
                 Text("Box art paused · ScreenScraper is busy. Joey64 will try again later.", style = JoeyTheme.type.note, color = c.textDim)
             }
+            // Portrait: Search isn't on the bottom bar (Material's five at most), so it's here at the top of the
+            // Library, and Y as everywhere (Joey 2026-11-11, docs/tv-guidelines-audit-2026-11-11.md).
+            if (com.joeysretro.joey64.launcher.layout.LocalScreenLayout.current.bottomBar)
+                com.joeysretro.joey64.launcher.components.PageChip("Search", com.joeysretro.joey64.R.drawable.ic_rail_search,
+                    modifier = Modifier.padding(start = 8.dp)) { onSearch() }
         }
         val f = facts
         val list = remember(all, view, f) { if (f == null) all else com.joeysretro.joey64.launcher.library.LibraryViews.show(all, view, f) }

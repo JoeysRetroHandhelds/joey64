@@ -2092,8 +2092,10 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
     // (photo checks), The New Tetris (async: halts on a "secret cheat, power off" screen after ~10 s),
     // Resident Evil 2 and Cruis'n USA (async: black screen), Yoshi's Story and Spider-Man (async: the intro
     // draws, then every frame renders black from ~25 s; on the Flip's Mali since 2026-11-05, flip-blk-*, and
-    // Yoshi's Story on Adreno in fast-forward). An explicit option override (--es opts) wins.
-    static const char* const kSyncRdpGames[] = {"NPF", "NRI", "NRE", "NCU", "NYS", "NSL"};
+    // Yoshi's Story on Adreno in fast-forward), Blast Corps (async on the recompiler: freezes on the Rareware logo
+    // ~2 s in on the Flip's Mali, 2026-11-11 bc-flip/bc3-flip; the cached interpreter and sync both play it). An
+    // explicit option override (--es opts) wins.
+    static const char* const kSyncRdpGames[] = {"NPF", "NRI", "NRE", "NCU", "NYS", "NSL", "NBC"};
     std::string id = romGameId(buf);
     auto idIn = [&](auto& list) { return std::any_of(std::begin(list), std::end(list), [&](const char* g) { return id.compare(0, 3, g) == 0; }); };
     g_ffKeepSync = idIn(kSyncRdpGames);

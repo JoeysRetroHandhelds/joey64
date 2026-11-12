@@ -79,8 +79,6 @@ val OSS_ENTRIES = listOf(
         listOf("cxd4.txt")),
     OssEntry("Emulator", "GLideN64", "GPL 2.0", "GPL 2.0", "github.com/gonetz/GLideN64",
         listOf("gliden64.txt", "gpl-2.0.txt")),
-    OssEntry("Emulator", "xBRZ", "GPL 3.0", "GPL 3.0", "sourceforge.net/projects/xbrz",
-        listOf("xbrz.txt", "gpl-3.0.txt"), "in GLideN64"),
     OssEntry("Emulator", "libpng", "libpng", "libpng licence", "libpng.org",
         listOf("libpng.txt"), "in GLideN64"),
     OssEntry("Emulator", "xxHash", "BSD 2-Clause", "BSD 2-Clause", "github.com/Cyan4973/xxHash",

@@ -283,6 +283,22 @@ Joey's answers to the morning report (2026-11-12, asked one by one):
   width in the first frame), the recovery popup's Later, Continue and Delete it. Found on the way: each game's close
   time is kept under its own key now (f609325; OoT read 139 minutes after another game's crash). Next: the audit, then
   in-game popups (step 2).
+  Audit (2026-11-12, every JoeyDialog in the app read; cards over full-screen pages are fine and stay): cards that
+  open over another card, each proposed as a swap (the second card takes the first's place, B goes back to it):
+  1. Show › Start on a collection › Rename / Delete opens over Show (CollectionPopups.kt:117).
+  2. Show › New collection… opens the name entry over Show (:119).
+  3. Collection options › Rename: a third card over both (:133).
+  4. A game's Add to collection › New collection… opens the name entry over it (GamePopups.kt:185).
+  5. A game's Details › Change box art opens over Details (GamePopups.kt:188).
+  6. Games for (the All games / game chip) › X Remove asks over the list (GamePickers.kt:106).
+  7. A game's Netplay › Join by code opens over it (NetplayScreens.kt:474).
+  8. A game's Netplay › a room: Joining X's room… and X closed the room open over it (Hosting and In a room already
+     swap) (NetplayScreens.kt:559, 568).
+  9. Your room › B: Close the room? opens over the room (NetplayScreens.kt:673; drawn that way in A9).
+  10. Rare: the lost ROM folder and offline notes come up on a return to the launcher, over any card left open
+      then; proposed: they wait until no card is open, as the reports question does.
+  Already swaps: the pause menu, Controls (one popup at a time), Settings tabs, Saves, Screenshots, Profiles,
+  Macros, Picture, Game settings, Game Boy folders, a game's options (Play closes them first).
 - [x] F3 A clean quit clears only its own game's recovery state (b3a5d04: `files/recovery/games/<save name>/`; Thor 2026-11-12: the old OoT state moved in unchanged, b099ac2d / f4823052, the popup still offers it; compat_53 got its own after 2 min and quitting it removed only that one; OoT's Saves page still lists Recovery).
 - [x] F4 Send reports' line with only the day known: "Last sent today" / "Last sent Nov 11", not "Nothing sent yet" (627c875, `ReportPrefs.sentDayLabel`, ReportsTest; Thor 2026-11-12: sent_day today with no sent_at, Send now reads "Last sent today").
 - [x] F5 With focus on a tab row or the top bar the panel shows that tab's or place's own help, as Controls' tab row does (`LocalPanelHelp`; Thor 2026-11-12: Settings' tab row follows the focused tab, the bar shows Settings / Controls help, Down brings the tab's and then the row's help back; Game settings' Video / Emulation tabs).

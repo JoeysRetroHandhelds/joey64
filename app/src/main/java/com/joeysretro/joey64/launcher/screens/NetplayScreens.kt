@@ -20,6 +20,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
+import kotlinx.coroutines.launch
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -90,10 +92,15 @@ private fun roomLine(game: String, players: Int, places: Int) = "${LibraryArrang
 
 private fun shortGame(title: String) = LibraryArrange.shortTitle(title)
 
-/** The Netplay page (the rail's Netplay, approved netplay6 screens 1 and 4). */
+/**
+ * The Netplay page as rows (approved netrows_mock.png, Joey 2026-11-11; Google TV's "categories on the vertical axis,
+ * items on the horizontal"): the actions (Host a room, Join by code, Your name), then the rooms on this Wi-Fi (private
+ * ones only here, with a lock), then the public rooms with All games / Games I have in the row's heading line. Up and
+ * Down move between rows, Left and Right along one. Focus opens on Host a room. B from any row: the page goes back to
+ * the top and focus moves onto Netplay on the bar (the approved Back order).
+ */
 @Composable
 fun NetplayScreen(model: LibraryModel, onHints: (List<Hint>) -> Unit, onClose: () -> Unit) {
-    val context = LocalContext.current
     DisposableEffect(Unit) { model.netplayLook(true); onDispose { model.netplayLook(false) } }
     val games = model.games.collectAsStateWithLifecycle().value.orEmpty()
     val wifi = PlayTogether.rooms.collectAsStateWithLifecycle().value
@@ -102,91 +109,177 @@ fun NetplayScreen(model: LibraryModel, onHints: (List<Hint>) -> Unit, onClose: (
     var onlyMine by remember { mutableStateOf(false) }
     var picking by remember { mutableStateOf(false) }
     var joinCode by remember { mutableStateOf(false) }
+    var naming by remember { mutableStateOf(false) }
     var focusKey by remember { mutableStateOf("host") }
-    val lines = HashMap<String, Pair<String, String>>()
     val have = remember(games) { games.map { it.md5.lowercase() }.toSet() }
+    val me = remember(naming) { model.netplayMe() }
 
-    val wifiRooms = wifi.filter { !onlyMine || it.md5 in have }
+    // On this Wi-Fi: every room near you, private ones included (only here). The public row: nearest first, full rooms
+    // left out, a room already on this Wi-Fi's row isn't listed twice; Games I have filters it.
+    val publicCodes = listed.orEmpty().map { RoomCode.clean(it.code) }.toSet()
     val wifiCodes = wifi.map { RoomCode.clean(it.code) }.toSet()
-    // Nearest first; full rooms left out; a room already on this Wi-Fi's list isn't listed twice.
     val publicRooms = listed.orEmpty().filter { it.players < model.netPlaces(it.md5) && it.code !in wifiCodes && (!onlyMine || it.md5 in have) }
         .sortedBy { pings["${it.ip}:${it.port}"] ?: Int.MAX_VALUE }
 
+    val scroll = rememberScrollState()
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     val currentOnClose by rememberUpdatedState(onClose)
-    BackHandler { currentOnClose() }
+    BackHandler { scope.launch { scroll.scrollTo(0) }; currentOnClose() }
     DisposableEffect(Unit) {
-        val handler: (Control) -> Boolean = { ctl ->
-            when (ctl) {
-                Control.TabPrev, Control.TabNext -> onlyMine = !onlyMine
-                Control.Options -> joinCode = true
-                else -> {}
-            }
-            true
-        }
+        // L1 / R1 belong to the top bar now; Start is still Join by code.
+        val handler: (Control) -> Boolean = { ctl -> if (ctl == Control.Options) { joinCode = true; true } else false }
         ControlBus.push(handler)
         onDispose { ControlBus.pop(handler) }
     }
     val landing = LocalFocusLanding.current
     val roomState = PlayTogether.state.collectAsStateWithLifecycle().value
     val ended = model.netEnded.collectAsStateWithLifecycle().value
-    val overPage = picking || joinCode || ended != null || roomState !is PlayTogether.Idle
+    val overPage = picking || joinCode || naming || ended != null || roomState !is PlayTogether.Idle
     LaunchedEffect(overPage) { if (!overPage) landing?.arm() }
-    // "A Host" on Host a room, "A Join" on Join by code and the rooms (Joey 2026-11-10).
     LaunchedEffect(focusKey) {
-        // The tab row: A Open, as every tab row (Chips.kt TabRow).
-        val a = when (focusKey) { "host" -> "Host"; "tabs" -> "Open"; else -> "Join" }
-        onHints(listOf(Hint("A", a), Hint("Start", "Join by code"), Hint("B", "Back")))
+        onHints(when {
+            focusKey == "tabs" -> listOf(Hint("A", "Open"), Hint("B", "Back"))
+            focusKey.startsWith("room ") -> listOf(Hint("A", "Join"), Hint("Start", "Join by code"), Hint("B", "Back"))
+            else -> listOf(Hint("A", "Select"), Hint("Start", "Join by code"), Hint("B", "Back"))
+        })
     }
 
     fun gameOf(md5: String) = games.firstOrNull { it.md5.equals(md5, true) }
+    val margin = JoeyTheme.spacing.margin
 
-    Column(Modifier.fillMaxSize().padding(start = JoeyTheme.spacing.margin, end = JoeyTheme.spacing.margin, top = 12.dp)) {
-        PageHeader(null) {
+    Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(top = 12.dp, bottom = 12.dp)) {
+        // The actions row.
+        Row(Modifier.padding(horizontal = margin).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            ActionCard(R.drawable.ic_plus, "Host a room", "Pick one of your games", Modifier.initialFocus(), onFocused = { focusKey = "host" }) { picking = true }
+            ActionCard(R.drawable.ic_keyboard, "Join by code", "8 letters from the host", onFocused = { focusKey = "code" }) { joinCode = true }
+            ActionCard(R.drawable.ic_user, "Your name", me.name, onFocused = { focusKey = "name" }) { naming = true }
+        }
+        RowHeading("On this Wi-Fi", "rooms near you, private ones included")
+        // A line of text isn't a stop: with no rooms Down goes straight to the public rooms (mockup screen 5).
+        if (wifi.isEmpty()) RoomsEmpty("No rooms on this Wi-Fi. Rooms other people host here show up by themselves.")
+        else Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = margin), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            for (r in wifi) {
+                val g = gameOf(r.md5)
+                val private = RoomCode.clean(r.code) !in publicCodes
+                RoomCard(model, g, r.md5, r.game, "${r.hostName}'s room",
+                    if (g == null) "You don't have it" else (if (private) "Private · " else "") + "${r.players} of ${model.netPlaces(r.md5)}",
+                    r.pingMs, lock = private, onFocused = { focusKey = "room wifi ${r.ip}:${r.port}" }) {
+                    if (g != null) model.netplayJoin(PlayTogether.Target(r.ip, r.port, r.hostName))
+                }
+            }
+        }
+        // Public rooms, with its filter at the start of the row's heading line (the Library's rule: right above what it changes).
+        Row(Modifier.padding(start = margin, end = margin, top = 14.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Public rooms", style = JoeyTheme.type.label, color = JoeyTheme.colors.textDim, modifier = Modifier.padding(start = JoeyTheme.spacing.rowPadH, end = 12.dp))
             com.joeysretro.joey64.launcher.components.TabRow(2, if (onlyMine) 1 else 0, onFocused = { if (it) focusKey = "tabs" }, onPick = { onlyMine = it == 1 }) { i, m ->
                 TabChip(if (i == 0) "All games" else "Games I have", (i == 1) == onlyMine, m)
             }
         }
-        TwoColumns(Modifier.weight(1f).padding(top = 6.dp), left = {
-                JoeyRow("Host a room", Modifier.initialFocus(), detail = "Pick one of your games", sideways = true,
-                    leading = { f -> Icon(painterResource(R.drawable.ic_plus), null, tint = rowTextColor(JoeyTheme.colors, f, JoeyTheme.colors.gold), modifier = Modifier.size(20.dp)) },
-                    onFocused = { if (it) focusKey = "host" }) { picking = true }
-                lines["host"] = "Host a room" to "Pick one of your games, then share the code or make the room public"
-                JoeyRow("Join by code", detail = "For a private room", sideways = true,
-                    leading = { f -> Icon(painterResource(R.drawable.ic_keyboard), null, tint = rowTextColor(JoeyTheme.colors, f, JoeyTheme.colors.gold), modifier = Modifier.size(20.dp)) },
-                    onFocused = { if (it) focusKey = "code" }) { joinCode = true }
-                lines["code"] = "Join by code" to "Ask the host for their room code"
-                SectionLabel("On this Wi-Fi")
-                if (wifiRooms.isEmpty()) RoomsEmpty("No rooms on this Wi-Fi.")
-                for (r in wifiRooms) {
-                    val g = gameOf(r.md5)
-                    val key = "wifi ${r.ip}:${r.port}"
-                    lines[key] = "${r.hostName}'s room" to (if (g != null) "${g.title}, your copy matches · ${r.hostName}'s ${r.device}" else "${r.game} isn't in your library")
-                    RoomRow(model, g, r.md5, r.game, "${r.hostName}'s room", if (g == null) "${shortGame(r.game)} · you don't have this game" else roomLine(r.game, r.players, model.netPlaces(r.md5)),
-                        r.pingMs, onFocused = { focusKey = key }) {
-                        if (g != null) model.netplayJoin(PlayTogether.Target(r.ip, r.port, r.hostName))
-                    }
-                }
-            }, right = {
-                SectionLabel("Public rooms · anyone can join")
-                when {
-                    listed == null && publicRooms.isEmpty() -> RoomsEmpty("Looking for public rooms…")
-                    publicRooms.isEmpty() -> RoomsEmpty("No public rooms right now. Host one and make it public.")
-                }
+        when {
+            listed == null && publicRooms.isEmpty() -> RoomsEmpty("Looking for public rooms…")
+            publicRooms.isEmpty() -> RoomsEmpty("No public rooms right now. Host one and make it public.")
+            else -> Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = margin), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 for (r in publicRooms) {
                     val g = gameOf(r.md5)
-                    val key = "public ${r.ip}:${r.port}"
-                    lines[key] = "${r.name}'s room" to (if (g != null) "${g.title}, your copy matches · ${r.name}'s ${r.device}" else "${r.game} isn't in your library")
-                    RoomRow(model, g, r.md5, r.game, "${r.name}'s room", if (g == null) "${shortGame(r.game)} · you don't have this game" else roomLine(r.game, r.players, model.netPlaces(r.md5)),
-                        pings["${r.ip}:${r.port}"], onFocused = { focusKey = key }) {
+                    RoomCard(model, g, r.md5, r.game, "${r.name}'s room",
+                        if (g == null) "You don't have it" else "${r.players} of ${model.netPlaces(r.md5)}",
+                        pings["${r.ip}:${r.port}"], lock = false, onFocused = { focusKey = "room public ${r.ip}:${r.port}" }) {
                         if (g != null) model.netplayJoin(PlayTogether.Target(r.ip, r.port, r.name))
                     }
                 }
-            })
-        lines[focusKey]?.let { (t, d) -> DescriptionLine(t, d, Modifier.padding(vertical = 6.dp)) }
+            }
+        }
     }
     if (picking) HostPickPopup(model, onDismiss = { picking = false }) { g -> picking = false; model.netplayHost(g) }
     if (joinCode) JoinByCodePopup(model, title = "Join by code", subtitle = "Ask the host for their room code.") { joinCode = false }
+    if (naming) YourNamePopup(model) { naming = false }
     NetEndedPopup(model)
+}
+
+/** A row's heading with its grey line ("On this Wi-Fi · rooms near you, private ones included"). */
+@Composable
+private fun RowHeading(title: String, line: String) {
+    Row(Modifier.padding(start = JoeyTheme.spacing.margin, top = 14.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, style = JoeyTheme.type.label, color = JoeyTheme.colors.textDim, modifier = Modifier.padding(start = JoeyTheme.spacing.rowPadH, end = 10.dp))
+        Text(line, style = JoeyTheme.type.small, color = JoeyTheme.colors.textFaint)
+    }
+}
+
+/** An action at the top of the page: icon, name and a grey line, as one stop. */
+@Composable
+private fun ActionCard(icon: Int, title: String, line: String, modifier: Modifier = Modifier, onFocused: () -> Unit, onClick: () -> Unit) {
+    val c = JoeyTheme.colors
+    val (source, focused) = rememberFocusState()
+    LaunchedEffect(focused) { if (focused) onFocused() }
+    val shape = RoundedCornerShape(8.dp)
+    Row(modifier.width(220.dp).background(c.surface, shape).rowSelection(focused, shape).pressable(source, onClick = onClick)
+        .padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Icon(painterResource(icon), null, tint = rowTextColor(c, focused, c.gold), modifier = Modifier.size(20.dp))
+        Column {
+            Text(title, style = JoeyTheme.type.row, color = rowTextColor(c, focused, c.text), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(line, style = JoeyTheme.type.small, color = rowTextColor(c, focused, c.textDim), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/**
+ * A room card (netrows_mock screen 2): the game's cover, the room's name, the game, players and ping (orange from
+ * 100 ms). A room for a game you don't have is grey and says so; A on a card joins.
+ */
+@Composable
+private fun RoomCard(model: LibraryModel, game: LibraryGame?, md5: String, gameTitle: String, title: String, line: String, ping: Int?,
+                     lock: Boolean, onFocused: () -> Unit, onClick: () -> Unit) {
+    val c = JoeyTheme.colors
+    val (source, focused) = rememberFocusState()
+    LaunchedEffect(focused) { if (focused) onFocused() }
+    val roomCovers = model.roomCovers.collectAsStateWithLifecycle().value
+    if (game == null) LaunchedEffect(md5) { model.lookUpRoomCover(md5, gameTitle) }
+    val cover by rememberCover(if (game != null) model.cover(game) else roomCovers[md5.lowercase()])
+    Column(Modifier.width(150.dp)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(1.45f).coverSelection(focused).background(c.chip, RoundedCornerShape(4.dp))
+            .clip(RoundedCornerShape(4.dp)).pressable(source, onClick = onClick), contentAlignment = Alignment.Center) {
+            val pic = cover
+            if (pic != null) androidx.compose.foundation.Image(pic, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
+                colorFilter = if (game == null) ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }) else null,
+                alpha = if (game == null) 0.45f else 1f)
+            else Icon(painterResource(R.drawable.ic_rail_controls), null, tint = c.textDim, modifier = Modifier.size(24.dp))
+        }
+        Text(title, style = JoeyTheme.type.small, color = if (focused) c.gold else c.text, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 4.dp))
+        Text(shortGame(gameTitle), style = JoeyTheme.type.small, color = c.textDim, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(androidx.compose.ui.text.buildAnnotatedString {
+            append((if (lock) "🔒 " else "") + line)
+            if (ping != null && game != null) {
+                append(" · ")
+                pushStyle(androidx.compose.ui.text.SpanStyle(color = if (ping >= com.joeysretro.joey64.netplay.NetPlayers.SLOW_MS) c.warn else c.good))
+                append("$ping ms"); pop()
+            }
+        }, style = JoeyTheme.type.small, color = if (game == null) c.textFaint else c.good, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/**
+ * Your name (approved feedback1 screens 8-9): the name other players see in your room and on the rooms list. The text
+ * field popup Search uses (highlight first, A to type), up to 16 letters; "Use my RetroAchievements name" (or the
+ * device's name when not signed in) puts the default back.
+ */
+@Composable
+private fun YourNamePopup(model: LibraryModel, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    var text by remember { mutableStateOf(model.netplayMe().name) }
+    val fallback = remember { model.netplayDefaultName() }
+    val signedIn = com.joeysretro.joey64.achievements.RaBridge.account.value != null
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Cancel")), width = 470.dp) {
+        Column {
+            PopupTitle("Your name", "What other players see in your room and on the rooms list.")
+            ControllerTextField(text, { text = it.take(16) }, "Name", Modifier.padding(horizontal = 8.dp).padding(bottom = 8.dp).initialFocus())
+            JoeyRow("Save", enabled = text.isNotBlank()) { model.setNetplayName(text.trim()); onDismiss() }
+            JoeyRow(if (signedIn) "Use my RetroAchievements name" else "Use the device's name", value = fallback) {
+                model.setNetplayName(null); onDismiss()
+            }
+        }
+    }
+    @Suppress("UNUSED_EXPRESSION") context
 }
 
 @Composable

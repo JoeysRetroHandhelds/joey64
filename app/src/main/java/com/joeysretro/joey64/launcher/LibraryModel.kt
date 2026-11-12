@@ -922,14 +922,32 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
     fun openNetplay(game: LibraryGame) { _netplayFor.value = game }
     fun closeNetplay() { _netplayFor.value = null }
 
-    /** This player in a room: the RetroAchievements name when signed in, else the device's own name; the model under it. */
+    /**
+     * This player in a room: the name set in Netplay › Your name (approved feedback1 screens 8-9), else the
+     * RetroAchievements name when signed in, else the device's own name; the model under it.
+     */
     fun netplayMe(): com.joeysretro.joey64.netplay.PlayTogether.Me {
+        val own = netPrefs().getString("name", null)?.takeIf { it.isNotBlank() }
+        return com.joeysretro.joey64.netplay.PlayTogether.Me(own ?: netplayDefaultName(), deviceModel())
+    }
+
+    /** The name used until Your name is set: the RetroAchievements name, else the device's name. */
+    fun netplayDefaultName(): String {
         val app = getApplication<Application>()
-        val m = android.os.Build.MODEL.orEmpty(); val maker = android.os.Build.MANUFACTURER.orEmpty()
-        val model = if (m.startsWith(maker, ignoreCase = true) || maker.isBlank()) m else "$maker $m"
         val ra = com.joeysretro.joey64.achievements.RaBridge.account.value?.display?.takeIf { it.isNotBlank() }
         val named = try { android.provider.Settings.Global.getString(app.contentResolver, "device_name") } catch (e: Exception) { null }
-        return com.joeysretro.joey64.netplay.PlayTogether.Me(ra ?: named?.takeIf { it.isNotBlank() } ?: model, model)
+        return ra ?: named?.takeIf { it.isNotBlank() } ?: deviceModel()
+    }
+
+    /** Your name; null goes back to [netplayDefaultName]. */
+    fun setNetplayName(name: String?) {
+        netPrefs().edit().apply { if (name.isNullOrBlank()) remove("name") else putString("name", name.take(16)) }.apply()
+    }
+
+    private fun netPrefs() = getApplication<Application>().getSharedPreferences("netplay", android.content.Context.MODE_PRIVATE)
+    private fun deviceModel(): String {
+        val m = android.os.Build.MODEL.orEmpty(); val maker = android.os.Build.MANUFACTURER.orEmpty()
+        return if (m.startsWith(maker, ignoreCase = true) || maker.isBlank()) m else "$maker $m"
     }
 
     /** The library's game with [md5], or null. */

@@ -77,6 +77,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     private val fromJoey64 get() = devBuild || intent?.component?.className == GAME_START
     /** One of the launcher's own extras ([LAUNCHER_EXTRAS]), only from a start [fromJoey64]. */
     private fun launcherString(name: String): String? = if (fromJoey64) intent?.getStringExtra(name) else null
+    private fun launcherBool(name: String): Boolean = fromJoey64 && intent?.getBooleanExtra(name, false) == true
 
     /**
      * The extras to carry into the next start (switchGame, a settings restart), which goes through [GAME_START] and is
@@ -1418,6 +1419,15 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // The router's address for a hosted room's NAT-PMP (when no UPnP router answers): from the network's default
         // route, since Android's main route table that libnatpmp reads has none. --es env N64_NETPLAY_GW=<ip> wins.
         if (devString("env")?.contains("N64_NETPLAY_GW=") != true) com.joeysretro.joey64.netplay.RouterAddress.set(this)
+        // State-request ring (Joey 2026-11-12; host state_ring.h): for a game on the wanted list the launcher sets
+        // EXTRA_STATE_RING, and the host keeps a few recent states and meta.json in files/states/ring/<md5>/ for the
+        // launcher to read after quit. The env lives on in the process, so it is cleared for every other start.
+        // --es env N64_STATE_RING=<dir> wins (dev).
+        if (devString("env")?.contains("N64_STATE_RING=") != true) {
+            val md5 = gameMd5 ?: knownMd5()
+            if (launcherBool(EXTRA_STATE_RING) && md5 != null) android.system.Os.setenv("N64_STATE_RING", stateRingDir(this, md5).path, true)
+            else android.system.Os.unsetenv("N64_STATE_RING")
+        }
         trial?.begin(); trialAt = android.os.SystemClock.uptimeMillis()
         if (NativeBridge.loadGame(rom, saveName)) {
             NativeBridge.start(); started = true; owner = this; gameLoaded = true
@@ -3297,6 +3307,14 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
          * [EXTRA_MD5] it doesn't mean the library started the game.
          */
         const val EXTRA_KNOWN_MD5 = "com.joeysretro.joey64.KNOWN_MD5"
+        /**
+         * The launcher's mark for a game on the state-request wanted list (boolean): the host keeps the state ring in
+         * [stateRingDir] this play. Read after quit: meta.json there, {"version":1,"playSeconds":N,"entries":[{"path",
+         * "takenAt" (ms since 1970),"playAt" (s of play),"drew3d"}]}, oldest first; a new play of the game starts it over.
+         */
+        const val EXTRA_STATE_RING = "com.joeysretro.joey64.STATE_RING"
+        /** Where the host keeps a game's state ring (EXTRA_STATE_RING). */
+        fun stateRingDir(ctx: android.content.Context, md5: String): File = File(ctx.filesDir, "states/ring/$md5")
         private const val SESSION_TICK_MS = 5_000L
         /** A 64DD disk's cartridge, as a content URI (F-Zero X Expansion Kit: F-Zero X (Japan)); without it a disk boots alone. */
         const val EXTRA_DD_CART = "com.joeysretro.joey64.DD_CART"

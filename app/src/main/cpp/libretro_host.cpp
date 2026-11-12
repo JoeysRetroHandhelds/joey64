@@ -10,6 +10,7 @@
 #include "libra.h"
 #include "rewind_test.h"
 #include "rewind.h"
+#include "state_ring.h"
 #include "utf16.h"
 #include <jni.h>
 #include <dlfcn.h>
@@ -278,6 +279,8 @@ std::atomic<int> g_slowPct{0};
 std::atomic<double> g_slowNow{0.0};
 // Rewind (same mockup; rewind.h). Settings come from any thread and are applied on the emulation thread.
 Rewind g_rewind;
+// The state-request ring (state_ring.h): on when the game screen sets N64_STATE_RING=<dir> before the game starts.
+StateRing g_stateRing;
 std::atomic<bool> g_rewindCfgChanged{false}, g_rewindOnCfg{false};
 std::atomic<int> g_rewindEveryCfg{2}, g_rewindMaxCfg{1800};
 // The rewind hotkey is held; g_rewindActive: going back this frame (sound dropped, no achievements).
@@ -1264,6 +1267,11 @@ void runLoop() {
     // EXPERIMENT (rewind_test.h): N64_REWIND_TEST=<frames between snapshots>.
     const int rewindEvery = getenv("N64_REWIND_TEST") ? atoi(getenv("N64_REWIND_TEST")) : 0;
     RewindTest rewindTest;
+    {
+        const char* ring = getenv("N64_STATE_RING");
+        const int ringEvery = getenv("N64_STATE_RING_EVERY") ? atoi(getenv("N64_STATE_RING_EVERY")) : 60;
+        g_stateRing.configure(ring && *ring ? ring : "", ringEvery, 5);
+    }
     const char* noSplit = getenv("N64_PIN_SPLIT");
     const bool split = pin && !(noSplit && *noSplit == '0');
     const char* late = getenv("N64_LATE_INPUT");
@@ -1656,6 +1664,9 @@ void runLoop() {
                 g_rewind.record([] { return core.serialize_size(); }, [](void* d, size_t n) { return core.serialize(d, n); },
                                 [](std::vector<uint8_t>& p) { Cheevos::captureProgress(p); });
         }
+        // State-request ring: normal play only (not fast-forward, rewind, a benchmark, or before a dev state loads).
+        g_stateRing.frame(!rewinding && !ff && !g_bench && !g_paused && stateWait <= 0, g_av.timing.fps,
+                          [] { return core.serialize_size(); }, [](void* d, size_t n) { return core.serialize(d, n); });
         logStats();
         if (stateWait > 0 && --stateWait == 0) {
             std::vector<char> s;
@@ -1753,6 +1764,7 @@ void runLoop() {
         }
     }
     serveStateRequest(false, true);   // a request that came too late fails now, not at its timeout
+    g_stateRing.finish();             // meta.json says this session's play time before the launcher reads it
     flushSave();
     Cheevos::gameUnloaded();
     if (g_hw.context_destroy) g_hw.context_destroy();

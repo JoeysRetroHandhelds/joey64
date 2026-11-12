@@ -466,7 +466,7 @@ object PlayTogether {
         JLog.i(TAG, "starting the game: $count players, this device is player $mySlot")
         _state.value = Idle
         scope.launch {
-            for ((j, _) in joiners) j.send("START")
+            for ((j, _) in joiners) j.send(LobbyLines.line("START", keys[j]!!))
             val t0 = System.currentTimeMillis()
             // The game's room server is up when the bridge says this device hosts a room.
             while (System.currentTimeMillis() - t0 < SERVER_WAIT_MS && NativeBridge.netplayInfo().getOrElse(1) { 0 } == 0) delay(100)
@@ -523,7 +523,7 @@ object PlayTogether {
      * good). The game's room takes over the lobby's port, so this device goes once that port takes a connection again:
      * a connection that never registers is dropped by the room and isn't a player. False after [SERVER_WAIT_MS].
      */
-    private suspend fun goWhenRoomOpens(me: Me, target: Target, slot: Int, game: Game?): Boolean {
+    private suspend fun goWhenRoomOpens(me: Me, target: Target, slot: Int, game: Game?, key: String?): Boolean {
         val g = game ?: return false
         if (slot !in 1..4) return false
         JLog.i(TAG, "the host's lobby closed after START: looking for its game's room on port ${target.port}")
@@ -533,7 +533,7 @@ object PlayTogether {
             if (open) {
                 JLog.i(TAG, "go: player $slot on port ${target.port} (the game's room answered after ${System.currentTimeMillis() - t0} ms)")
                 _state.value = Idle
-                _go.value = Go(g.md5, "${target.ip}:${target.port}:$slot", me.name)
+                _go.value = Go(g.md5, "${target.ip}:${target.port}:$slot", me.name, key)
                 return true
             }
             delay(PROBE_GAP_MS)
@@ -564,6 +564,8 @@ object PlayTogether {
             // START came, then no GO: the host's game may have started in a fresh process (a game had run in its
             // launcher's process before), which ends the lobby with it, so this device looks for the game's room itself.
             var startedAt = 0L
+            // START <key>: this place's key, so the fallback above can still register with the game's room (M21 keys).
+            var startKey: String? = null
             var closed = false
             try {
                 sock.connect(InetSocketAddress(target.ip, target.port), CONNECT_MS)
@@ -617,7 +619,7 @@ object PlayTogether {
                         }
                         "FULL" -> { _state.value = Full(hostName, target.copy(hostName = hostName)); gone = false; break }
                         "MISMATCH" -> { _state.value = Mismatch(hostName, hostGame, mine); gone = false; break }
-                        "START" -> { JLog.i(TAG, "$hostName is starting the game"); startedAt = System.currentTimeMillis(); sock.soTimeout = (SERVER_WAIT_MS + 5000).toInt() }
+                        "START" -> { JLog.i(TAG, "$hostName is starting the game"); startKey = LobbyLines.parseKey(f.getOrNull(1)); startedAt = System.currentTimeMillis(); sock.soTimeout = (SERVER_WAIT_MS + 5000).toInt() }
                         "GO" -> {
                             val s = f.getOrNull(1)?.toIntOrNull() ?: slot
                             // It goes to the game as the player number: only 1 to 4 (code audit 3, p3 L7).
@@ -635,11 +637,11 @@ object PlayTogether {
                         "CLOSED" -> { closed = true; break }
                     }
                 }
-                if (gone && startedAt > 0 && !closed && joinSocket === sock && goWhenRoomOpens(me, target, slot, game)) gone = false
+                if (gone && startedAt > 0 && !closed && joinSocket === sock && goWhenRoomOpens(me, target, slot, game, startKey)) gone = false
                 if (gone && joinSocket === sock) { JLog.i(TAG, "${hostName ?: "the host"} closed the room"); _state.value = Closed(hostName ?: "The host") }
             } catch (e: Exception) {
                 if (joinSocket !== sock) return@launch // left
-                if (startedAt > 0 && !closed && goWhenRoomOpens(me, target, slot, game)) return@launch
+                if (startedAt > 0 && !closed && goWhenRoomOpens(me, target, slot, game, startKey)) return@launch
                 JLog.i(TAG, com.joeysretro.joey64.LogMask.addresses("can't reach ${target.ip}:${target.port}: $e"))
                 _state.value = if (game == null) Unreachable(hostName, target.fromCode) else Closed(hostName ?: "The host")
             } finally {

@@ -152,7 +152,13 @@ object StateRequests {
     fun check(ctx: Context, md5: String): Ask? {
         val wanted = wanted(ctx)
         if (md5.lowercase() !in wanted) return null
-        val ask = decide(md5, wanted, prefsOf(ctx), ringOf(ctx, md5))
+        // The launcher comes back before the game screen has ended its session: meta.json gets its quitAt about 70 ms
+        // after (Thor 2026-11-12, the first end-to-end run asked nothing). Wait up to 5 s for it; a game that crashed
+        // never writes one, and then nothing is asked.
+        var ring = ringOf(ctx, md5)
+        var waited = 0
+        while (ring != null && ring.quitAt <= 0 && waited < 5000) { Thread.sleep(250); waited += 250; ring = ringOf(ctx, md5) }
+        val ask = decide(md5, wanted, prefsOf(ctx), ring)
         JLog.i(TAG, "state request for $md5: ${if (ask == null) "nothing to ask" else "ask (${ask.wanted.kind}, ${ask.state.path})"}")
         return ask
     }

@@ -498,7 +498,8 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
     // ---- reports (approved reports mockup, version A, Joey 2026-11-08) ---------------------------------
 
     private val _askReports = MutableStateFlow(false)
-    /** "Help make Joey64 better?": once, the first time a game ends and the library is in front again. */
+    /** "Help make Joey64 better?": once, when the library first shows (Joey 2026-11-11; it was the first time a game
+     *  ended). Set at every launcher resume until answered; LibraryScreen shows it only once setup is done. */
     val askReports: StateFlow<Boolean> = _askReports
 
     /** The question's answer: Send reports (true) or No thanks (false; B too). Never asked again. */
@@ -517,11 +518,11 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
     fun resumed() {
         val app = getApplication<Application>()
         viewModelScope.launch { com.joeysretro.joey64.reports.ReportSender.maybeSend(app) }
+        if (!com.joeysretro.joey64.reports.ReportPrefs.asked(app)) _askReports.value = true
         val p = plays
         if (!p.contains("game")) { checkStates(); return }
         val id = p.getLong("game", 0); val up = p.getLong("uptime", 0); val wall = p.getLong("wall", 0)
         p.edit().clear().apply()
-        if (!com.joeysretro.joey64.reports.ReportPrefs.asked(app)) _askReports.value = true
         val ms = android.os.SystemClock.uptimeMillis() - up
         // Negative: the device restarted since (uptime begins again), so the length isn't known.
         if (ms <= 0) { checkStates(); return }

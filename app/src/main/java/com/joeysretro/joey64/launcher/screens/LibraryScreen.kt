@@ -87,7 +87,7 @@ import com.joeysretro.joey64.launcher.theme.JoeyTheme
  * and is blue when it isn't All games; A opens [ShowPopup]. Y opens Search ([onSearch]).
  */
 @Composable
-fun LibraryScreen(model: LibraryModel, onSearch: () -> Unit) {
+fun LibraryScreen(model: LibraryModel, updateAsking: Boolean = false, onSearch: () -> Unit) {
     // Settings › Library's order, regions and one version per game (approved 2026-11-08); hidden games left out.
     val games by model.shown.collectAsStateWithLifecycle()
     val reading by model.reading.collectAsStateWithLifecycle()
@@ -107,8 +107,10 @@ fun LibraryScreen(model: LibraryModel, onSearch: () -> Unit) {
     model.askContinue.collectAsStateWithLifecycle().value?.let { ask ->
         AskContinuePopup(ask) { carryOn -> model.continueAnswered(carryOn) { context.startActivity(it) } }
     }
-    // Reports, asked once (approved reports mockup 2026-11-08, screen 5); never over another question.
-    val askingSomething = model.recovery.collectAsStateWithLifecycle().value != null || model.askContinue.collectAsStateWithLifecycle().value != null
+    // Reports, asked once (approved reports mockup 2026-11-08, screen 5) when the library first shows (Joey 2026-11-11);
+    // never over another question: it waits for the updater, the offline note, a lost folder, recovery and Continue.
+    val askingSomething = model.recovery.collectAsStateWithLifecycle().value != null || model.askContinue.collectAsStateWithLifecycle().value != null ||
+        updateAsking || model.offline.collectAsStateWithLifecycle().value || model.lostFolder.collectAsStateWithLifecycle().value != null
     if (model.askReports.collectAsStateWithLifecycle().value && !askingSomething) AskReportsPopup(model::reportsAnswered)
     NeedsBiosPopup(model) { context.startActivity(it) }
     NeedsCartPopup(model) { context.startActivity(it) }

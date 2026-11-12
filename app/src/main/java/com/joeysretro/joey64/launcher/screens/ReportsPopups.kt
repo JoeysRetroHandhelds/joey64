@@ -71,7 +71,7 @@ fun SendReportsPopup(on: Boolean, onDismiss: () -> Unit, onSet: (Boolean) -> Uni
     }
 }
 
-/** Screen 5: asked once, the first time a game ends; focus on No thanks, B is No thanks. */
+/** Screen 5: asked once, when the library first shows (Joey 2026-11-11); focus on No thanks, B is No thanks. */
 @Composable
 fun AskReportsPopup(onAnswer: (Boolean) -> Unit) {
     var whatsSent by remember { mutableStateOf(false) }

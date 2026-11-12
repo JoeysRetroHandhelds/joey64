@@ -290,7 +290,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                                 place == RailPlace.Controls -> ControlsScreen(onHints = { settingsHints = it }) { place = RailPlace.Library }
                                 place == RailPlace.Search -> com.joeysretro.joey64.launcher.screens.SearchScreen(model, onHints = { settingsHints = it }) { place = RailPlace.Library }
                                 place == RailPlace.Netplay -> com.joeysretro.joey64.launcher.screens.NetplayScreen(model, onHints = { settingsHints = it }) { place = RailPlace.Library }
-                                else -> LibraryScreen(model) { place = RailPlace.Search }
+                                else -> LibraryScreen(model, updateAsking = updates.prompt.collectAsStateWithLifecycle().value != null) { place = RailPlace.Search }
                             }
                         }
                     }

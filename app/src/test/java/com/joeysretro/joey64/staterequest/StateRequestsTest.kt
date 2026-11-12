@@ -91,7 +91,10 @@ class StateRequestsTest {
     @Test fun serverAnswers() {
         val now = 1_000_000L
         assertEquals(Result.Sent, StateUpload.resultOf(204, null, 0, now))
-        assertEquals(Result.Drop(done = true), StateUpload.resultOf(404, null, 0, now))
+        assertEquals(Result.Drop(done = true), StateUpload.resultOf(404, null, 0, now, "not wanted"))
+        // The live server before its deploy: 404 "not found" (no route) waits, it doesn't stop the asks.
+        assertEquals(Result.Later(now + 60_000), StateUpload.resultOf(404, null, 0, now, "not found"))
+        assertEquals(Result.Drop(), StateUpload.resultOf(404, null, 12, now, "not found"))
         assertEquals(Result.Drop(done = true), StateUpload.resultOf(410, null, 11, now))
         assertEquals(Result.Drop(), StateUpload.resultOf(400, null, 0, now))
         assertEquals(Result.Drop(), StateUpload.resultOf(413, null, 0, now))

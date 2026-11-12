@@ -22,11 +22,11 @@ Controls, then Settings tabs, then popups.
       L2/R2 built 484da07 (a page of the grid, not device-checked); L1/R1: Joey picked "option 1" (they move
       along the top bar everywhere; see docs/tv-guidelines-audit-2026-11-11.md).
 - [x] A4 (built 2c98d4b, not device-checked: L1/R1 are the bar's; in the game picker L2/R2 go a page of the grid (FocusLanding); its D-pad is the grid's own, like the library's, which waits for a device) Host a room: L1/R1, L2/R2, and the same D-pad fix as the library.
-- [ ] A5 (built d34a52c, not device-checked: the tab step arms the landing in the same event; L2/R2
+- [x] A5 (built d34a52c + a3bf87a, Thor-checked 2026-11-12: the sets are D-pad tabs, L2/R2 a page; L2/R2
       through the shared ListPager on the games list, a game's list and the in-game panel) Achievements page: L1/R1 moves the highlight to the rail's Continue icon (should change tab);
       L2/R2 scroll a page there and in every long list.
 - [x] A6 (built f817b7c, not device-checked: the filter chip is the first thing under the bar (Library, Achievements, Settings' and Controls' game chip)) Pages with filters (Achievements and others): a button for the filters.
-- [x] A7 (built db20e54, not device-checked: JoeyDialog's first-item fallback ran before the window had focus while the marked row waited for it, so the first row lit and focus jumped; both wait for window focus now) Popups open on their marked row at once: Player 2 › Controller visibly moves the highlight to None
+- [x] A7 (built db20e54 + 2dfc6dc, Thor-checked 2026-11-12 frame by frame; JoeyDialog's first-item fallback ran before the window had focus while the marked row waited for it, so the first row lit and focus jumped; both wait for window focus now) Popups open on their marked row at once: Player 2 › Controller visibly moves the highlight to None
       after opening. JoeyOS: mark the row, open the list scrolled to it, no move after the first frame.
 - [ ] A8 (waits for a device: each case has to be found on one) B goes back to where you were, everywhere (one exit route per page and popup; containers restore
       the row you left). "Not correct almost every time."
@@ -241,3 +241,15 @@ switch removed after, nothing started):
   2026-11-11 about 20:41-20:50, before tonight's builds, the logs gone. Most likely quits before the game's first
   frame (about 0.65 s after A), when the core has drawn nothing yet. Every other state picture is fine.
 - Down from Settings on the bar lands on the nearest tile below (Mario Kart), not on the All games chip.
+
+Eighth round (02:10-02:30 CST, APKs bg-f144e9a3, lr-a4424742, a7-7bef8c7b):
+
+- B2's leftover: a list's badges came a frame after its rows. Decoded badges are kept in memory and a small file
+  (about 6 KB) is decoded at once (549bad2): in a fresh process the first frame with Mario Kart 64's list has them.
+- A5: on a game's Achievements page R2 goes a page down (row 1 to 6), L2 back; Up reaches the set tabs, Right and A
+  open Shortcuts with focus kept on the row. Found: the hint row said L/R Set while R1 moved along the bar to Search
+  (option 1); the hint is now only in game, where L/R does change sets (a3bf87a).
+- A7 (Player 2 › Controller): still jumped, Built-in controls lit for 3 frames (25 ms), then None. Android puts focus
+  on a window's first item as it gets focus, before our effect runs. The popup's onEnter now sends it to the marked
+  row (2dfc6dc): the first frame has no highlight, the next has None, nothing moves after. Rechecked: the recovery
+  popup (Continue), Options (Play), Details and back (Details), the Controller popup's B (back on Controller).

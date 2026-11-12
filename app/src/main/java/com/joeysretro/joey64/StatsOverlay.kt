@@ -79,6 +79,9 @@ class StatsOverlay(private val activity: Activity, private val wm: WindowManager
         }
         view.alignRight = !o.corner.left
         if (added) wm.updateViewLayout(view, lp) else { wm.addView(view, lp); added = true }
+        // The new layout's rows at once, from the last speeds measured (B5: the old rows stayed until the next tick, up
+        // to 500 ms, at the new size, so a change grew or shrank the panel and then changed it again).
+        if (measured && o.stats != StatsMode.Off) render()
         view.requestLayout(); view.invalidate()
     }
 
@@ -98,41 +101,54 @@ class StatsOverlay(private val activity: Activity, private val wm: WindowManager
         val frames = NativeBridge.framesRun()
         val drawn = NativeBridge.framesDrawn()
         val target = NativeBridge.contentFps()
-        if (lastTime != 0L && now > lastTime && added) {
+        if (lastTime != 0L && now > lastTime) {
             val vps = (frames - lastFrames) * 1000.0 / (now - lastTime)
             val fps = (drawn - lastDrawn) * 1000.0 / (now - lastTime)
             val speed = if (target > 0) vps * 100 / target else 0.0
-            if (settings.stats == StatsMode.Off) {
+            // Kept while hidden too, so the hotkey turning the stats on shows today's speeds at once ([apply]).
+            lastVps = vps; lastFps = fps; lastSpeed = speed; lastTarget = target; measured = true
+            // Read every tick, shown or not: it needs the reading before, so a layout that adds CPU has it at once (B5).
+            cpuBusy = cpu()
+            if (added) {
                 // N64_BENCH: the dev counter as before (emulated frames, frames drawn, speed).
-                view.set(listOf(StatsRow("%.0f FPS | %.0f DL/s | %.0f%% SPEED".format(vps, fps, speed))), null, 0, target, false)
-            } else {
-                val lines = settings.lines
-                // The graph's span: the last second of frames (60 bars at 60 Hz).
-                val span = if (target > 0) Math.round(target).toInt().coerceIn(1, times.size) else 60
-                var count = 0
-                var bars: FloatArray? = null
-                if (StatsLine.Graph in lines) { bars = FloatArray(span); count = NativeBridge.frameTimes(bars) }
-                val summary = bars?.let { StatsText.frameSummary(it, count) }
-                val bat = if (StatsLine.Battery in lines) battery() else null to null
-                val mem = ram()
-                val s = StatsSample(fps = fps, vps = vps, speed = speed, frameMs = summary?.first, slowestMs = summary?.second,
-                    cpu = if (StatsLine.Load in lines) cpu() else null, gpu = if (StatsLine.Load in lines) gpu() else null,
-                    battery = bat.first, heatC = bat.second, ramUsedGb = mem?.first, ramTotalGb = mem?.second,
-                    device = device, driver = driver, renderer = renderer, app = app,
-                    game = if (StatsLine.Game in lines) game() else emptyList())
-                val sideRows = StatsText.sideRows(s, lines)
-                val side = when (settings.layout) {
-                    StatsLayout.Side -> { view.sideScale = 1f; true }
-                    StatsLayout.Corner -> false
-                    // Auto: down the side when the bar holds the panel and its gap to the edge (the window sits 4 dp
-                    // in), the text made smaller to fit if need be, down to Small's; a little more room asked to go
-                    // there than to stay, so a number growing a digit doesn't flip the layout.
-                    StatsLayout.Auto -> view.fitSide(sideRows, sideBar() - (if (view.side) 6 else 12) * dp)
-                }
-                view.set(if (side) sideRows else StatsText.rows(s, lines), bars, count, target, side)
+                if (settings.stats == StatsMode.Off) view.set(listOf(StatsRow("%.0f FPS | %.0f DL/s | %.0f%% SPEED".format(vps, fps, speed))), null, 0, target, false)
+                else render()
             }
         }
         lastFrames = frames; lastDrawn = drawn; lastTime = now
+    }
+
+    private var lastVps = 0.0; private var lastFps = 0.0; private var lastSpeed = 0.0; private var lastTarget = 0.0
+    private var measured = false
+    private var cpuBusy: Int? = null
+
+    /** The rows for the settings in use, from the last speeds measured and fresh readings of the rest. */
+    private fun render() {
+        val vps = lastVps; val fps = lastFps; val speed = lastSpeed; val target = lastTarget
+        val lines = settings.lines
+        // The graph's span: the last second of frames (60 bars at 60 Hz).
+        val span = if (target > 0) Math.round(target).toInt().coerceIn(1, times.size) else 60
+        var count = 0
+        var bars: FloatArray? = null
+        if (StatsLine.Graph in lines) { bars = FloatArray(span); count = NativeBridge.frameTimes(bars) }
+        val summary = bars?.let { StatsText.frameSummary(it, count) }
+        val bat = if (StatsLine.Battery in lines) battery() else null to null
+        val mem = ram()
+        val s = StatsSample(fps = fps, vps = vps, speed = speed, frameMs = summary?.first, slowestMs = summary?.second,
+            cpu = if (StatsLine.Load in lines) cpuBusy else null, gpu = if (StatsLine.Load in lines) gpu() else null,
+            battery = bat.first, heatC = bat.second, ramUsedGb = mem?.first, ramTotalGb = mem?.second,
+            device = device, driver = driver, renderer = renderer, app = app,
+            game = if (StatsLine.Game in lines) game() else emptyList())
+        val sideRows = StatsText.sideRows(s, lines)
+        val side = when (settings.layout) {
+            StatsLayout.Side -> { view.sideScale = 1f; true }
+            StatsLayout.Corner -> false
+            // Auto: down the side when the bar holds the panel and its gap to the edge (the window sits 4 dp
+            // in), the text made smaller to fit if need be, down to Small's; a little more room asked to go
+            // there than to stay, so a number growing a digit doesn't flip the layout.
+            StatsLayout.Auto -> view.fitSide(sideRows, sideBar() - (if (view.side) 6 else 12) * dp)
+        }
+        view.set(if (side) sideRows else StatsText.rows(s, lines), bars, count, target, side)
     }
 
     // ---- readings ---------------------------------------------------------------------------

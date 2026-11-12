@@ -43,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.joeysretro.joey64.launcher.components.tabScroll
 import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -333,9 +334,12 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
                     else -> Popup.TouchChoice(row) } },
                 onSet = { setTouch(it) }, hints = touchPageHints(focused, target != null, backLabel), onHints = onHints, modifier = Modifier.weight(1f))
         } else {
+            // Down from the chip lands on the player tab in use (A8 2026-11-12: it skipped the tabs to Auto map).
+            val tabsEntry = remember { androidx.compose.ui.focus.FocusRequester() }
             @Composable
             fun headerChips() {
-                PageChip((targetTitle ?: "All games") + "  ›", R.drawable.ic_sliders, on = target != null,
+                PageChip((targetTitle ?: "All games") + "  ›", R.drawable.ic_sliders,
+                    androidx.compose.ui.Modifier.focusProperties { down = tabsEntry }, on = target != null,
                     onFocused = { if (it) focused = "chipGame" }) { popup = Popup.Games }
             }
             // No title under the top bar; the chips are the first thing on the page (approved top bar, 2026-11-11).
@@ -344,7 +348,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             // A focus stop too (Joey 2026-11-09): Up from the chips, ◀ ▶, A picks the player.
             // Hotkeys is the fifth tab, after Player 4 (Joey 2026-11-11): the same for every game and player.
             com.joeysretro.joey64.launcher.components.TabRow(5, if (hotkeysOpen) HOTKEYS_TAB else player, Modifier.padding(top = 6.dp).tabScroll(rememberScrollState()),
-                onFocused = { if (it) focused = "tabs" }, onPick = { i ->
+                onFocused = { if (it) focused = "tabs" }, entry = tabsEntry, onPick = { i ->
                     if (i == HOTKEYS_TAB) hotkeysOpen = true
                     else if (i != player || hotkeysOpen) { hotkeysOpen = false; player = i; open = emptySet() }
                 }) { i, m ->

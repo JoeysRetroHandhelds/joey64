@@ -238,9 +238,16 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             // The top bar's tabs (approved Back order, Joey 2026-11-11): B on a page's content focuses its tab, B on a
             // tab other than Library opens the Library with focus still on the bar, B on Library leaves Joey64.
             val bar = remember { com.joeysretro.joey64.launcher.components.BarFocus() }
+            val barFocusManager = androidx.compose.ui.platform.LocalFocusManager.current
             // The Library tab is focused once the Library is up (B on another tab).
             var barToLibrary by remember { mutableStateOf(false) }
-            LaunchedEffect(barToLibrary, place) { if (barToLibrary && place == RailPlace.Library) { bar.focus(RailPlace.Library); barToLibrary = false } }
+            // After the Library's own landing (its LaunchedEffect arms one onto the first game, launched after this one), which is
+            // dropped: B on a tab left focus on the grid's first game, not the Library tab (A8 2026-11-12, Thor).
+            LaunchedEffect(barToLibrary, place) { if (barToLibrary && place == RailPlace.Library) {
+                kotlinx.coroutines.yield()
+                landing.landedAt = landing.armedAt
+                bar.focus(RailPlace.Library); barToLibrary = false
+            } }
             /** B on a page under the bar: its content → its tab; its tab → the Library (still on the bar), or out from the Library. */
             fun backFromPage() {
                 when {
@@ -309,7 +316,18 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                 if (home && setupDebug == null) LauncherRail(if (home && place != RailPlace.Search) place else RailPlace.Library, bar, enabled = home,
                     showAchievements = home && raAccount != null, bottom = bottom, onFocused = { onRail = it; if (!it) barPlace = null },
                     onPlaceFocused = { barPlace = it }) {
-                    place = it
+                    // A on the tab of the page that's up goes back into it, where it lands (the row you were on), as its
+                    // hint "A Open" says (A8 2026-11-12, Thor: after B onto the tab, A did nothing on every page). A page
+                    // with nothing marked to land on gets Down's place.
+                    if (it != place) place = it
+                    else {
+                        landing.arm()
+                        scope.launch {
+                            androidx.compose.runtime.withFrameNanos { }
+                            androidx.compose.runtime.withFrameNanos { }
+                            if (landing.pending) { landing.landedAt = landing.armedAt; barFocusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Down) }
+                        }
+                    }
                 }
             }) {
                     Box(Modifier.fillMaxSize().drawWithContent { pageLayer.record { this@drawWithContent.drawContent() }; drawLayer(pageLayer) }) {

@@ -218,6 +218,79 @@ private fun SignInPopup(onDismiss: () -> Unit) {
 }
 
 /**
+ * First run's last page (approved D3 2026-11-11, scratchpad rasetup1_mock.png, "approved as drawn"): Username,
+ * Password, Sign in and Skip on one page. Focus starts on Username; A types, Down goes on. Skip or B goes on to
+ * the library; a right sign-in goes straight there too (the library's scan then looks every game's achievements
+ * up with the box art and cheats, no progress page of its own); a wrong one says so under the fields with focus
+ * back on Password. Someone already signed in never sees it. [debugOnly]: the SHOW broadcast's copy, which signs
+ * nobody in (Sign in shows the wrong-password line).
+ */
+@Composable
+fun RaSetupStep(debugOnly: Boolean = false, onDone: () -> Unit) {
+    val c = JoeyTheme.colors
+    val account by RaBridge.account.collectAsStateWithLifecycle()
+    val state by RaBridge.signInState.collectAsStateWithLifecycle()
+    var user by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var fakeWrong by remember { mutableStateOf(false) }
+    val passwordFocus = remember { FocusRequester() }
+    val busyFocus = remember { FocusRequester() }
+    val busy = state == RaBridge.SignInState.Busy
+    LaunchedEffect(Unit) { RaBridge.clearSignInError() }
+    LaunchedEffect(account) { if (account != null && !debugOnly) onDone() }
+    LaunchedEffect(state, fakeWrong) {
+        if (state == RaBridge.SignInState.Wrong || fakeWrong) { password = ""; runCatching { passwordFocus.requestFocus() } }
+        if (state == RaBridge.SignInState.Busy) runCatching { busyFocus.requestFocus() }
+    }
+    fun submit() {
+        if (busy || user.isBlank() || password.isEmpty()) return
+        if (debugOnly) fakeWrong = true else RaBridge.signIn(user, password)
+    }
+    fun skip() { RaBridge.cancelSignIn(); onDone() }
+    androidx.activity.compose.BackHandler { if (busy) RaBridge.cancelSignIn() else skip() }
+    @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+    val keyboardUp = androidx.compose.foundation.layout.WindowInsets.Companion.isImeVisible
+
+    com.joeysretro.joey64.launcher.components.SetupPage {
+        com.joeysretro.joey64.launcher.components.SetupHeading("Sign in to RetroAchievements")
+        com.joeysretro.joey64.launcher.components.SetupBody("See each game's achievements in the library before you play it, and earn them as you play.")
+        Column(Modifier.padding(top = 14.dp).widthIn(max = 360.dp).fillMaxWidth()) {
+            FieldLabel("Username")
+            if (busy) StaticField(user)
+            else ControllerTextField(user, { user = it; fakeWrong = false; RaBridge.clearSignInError() }, placeholder = "Username",
+                modifier = Modifier.initialFocus())
+            FieldLabel("Password")
+            if (busy) StaticField("•".repeat(password.length))
+            else ControllerTextField(password, { password = it; fakeWrong = false; RaBridge.clearSignInError() }, placeholder = "Password",
+                isPassword = true, onSubmit = ::submit, modifier = Modifier.focusRequester(passwordFocus))
+            val problem = when (val s = state) {
+                RaBridge.SignInState.Wrong -> "Wrong username or password."
+                is RaBridge.SignInState.Failed -> s.message
+                else -> if (fakeWrong) "Wrong username or password." else null
+            }
+            if (problem != null) Text(problem, style = JoeyTheme.type.note, color = c.error, textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
+        }
+        if (!keyboardUp) {
+            com.joeysretro.joey64.launcher.components.ButtonRow(Modifier.padding(top = com.joeysretro.joey64.launcher.components.SetupButtonsTop)) {
+                // The focus stop while signing in, so B still reaches the page.
+                if (busy) Row(
+                    Modifier.focusRequester(busyFocus).focusable()
+                        .background(c.buttonPrimary, RoundedCornerShape(8.dp)).padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(Modifier.size(14.dp), color = c.onButtonPrimary, strokeWidth = 2.dp)
+                    Text("Signing in…", style = JoeyTheme.type.button, color = c.onButtonPrimary, modifier = Modifier.padding(start = 8.dp))
+                }
+                else JoeyButton("Sign in", primary = true, onClick = ::submit)
+                JoeyButton("Skip", primary = false, onClick = ::skip)
+            }
+            com.joeysretro.joey64.launcher.components.SetupSmall("You can do this later in Settings › RetroAchievements.")
+        }
+    }
+}
+
+/**
  * The same sign-in popup over the paused game (a tap on the Sign-in expired pop-up). It closes by
  * itself once signed in; the game's achievements then load (the host's loginDone).
  */

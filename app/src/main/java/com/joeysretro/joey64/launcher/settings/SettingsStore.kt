@@ -41,6 +41,8 @@ data class LauncherSettings(
     val setupDone: Boolean = false,
     /** First run's "Where should Joey64 keep saves, states and screenshots?" was answered (screens 3-4, built 2026-11-07). */
     val dataAsked: Boolean = false,
+    /** First run's Import from RetroArch was answered; Sign in to RetroAchievements comes next (approved D3, 2026-11-11). */
+    val importAsked: Boolean = false,
     // Settings › Library (approved mockup 2026-11-08): Show, Covers, Look for new games.
     // Recently played by default (Joey 2026-11-11; it was Name). A sort someone picked is kept.
     val sortBy: SortBy = SortBy.RecentlyPlayed,
@@ -84,6 +86,7 @@ class SettingsStore(context: Context) {
             boxArtLow = p[BOX_ART_LOW] ?: false,
             setupDone = p[SETUP_DONE] ?: false,
             dataAsked = p[DATA_ASKED] ?: false,
+            importAsked = p[IMPORT_ASKED] ?: false,
             sortBy = enumOr(p[SORT_BY], SortBy.RecentlyPlayed),
             favouritesFirst = p[FAV_FIRST] ?: false,
             regions = p[REGIONS]?.mapNotNull { n -> RegionGroup.entries.firstOrNull { it.name == n } }?.toSet()?.takeIf { it.isNotEmpty() }
@@ -110,6 +113,7 @@ class SettingsStore(context: Context) {
     suspend fun setBoxArtLow(on: Boolean) = store.edit { it[BOX_ART_LOW] = on }
     suspend fun setSetupDone() = store.edit { it[SETUP_DONE] = true }
     suspend fun setDataAsked() = store.edit { it[DATA_ASKED] = true }
+    suspend fun setImportAsked() = store.edit { it[IMPORT_ASKED] = true }
     suspend fun setSortBy(v: SortBy) = store.edit { it[SORT_BY] = v.name }
     suspend fun setFavouritesFirst(on: Boolean) = store.edit { it[FAV_FIRST] = on }
     /** At least one stays ticked (the popup won't untick the last). */
@@ -133,6 +137,7 @@ class SettingsStore(context: Context) {
         val BOX_ART_LOW = booleanPreferencesKey("box_art_low")
         val SETUP_DONE = booleanPreferencesKey("setup_done")
         val DATA_ASKED = booleanPreferencesKey("data_asked")
+        val IMPORT_ASKED = booleanPreferencesKey("import_asked")
         val SORT_BY = stringPreferencesKey("library_sort")
         val FAV_FIRST = booleanPreferencesKey("library_favourites_first")
         val REGIONS = stringSetPreferencesKey("library_regions")

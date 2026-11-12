@@ -198,6 +198,18 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
                 com.joeysretro.joey64.achievements.RaGameList.refreshIfOld(getApplication(), com.joeysretro.joey64.achievements.RaBridge.agent)
             }
             if (changed) reloadCollections()
+            fetchAchievements()
+        }
+    }
+
+    /**
+     * Signed in: every library game's achievements before it's played (approved D3 2026-11-11), after the set list
+     * and after each scan, with the box art. The Achievements pages read them from the progress cache.
+     */
+    fun fetchAchievements() {
+        if (com.joeysretro.joey64.achievements.RaBridge.account.value == null) return
+        viewModelScope.launch(Dispatchers.IO) {
+            com.joeysretro.joey64.achievements.RaLibraryFetch.fetchMissing(getApplication(), com.joeysretro.joey64.achievements.RaBridge.agent)
         }
     }
 
@@ -618,6 +630,7 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
             }
             fetchArt(newGames)
             fetchCheats()
+            fetchAchievements()
         }
         return true
     }

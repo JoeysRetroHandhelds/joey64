@@ -754,6 +754,26 @@ class LibraryDb private constructor(context: Context) :
         return true
     }
 
+    /**
+     * The library's games whose achievements aren't kept yet, or were looked up ([RaLibraryFetch], marked "fetched")
+     * before [olderThan]; rc_client's own progress from a play is never replaced by a look-up.
+     */
+    fun md5sNeedingSets(olderThan: Long): List<String> =
+        readableDatabase.rawQuery(
+            "SELECT g.md5 FROM games g WHERE g.md5 IS NOT NULL AND EXISTS (SELECT 1 FROM files f WHERE f.game_id = g.id)" +
+                " AND NOT EXISTS (SELECT 1 FROM ra_sets s WHERE s.game_id = g.id AND s.game_json IS NOT NULL" +
+                " AND (s.game_json NOT LIKE '%\"fetched\":true%' OR s.fetched_at >= ?))",
+            arrayOf("$olderThan"),
+        ).use { c -> buildList { while (c.moveToNext()) add(c.getString(0).lowercase()) } }
+
+    /** A look-up's sets, unless a play kept rc_client's own in the meantime. */
+    fun saveFetchedAchievements(md5: String, game: org.json.JSONObject, list: String): Boolean {
+        val own = readableDatabase.rawQuery(
+            "SELECT 1 FROM ra_sets s JOIN games g ON g.id = s.game_id WHERE g.md5 = ? AND s.game_json IS NOT NULL AND s.game_json NOT LIKE '%\"fetched\":true%'",
+            arrayOf(md5.lowercase())).use { it.moveToFirst() }
+        return !own && saveAchievements(md5, game, list)
+    }
+
     /** Every cached set: (game id, its summary JSON, the game's last-played ms). */
     fun achievementGames(): List<Triple<Long, String, Long>> =
         readableDatabase.rawQuery(

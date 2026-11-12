@@ -161,7 +161,7 @@ class LauncherActivity : ComponentActivity() {
                     else if (what == "lost-folder" || what == "lost-folder-off") model.debugLostFolder(what == "lost-folder")
                     else if (what.startsWith("net-reach-")) com.joeysretro.joey64.netplay.PlayTogether.debugRouterState = what.removePrefix("net-reach-").toIntOrNull()
                     else if (what.startsWith("net-")) model.debugNetEnded(what)
-                    else if (what.startsWith("update")) updates.debugShow(what) else model.debugSetupPage(what.takeIf { it == "first-run" || it == "data" || it == "import" })
+                    else if (what.startsWith("update")) updates.debugShow(what) else model.debugSetupPage(what.takeIf { it == "first-run" || it == "data" || it == "import" || it == "ra-setup" })
                 }
             }
             val showFilter = android.content.IntentFilter("com.joeysretro.joey64.SHOW")
@@ -284,6 +284,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                                 debugPage == "first-run" -> FirstRunScreen(model) { model.debugSetupPage(null) }
                                 debugPage == "data" -> com.joeysretro.joey64.launcher.screens.DataFolderStep(debugOnly = true) { model.debugSetupPage(null) }
                                 debugPage == "import" -> ImportScreen(importModel, s.dataFolder, debugOnly = true, firstRun = true) { model.debugSetupPage(null) }
+                                debugPage == "ra-setup" -> com.joeysretro.joey64.launcher.screens.RaSetupStep(debugOnly = true) { model.debugSetupPage(null) }
                                 folders.isEmpty() -> FirstRunScreen(model) { trees ->
                                     scope.launch {
                                         for (tree in trees) {
@@ -294,7 +295,9 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                                 }
                                 // Then where saves go (screens 3-4), then Import from RetroArch, offered once; Skip or Continue finishes first run.
                                 !s.setupDone && !s.dataAsked -> com.joeysretro.joey64.launcher.screens.DataFolderStep { scope.launch { store.setDataAsked() } }
-                                !s.setupDone -> ImportScreen(importModel, s.dataFolder, firstRun = true) { scope.launch { store.setSetupDone() } }
+                                !s.setupDone && !s.importAsked -> ImportScreen(importModel, s.dataFolder, firstRun = true) { scope.launch { store.setImportAsked() } }
+                                // Last, Sign in to RetroAchievements (approved D3 2026-11-11, rasetup1_mock.png); signed in already, it goes straight on.
+                                !s.setupDone -> com.joeysretro.joey64.launcher.screens.RaSetupStep { scope.launch { store.setSetupDone() } }
                                 importAgain -> {
                                     androidx.activity.compose.BackHandler { importAgain = false }
                                     ImportScreen(importModel, s.dataFolder) { importAgain = false }

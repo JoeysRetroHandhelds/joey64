@@ -83,8 +83,12 @@ data class VideoChoice(val value: String, val label: String, val detail: String?
 
 object VideoChoices {
     val resolution = listOf(
-        VideoChoice("1", "Native (1x)", "The N64's own size: the most accurate and the fastest"),
-        VideoChoice("2", "2x"), VideoChoice("4", "4x"), VideoChoice("8", "8x", "Strong devices only"))
+        // Each line names the size most games draw at (320 x 240 at native) and the screen it suits: the biggest scale
+        // that still fits under that screen's height (Joey 2026-11-11: "show the resolutions / say best for 1080p / best for 4k").
+        VideoChoice("1", "Native (1x)", "320 × 240 · the N64's own size: the most accurate and the fastest"),
+        VideoChoice("2", "2x", "640 × 480 · best for 720p screens"),
+        VideoChoice("4", "4x", "1280 × 960 · best for 1080p screens"),
+        VideoChoice("8", "8x", "2560 × 1920 · best for 4K screens, strong devices only"))
     val aspect = listOf(
         VideoChoice("auto", "Auto", "4:3, or 16:9 when Widescreen is on"),
         VideoChoice("4:3", "4:3", "The N64's own shape"),

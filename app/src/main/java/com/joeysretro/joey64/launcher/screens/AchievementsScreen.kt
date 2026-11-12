@@ -1,10 +1,14 @@
 package com.joeysretro.joey64.launcher.screens
 
-import com.joeysretro.joey64.launcher.components.TwoColumns
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -190,6 +194,7 @@ private fun GamesList(onHints: (List<Hint>) -> Unit, onClose: () -> Unit, focusG
     var filter by remember { mutableStateOf(GameFilter.All) }
     var sort by remember { mutableStateOf(GameSort.RecentlyPlayed) }
     var showing by remember { mutableStateOf(false) }
+    var sorting by remember { mutableStateOf(false) }
     val pager = remember { ListPager() }
     val gamesState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -204,11 +209,14 @@ private fun GamesList(onHints: (List<Hint>) -> Unit, onClose: () -> Unit, focusG
         }
     }
     var onChip by remember { mutableStateOf(false) }
-    LaunchedEffect(onChip) { onHints(listOf(Hint("A", if (onChip) "Show" else "Open"), Hint("B", "Back"))) }
+    var onSortChip by remember { mutableStateOf(false) }
+    LaunchedEffect(onChip, onSortChip) { onHints(listOf(Hint("A", if (onSortChip) "Change" else if (onChip) "Show" else "Open"), Hint("B", "Back"))) }
     val all = games ?: return
     val shown = remember(all, filter, sort) { RaLists.games(all, filter, sort) }
     count = shown.size
+    ToTopOnChange(gamesState, filter, sort)
     val now = System.currentTimeMillis()
+    val chips = remember { FocusRequester() }
     Column(Modifier.fillMaxSize().padding(horizontal = JoeyTheme.spacing.margin).padding(top = 14.dp, bottom = 6.dp)) {
         val a = account
         // A place on the top bar: no title, and the filter chip is the first thing on the page (Joey 2026-11-11).
@@ -218,23 +226,22 @@ private fun GamesList(onHints: (List<Hint>) -> Unit, onClose: () -> Unit, focusG
             picture = { Picture(a?.avatar, 34.dp) },
             chip = filter.label, chipOn = filter != GameFilter.All, onChip = { showing = true }, onChipFocused = { onChip = it },
             chipFirst = all.isNotEmpty() && shown.isEmpty(),
+            sortChip = sort.label, onSort = { sorting = true }, onSortFocused = { onSortChip = it }, chipsEntry = chips,
         )
         if (all.isEmpty()) Empty("Play a game that has RetroAchievements, and it shows here with your progress.", holdFocus = true)
         else if (shown.isEmpty()) Empty("No games here")
         LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(top = 8.dp), state = gamesState) {
             itemsIndexed(shown, key = { _, g -> g.gameId }) { i, g ->
                 val first = if (focusGame != null && shown.any { it.gameId == focusGame }) g.gameId == focusGame else g === shown.first()
-                IconRow(g.title, RaLists.gameLine(g), Modifier.initialFocus(first).pagedItem(pager, i), bar = g.fraction,
+                IconRow(g.title, RaLists.gameLine(g), Modifier.upTo(i == 0, chips).initialFocus(first).pagedItem(pager, i), bar = g.fraction,
                     rightText = if (g.mastered) gold("Mastered") else if (g.lastPlayed > 0) AnnotatedString(SlotDates.label(g.lastPlayed, now)) else null,
                     picture = { Picture(badgeFile(g.badge), 40.dp) }) { onOpen(AchievementsGame(g.gameId, g.title)) }
             }
         }
     }
-    if (showing) AchShowPopup(
-        filters = GameFilter.entries.map { it.label }, counts = RaLists.counts(all).let { m -> GameFilter.entries.map { m[it] } },
-        filter = filter.ordinal, sorts = GameSort.entries.map { it.label }, sort = sort.ordinal,
-        onFilter = { filter = GameFilter.entries[it] }, onSort = { sort = GameSort.entries[it] }, onDismiss = { showing = false },
-    )
+    if (showing) AchPickPopup("Show", GameFilter.entries.map { it.label }, RaLists.counts(all).let { m -> GameFilter.entries.map { m[it] } },
+        filter.ordinal, { filter = GameFilter.entries[it] }) { showing = false }
+    if (sorting) AchPickPopup("Sort", GameSort.entries.map { it.label }, null, sort.ordinal, { sort = GameSort.entries[it] }) { sorting = false }
 }
 
 @Composable
@@ -247,6 +254,8 @@ private fun GameAchievementsContent(
     var filter by remember { mutableStateOf(AchFilter.All) }
     var sort by remember { mutableStateOf(AchSort.RaOrder) }
     var onChip by remember { mutableStateOf(false) }
+    var onSortChip by remember { mutableStateOf(false) }
+    var sorting by remember { mutableStateOf(false) }
     // The set tabs (approved mockup 2026-11-08): only for a game with more than one set. The filter
     // and sort stay when the tab changes; in game, the panel opens on the tab of [focusId]'s set.
     val sets = data?.game?.sets.orEmpty()
@@ -262,10 +271,10 @@ private fun GameAchievementsContent(
     // gone and focus fell out of the page to the rail (Joey 2026-11-11: "l1/r1 on achievements page jumps to the rail").
     fun pickSet(i: Int) { setPicked = i; if (!onTabs) landing?.arm() }
     tabs?.onStep = { delta -> if (tabbed) pickSet((setIdx + delta + sets.size) % sets.size) }
-    LaunchedEffect(onChip, tabbed, onTabs) {
+    LaunchedEffect(onChip, onSortChip, tabbed, onTabs) {
         // L/R changes the set only in game: in the launcher L1/R1 move along the top bar (Joey 2026-11-11, option 1),
         // so the hint said "L/R Set" while R1 opened Search (Thor 2026-11-12); the sets are D-pad tabs there.
-        onHints(listOfNotNull(if (onChip) Hint("A", "Show") else if (onTabs) Hint("A", "Open") else null,
+        onHints(listOfNotNull(if (onSortChip) Hint("A", "Change") else if (onChip) Hint("A", "Show") else if (onTabs) Hint("A", "Open") else null,
             if (tabbed && live) Hint("L/R", tabHint) else null, Hint("B", "Back")))
     }
     val d = data ?: return
@@ -275,9 +284,12 @@ private fun GameAchievementsContent(
     val shown = remember(inSet, filter, sort) { RaLists.achievements(inSet, filter, sort, live) }
     val now = System.currentTimeMillis()
     val listState = rememberLazyListState()
+    ToTopOnChange(listState, filter, sort)
     val pager = remember { ListPager() }
     val scope = rememberCoroutineScope()
     tabs?.onPage = { dir -> scope.launch { pager.page(listState, dir, shown.size) } }
+    val chips = remember { FocusRequester() }
+    val setTab = remember { FocusRequester() }
     Column((if (inPanel) Modifier.fillMaxWidth() else Modifier.fillMaxSize().padding(horizontal = JoeyTheme.spacing.margin).padding(top = 14.dp, bottom = 6.dp))) {
         Header(
             title = g?.title?.ifEmpty { null } ?: title,
@@ -285,12 +297,13 @@ private fun GameAchievementsContent(
             picture = { Picture(g?.let { badgeFile(it.badge) }, 34.dp) },
             chip = filter.label, chipOn = filter != AchFilter.All, onChip = { onShow(true) }, chipShown = g != null, onChipFocused = { onChip = it },
             chipFirst = g != null && shown.isEmpty(),
+            sortChip = sort.label, onSort = { sorting = true }, onSortFocused = { onSortChip = it }, chipsEntry = chips,
         )
         if (g != null) ThinBar(set?.fraction ?: g.fraction, Modifier.fillMaxWidth().padding(top = 10.dp))
         if (tabbed) SettingsTabs(sets.mapIndexed { i, s -> RaLists.setLabel(i, s) }, setIdx, counts = sets.map { it.achievements },
             // In game, a dot on a set with an active challenge, so it isn't missed on another tab.
             dots = if (!live) emptySet() else sets.indices.filter { i -> d.list.any { it.set == sets[i].id && it.section == RaAchievement.ACTIVE_CHALLENGE } }.toSet(),
-            onFocused = { onTabs = it },
+            onFocused = { onTabs = it }, entry = setTab, up = if (g != null) chips else null,
         ) { pickSet(it) }
         if (g == null) Empty(if (live) "This game has no RetroAchievements set, or it wasn't found." else "Play this game once, and its achievements show here.", holdFocus = true)
         else if (!live && d.list.any { !it.isUnlocked && it.progress.isNotEmpty() })
@@ -304,15 +317,14 @@ private fun GameAchievementsContent(
         LazyColumn(Modifier.then(if (inPanel) Modifier.fillMaxWidth() else Modifier.weight(1f).fillMaxWidth()).padding(top = 6.dp), state = listState) {
             itemsIndexed(shown, key = { _, a -> a.id }) { i, a ->
                 val first = if (focusId != null && shown.any { it.id == focusId }) a.id == focusId else a === shown.first()
-                AchievementRow(a, now, live, Modifier.initialFocus(first).pagedItem(pager, i))
+                AchievementRow(a, now, live, Modifier.upTo(i == 0 && (tabbed || g != null), if (tabbed) setTab else chips)
+                    .initialFocus(first).pagedItem(pager, i))
             }
         }
     }
-    if (showing) AchShowPopup(
-        filters = AchFilter.entries.map { it.label }, counts = RaLists.achCounts(inSet).let { m -> AchFilter.entries.map { m[it] } },
-        filter = filter.ordinal, sorts = AchSort.entries.map { it.label }, sort = sort.ordinal,
-        onFilter = { filter = AchFilter.entries[it] }, onSort = { sort = AchSort.entries[it] }, onDismiss = { onShow(false) },
-    )
+    if (showing) AchPickPopup("Show", AchFilter.entries.map { it.label }, RaLists.achCounts(inSet).let { m -> AchFilter.entries.map { m[it] } },
+        filter.ordinal, { filter = AchFilter.entries[it] }) { onShow(false) }
+    if (sorting) AchPickPopup("Sort", AchSort.entries.map { it.label }, null, sort.ordinal, { sort = AchSort.entries[it] }) { sorting = false }
 }
 
 /** One achievement (approved ach3.html): badge or padlock, name and Missable tag, description, progress bar; the right side says when, or how far, and how rare. */
@@ -347,22 +359,59 @@ private fun AchievementRow(a: RaAchievement, now: Long, live: Boolean, modifier:
 /** The shared header (approved template): picture, the title in the page type, the line under it, the Show chip at the right. */
 @Composable
 private fun Header(title: String?, line: String, picture: @Composable () -> Unit, chip: String, chipOn: Boolean, onChip: () -> Unit, chipShown: Boolean = true,
-                   onChipFocused: (Boolean) -> Unit = {}, chipFirst: Boolean = false) {
+                   onChipFocused: (Boolean) -> Unit = {}, chipFirst: Boolean = false,
+                   sortChip: String? = null, onSort: () -> Unit = {}, onSortFocused: (Boolean) -> Unit = {},
+                   chipsEntry: FocusRequester? = null) {
     val c = JoeyTheme.colors
+    // [chipsEntry] focuses the chips (the one last used, else the first): Up from the list's first row (or the set tabs)
+    // points here. Compose's own search went past them to the top bar: the rows are full width, so it weighs the chips
+    // at the side as far off, though they're the nearest thing above (Google's TV Navigation page: the D-pad goes to
+    // the nearest element that way; Restore focus page: focusRestorer with a fallback). Thor 2026-11-12.
+    val firstChip = remember { FocusRequester() }
+    val group = (if (chipsEntry != null) Modifier.focusRequester(chipsEntry) else Modifier).focusRestorer(firstChip).focusGroup()
+    // Sort, its own chip by the filter (approved as drawn 2026-11-12, sortchip_mock.png).
+    @Composable fun sortChipView(m: Modifier = Modifier) { if (sortChip != null && chipShown) PageChip(sortChip, R.drawable.ic_sort, m, onFocused = onSortFocused, onClick = onSort) }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        // [title] null (the Achievements place, under the top bar): the chip first, at the start of the page.
-        if (title == null && chipShown) PageChip(chip, R.drawable.ic_filter, modifier = if (chipFirst) Modifier.initialFocus() else Modifier,
-            on = chipOn, onFocused = onChipFocused, onClick = onChip)
+        // [title] null (the Achievements place, under the top bar): the chips first, at the start of the page.
+        if (title == null && chipShown) Row(group, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PageChip(chip, R.drawable.ic_filter, modifier = Modifier.focusRequester(firstChip).then(if (chipFirst) Modifier.initialFocus() else Modifier),
+                on = chipOn, onFocused = onChipFocused, onClick = onChip)
+            sortChipView()
+        }
+        // The Achievements place: the name and points at the right, the picture just before them (Joey 2026-11-12:
+        // "right align the retroachievements username and points").
+        if (title == null) androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
         picture()
-        Column(Modifier.weight(1f)) {
+        Column(if (title == null) Modifier else Modifier.weight(1f), horizontalAlignment = if (title == null) Alignment.End else Alignment.Start) {
             if (title != null) Text(title, style = JoeyTheme.type.pageTitle, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (line.isNotEmpty()) Text(line, style = JoeyTheme.type.small, color = c.textDim, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         // [chipFirst]: the list is empty, so focus lands on the chip (else it falls to the rail).
-        if (title != null && chipShown) PageChip(chip, R.drawable.ic_filter, modifier = if (chipFirst) Modifier.initialFocus() else Modifier,
-            on = chipOn, onFocused = onChipFocused, onClick = onChip)
+        if (title != null && chipShown) Row(group, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            sortChipView(Modifier.focusRequester(firstChip))
+            PageChip(chip, R.drawable.ic_filter, modifier = if (chipFirst) Modifier.initialFocus() else Modifier,
+                on = chipOn, onFocused = onChipFocused, onClick = onChip)
+        }
     }
 }
+
+/**
+ * A new filter or sort starts the list from its top: it kept its scroll, so after Name the A to C games were above the
+ * screen (Thor 2026-11-12; the Library's grid does the same, LibraryModel.gridSort). Not on the first pass, so a list
+ * opened on a game (back from its page) keeps its place.
+ */
+@Composable
+private fun ToTopOnChange(state: androidx.compose.foundation.lazy.LazyListState, vararg keys: Any?) {
+    val seen = remember { mutableStateOf<List<Any?>?>(null) }
+    LaunchedEffect(*keys) {
+        val k = keys.toList()
+        if (seen.value != null && seen.value != k) state.scrollToItem(0)
+        seen.value = k
+    }
+}
+
+/** Up from this row goes to [to] when [on] (the list's first row: see [Header]'s chipsEntry). */
+private fun Modifier.upTo(on: Boolean, to: FocusRequester): Modifier = if (on) focusProperties { up = to } else this
 
 /** A badge or game icon, kept in files/ra/badges (fetched now if it isn't); a plain tile until it's here. */
 @Composable
@@ -413,26 +462,18 @@ private fun Empty(text: String, holdFocus: Boolean = false) {
             .padding(start = JoeyTheme.spacing.rowPadH, top = 16.dp, bottom = 8.dp))
 }
 
-/** Show (approved ach2.html): Filter and Sort columns, a tick in each; the filters with their counts. A picks, B closes. */
+/**
+ * Show (the filters, with their counts) or Sort, each one list with the one in use ticked: the Filter and Sort
+ * columns of ach2.html, split into two chips (approved as drawn 2026-11-12, sortchip_mock.png). A picks and closes.
+ */
 @Composable
-private fun AchShowPopup(
-    filters: List<String>, counts: List<Int?>, filter: Int, sorts: List<String>, sort: Int,
-    onFilter: (Int) -> Unit, onSort: (Int) -> Unit, onDismiss: () -> Unit,
-) {
-    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 600.dp) {
+private fun AchPickPopup(title: String, labels: List<String>, counts: List<Int?>?, picked: Int, onPick: (Int) -> Unit, onDismiss: () -> Unit) {
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 380.dp) {
         Column {
-            PopupTitle("Show")
-            TwoColumns(Modifier.weight(1f, fill = false), gap = 14.dp, left = {
-                GroupLabel("Filter")
-                filters.forEachIndexed { i, label ->
-                    JoeyRow(label, Modifier.initialFocus(i == filter), sideways = true,
-                        trailing = { f -> TickCount(i == filter, counts.getOrNull(i), f) }) { onFilter(i) }
-                }
-            }) {
-                GroupLabel("Sort")
-                sorts.forEachIndexed { i, label ->
-                    JoeyRow(label, sideways = true, trailing = { f -> TickCount(i == sort, null, f) }) { onSort(i) }
-                }
+            PopupTitle(title)
+            labels.forEachIndexed { i, label ->
+                JoeyRow(label, Modifier.initialFocus(i == picked),
+                    trailing = { f -> TickCount(i == picked, counts?.getOrNull(i), f) }) { onPick(i); onDismiss() }
             }
         }
     }

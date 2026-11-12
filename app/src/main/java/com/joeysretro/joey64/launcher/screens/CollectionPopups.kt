@@ -1,6 +1,9 @@
 package com.joeysretro.joey64.launcher.screens
 
-import com.joeysretro.joey64.launcher.components.TwoColumns
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -57,8 +60,8 @@ internal fun GroupLabel(text: String) {
 }
 
 /**
- * Show (approved 2026-11-04, coll.html): All games with a tick and the total, then two columns,
- * Collections (Favourites first, New collection… last) and Filters, each with its count. A shows
+ * Show (approved 2026-11-04, coll.html; one list since 2026-11-12, showlist_mock.png): All games with a tick and
+ * the total, then Collections (Favourites first, New collection… last) and Filters, each with its count. A shows
  * one. Start on a collection of the user's (not Favourites) opens Rename / Delete.
  */
 @Composable
@@ -94,33 +97,34 @@ fun ShowPopup(model: LibraryModel, onDismiss: () -> Unit) {
         onDismiss = onDismiss,
         hints = listOfNotNull(Hint("A", "Show"), if (focusedCollection != null) Hint("Start", "Options") else null, Hint("B", "Close")),
         onOptions = { focusedCollection?.let { options = it } },
-        width = 600.dp,
+        width = 420.dp,
     ) {
         Column {
             PopupTitle("Show")
             JoeyRow(LibraryView.All.label, land(LibraryView.All, null),
                 trailing = { f -> TickCount(view == LibraryView.All, counts[LibraryView.All], f) }) { pick(LibraryView.All) }
-            TwoColumns(Modifier.weight(1f, fill = false), gap = 14.dp, left = {
+            // One list, Down through every row (approved as drawn 2026-11-12, showlist_mock.png; it was two columns).
+            androidx.compose.foundation.layout.Column(Modifier.weight(1f, fill = false).fillMaxWidth()
+                .focusRestorer().focusGroup().verticalScroll(androidx.compose.foundation.rememberScrollState())) {
                 GroupLabel("Collections")
                 val list = listOf(LibraryView.Favourites) + collections.map { LibraryView.Collection(it.id, it.name) }
                 for (v in list) {
                     val own = (v as? LibraryView.Collection)?.let { GameCollection(it.id, it.name) }
-                    JoeyRow(v.label, land(v, own), sideways = true,
+                    JoeyRow(v.label, land(v, own),
                         onFocused = { on -> if (on) focusedCollection = own else if (focusedCollection == own) focusedCollection = null },
                         onLongClick = own?.let { { options = it } },
                         trailing = { f -> TickCount(view == v, counts[v], f) }) { pick(v) }
                 }
-                JoeyRow("New collection…", Modifier.initialFocus(landOn == "new"), sideways = true) { naming = true }
-            }) {
+                JoeyRow("New collection…", Modifier.initialFocus(landOn == "new")) { naming = true }
                 GroupLabel("Filters")
                 // Has achievements only while signed in to RetroAchievements (as the Achievements rows).
                 for (f in AutoFilter.entries.filter { it != AutoFilter.HasAchievements || signedIn }) {
                     val v = LibraryView.Filter(f)
-                    JoeyRow(f.label, land(v, null), sideways = true,
+                    JoeyRow(f.label, land(v, null),
                         trailing = { fo -> TickCount(view == v, counts[v], fo) }) { pick(v) }
                 }
                 // Hidden, last, only while a game is hidden (approved D7 2026-11-11, hidden_mock.png screen 1).
-                if (hidden.isNotEmpty() || view == LibraryView.Hidden) JoeyRow(LibraryView.Hidden.label, land(LibraryView.Hidden, null), sideways = true,
+                if (hidden.isNotEmpty() || view == LibraryView.Hidden) JoeyRow(LibraryView.Hidden.label, land(LibraryView.Hidden, null),
                     trailing = { fo -> TickCount(view == LibraryView.Hidden, hidden.size, fo) }) { pick(LibraryView.Hidden) }
             }
         }

@@ -149,10 +149,26 @@ fun LibraryScreen(model: LibraryModel, updateAsking: Boolean = false, onSearch: 
     if (lostUp) LostFolderPopup(model)
     var showing by remember { mutableStateOf(false) }
     if (showing) ShowPopup(model) { showing = false }
+    var sorting by remember { mutableStateOf(false) }
+    if (sorting) LibrarySortPopup { sorting = false }
+    val sortBy = remember { com.joeysretro.joey64.launcher.settings.SettingsStore(context) }.settings
+        .collectAsStateWithLifecycle(initialValue = com.joeysretro.joey64.launcher.settings.lastSettings).value?.sortBy
+    // A new sort starts the grid at the top: it kept the old scroll, so after Name the games A to C were above it
+    // (Thor 2026-11-12, p23). Kept on the model, so a sort changed in Settings › Library counts too; the first value
+    // the app sees doesn't (coming back to the Library keeps its place).
+    LaunchedEffect(sortBy) {
+        if (sortBy == null) return@LaunchedEffect
+        if (model.gridSort != null && model.gridSort != sortBy) model.libraryToTop()
+        model.gridSort = sortBy
+    }
     // The Search chip: B on a Search opened from it lands back on it through the page's landing (LauncherActivity
     // arms it); otherwise on the tile Y was pressed on. Read once as the Library comes back.
     val chipBack = remember { model.searchFromChip.also { model.searchFromChip = false } }
     var searchChipFocused by remember { mutableStateOf(false) }
+    // Coming into the grid (Down from a chip): the game last focused there, else the first game in view (Google's
+    // "Restore focus" page: focusRestorer with a fallback). Joey 2026-11-12: after a new sort, Down from Sort landed
+    // on the second game, the one under the chip, because the remembered game had moved and there was no fallback.
+    val gridTop = remember { FocusRequester() }
 
     val c = JoeyTheme.colors
     val all = games ?: return
@@ -181,6 +197,11 @@ fun LibraryScreen(model: LibraryModel, updateAsking: Boolean = false, onSearch: 
             com.joeysretro.joey64.launcher.components.PageChip(view.label, com.joeysretro.joey64.R.drawable.ic_filter,
                 on = view != com.joeysretro.joey64.launcher.library.LibraryView.All,
                 onFocused = { model.chipFocused.value = it }) { showing = true }
+            // Sort, its own chip by the filter (approved as drawn 2026-11-12, sortchip_mock.png): what the library is
+            // sorted by; A opens Settings › Library's Sort by popup (one setting, both places).
+            com.joeysretro.joey64.launcher.components.PageChip((sortBy ?: com.joeysretro.joey64.launcher.library.SortBy.Name).label,
+                com.joeysretro.joey64.R.drawable.ic_sort, modifier = Modifier.padding(start = 8.dp),
+                onFocused = { model.chipFocused.value = it }) { sorting = true }
             // Search sits by the filter on every screen, not on the bar (Joey 2026-11-12; it was portrait's only, as
             // the bottom bar holds five), and Y opens it from anywhere on the Library. B on Search comes back here.
             com.joeysretro.joey64.launcher.components.PageChip("Search", com.joeysretro.joey64.R.drawable.ic_rail_search,
@@ -211,6 +232,7 @@ fun LibraryScreen(model: LibraryModel, updateAsking: Boolean = false, onSearch: 
         // The hint row says what the focused tile plays (approved mockup 2A, 2026-11-11).
         androidx.compose.runtime.key(view) {
             GamesGrid(list, model, { model.searchFromChip = searchChipFocused; onSearch() }, land = !chipBack, keepPlace = true, onFocusGame = { if (!it) model.focusedTile.value = null },
+                firstTile = gridTop, firstTileInView = true,
                 onFocused = { model.focusedTile.value = it })
         }
     }
@@ -228,6 +250,11 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
     land: Boolean = true, onFocusGame: (Boolean) -> Unit = {},
     /** Focuses the first tile (Search's Enter: the first result, not the tile under the box). */
     firstTile: androidx.compose.ui.focus.FocusRequester? = null,
+    /**
+     * [firstTile] on the first tile of the top row in view, not game 0, and it is where focus coming into the grid
+     * lands when the game last focused there can't take it (the Library: Down from its chips).
+     */
+    firstTileInView: Boolean = false,
     /**
      * The library's own grid: it comes back where you left it ([LibraryModel.libraryFocus]), focus on that game and the
      * same scroll, after a game's page or a game put it away. Found on the Odin 3 Portal 2026-11-11: closing Game
@@ -316,6 +343,9 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
         // keepPlace: the scroll it had (made again after a game's page, the grid started at the top).
         val start = remember { if (keepPlace) model.libraryScroll else 0 to 0 }
         val gridState = rememberLazyGridState(start.first, start.second)
+        // [firstTileInView]: the first tile of the top row on screen (game 0 when the grid is at the top).
+        var anchorTiles by remember { mutableStateOf(0) }
+        val anchor by remember(cols, firstTileInView) { androidx.compose.runtime.derivedStateOf { if (firstTileInView) gridState.firstVisibleItemIndex / cols * cols else 0 } }
         if (keepPlace) LaunchedEffect(gridState) {
             snapshotFlow { gridState.firstVisibleItemIndex to gridState.firstVisibleItemScrollOffset }.collect { model.libraryScroll = it }
         }
@@ -380,7 +410,9 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
             contentPadding = PaddingValues(horizontal = JoeyTheme.spacing.margin, vertical = 14.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.fillMaxSize().focusRestorer().focusGroup().onPreviewKeyEvent { event ->
+            modifier = Modifier.fillMaxSize()
+                .focusRestorer(if (firstTileInView && firstTile != null && anchorTiles > 0) firstTile else FocusRequester.Default)
+                .focusGroup().onPreviewKeyEvent { event ->
                 val k = event.nativeKeyEvent
                 val up = k.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP
                 if (!up && k.keyCode != android.view.KeyEvent.KEYCODE_DPAD_DOWN) return@onPreviewKeyEvent false
@@ -405,12 +437,13 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
             itemsIndexed(list, key = { _, g -> keys[g.id] ?: "i${g.id}" }) { i, g ->
                 // The tile plays another copy now (Versions) and still has focus: Start and the hint row follow it.
                 var hasFocus by remember { mutableStateOf(false) }
+                if (i == anchor && firstTile != null) androidx.compose.runtime.DisposableEffect(Unit) { anchorTiles++; onDispose { anchorTiles-- } }
                 LaunchedEffect(g.id) { if (hasFocus && focusedGame?.id != g.id) { focusedGame = g; focusedIndex = i; keep(g) } }
                 GameTile(g, model.cover(g), names, com.joeysretro.joey64.launcher.library.LibraryArrange.title(g, style, tidy), greyed = g.id in greyed,
                     copyLine = copyLines[g.id],
                     modifier = Modifier.initialFocus(land && (if (landId != null) g.id == landId else firstFocus && i == 0))
                     .landFocus(move, g.id == moveTo)
-                    .then(if (i == 0 && firstTile != null) Modifier.focusRequester(firstTile) else Modifier),
+                    .then(if (i == anchor && firstTile != null) Modifier.focusRequester(firstTile) else Modifier),
                     onFocus = { on -> hasFocus = on; if (on) { focusedGame = g; focusedIndex = i; keep(g) } else if (focusedGame?.id == g.id) { focusedGame = null; focusedIndex = -1 } },
                     onOptions = { keep(g); popup = g.id to GamePopup.Options }) { keep(g); model.playAsked(g) { context.startActivity(it) } }
             }

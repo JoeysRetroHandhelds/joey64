@@ -74,7 +74,7 @@ fun TabChip(text: String, on: Boolean, modifier: Modifier = Modifier) {
 @Composable
 fun TabRow(
     count: Int, on: Int, modifier: Modifier = Modifier, onFocused: ((Boolean) -> Unit)? = null,
-    entry: androidx.compose.ui.focus.FocusRequester? = null, onPick: (Int) -> Unit,
+    entry: androidx.compose.ui.focus.FocusRequester? = null, up: androidx.compose.ui.focus.FocusRequester? = null, onPick: (Int) -> Unit,
     tab: @Composable (i: Int, m: Modifier) -> Unit,
 ) {
     val req = androidx.compose.runtime.remember(count) { List(count) { androidx.compose.ui.focus.FocusRequester() } }
@@ -95,7 +95,8 @@ fun TabRow(
         for (i in 0 until count) {
             val (source, focused) = rememberFocusState()
             // TalkBack (code audit 3, M33): a tab, and whether it's the one in use.
-            tab(i, Modifier.focusRequester(req[i]).then(if (i == on && entry != null) Modifier.focusRequester(entry) else Modifier).coverSelection(focused, corner = 7.dp).pressable(source) { onPick(i) }
+            tab(i, Modifier.focusRequester(req[i]).then(if (i == on && entry != null) Modifier.focusRequester(entry) else Modifier)
+                .then(if (up != null) Modifier.focusProperties { this.up = up } else Modifier).coverSelection(focused, corner = 7.dp).pressable(source) { onPick(i) }
                 .semantics { role = Role.Tab; selected = i == on })
         }
     }

@@ -123,6 +123,8 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
     /** B on the grid (approved Back order): the grid goes back to the top as focus moves to the bar. */
     private val _toTop = kotlinx.coroutines.flow.MutableStateFlow(0)
     val toTop: kotlinx.coroutines.flow.StateFlow<Int> = _toTop
+    /** The sort the grid was last laid out in: a new one starts it at the top (LibraryScreen). */
+    var gridSort: com.joeysretro.joey64.launcher.library.SortBy? = null
     fun libraryToTop() { _toTop.value++; libraryFocus = null; libraryScroll = 0 to 0 }
 
     var libraryScroll: Pair<Int, Int>

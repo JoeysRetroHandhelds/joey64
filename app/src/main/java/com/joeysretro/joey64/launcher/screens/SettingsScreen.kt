@@ -285,6 +285,8 @@ internal fun SettingsTabs(
     onTabFocused: ((Int) -> Unit)? = null,
     /** Focuses the tab in use: a chip above the row points its Down here. */
     entry: androidx.compose.ui.focus.FocusRequester? = null,
+    /** Where Up from a tab goes (chips above the row that Compose's search passes over). */
+    up: androidx.compose.ui.focus.FocusRequester? = null,
     onTap: (Int) -> Unit,
 ) {
     val c = JoeyTheme.colors
@@ -301,7 +303,7 @@ internal fun SettingsTabs(
     val scope = rememberCoroutineScope()
     LaunchedEffect(on) { if (on in labels.indices) show(on) }
     com.joeysretro.joey64.launcher.components.TabRow(labels.size, on,
-        Modifier.fillMaxWidth().tabScroll(rememberScrollState()).padding(top = 6.dp, bottom = 8.dp), onFocused, entry, onTap) { i, m ->
+        Modifier.fillMaxWidth().tabScroll(rememberScrollState()).padding(top = 6.dp, bottom = 8.dp), onFocused, entry, up, onTap) { i, m ->
             val label = labels[i]
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier
                 .bringIntoViewRequester(bring[i])

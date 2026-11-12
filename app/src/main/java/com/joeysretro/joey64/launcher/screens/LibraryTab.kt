@@ -75,6 +75,30 @@ private enum class LibPopup { Sort, Regions, Betas, Hidden, Size, Names, Style, 
  * A removed folder's files leave the library; its games' play time, favourites, collections, saves and states
  * stay, and come back with the folder. The last folder can't be removed (the library would go back to first run).
  */
+/**
+ * The library's Sort by (Settings › Library's row, and the Library's Sort chip by the filter: approved as drawn
+ * 2026-11-12, scratchpad build_sortchip.py / sortchip_mock.png, one setting in both places): the four sorts, the
+ * one in use ticked (A picks it and closes), then Favourites first (A switches it).
+ */
+@Composable
+fun LibrarySortPopup(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val store = remember { SettingsStore(context) }
+    val s = store.settings.collectAsState(initial = lastSettings).value ?: return
+    fun set(block: suspend SettingsStore.() -> Unit) { scope.launch { store.block() } }
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 470.dp) {
+        Column {
+            PopupTitle("Sort by")
+            for (by in SortBy.entries) JoeyRow(by.label, Modifier.initialFocus(by == s.sortBy), detail = by.detail,
+                trailing = if (by == s.sortBy) { _ -> PickerTick() } else null) { set { setSortBy(by) }; onDismiss() }
+            PopupDivider()
+            JoeyRow("Favourites first", detail = "Favourites at the top, then the rest", value = if (s.favouritesFirst) "On" else "Off",
+                sideways = true) { set { setFavouritesFirst(!s.favouritesFirst) } }
+        }
+    }
+}
+
 @Composable
 fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -201,16 +225,7 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
 
     val close = { popup = null }
     when (popup) {
-        LibPopup.Sort -> JoeyDialog(onDismiss = close, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 470.dp) {
-            Column {
-                PopupTitle("Sort by")
-                for (by in SortBy.entries) JoeyRow(by.label, Modifier.initialFocus(by == s.sortBy), detail = by.detail,
-                    trailing = if (by == s.sortBy) { _ -> PickerTick() } else null) { set { setSortBy(by) }; popup = null }
-                PopupDivider()
-                JoeyRow("Favourites first", detail = "Favourites at the top, then the rest", value = if (s.favouritesFirst) "On" else "Off",
-                    sideways = true) { set { setFavouritesFirst(!s.favouritesFirst) } }
-            }
-        }
+        LibPopup.Sort -> LibrarySortPopup(close)
         LibPopup.Regions -> JoeyDialog(onDismiss = close, hints = listOf(Hint("A", if (onBetas) "Select" else "Tick"), Hint("B", "Close")), width = 470.dp) {
             Column {
                 PopupTitle("Regions", "Games from the ticked regions show in the library.")

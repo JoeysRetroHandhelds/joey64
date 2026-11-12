@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Up and down arrows, on the library's and achievements' Sort chip (approved sortchip_mock.png, 2026-11-12). A line icon drawn here; tinted by the theme. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="2" android:strokeLineJoin="round" android:strokeLineCap="round"
+        android:pathData="M7,4V20M3,16L7,20L11,16M17,20V4M13,8L17,4L21,8"/>
+</vector>

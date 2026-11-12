@@ -23,6 +23,9 @@ optional icon).
   Thor's bottom screen the names don't fit, and dropping them gives version A.
 - Handheld screens are short and wide: a top bar costs rows of covers, the rail costs width the grid
   doesn't use (4 across is the cap). Recommendation: keep the left drawer and fix what it fails below.
+- **Joey's choice (2026-11-11): the top bar with names** (scratchpad topbar2_mock.png, 7 screens: pill tabs
+  for the places, underline tabs inside pages, no page titles, Back to the bar, the bar scrolls on 4:3).
+  Not approved as drawn yet; cover size under it is open (covers_mock.png: 4, 5 or 6 across).
 
 ## Where it fails
 

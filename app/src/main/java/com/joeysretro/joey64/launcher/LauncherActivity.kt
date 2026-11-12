@@ -281,6 +281,8 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                     delay(500L); heldPage = null; model.onOptionsDrawn = null
                 }
             }
+            // The place whose tab on the bar has focus, null while the bar hasn't: the page's panel shows its help (F5).
+            var barPlace by remember { mutableStateOf<RailPlace?>(null) }
             // Cheats opens over the library or Search results (a game's options), and B goes back there; going anywhere on the rail closes it.
             LaunchedEffect(place) {
                 model.closeCheats(); model.closeAchievements(); model.closeGameSettings(); model.closeSaves(); model.closeScreenshots()
@@ -294,12 +296,16 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             androidx.activity.compose.BackHandler(enabled = libraryOpen) { if (onRail) (context as? android.app.Activity)?.finish() else { model.libraryToTop(); bar.focus(RailPlace.Library) } }
             com.joeysretro.joey64.launcher.components.RailLayout(Modifier.weight(1f).fillMaxWidth(), rail = { bottom ->
                 LauncherRail(if (home) place else RailPlace.Library, bar, enabled = home,
-                    showAchievements = home && raAccount != null, bottom = bottom, onFocused = { onRail = it }) {
+                    showAchievements = home && raAccount != null, bottom = bottom, onFocused = { onRail = it; if (!it) barPlace = null },
+                    onPlaceFocused = { barPlace = it }) {
                     place = it
                 }
             }) {
                     Box(Modifier.fillMaxSize().drawWithContent { pageLayer.record { this@drawWithContent.drawContent() }; drawLayer(pageLayer) }) {
-                        CompositionLocalProvider(LocalFocusLanding provides landing) {
+                        // The focused place's help in the page's panel while the bar has focus (F5).
+                        CompositionLocalProvider(LocalFocusLanding provides landing,
+                            com.joeysretro.joey64.launcher.components.LocalPanelHelp provides
+                                barPlace?.let { com.joeysretro.joey64.launcher.components.PanelInfo(it.label, it.help) }) {
                             val debugPage by model.debugSetup.collectAsStateWithLifecycle()
                             when {
                                 debugPage == "first-run" -> FirstRunScreen(model) { model.debugSetupPage(null) }

@@ -31,15 +31,15 @@ import com.joeysretro.joey64.launcher.theme.JoeyTheme
 /** A place the rail leads to. Only the ones that are built are shown. */
 // Continue (the last game from its auto slot) was the first place until 2026-11-11: Joey removed it ("remove the play
 // icon"), it read as the way to the library and started Mario Kart 64 instead. The library's Continue on Play stays.
-enum class RailPlace(@DrawableRes val icon: Int, val label: String) {
-    Library(R.drawable.ic_rail_library, "Library"),
-    Search(R.drawable.ic_rail_search, "Search"),
+enum class RailPlace(@DrawableRes val icon: Int, val label: String, /** The panel's help while its tab on the bar has focus (F5). */ val help: String) {
+    Library(R.drawable.ic_rail_library, "Library", "All your games, with your favourites, collections and filters."),
+    Search(R.drawable.ic_rail_search, "Search", "Find a game by its name."),
     /** Every open Netplay room (approved netplay6 mockup 2026-11-10, Joey: "home screen, lobbies icon on the left"). */
-    Netplay(R.drawable.ic_rail_netplay, "Netplay"),
+    Netplay(R.drawable.ic_rail_netplay, "Netplay", "Play with others: host a room, join one by its code, or pick an open room."),
     /** Only while signed in to RetroAchievements (approved: no signed-out state). */
-    Achievements(R.drawable.ic_trophy, "Achievements"),
-    Controls(R.drawable.ic_rail_controls, "Controls"),
-    Settings(R.drawable.ic_rail_settings, "Settings"),
+    Achievements(R.drawable.ic_trophy, "Achievements", "Your RetroAchievements: each game's achievements and what you've unlocked."),
+    Controls(R.drawable.ic_rail_controls, "Controls", "Each player's controller and buttons, and the hotkeys."),
+    Settings(R.drawable.ic_rail_settings, "Settings", "Video, audio, saves, the library and more, for every game or one."),
 }
 
 /**
@@ -75,7 +75,7 @@ class BarFocus {
 @Composable
 fun LauncherRail(selected: RailPlace, focus: BarFocus, modifier: Modifier = Modifier, enabled: Boolean = true,
                  showAchievements: Boolean = false, bottom: Boolean = false,
-                 onFocused: (Boolean) -> Unit = {}, onSelect: (RailPlace) -> Unit = {}) {
+                 onFocused: (Boolean) -> Unit = {}, onPlaceFocused: (RailPlace) -> Unit = {}, onSelect: (RailPlace) -> Unit = {}) {
     val c = JoeyTheme.colors
     val requesters = focus.requesters
     val places = RailPlace.entries.filter { (it != RailPlace.Achievements || showAchievements) && (!bottom || it != RailPlace.Search) }
@@ -89,7 +89,7 @@ fun LauncherRail(selected: RailPlace, focus: BarFocus, modifier: Modifier = Modi
             verticalAlignment = Alignment.CenterVertically,
         ) {
             for (place in places) BottomItem(place, place == selected, enabled,
-                Modifier.weight(1f).focusRequester(requesters.getValue(place))) { onSelect(place) }
+                Modifier.weight(1f).focusRequester(requesters.getValue(place)).onFocusChanged { if (it.isFocused) onPlaceFocused(place) }) { onSelect(place) }
         }
         return
     }
@@ -100,7 +100,8 @@ fun LauncherRail(selected: RailPlace, focus: BarFocus, modifier: Modifier = Modi
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Image(painterResource(R.drawable.rail_logo), contentDescription = "Joey64", modifier = Modifier.padding(end = 12.dp).size(32.dp))
-        for (place in places) TopItem(place, place == selected, enabled, Modifier.focusRequester(requesters.getValue(place))) { onSelect(place) }
+        for (place in places) TopItem(place, place == selected, enabled,
+            Modifier.focusRequester(requesters.getValue(place)).onFocusChanged { if (it.isFocused) onPlaceFocused(place) }) { onSelect(place) }
     }
 }
 

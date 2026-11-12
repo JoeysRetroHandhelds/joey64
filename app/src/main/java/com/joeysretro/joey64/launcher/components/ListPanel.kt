@@ -82,6 +82,12 @@ class ListPanelState {
 fun rememberListPanel() = remember { ListPanelState() }
 
 /**
+ * Help that the panel shows instead of the focused row's while focus is above the list (Joey 2026-11-12, F5): the tab
+ * in use while the tab row has focus, the focused place while the top bar has it. Null: the row's own help.
+ */
+val LocalPanelHelp = androidx.compose.runtime.compositionLocalOf<PanelInfo?> { null }
+
+/**
  * A Settings-type page as one list with a panel beside it (approved 2026-11-11: every Settings tab, Game settings,
  * Controls with Hotkeys, Touch controls; Google TV's own settings pattern): the rows in one column, Down goes through
  * all of them; the panel on the right follows the focus at once with the row's help and its choices, the one in use
@@ -98,6 +104,7 @@ fun ListPanel(state: ListPanelState, info: PanelInfo, hints: List<Hint>, onHints
     state.info = info
     if (!wide && state.inside) state.inside = false
     val inside = state.inside
+    val shownInfo = LocalPanelHelp.current ?: info
     // L2 / R2: a screen of rows less one, by the focus system's own moves (all rows are composed: no frame wait).
     // A move that leaves the list (Up from the first row goes to the tabs) is taken back and the paging stops there.
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
@@ -140,7 +147,7 @@ fun ListPanel(state: ListPanelState, info: PanelInfo, hints: List<Hint>, onHints
             Column(Modifier.weight(1f).fillMaxWidth().then(tracked).focusRequester(state.list).focusRestorer().focusGroup()
                 .verticalScroll(listScroll), content = list)
             Spacer(Modifier.height(6.dp))
-            DescriptionLine(info.title, info.help)
+            DescriptionLine(shownInfo.title, shownInfo.help)
         }
         return
     }
@@ -154,7 +161,7 @@ fun ListPanel(state: ListPanelState, info: PanelInfo, hints: List<Hint>, onHints
             }
             .focusRequester(state.list).focusRestorer().focusGroup()
             .verticalScroll(listScroll), content = list)
-        Panel(state, info, Modifier.weight(0.44f).fillMaxHeight().padding(bottom = 6.dp))
+        Panel(state, shownInfo, Modifier.weight(0.44f).fillMaxHeight().padding(bottom = 6.dp))
     }
 }
 

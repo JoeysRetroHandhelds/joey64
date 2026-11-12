@@ -77,7 +77,20 @@ import kotlinx.coroutines.launch
 import com.joeysretro.joey64.JLog
 
 /** The Settings tabs built so far, in the approved order (General, Audio and Library come with their pages). */
-enum class SettingsTab(val label: String) { Appearance("Appearance"), Video("Video"), Emulation("Emulation"), Audio("Audio"), OnScreen("On screen"), Saves("Saves"), Library("Library"), RetroAchievements("RetroAchievements"), About("About") }
+enum class SettingsTab(val label: String, /** The panel's help while the tab row has focus (Joey 2026-11-12, F5). */ val help: String) {
+    Appearance("Appearance", "The theme, and how pop-ups look during play."),
+    Video("Video", "How the picture looks and which renderer and driver draw it, for every game or one."),
+    Emulation("Emulation", "Overclock, the CPU core, the Expansion Pak and thermal fallback, for every game or one."),
+    Audio("Audio", "Volume, latency and the fast-forward sound, for every game or one."),
+    OnScreen("On screen", "The stats overlay and the pop-ups shown during play."),
+    Saves("Saves", "Quit saves, Continue on Play, backups, the data folder and importing from RetroArch."),
+    Library("Library", "How the library sorts and shows games, the ROM folders, BIOS and downloads."),
+    RetroAchievements("RetroAchievements", "Your account, the unlock pop-ups and sound, and offline unlocks."),
+    About("About", "This version and its updates, reports, logs, licences and credits."),
+}
+
+/** The tab row's line after a tab's help, as Controls' tab row says it. */
+internal const val TAB_ROW_HELP = "◀ ▶ and A pick a tab."
 
 /**
  * Settings (approved Settings mockups, 2026-11-05). The tabs that are built, L1/R1 (or a tap)
@@ -146,7 +159,11 @@ fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher
         if (perGame) com.joeysretro.joey64.launcher.components.PageHeader(null) {
             PageChip((targetTitle ?: "All games") + "  ›", R.drawable.ic_sliders, on = target != null, onFocused = { onChip = it }) { gamesPopup = 1 }
         }
-        SettingsTabs(SettingsTab.entries.map { it.label }, tab.ordinal, onFocused = { onTabs = it }) { tab = SettingsTab.entries[it] }
+        var focusedTab by remember { mutableIntStateOf(0) }
+        SettingsTabs(SettingsTab.entries.map { it.label }, tab.ordinal, onFocused = { onTabs = it }, onTabFocused = { focusedTab = it }) { tab = SettingsTab.entries[it] }
+        val tabHelp = if (onTabs) SettingsTab.entries[focusedTab].let { com.joeysretro.joey64.launcher.components.PanelInfo(it.label, it.help + " " + TAB_ROW_HELP) }
+            else com.joeysretro.joey64.launcher.components.LocalPanelHelp.current
+        androidx.compose.runtime.CompositionLocalProvider(com.joeysretro.joey64.launcher.components.LocalPanelHelp provides tabHelp) {
         key(tab, target, resetGen) {
             if (!perGame && tab != SettingsTab.OnScreen) tabControl = null
             val onHints = setHints
@@ -163,6 +180,7 @@ fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher
                 SettingsTab.RetroAchievements -> RaTab(onHints, Modifier.weight(1f))
                 SettingsTab.About -> AboutTab(updates, { onHints(it) }, Modifier.weight(1f))
             }
+        }
         }
     }
     when (gamesPopup) {
@@ -253,6 +271,8 @@ internal fun SettingsTabs(
     /** Tabs with a dot after the label (a set with an active challenge). */
     dots: Set<Int> = emptySet(),
     onFocused: ((Boolean) -> Unit)? = null,
+    /** The tab that has focus, for the panel's help (F5). */
+    onTabFocused: ((Int) -> Unit)? = null,
     onTap: (Int) -> Unit,
 ) {
     val c = JoeyTheme.colors
@@ -274,7 +294,7 @@ internal fun SettingsTabs(
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier
                 .bringIntoViewRequester(bring[i])
                 .onSizeChanged { sizes[i] = it.width }
-                .onFocusChanged { if (it.isFocused) scope.launch { show(i) } }
+                .onFocusChanged { if (it.isFocused) { onTabFocused?.invoke(i); scope.launch { show(i) } } }
                 .then(m)
                 .then(if (i in dots) Modifier.semantics { stateDescription = "Active challenge" } else Modifier)
                 .then(if (i == on) Modifier.background(c.chip, RoundedCornerShape(6.dp)) else Modifier)

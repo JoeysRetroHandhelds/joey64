@@ -192,7 +192,16 @@ private fun GameTabs(game: GameRef, v: GsView.Tabs, onHints: (List<Hint>) -> Uni
         var onTabs by remember { mutableStateOf(false) }
         var pageHints by remember { mutableStateOf(listOf(Hint("B", "Back"))) }
         LaunchedEffect(onTabs, pageHints) { onHints(if (onTabs) listOf(Hint("A", "Open"), Hint("B", "Back")) else pageHints) }
-        SettingsTabs(parts.map { it.label }, parts.indexOf(v.part), onFocused = { onTabs = it; onTabsFocused(it) }) { onTab(parts[it]) }
+        var focusedPart by remember { mutableStateOf(v.part) }
+        SettingsTabs(parts.map { it.label }, parts.indexOf(v.part), onFocused = { onTabs = it; onTabsFocused(it) },
+            onTabFocused = { focusedPart = parts[it] }) { onTab(parts[it]) }
+        // The tab row has focus: the panel shows the tab's own help (F5), as Settings' tab row does.
+        val tabHelp = if (onTabs) com.joeysretro.joey64.launcher.components.PanelInfo(focusedPart.label, when (focusedPart) {
+            GamePart.Emulation -> "This game's overclock, CPU core, Expansion Pak and thermal fallback."
+            GamePart.Audio -> "This game's own volume and latency."
+            else -> "How this game's picture looks and which renderer and driver draw it."
+        } + " " + TAB_ROW_HELP) else com.joeysretro.joey64.launcher.components.LocalPanelHelp.current
+        androidx.compose.runtime.CompositionLocalProvider(com.joeysretro.joey64.launcher.components.LocalPanelHelp provides tabHelp) {
         key(v) {
             val onHints: (List<Hint>) -> Unit = { pageHints = it }
             when (v.part) {
@@ -202,6 +211,7 @@ private fun GameTabs(game: GameRef, v: GsView.Tabs, onHints: (List<Hint>) -> Uni
                     start = v.start?.let { r -> AudioKey.entries.firstOrNull { it.name == r } })
                 else -> VideoTab(game.saveName, onHints, onControl, Modifier.weight(1f), start = v.start, onPicturePanel = onPicturePanel)
             }
+        }
         }
     }
 }

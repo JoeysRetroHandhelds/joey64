@@ -1,7 +1,7 @@
 # The core bundled in app/src/main/jniLibs (written by devtools/bundle-core.sh; the .so itself is not committed)
 repo: JoeysRetroHandhelds/joey64-core
-branch: rel1
-commit: b67229fc8cce4599674046fcdc935aa0992ebcc1 2026-11-11 16:36:05 -0600 Build xBRZ out of the core (GPL-3.0; Joey 2026-11-11: drop it): TextureFilters_xbrz.cpp left 
+branch: rel2
+commit: 04cb4e4b92d6b1300a05f5f25c3df5e88e150c42 2026-11-11 19:44:57 -0600 Merge branch 'netplay' into rel2
 uncommitted: none
-built: 2026-11-11 16:35
-md5: f0944f34d18e2b9e334ae99f197f35e3
+built: 2026-11-11 19:45
+md5: 42f48854d6cb22e7b789180c93ca7866

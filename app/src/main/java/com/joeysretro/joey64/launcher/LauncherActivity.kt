@@ -156,6 +156,7 @@ class LauncherActivity : ComponentActivity() {
             // went today (to files/dev_reports_base when it exists, e.g. a local wrangler dev through adb reverse).
             // net-reach-<n>: the next rooms take UPnP state n (upnp.h: 3 no router, 4 refused, 5 shared address,
             // 6 every outside port taken) instead of the router's; net-reach-off goes back.
+            // net-room: Your room for the first game with a made-up second player, nothing hosted (Close the room ends it).
             val show = object : android.content.BroadcastReceiver() {
                 override fun onReceive(c: android.content.Context, i: android.content.Intent) {
                     val what = i.getStringExtra("what") ?: return
@@ -165,6 +166,7 @@ class LauncherActivity : ComponentActivity() {
                     else if (what == "reports-send") model.debugSendReports()
                     else if (what == "lost-folder" || what == "lost-folder-off") model.debugLostFolder(what == "lost-folder")
                     else if (what.startsWith("net-reach-")) com.joeysretro.joey64.netplay.PlayTogether.debugRouterState = what.removePrefix("net-reach-").toIntOrNull()
+                    else if (what == "net-room") model.debugRoom()
                     else if (what.startsWith("net-")) model.debugNetEnded(what)
                     else if (what.startsWith("update")) updates.debugShow(what) else model.debugSetupPage(what.takeIf { it == "first-run" || it == "data" || it == "import" || it == "ra-setup" })
                 }

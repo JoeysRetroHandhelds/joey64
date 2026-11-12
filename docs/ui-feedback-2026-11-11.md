@@ -30,7 +30,7 @@ Controls, then Settings tabs, then popups.
       after opening. JoeyOS: mark the row, open the list scrolled to it, no move after the first frame.
 - [ ] A8 (waits for a device: each case has to be found on one) B goes back to where you were, everywhere (one exit route per page and popup; containers restore
       the row you left). "Not correct almost every time."
-- [x] A9 (built a04703c, not device-checked: host B asks "Close the room?" with Cancel focused; joiner B leaves) B closes a room (host: asks first, since it ends the room for everyone).
+- [x] A9 (built a04703c; host side Thor-checked 2026-11-12 through SHOW net-room, a made-up room with no server: B asks "Close the room?" with Cancel focused, in the room's place, Cancel back on the row B was pressed on (Who can join, Sam), Close the room back to the library; joiner B leaves, not device-checked) B closes a room (host: asks first, since it ends the room for everyone).
 
 ## B. Flashes (find each cause on a device, then fix)
 
@@ -152,7 +152,7 @@ Second round (00:38-00:48 CST, APK 30a2498f):
   above the first column). Mario Kart 64's "Where you quit" picture (20:41) is a black frame; its log was rotated out,
   and trying again means quitting Mario Kart over Joey's quit save, so it's left.
 
-Still not device-checked: A9 (needs a room), D3's real first run, D4's Send now press, a real TV (the TV paths were checked on the Thor as a TV).
+Still not device-checked: A9's joiner side (needs a real room), D3's real first run, D4's Send now press, a real TV (the TV paths were checked on the Thor as a TV).
 
 Third round (00:55-01:25 CST, APKs b4-fe7358fa to b5b-7bfb63d3, screen recordings read frame by frame):
 
@@ -306,7 +306,7 @@ Joey's answers to the morning report (2026-11-12, asked one by one):
   Join by code), 8 with SHOW net-unreach over the Netplay card (the card steps aside, OK brings it back), 10 with
   SHOW lost-folder over the Netplay card (the note waited, then came up when the card closed), 6 with a made-up Video
   file for Duke (Keep them back on Duke, Remove back on All games; file and folder removed). Not pressed there: 5
-  (Change box art) and 9 (hosting a room); Joining… needs a real room.
+  (Change box art); Joining… needs a real room. 9 checked later the same day through SHOW net-room (f2g-1aae7f7c): the question in the room's place in the same window (94f913d), Cancel back on Who can join and on Sam.
   Step 2 (built, Joey 2026-11-12 "Yes, start step 2"): the game screen has its own host (GameOverlay), so the pause
   menu, slot picker, Restart and the problem and netplay cards share one window; and every full-screen page, side
   panel and bare popup gets a host of its own, so the cards opened over it share one window above it (in the

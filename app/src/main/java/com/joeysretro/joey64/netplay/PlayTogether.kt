@@ -483,6 +483,17 @@ object PlayTogether {
             LobbyLines.roomKeys(joiners.associate { (j, slot) -> slot to keys[j]!! }))
     }
 
+    /**
+     * Debug builds only (SHOW net-room): Your room with a made-up second player and no server, socket or list entry, so
+     * its screens (B asks Close the room?) can be checked without hosting. [leave] takes it away.
+     */
+    fun debugRoom(game: Game) {
+        if (_state.value !is Idle) return
+        _state.value = Hosting(game, "K7QM4XTP", Reach.Anywhere, listOf(
+            Player(1, "You", android.os.Build.MODEL, null, you = true, host = true, thisWifi = true),
+            Player(2, "Sam", "Odin 3", 42, you = false, host = false, thisWifi = true)), public = false)
+    }
+
     /** Close the room (or leave one): the others are told, the router's way in is closed. */
     fun leave() {
         hostJob?.cancel(); hostJob = null

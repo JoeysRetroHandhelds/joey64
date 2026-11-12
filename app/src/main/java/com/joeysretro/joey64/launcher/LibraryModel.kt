@@ -1167,6 +1167,12 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
     }
 
     /** Debug (SHOW --es what net-lost|net-unreach|net-mismatch): the popup for the first game in the library. */
+    /** Debug builds (SHOW net-room): Your room for the first game, without hosting ([PlayTogether.debugRoom]). */
+    fun debugRoom() {
+        val g = _all.value?.firstOrNull() ?: return
+        com.joeysretro.joey64.netplay.PlayTogether.debugRoom(netGame(g))
+    }
+
     fun debugNetEnded(what: String) {
         val need = when (what) { "net-lost" -> GameStartFailed.Need.NetLost; "net-unreach" -> GameStartFailed.Need.NetUnreachable; "net-full" -> GameStartFailed.Need.NetTurnedDown; else -> GameStartFailed.Need.NetMismatch }
         val game = _all.value?.firstOrNull() ?: return

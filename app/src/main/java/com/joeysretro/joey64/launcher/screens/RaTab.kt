@@ -236,7 +236,10 @@ fun RaSetupStep(debugOnly: Boolean = false, onDone: () -> Unit) {
     val passwordFocus = remember { FocusRequester() }
     val busyFocus = remember { FocusRequester() }
     val busy = state == RaBridge.SignInState.Busy
-    LaunchedEffect(Unit) { RaBridge.clearSignInError() }
+    // The page lands on Username: the step before it (Import) had already landed, so nothing was pending and the real
+    // first run showed no highlight until a D-pad press (Odin 3 Portal 2026-11-12).
+    val landing = com.joeysretro.joey64.launcher.components.LocalFocusLanding.current
+    LaunchedEffect(Unit) { RaBridge.clearSignInError(); landing?.arm() }
     LaunchedEffect(account) { if (account != null && !debugOnly) onDone() }
     LaunchedEffect(state, fakeWrong) {
         if (state == RaBridge.SignInState.Wrong || fakeWrong) { password = ""; runCatching { passwordFocus.requestFocus() } }

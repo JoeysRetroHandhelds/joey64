@@ -416,6 +416,6 @@ Seen, for Joey:
   adds when it doesn't know the client, shown as a recent unlock; it means RetroAchievements doesn't know Joey64
   (Hardcore would be refused). The fetched lists also keep Unofficial achievements, which All counts and the header
   doesn't (Yoshi's Story 240 against 121).
-- On the Settings page the tab row sits 14 dp + 6 dp under the bar (the 6 is room for the focus outline).
+- On the Settings page the tab row sat 14 dp + 6 dp under the bar. Joey: "Yes trim" (after a before/after picture): 8 dp now (2 + the row's 6 for the focus outline) when the tabs are first under the bar; Video, Emulation and Audio keep 14 above their All games chip. Thor p17-532132b9: the outline clears the bar.
 - The viewer shows ◀ ▶ Previous, next with one screenshot; the Search chip's hint row has A Search and no B.
 - Up from the set tabs on a game's achievements goes to the bar, past the All chip (Right from the last tab reaches it).

@@ -157,7 +157,9 @@ fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher
         ControlBus.push(handler)
         onDispose { ControlBus.pop(handler) }
     }
-    Column(Modifier.fillMaxSize().padding(horizontal = s.margin).padding(top = 14.dp, bottom = 8.dp)) {
+    // The tab row first under the bar: 2 dp + the row's own 6 (room for the focus outline), 8 dp in all (Joey 2026-11-12,
+    // "Yes trim"; it was 20). With the All games chip first (Video, Emulation, Audio) the chip keeps the pages' 14.
+    Column(Modifier.fillMaxSize().padding(horizontal = s.margin).padding(top = if (perGame) 14.dp else 2.dp, bottom = 8.dp)) {
         // No title under the top bar; the game chip is the first thing on the page (approved top bar, 2026-11-11).
         val tabsEntry = remember { androidx.compose.ui.focus.FocusRequester() }
         if (perGame) com.joeysretro.joey64.launcher.components.PageHeader(null) {

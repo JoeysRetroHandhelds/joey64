@@ -118,7 +118,7 @@ Nothing below is checked on a device; the Thor waits for Joey's OK. APK joey64-d
 - Frame waits still in: RowActions (3 frames for the hints before Hold OK's menu) and Rows' ◀ ▶ touch arrows (focus the
   row, a frame, then the key). PicturePopups' delay(350) is the RetroArch preset preview's debounce, not focus code.
 
-## Thor checks (2026-11-12, about 00:20-01:10 CST; APK 484f362a, core 42f48854 as installed)
+## Thor checks (2026-11-12, 00:20-00:37 CST; APK 484f362a, core 42f48854 as installed)
 
 Checked on the Thor, one key per step with a screenshot after each (the OoT recovery prompt was answered Later each time):
 

@@ -494,6 +494,9 @@ object PlayTogether {
             Player(2, "Sam", "Odin 3", 42, you = false, host = false, thisWifi = true)), public = false)
     }
 
+    /** Debug builds only (SHOW net-joining): "Joining Sam's room…" with no socket; B (Cancel, [leave]) takes it away. */
+    fun debugJoining() { if (_state.value is Idle) _state.value = Connecting("Sam") }
+
     /** Close the room (or leave one): the others are told, the router's way in is closed. */
     fun leave() {
         hostJob?.cancel(); hostJob = null

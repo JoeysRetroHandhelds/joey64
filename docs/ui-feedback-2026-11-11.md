@@ -112,6 +112,7 @@ Nothing below is checked on a device; the Thor waits for Joey's OK. APK joey64-d
 
 - Every item marked "not device-checked" above.
 - A8 (B back to where you were): found case by case on a device.
+  Seen once (Thor 2026-11-12, f2h-4bb4a78b): the recovery popup's Later left focus on the bar's Library, not on the tile it was on. That launch came straight after install, with the screen woken in the same breath; 8 more tries (launcher restarted, after sleep and wake, right after installs) all landed on the tile. Waiting for it to show again before changing anything.
 - Key interception (TV audit item 4): `onPreviewKeyEvent` handlers that move focus by hand. Most of the 49 change a value
   (◀ ▶ steps) or enter the list panel, which is what they're for; the one that moves focus is the library grid's Up / Down
   (LibraryScreen, keeps the column and reaches rows not composed yet). Changing it needs the grid tried on a device first.
@@ -306,7 +307,7 @@ Joey's answers to the morning report (2026-11-12, asked one by one):
   Join by code), 8 with SHOW net-unreach over the Netplay card (the card steps aside, OK brings it back), 10 with
   SHOW lost-folder over the Netplay card (the note waited, then came up when the card closed), 6 with a made-up Video
   file for Duke (Keep them back on Duke, Remove back on All games; file and folder removed). Not pressed there: 5
-  (Change box art); Joining… needs a real room. 9 checked later the same day through SHOW net-room (f2g-1aae7f7c): the question in the room's place in the same window (94f913d), Cancel back on Who can join and on Sam.
+  (Change box art). 8's Joining… and 9 checked later the same day through SHOW net-room (f2g-1aae7f7c): the question in the room's place in the same window (94f913d), Cancel back on Who can join and on Sam; SHOW net-joining (f2h-4bb4a78b) over Duke's Netplay card: Joining Sam's room… in its place in the same window (705810), B Cancel brings the card back.
   Step 2 (built, Joey 2026-11-12 "Yes, start step 2"): the game screen has its own host (GameOverlay), so the pause
   menu, slot picker, Restart and the problem and netplay cards share one window; and every full-screen page, side
   panel and bare popup gets a host of its own, so the cards opened over it share one window above it (in the

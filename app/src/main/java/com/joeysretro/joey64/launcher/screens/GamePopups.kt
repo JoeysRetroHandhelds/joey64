@@ -156,7 +156,7 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
                     // Approved netplay6 screen 8 (the v2 Play together, renamed Netplay).
                     // A 1-player game can't be hosted (Joey 2026-11-10): greyed "1 player only".
                     if (model.onePlayerOnly(game)) JoeyOption("Netplay", value = "1 player only", enabled = false) {}
-                    else JoeyOption("Netplay", value = "›") { onPopup(null); model.openNetplay(game) }
+                    else JoeyOption("Netplay", modifier = at("netplay"), value = "›") { onPopup(null); model.openNetplay(game, fromOptions = true) }
                     JoeyOption("Details", modifier = Modifier.initialFocus(from == GamePopup.Details)) { from = GamePopup.Details; onPopup(GamePopup.Details) }
                     gameSettings?.let { JoeyOption("Game settings", modifier = at("settings"), value = "$it  ›") {
                         model.openGameSettings(game) { onPopup(null) }; model.openedFromOptions(game.id, "settings") } }
@@ -279,14 +279,18 @@ private fun BoxArtPopup(game: LibraryGame, d: GameDetails?, model: LibraryModel,
         Column {
             PopupTitle("Box art")
             @Composable
-            fun Choice(label: String, on: Boolean, first: Boolean = false, onClick: () -> Unit) =
-                JoeyRow(label, modifier = if (first) Modifier.initialFocus() else Modifier, trailing = { focused ->
+            fun Choice(label: String, on: Boolean, land: Boolean, onClick: () -> Unit) =
+                JoeyRow(label, modifier = Modifier.initialFocus(land), trailing = { focused ->
                     if (on) Icon(painterResource(R.drawable.ic_tick), contentDescription = "In use",
                         tint = rowTextColor(c, focused, c.value), modifier = Modifier.size(18.dp))
                 }, onClick = onClick)
-            Choice("Choose image…", inUse == ArtKind.Custom, first = true) { pick.launch(arrayOf("image/*")) }
-            if (model.hasDownloaded(game)) Choice("Downloaded art", inUse == ArtKind.Downloaded) { scope.launch { model.chooseArt(game, ArtKind.Downloaded); onDone(true) } }
-            Choice("No box art", inUse == ArtKind.Hidden || inUse == ArtKind.None) { scope.launch { model.chooseArt(game, ArtKind.Hidden); onDone(true) } }
+            // Focus lands on the one in use, as in every choice popup (A8 2026-11-12: it was always Choose image…).
+            val downloaded = model.hasDownloaded(game)
+            val none = inUse == ArtKind.Hidden || inUse == ArtKind.None
+            val onDownloaded = downloaded && inUse == ArtKind.Downloaded
+            Choice("Choose image…", inUse == ArtKind.Custom, land = !none && !onDownloaded) { pick.launch(arrayOf("image/*")) }
+            if (downloaded) Choice("Downloaded art", inUse == ArtKind.Downloaded, land = onDownloaded) { scope.launch { model.chooseArt(game, ArtKind.Downloaded); onDone(true) } }
+            Choice("No box art", none, land = none) { scope.launch { model.chooseArt(game, ArtKind.Hidden); onDone(true) } }
         }
     }
 }

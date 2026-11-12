@@ -462,7 +462,7 @@ fun NetplayGamePopup(model: LibraryModel) {
     val wifiCodes = wifi.map { RoomCode.clean(it.code) }.toSet()
     val publicHere = listed.filter { it.players < model.netPlaces(it.md5) && it.code !in wifiCodes && it.md5.equals(game.md5, true) }
         .sortedBy { pings["${it.ip}:${it.port}"] ?: Int.MAX_VALUE }.take(3)
-    JoeyDialog(onDismiss = { model.closeNetplay() }, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 620.dp) {
+    JoeyDialog(onDismiss = { model.closeNetplay(back = true) }, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 620.dp) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             LandAgain()
             PopupTitle("Netplay", shortGame(game.title))

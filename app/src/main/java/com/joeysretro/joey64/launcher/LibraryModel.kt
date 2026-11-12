@@ -1041,8 +1041,23 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
         }
     }
 
-    fun openNetplay(game: LibraryGame) { _netplayFor.value = game }
-    fun closeNetplay() { _netplayFor.value = null }
+    /** [fromOptions]: opened from the game's options, so B on it opens them again on the Netplay row (A8). */
+    fun openNetplay(game: LibraryGame, fromOptions: Boolean = false) { _netplayFor.value = game; netplayFromOptions = fromOptions }
+    /** [back]: B (not a room starting), which goes back to the options the popup was opened from. */
+    fun closeNetplay(back: Boolean = false) {
+        val game = _netplayFor.value
+        _netplayFor.value = null
+        if (back && netplayFromOptions && game != null) _optionsAgain.value = game.id to "netplay"
+        netplayFromOptions = false
+    }
+    private var netplayFromOptions = false
+    private val _optionsAgain = MutableStateFlow<Pair<Long, String>?>(null)
+    /**
+     * A popup over the library that B closes back to the game's options, on its row (A8 2026-11-12, Thor: B on a game's
+     * Netplay closed everything): the game and the row; the library opens the options and calls [optionsAgainSeen].
+     */
+    val optionsAgain: StateFlow<Pair<Long, String>?> = _optionsAgain
+    fun optionsAgainSeen() { _optionsAgain.value = null }
 
     /**
      * This player in a room: the name set in Netplay › Your name (approved feedback1 screens 8-9), else the

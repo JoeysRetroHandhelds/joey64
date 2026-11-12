@@ -73,7 +73,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private sealed interface ShotPopup {
-    data class Options(val shot: GameScreenshots.Shot) : ShotPopup
+    /** [fromDelete]: back from Delete's question (B or Keep it), focus on Delete (A8 2026-11-12: it went to the tile). */
+    data class Options(val shot: GameScreenshots.Shot, val fromDelete: Boolean = false) : ShotPopup
     data class Delete(val shot: GameScreenshots.Shot) : ShotPopup
 }
 
@@ -179,14 +180,15 @@ fun ScreenshotsScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onClose: () -
         is ShotPopup.Options -> JoeyDialog(onDismiss = { popup = null }, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 330.dp) {
             Column {
                 PopupTitle("Screenshot", SlotDates.withTime(p.shot.takenAt, now))
-                JoeyOption("Share", Modifier.initialFocus(), value = "›") { share(p.shot) }
-                JoeyOption("Delete") { popup = ShotPopup.Delete(p.shot) }
+                JoeyOption("Share", Modifier.initialFocus(!p.fromDelete), value = "›") { share(p.shot) }
+                JoeyOption("Delete", Modifier.initialFocus(p.fromDelete)) { popup = ShotPopup.Delete(p.shot) }
             }
         }
-        is ShotPopup.Delete -> JoeyDialog(onDismiss = { popup = null }, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 330.dp) {
+        is ShotPopup.Delete -> JoeyDialog(onDismiss = { popup = ShotPopup.Options(p.shot, fromDelete = true) },
+            hints = listOf(Hint("A", "Select"), Hint("B", "Back")), width = 330.dp) {
             Column {
                 PopupTitle("Delete this screenshot?")
-                JoeyOption("Keep it", Modifier.initialFocus()) { popup = null }
+                JoeyOption("Keep it", Modifier.initialFocus()) { popup = ShotPopup.Options(p.shot, fromDelete = true) }
                 JoeyOption("Delete") {
                     popup = null
                     scope.launch {

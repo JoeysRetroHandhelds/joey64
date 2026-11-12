@@ -74,7 +74,8 @@ private class SavesData(
 private sealed interface SvPopup {
     data object Restore : SvPopup
     data object DeleteSave : SvPopup
-    data class StateOptions(val state: SaveManager.State) : SvPopup
+    /** [fromDelete]: back from Delete's question (B or Keep it), focus on Delete (A8 2026-11-12). */
+    data class StateOptions(val state: SaveManager.State, val fromDelete: Boolean = false) : SvPopup
     data class DeleteState(val state: SaveManager.State) : SvPopup
 }
 
@@ -266,7 +267,7 @@ fun SavesScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onPlay: (String) ->
         is SvPopup.StateOptions -> JoeyDialog(onDismiss = { popup = null }, hints = hints, width = 330.dp) {
             Column {
                 PopupTitle(SaveManager.stateLabel(p.state.slot))
-                JoeyRow("Play from here", Modifier.initialFocus(), detail = "Starts the game from this state") {
+                JoeyRow("Play from here", Modifier.initialFocus(!p.fromDelete), detail = "Starts the game from this state") {
                     popup = null
                     onPlay(when (p.state.slot) {
                         SaveManager.RECOVERY -> com.joeysretro.joey64.MainActivity.STATE_RECOVERY
@@ -274,13 +275,14 @@ fun SavesScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onPlay: (String) ->
                     })
                 }
                 PopupDivider()
-                JoeyOption("Delete") { popup = SvPopup.DeleteState(p.state) }
+                JoeyOption("Delete", Modifier.initialFocus(p.fromDelete)) { popup = SvPopup.DeleteState(p.state) }
             }
         }
-        is SvPopup.DeleteState -> JoeyDialog(onDismiss = { popup = null }, hints = hints, width = 470.dp) {
+        is SvPopup.DeleteState -> JoeyDialog(onDismiss = { popup = SvPopup.StateOptions(p.state, fromDelete = true) },
+            hints = listOf(Hint("A", "Select"), Hint("B", "Back")), width = 470.dp) {
             Column {
                 PopupTitle("Delete ${SaveManager.stateLabel(p.state.slot)}?", "The state and its picture go. This can't be undone.")
-                JoeyOption("Keep it", Modifier.initialFocus()) { popup = null }
+                JoeyOption("Keep it", Modifier.initialFocus()) { popup = SvPopup.StateOptions(p.state, fromDelete = true) }
                 JoeyOption("Delete") { work("Couldn't delete the state", "it's still there") { manager.deleteState(p.state.slot) } }
             }
         }

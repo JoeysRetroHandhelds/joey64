@@ -259,6 +259,9 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
     val optionsBack = remember { model.takeOptionsBack() }
     var popup by remember { mutableStateOf(optionsBack?.let { it.first to GamePopup.Options }) }
     var backRow by remember { mutableStateOf(optionsBack?.second) }
+    // The same for a popup over the library (a game's Netplay): B there opens the options again on its row.
+    val optionsAgain by model.optionsAgain.collectAsStateWithLifecycle()
+    LaunchedEffect(optionsAgain) { optionsAgain?.let { (id, row) -> popup = id to GamePopup.Options; backRow = row; model.optionsAgainSeen() } }
     // Versions picked another copy for the tile: focus lands on it again when the popup closes.
     var switched by remember { mutableStateOf(false) }
     // The library's tiles are keyed by their game (its copies' first id), not by the copy they play, so a pick in

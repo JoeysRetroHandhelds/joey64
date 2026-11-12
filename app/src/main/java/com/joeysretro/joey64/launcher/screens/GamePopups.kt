@@ -147,7 +147,9 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
                     // Settings › Library (approved mockup 2026-11-08, screen 8): the game leaves the library,
                     // Search and the filters; Settings › Library › Hidden games shows it again. Its tile goes,
                     // so focus lands on the grid's first game rather than the rail.
-                    JoeyOption("Hide game") { onPopup(null); model.setHidden(game, true) { gridLanding?.arm() } }
+                    // A hidden game (the Hidden view, approved D7 2026-11-11): Show again where Hide game is.
+                    if (game.hiddenAt != null) JoeyOption("Show again") { onPopup(null); model.setHidden(game, false) { gridLanding?.arm() } }
+                    else JoeyOption("Hide game") { onPopup(null); model.setHidden(game, true) { gridLanding?.arm() } }
                 }
                 GamePopup.Details -> details?.let { d -> DetailsBody(game, d, model) { boxArt = true } }
                 GamePopup.Collections -> {}

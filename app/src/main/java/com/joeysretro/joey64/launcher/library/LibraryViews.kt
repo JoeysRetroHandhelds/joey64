@@ -22,6 +22,8 @@ sealed interface LibraryView {
     data object Favourites : LibraryView { override val label = "Favourites" }
     data class Collection(val id: Long, val name: String) : LibraryView { override val label get() = name }
     data class Filter(val filter: AutoFilter) : LibraryView { override val label get() = filter.label }
+    /** The hidden games (approved D7 2026-11-11, hidden_mock.png): the Show popup's last filter while one is hidden. */
+    data object Hidden : LibraryView { override val label = "Hidden" }
 }
 
 /** What the filters need beyond the games themselves. */
@@ -43,6 +45,7 @@ object LibraryViews {
         LibraryView.Favourites -> "favourites"
         is LibraryView.Collection -> "collection:${view.id}:${view.name}"
         is LibraryView.Filter -> "filter:${view.filter.name}"
+        LibraryView.Hidden -> "hidden"
     }
 
     /** The view [key] names; All games for none, or for one that doesn't read (a filter an update took out). */
@@ -50,6 +53,7 @@ object LibraryViews {
         val k = key ?: return LibraryView.All
         return when {
             k == "favourites" -> LibraryView.Favourites
+            k == "hidden" -> LibraryView.Hidden
             k.startsWith("collection:") -> k.removePrefix("collection:").split(':', limit = 2).let { p ->
                 p[0].toLongOrNull()?.let { LibraryView.Collection(it, p.getOrElse(1) { "" }) }
             } ?: LibraryView.All
@@ -62,6 +66,8 @@ object LibraryViews {
     fun matches(game: LibraryGame, view: LibraryView, facts: LibraryFacts): Boolean = when (view) {
         LibraryView.All -> true
         LibraryView.Favourites -> game.favourite
+        // The hidden games are a list of their own ([LibraryModel.hidden]); a shown game never matches.
+        LibraryView.Hidden -> game.hiddenAt != null
         is LibraryView.Collection -> game.id in facts.members[view.id].orEmpty()
         is LibraryView.Filter -> when (view.filter) {
             AutoFilter.FourPlayers -> (playersOf(game, facts) ?: 0) >= 4

@@ -173,16 +173,30 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
         }
     }
 
-    /** A game's options › Hide game, or Hidden games › Show again. Its saves, play time and collections stay. */
+    /**
+     * A game's options › Hide game, or Show again (its options in the Hidden view, or Settings › Library › Hidden games).
+     * Its saves, play time and collections stay. Shown again: "<game> is back in the library", and the last hidden one
+     * takes the library back to All games (approved D7 2026-11-11).
+     */
     fun setHidden(game: LibraryGame, hide: Boolean, onDone: () -> Unit = {}) {
         viewModelScope.launch {
             _all.value = withContext(Dispatchers.IO) {
                 db.setHidden(game.id, if (hide) System.currentTimeMillis() else null); db.libraryGames()
             }
             JLog.i(TAG, "${game.title} ${if (hide) "hidden" else "shown again"}")
+            if (!hide) {
+                _libraryNote.value = "${game.title} is back in the library"
+                if (_view.value == com.joeysretro.joey64.launcher.library.LibraryView.Hidden && _all.value.orEmpty().none { it.hiddenAt != null })
+                    show(com.joeysretro.joey64.launcher.library.LibraryView.All)
+            }
             onDone()
         }
     }
+
+    private val _libraryNote = MutableStateFlow<String?>(null)
+    /** A line at the bottom of the library for a few seconds ("<game> is back in the library"), null when none. */
+    val libraryNote: StateFlow<String?> = _libraryNote
+    fun libraryNoteSeen() { _libraryNote.value = null }
 
     fun show(v: com.joeysretro.joey64.launcher.library.LibraryView) {
         // Another view starts at its first game, at the top.

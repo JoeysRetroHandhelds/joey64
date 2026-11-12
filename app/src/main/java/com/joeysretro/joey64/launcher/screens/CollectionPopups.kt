@@ -71,6 +71,7 @@ fun ShowPopup(model: LibraryModel, onDismiss: () -> Unit) {
     val counts = remember(games, collections, facts) { LibraryViews.counts(games, collections, facts) }
     var focusedCollection by remember { mutableStateOf<GameCollection?>(null) }
     val signedIn = com.joeysretro.joey64.achievements.RaBridge.account.collectAsStateWithLifecycle().value != null
+    val hidden by model.hidden.collectAsStateWithLifecycle()
     var options by remember { mutableStateOf<GameCollection?>(null) }
     var naming by remember { mutableStateOf(false) }
     fun pick(v: LibraryView) { model.show(v); onDismiss() }
@@ -106,6 +107,9 @@ fun ShowPopup(model: LibraryModel, onDismiss: () -> Unit) {
                     JoeyRow(f.label, Modifier.initialFocus(view == v), sideways = true,
                         trailing = { fo -> TickCount(view == v, counts[v], fo) }) { pick(v) }
                 }
+                // Hidden, last, only while a game is hidden (approved D7 2026-11-11, hidden_mock.png screen 1).
+                if (hidden.isNotEmpty() || view == LibraryView.Hidden) JoeyRow(LibraryView.Hidden.label, Modifier.initialFocus(view == LibraryView.Hidden), sideways = true,
+                    trailing = { fo -> TickCount(view == LibraryView.Hidden, hidden.size, fo) }) { pick(LibraryView.Hidden) }
             }
         }
     }

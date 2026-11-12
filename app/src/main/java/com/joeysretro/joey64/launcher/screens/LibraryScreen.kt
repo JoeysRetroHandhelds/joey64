@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher.screens
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
@@ -173,7 +174,24 @@ fun LibraryScreen(model: LibraryModel, updateAsking: Boolean = false, onSearch: 
                     modifier = Modifier.padding(start = 8.dp)) { onSearch() }
         }
         val f = facts
-        val list = remember(all, view, f) { if (f == null) all else com.joeysretro.joey64.launcher.library.LibraryViews.show(all, view, f) }
+        val hiddenGames by model.hidden.collectAsStateWithLifecycle()
+        val list = remember(all, view, f, hiddenGames) {
+            when {
+                view == com.joeysretro.joey64.launcher.library.LibraryView.Hidden -> hiddenGames.sortedBy { it.title.lowercase() }
+                f == null -> all
+                else -> com.joeysretro.joey64.launcher.library.LibraryViews.show(all, view, f)
+            }
+        }
+        // "<game> is back in the library" (approved D7 screen 4), at the bottom for 3 s.
+        model.libraryNote.collectAsStateWithLifecycle().value?.let { note ->
+            LaunchedEffect(note) { kotlinx.coroutines.delay(3_000L); model.libraryNoteSeen() }
+            androidx.compose.ui.window.Popup(alignment = Alignment.BottomCenter, offset = androidx.compose.ui.unit.IntOffset(0, -140),
+                properties = androidx.compose.ui.window.PopupProperties(focusable = false)) {
+                Text(note, style = JoeyTheme.type.row, color = c.text, modifier = Modifier
+                    .background(c.surface, RoundedCornerShape(8.dp)).then(Modifier.border(1.dp, c.border, RoundedCornerShape(8.dp)))
+                    .padding(horizontal = 18.dp, vertical = 10.dp))
+            }
+        }
         // Taking the last game out of a collection from its own options empties the view: the grid
         // stays composed (empty), so the popup it holds stays up and B steps back through it.
         if (list.isEmpty()) Text("No games here yet", style = JoeyTheme.type.note, color = c.textDim,

@@ -633,6 +633,9 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
         val playedMd5 = plays.getString("md5", null)
         viewModelScope.launch(Dispatchers.IO) {
             com.joeysretro.joey64.staterequest.StateUpload.maybeSend(app)
+            // The wanted list kept (read again weekly) before any play, so a wanted game's first start already gets the
+            // ring: it was only read after a play, so the first play after install never had one.
+            if (com.joeysretro.joey64.staterequest.StateRequests.asking(app)) com.joeysretro.joey64.staterequest.StateRequests.wanted(app)
             if (playedMd5 != null) _askState.value = com.joeysretro.joey64.staterequest.StateRequests.check(app, playedMd5)
         }
         if (!com.joeysretro.joey64.reports.ReportPrefs.asked(app)) _askReports.value = true

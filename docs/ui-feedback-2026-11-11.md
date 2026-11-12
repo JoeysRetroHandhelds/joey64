@@ -50,7 +50,7 @@ Controls, then Settings tabs, then popups.
 - [x] C2 (built 2c98d4b, not device-checked: my reading is the game picker's bottom row, where focus scrolled to the cover and cut the name under it; the grid now scrolls a name's height more) Host a room cuts off the game's title: the page moves up so the title shows.
 - [x] C3 (built, not device-checked: a focused outline reaches 5 dp past a chip (8 in light mode) and the chips were 6 dp apart; every TabRow and Controls' chips are 12 dp apart now, the chips 12 dp under the tabs, tabScroll gives 10 dp at the ends) Controls: the Auto map / View controller tabs' borders overlap (check every tab row).
 - [x] C4 (built, not device-checked: C up's value ends 4 dp above its button and grows upward; C left / right 4 dp clear of theirs) View controls: R stick up (C-up) label is behind the yellow circle.
-- [ ] C5 A on a game takes a few seconds to start: measure where the time goes (tap to first frame).
+- [x] C5 (measured on the Thor 2026-11-12; dad49db, 2517850) A on a game takes a few seconds to start: measure where the time goes (tap to first frame).
 - [x] C6 (built beaf692, not device-checked: Hotkeys is the fifth tab, the chip is gone, L1/R1 go round all five) Controls: Hotkeys moves to the right of Player 4 (Joey's layout).
 - [x] C7 (eb71e7c) Library: Sort by Recently played by default (Joey). Anyone who picked a sort keeps it.
 - [x] C8 (eb71e7c) Fast forward shows an on-screen sign while it's on (Joey). Slow motion and Rewind already show the
@@ -152,7 +152,7 @@ Second round (00:38-00:48 CST, APK 30a2498f):
   above the first column). Mario Kart 64's "Where you quit" picture (20:41) is a black frame; its log was rotated out,
   and trying again means quitting Mario Kart over Joey's quit save, so it's left.
 
-Still not device-checked: A1, A2, A9, D3 (first run), D4 Send now, D5, E3, the TV paths, C5.
+Still not device-checked: A1, A2 (in part), A9, D3 (first run), D4 Send now, D5, E3, the TV paths.
 
 Third round (00:55-01:25 CST, APKs b4-fe7358fa to b5b-7bfb63d3, screen recordings read frame by frame):
 
@@ -172,3 +172,27 @@ Third round (00:55-01:25 CST, APKs b4-fe7358fa to b5b-7bfb63d3, screen recording
   included: the overlay measures every tick even while hidden, and draws once with the new mode before it shows (1f08603).
 - Test leftovers put back: F-Zero X's two test plays out of the library database (last played, play time, sessions 34),
   its .srm and two report files; Settings › On screen › Stats back to Off; OoT's recovery state unchanged.
+
+Fourth round (01:30-01:45 CST, APKs c5-27ed2cc4, pic-c48804d5, rec-cbe00c86; F-Zero X, which has no saves of Joey's):
+
+- C5, A to the game (screen recording, Thor, 4x parallel-RDP): A at 0.0 s; Android's slide 0.11-0.54 s, its edge
+  showing the game's surface before it had drawn (a strip of noise); black at 0.55; the N64 logo at 0.65. The rest of
+  "a few seconds" is the game's own boot: its title shows about 4.5 s after A. In the log the biggest piece of the
+  0.65 s is parallel-RDP starting in the core (0.34 s between "RDRAM size" and "smart sync on"); the app's own part
+  (intent to the core's ROM open, driver, options) is about 0.16 s. The game screen now opens and closes without the
+  slide (theme JoeyGame, dad49db): the screen goes black 0.1 s after A, the logo still at about 0.7 s, no noise.
+- C5, quitting: from the quit press to the library took 0.8 s, 0.69 s of it the state's picture: at 4x the frame is
+  2560x960, scaled to 2560x1920 and written as a 2 MB PNG. A state's picture is now at most 960 wide (2517850):
+  taking the state 692 -> 210 ms, press to saved 0.80 -> 0.33 s, picture 2.0 MB -> 706 KB, still sharp in the Play
+  popup. Screenshots keep the whole frame. The same saving comes with every save-state hotkey press.
+- Found: the recovery popup's minutes kept growing (32, 40, 46, 53, 63) after 3bfdda1: Android keeps only the last
+  few exits, so the close itself dropped off the list. The close is now kept once found (2d7b53e); for OoT's state
+  it was put back by hand (22:51:22, the force stop the earlier round recorded): "1 minute", the same after a
+  force stop and restart.
+- Seen, not changed: a clean quit of any game removes the recovery state, whatever game it was for (one recovery
+  slot; playing another game would replace it after 2 minutes anyway). My F-Zero X quits removed OoT's twice; put
+  back from the backup both times (md5s unchanged).
+- A2 in part: with the keyboard up the D-pad stays with it (by design); B closes the keyboard and Down lands on the
+  result. Only one result matched, so first-against-second isn't shown yet.
+- Test leftovers put back again: F-Zero X's .srm, quit state and picture, a save backup, two report files, and the
+  library database (the copy without F-Zero X's plays).

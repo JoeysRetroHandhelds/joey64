@@ -109,7 +109,7 @@ wrangler d1 execute joey64-reports --remote --file queries/missing-covers.sql
 
 ## Deploy
 
-`wrangler deploy`, after `npm test` and `sh test/local-run.sh`. Schema changes: new tables and indexes go in
+`wrangler deploy`, after `npm test`, `sh test/local-run.sh` and `sh test/local-state.sh` (POST /v1/state with joey64-data's wanted list served on this PC). Schema changes: new tables and indexes go in
 `schema.sql` as steps that can run twice (`IF NOT EXISTS`); new columns go in `schema.sql` and a new
 `migrations/` file, which is run once with `--remote` before the deploy.
 

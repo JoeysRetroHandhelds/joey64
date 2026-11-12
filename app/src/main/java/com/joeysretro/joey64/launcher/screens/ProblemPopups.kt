@@ -111,6 +111,12 @@ internal fun NetEndedPopup(model: LibraryModel) {
                     PromptText(AnnotatedStringOf("Joey64 lost the connection to the room. The room may have closed, or the Wi-Fi dropped."))
                     JoeyOption("OK", Modifier.initialFocus()) { model.netEndedSeen() }
                 }
+                // Joey 2026-11-12: when the host leaves on purpose, say so.
+                n.need == com.joeysretro.joey64.launcher.GameStartFailed.Need.NetHostClosed -> {
+                    PopupTitle("The netplay game ended")
+                    PromptText(AnnotatedStringOf("The host closed the room."))
+                    JoeyOption("OK", Modifier.initialFocus()) { model.netEndedSeen() }
+                }
                 turned -> {
                     val host = n.hostName ?: "the host"
                     PopupTitle(if (n.hostName != null) "Couldn't join ${n.hostName}'s room" else "Couldn't join the room")

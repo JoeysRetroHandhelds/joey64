@@ -1173,7 +1173,7 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
         }
     }
 
-    /** Debug (SHOW --es what net-lost|net-unreach|net-mismatch): the popup for the first game in the library. */
+    /** Debug (SHOW --es what net-lost|net-closed|net-unreach|net-mismatch): the popup for the first game in the library. */
     /** Debug builds (SHOW net-room): Your room for the first game, without hosting ([PlayTogether.debugRoom]). */
     fun debugRoom() {
         val g = _all.value?.firstOrNull() ?: return
@@ -1181,7 +1181,7 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
     }
 
     fun debugNetEnded(what: String) {
-        val need = when (what) { "net-lost" -> GameStartFailed.Need.NetLost; "net-unreach" -> GameStartFailed.Need.NetUnreachable; "net-full" -> GameStartFailed.Need.NetTurnedDown; else -> GameStartFailed.Need.NetMismatch }
+        val need = when (what) { "net-lost" -> GameStartFailed.Need.NetLost; "net-closed" -> GameStartFailed.Need.NetHostClosed; "net-unreach" -> GameStartFailed.Need.NetUnreachable; "net-full" -> GameStartFailed.Need.NetTurnedDown; else -> GameStartFailed.Need.NetMismatch }
         val game = _all.value?.firstOrNull() ?: return
         _netEnded.value = NetEnded(need, game, game.title + ".z64")
     }
@@ -1321,7 +1321,8 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
 }
 
 /** The netplay ends the library says (LibraryModel.netEnded). */
-private val NET_ENDS = setOf(GameStartFailed.Need.NetLost, GameStartFailed.Need.NetUnreachable, GameStartFailed.Need.NetMismatch, GameStartFailed.Need.NetTurnedDown)
+private val NET_ENDS = setOf(GameStartFailed.Need.NetLost, GameStartFailed.Need.NetUnreachable, GameStartFailed.Need.NetMismatch, GameStartFailed.Need.NetTurnedDown,
+    GameStartFailed.Need.NetHostClosed)
 
 /** Start fresh in Play's popup ([LibraryModel.continueAnswered]). */
 const val FRESH = -1

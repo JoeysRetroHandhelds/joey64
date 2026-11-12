@@ -1468,7 +1468,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             val noIpl = why == 2
             val why2 = when (why) { 2 -> " (no 64DD IPL BIOS for the disk's region)"; 3 -> " (netplay: lost the connection to the room)"
                 4 -> " (netplay: can't reach the room)"; 5 -> " (netplay: the room turned this player down)"
-                6 -> " (netplay: this ROM isn't the host's)"; else -> "" }
+                6 -> " (netplay: this ROM isn't the host's)"; 8 -> " (netplay: the host closed the room)"; else -> "" }
             JLog.e(TAG, "the core shut down: the game stopped$why2, closing the game screen")
             // Not the GPU's doing: the start doesn't count against Auto's trial (a no-op once a frame was drawn).
             cancelTrial()
@@ -1477,7 +1477,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             // Netplay: the room was lost, couldn't be reached, turned this player down, or has another copy (approved netplay screens).
             // A quit the player asked for stops the room's wait (joey64_netplay_abort), and the core then says the
             // connection was lost or the room can't be reached: no problem screen for that.
-            else if (why in 3..6) { if (!quitting) intent?.takeIf { launcherString(EXTRA_MD5) != null }?.let { com.joeysretro.joey64.launcher.GameStartFailed.netEnded(it, why) } }
+            else if (why in 3..6 || why == 8) { if (!quitting) intent?.takeIf { launcherString(EXTRA_MD5) != null }?.let { com.joeysretro.joey64.launcher.GameStartFailed.netEnded(it, why) } }
             else intent?.takeIf { launcherString(EXTRA_MD5) != null }?.let { com.joeysretro.joey64.launcher.GameStartFailed.romFailed(it, com.joeysretro.joey64.launcher.GameStartFailed.Why.Stopped) }
             finish()
         }
@@ -2354,6 +2354,14 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (newLeft != 0) {
             netLeftSaid = netLeftSaid or n.left
             val p = n.playersIn(newLeft).first()
+            // Player 1 is the host: its room closes with it, so there's nothing to carry on in. Back to the library,
+            // which says "The host closed the room" (Joey 2026-11-12).
+            if (p == 1 && !n.hosting && netMe != 1) {
+                JLog.i(TAG, "netplay: the host closed the room, back to the library")
+                intent?.takeIf { launcherString(EXTRA_MD5) != null }?.let { com.joeysretro.joey64.launcher.GameStartFailed.netEnded(it, 8) }
+                quitToLibrary()
+                return
+            }
             JLog.i(TAG, "netplay: player $p left, asking")
             if (!menuOpen) openMenu()
             if (o.screen !is com.joeysretro.joey64.launcher.ingame.PauseScreen.NetOutOfStep) o.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.NetLeft(p, netName(p))

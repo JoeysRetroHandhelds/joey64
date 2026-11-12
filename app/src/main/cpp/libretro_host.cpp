@@ -493,6 +493,12 @@ std::atomic<bool> g_netplayLost{false};
 // The GPU stopped answering mid-game (VkContext::lost; code audit 3, M12): coreShutDown says 7 and the game screen closes.
 std::atomic<bool> g_gpuLost{false};
 std::atomic<uint8_t> g_netplayStatus{0};
+// When player 1 (the host) last left the room, in steady-clock ms (0 = not in this game): a connection lost soon after
+// is the host closing the room, coreShutDown 8 (Joey 2026-11-12).
+std::atomic<int64_t> g_netplayHostLeftMs{0};
+static int64_t steadyMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
 // The player this game has waited for over 1 s (the core's "waiting for player N" / "player N is back"), 0 = none.
 std::atomic<int> g_netplayWaitingFor{0};
 std::atomic<int> g_netplayJoinFailed{0}; // the core's "Netplay: can't join (N)": 4 no room, 5 turned down, 6 another ROM
@@ -571,7 +577,10 @@ void log_cb(enum retro_log_level level, const char* fmt, ...) {
         // %n: sscanf returns 1 once %u is read even when the words after it differ, so without it
         // "Netplay: player 1 paused" counted as player 1 leaving (the pause showed "left the game", 2026-11-11).
         unsigned left; int leftEnd = 0;
-        if (sscanf(line, "Netplay: player %u has disconnected%n", &left, &leftEnd) == 1 && leftEnd > 0 && left >= 1 && left <= 4) g_netplayStatus |= (uint8_t)(1 << left);
+        if (sscanf(line, "Netplay: player %u has disconnected%n", &left, &leftEnd) == 1 && leftEnd > 0 && left >= 1 && left <= 4) {
+            g_netplayStatus |= (uint8_t)(1 << left);
+            if (left == 1) g_netplayHostLeftMs = steadyMs();
+        }
         unsigned pp; int ppEnd = 0;
         if (sscanf(line, "Netplay: player %u paused%n", &pp, &ppEnd) == 1 && ppEnd > 0 && pp >= 1 && pp <= 4) g_netplayPausedBy = (int)pp;
         if (strstr(line, "Netplay: nobody is paused")) g_netplayPausedBy = 0;
@@ -2069,6 +2078,7 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
     g_ddIplMissing = false;
     g_netplayLost = false;
     g_netplayStatus = 0;
+    g_netplayHostLeftMs = 0;
     g_netplayWaitingFor = 0;
     g_netplayJoinFailed = 0;
     if (!g_vulkan) {
@@ -2370,9 +2380,18 @@ JNIEXPORT jint JNICALL JNI(waitRumble)(JNIEnv*, jobject, jint wasMask, jint time
     return (jint)rumbleMask();
 }
 
-// 0 running, 1 the core shut down, 2 it shut down after it could not load the 64DD IPL.
+// 0 running, 1 the core shut down, 2 it shut down after it could not load the 64DD IPL; netplay 3 the connection was
+// lost, 4-6 the join failed, 8 the host closed the room (player 1 left up to 30 s before the connection went).
 JNIEXPORT jint JNICALL JNI(coreShutDown)(JNIEnv*, jobject) {
-    return !g_coreShutDown ? 0 : g_gpuLost ? 7 : g_ddIplMissing ? 2 : g_netplayJoinFailed ? g_netplayJoinFailed.load() : g_netplayLost ? 3 : 1;
+    if (!g_coreShutDown) return 0;
+    if (g_gpuLost) return 7;
+    if (g_ddIplMissing) return 2;
+    if (g_netplayJoinFailed) return g_netplayJoinFailed.load();
+    if (g_netplayLost) {
+        const int64_t left = g_netplayHostLeftMs.load();
+        return left && steadyMs() - left < 30000 ? 8 : 3;
+    }
+    return 1;
 }
 
 JNIEXPORT jlong JNICALL JNI(saveRamFailed)(JNIEnv*, jobject) { return (jlong)g_saveFailedBytes.load(); }

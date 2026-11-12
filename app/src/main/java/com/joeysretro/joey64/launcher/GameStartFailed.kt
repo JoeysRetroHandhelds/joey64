@@ -20,7 +20,9 @@ object GameStartFailed {
         /** Netplay (approved screens): the room was lost mid-game, couldn't be reached, or has another copy of the game. */
         NetLost, NetUnreachable, NetMismatch,
         /** The room turned the player down: full, or the player asked for is taken (approved mockup B 2026-11-10, with Try again). */
-        NetTurnedDown }
+        NetTurnedDown,
+        /** The host closed the room mid-game (Joey 2026-11-12: "the host closed the room", not "lost the connection"). */
+        NetHostClosed }
 
     /** Why a game didn't start, for its Details' What happened line. */
     enum class Why(val text: String) {
@@ -37,9 +39,12 @@ object GameStartFailed {
     fun diskNeedsBios(intent: Intent) { _failed.value = Failed(Need.Bios, intent) }
     fun diskNeedsCart(intent: Intent) { _failed.value = Failed(Need.Cart, intent) }
     fun romFailed(intent: Intent, why: Why) { _failed.value = Failed(Need.Rom, intent, why) }
-    /** A netplay game that ended or didn't start: [code] is [com.joeysretro.joey64.NativeBridge.coreShutDown]'s 3, 4, 5 or 6. */
+    /** A netplay game that ended or didn't start: [code] is [com.joeysretro.joey64.NativeBridge.coreShutDown]'s 3, 4, 5, 6 or 8. */
     fun netEnded(intent: Intent, code: Int) {
-        _failed.value = Failed(when (code) { 3 -> Need.NetLost; 4 -> Need.NetUnreachable; 5 -> Need.NetTurnedDown; else -> Need.NetMismatch }, intent)
+        _failed.value = Failed(needOf(code), intent)
+    }
+    internal fun needOf(code: Int) = when (code) {
+        3 -> Need.NetLost; 4 -> Need.NetUnreachable; 5 -> Need.NetTurnedDown; 8 -> Need.NetHostClosed; else -> Need.NetMismatch
     }
 
     /** The library took it. */

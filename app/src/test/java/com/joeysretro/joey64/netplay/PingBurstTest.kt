@@ -5,29 +5,37 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class PingBurstTest {
-    @Test fun aRoundShowsItsBest() {
+    @Test fun theFirstRoundShowsItsBestSoFar() {
         val p = PingBurst()
         assertNull(p.shown)
         p.start(1000)
-        // the first ping waits for the dozing radio, the next two don't
         assertEquals(210, p.answer(1000, 1210))
         assertEquals(12, p.answer(1015, 1027))
         assertEquals(11, p.answer(1030, 1041))
     }
 
-    @Test fun laterRoundsShowTheLastFinishedRound() {
+    @Test fun showsTheLowestOfTheLastFiveRounds() {
         val p = PingBurst()
-        p.start(1000); p.answer(1000, 1200); p.answer(1015, 1025)
-        p.start(2000)
-        assertEquals(10, p.shown)
-        // the new round's slow first answer doesn't show while it runs
-        assertEquals(10, p.answer(2000, 2190))
-        assertEquals(10, p.answer(2015, 2030))
-        p.start(3000)
-        assertEquals(15, p.shown)
+        // the rounds' bests: 10, 197, 95, 87, 120, 150, 160
+        var t = 1000L
+        for (b in listOf(10, 197, 95, 87, 120, 150, 160)) { p.start(t); p.answer(t, t + b); t += 1000 }
+        p.start(t)
+        // the last five finished: 95, 87, 120, 150, 160
+        assertEquals(87, p.shown)
+        // a running round's slow answer doesn't show
+        assertEquals(87, p.answer(t, t + 300))
     }
 
-    @Test fun aRoundWithNoAnswerKeepsTheLastOne() {
+    @Test fun aLowRoundShowsAtOnceItFinishes() {
+        val p = PingBurst()
+        p.start(1000); p.answer(1000, 1200)
+        p.start(2000); p.answer(2015, 2025)
+        assertEquals(200, p.shown)
+        p.start(3000)
+        assertEquals(10, p.shown)
+    }
+
+    @Test fun aRoundWithNoAnswerKeepsWhatShows() {
         val p = PingBurst()
         p.start(1000); p.answer(1000, 1020)
         p.start(2000)

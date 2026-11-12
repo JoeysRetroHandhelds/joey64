@@ -104,9 +104,28 @@ object PlayTogether {
     private var browseJob: Job? = null
     private var multicast: WifiManager.MulticastLock? = null
 
+    // The game's low-latency Wi-Fi lock (MainActivity.netWifiLockSet), held while rooms are looked for or a room is
+    // open, so the pings show what the game will get (Android applies it only with the app in front and the screen on).
+    private var lowLatency: WifiManager.WifiLock? = null
+    @Volatile private var appContext: Context? = null
+
+    @Synchronized private fun lowLatencyCheck() {
+        val want = browseJob != null || server != null || joinSocket != null
+        runCatching {
+            if (want && lowLatency == null) {
+                val wm = appContext?.getSystemService(Context.WIFI_SERVICE) as? WifiManager ?: return
+                lowLatency = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "joey64:netplay-lobby").apply { setReferenceCounted(false) }
+            }
+            val l = lowLatency ?: return
+            if (want && !l.isHeld) { l.acquire(); JLog.i(TAG, "low-latency Wi-Fi lock on (held ${l.isHeld})") }
+            else if (!want && l.isHeld) { l.release(); JLog.i(TAG, "low-latency Wi-Fi lock off") }
+        }.onFailure { JLog.w(TAG, "low-latency Wi-Fi lock: $it") }
+    }
+
     /** Listens for rooms on this Wi-Fi until [stopBrowsing]. */
     fun browse(context: Context) {
         if (browseJob?.isActive == true) return
+        appContext = context.applicationContext
         val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
         // Some Wi-Fi drivers drop broadcasts to apps without it.
         multicast = try { wifi?.createMulticastLock("joey64-rooms")?.apply { setReferenceCounted(false); acquire() } } catch (e: Exception) { null }
@@ -157,6 +176,7 @@ object PlayTogether {
                 }
             } finally { pinger.cancel(); sock.close() }
         }
+        lowLatencyCheck()
     }
 
     private fun upsertRoom(ip: String, b: LobbyLines.Beacon, now: Long) {
@@ -170,6 +190,7 @@ object PlayTogether {
         browseJob?.cancel(); browseJob = null
         try { multicast?.release() } catch (e: Exception) { }
         multicast = null
+        lowLatencyCheck()
         _rooms.value = emptyList()
         _pings.value = emptyMap()
     }
@@ -203,6 +224,7 @@ object PlayTogether {
     /** Opens a room for [game] on the first free port of 45000-45007. False when none could be opened. */
     fun host(context: Context, me: Me, game: Game): Boolean {
         RouterAddress.set(context) // before the room asks the router for its port (NAT-PMP needs it)
+        appContext = context.applicationContext
         leave()
         for (i in 0 until RoomCode.PORTS) {
             val port = RoomCode.BASE_PORT + i
@@ -234,6 +256,7 @@ object PlayTogether {
                 delay(BEACON_MS)
             }
         }
+        lowLatencyCheck()
         return true
     }
 
@@ -483,6 +506,7 @@ object PlayTogether {
             oldJoin?.let { s -> try { PrintWriter(s.getOutputStream()).apply { print("BYE\n"); flush() } } catch (e: Exception) { }; try { s.close() } catch (e: Exception) { } }
         }
         if (_state.value !is Ended) _state.value = Idle
+        lowLatencyCheck()
     }
 
     // ---- joining ----
@@ -502,6 +526,7 @@ object PlayTogether {
         joinJob = scope.launch {
             val sock = Socket()
             joinSocket = sock
+            lowLatencyCheck()
             var hostName = target.hostName
             var game: Game? = null
             var hostGame = Game("", "", "")
@@ -587,6 +612,7 @@ object PlayTogether {
                 pinger?.cancel()
                 try { sock.close() } catch (e: Exception) { }
                 if (joinSocket === sock) joinSocket = null
+                lowLatencyCheck()
             }
         }
     }

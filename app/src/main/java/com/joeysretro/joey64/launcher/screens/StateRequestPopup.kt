@@ -95,6 +95,8 @@ private val ROWS = listOf(
 internal fun whyLine(ask: StateRequests.Ask): String = when {
     ask.wanted.kind == StateRequests.Kind.Problem -> ask.wanted.need.trimEnd('.') + ". A save state from your play helps us find the cause."
     ask.wanted.why.contains("60") -> "We're making a 60 fps code for this game and need a save state from real play to test it on."
+    // Joey 2026-11-12: a compat check (a Starts game not yet seen past its start).
+    ask.wanted.why == "compat" -> "We haven't seen this game past its start yet. A save state from real play helps us check it runs right."
     ask.wanted.why.contains("widescreen") -> "We're making a widescreen code for this game and need a save state from real play to test it on."
     else -> "We're working on this game and need a save state from real play to test it on."
 }

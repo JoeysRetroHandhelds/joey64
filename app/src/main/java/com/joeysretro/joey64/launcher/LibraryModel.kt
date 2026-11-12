@@ -466,7 +466,7 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
                 checkStates() // another game's may be waiting
                 return@launch
             }
-            _recovery.value = RecoveryOffer(game, minutesBefore(app, r.savedAt), r.saveName)
+            _recovery.value = RecoveryOffer(game, minutesBefore(app, r.saveName, r.savedAt), r.saveName)
         }
     }
 
@@ -476,14 +476,18 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
      * popup said 32 minutes, then 40 (Thor 2026-11-12, two installs after Ocarina of Time's close). Android keeps only
      * the last few exits, so after enough stops the close itself drops off the list and the first one left is later
      * (32, 40, 46, 53, 63 minutes, Thor 2026-11-12): the close is kept here, for that state, the first time it's found.
+     * Kept per game ("closed_at:<save name>"), since each game has its own recovery state: one shared pair let a
+     * second game's close replace the first's, which then read 139 minutes instead of 1 (Thor 2026-11-12). The old
+     * shared pair from before is still read when its state matches.
      */
-    private fun minutesBefore(app: Application, savedAt: Long): Int {
+    private fun minutesBefore(app: Application, saveName: String, savedAt: Long): Int {
         val kept = app.getSharedPreferences("recovery", android.content.Context.MODE_PRIVATE)
-        val closedAt = kept.getLong("closed_at", 0L).takeIf { it > 0 && kept.getLong("saved_at", 0L) == savedAt } ?: try {
+        fun keptFor(suffix: String) = kept.getLong("closed_at$suffix", 0L).takeIf { it > 0 && kept.getLong("saved_at$suffix", 0L) == savedAt }
+        val closedAt = keptFor(":$saveName") ?: keptFor("") ?: try {
             app.getSystemService(android.app.ActivityManager::class.java)
                 ?.getHistoricalProcessExitReasons(app.packageName, 0, 0)
                 ?.map { it.timestamp }?.filter { it >= savedAt }?.minOrNull()
-        } catch (e: Exception) { null }?.also { kept.edit().putLong("saved_at", savedAt).putLong("closed_at", it).apply() }
+        } catch (e: Exception) { null }?.also { kept.edit().putLong("saved_at:$saveName", savedAt).putLong("closed_at:$saveName", it).apply() }
         val end = closedAt ?: System.currentTimeMillis()
         return ((end - savedAt) / 60_000L).toInt()
     }

@@ -202,7 +202,7 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
         // Rows that open a page of their own: the panel shows what's set inside (mockup screen 5), A opens it.
         focused == "col" -> com.joeysretro.joey64.launcher.components.PanelInfo(title, help, lines = COLOUR_KEYS.map { k ->
             (when (k) { VideoKey.Brightness -> "Brightness"; VideoKey.Contrast -> "Contrast"; VideoKey.Saturation -> "Saturation"; else -> "Gamma" }) to
-                "${v.int(k)}" })
+                VideoSettings.colourLabel(k, v.int(k)) })
         focused == "shp" -> com.joeysretro.joey64.launcher.components.PanelInfo(title, help, lines = listOf("Sharpening" to sharpenValue(v)))
         focused == "adv" -> com.joeysretro.joey64.launcher.components.PanelInfo(title, help, lines = listOf(
             "Renderer" to VideoChoices.label(VideoKey.Renderer, v[VideoKey.Renderer]), "Driver" to VideoChoices.label(VideoKey.Driver, v[VideoKey.Driver]),

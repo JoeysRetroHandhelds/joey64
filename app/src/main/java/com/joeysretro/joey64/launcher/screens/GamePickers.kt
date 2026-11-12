@@ -42,6 +42,11 @@ import kotlinx.coroutines.withContext
  * their own settings (X removes them, after asking: review sheet M28), and Pick a game. One popup
  * for every page with per-game settings; [what] names them in the question ("audio", "touch controls").
  */
+/** B from Pick a game comes back to the Pick a game row it was opened from (A8, 2026-11-12): set when that row
+ *  opens the list, cleared by a pick there and read once by the popup that comes back. */
+internal object PickReturn { var armed = false
+    fun take(): Boolean = armed.also { armed = false } }
+
 @Composable
 fun GamesForPopup(
     title: String,
@@ -58,6 +63,7 @@ fun GamesForPopup(
 ) {
     val context = LocalContext.current
     var games by remember { mutableStateOf(gamesWithOwn()) }
+    val fromPick = remember { PickReturn.take() }
     // A game's own file is named by its save name made safe (ControlsStore.safe: reserved characters replaced, cut at
     // 150): the library is asked by that form, and a pick passes on the game's real save name, so its tick and title
     // show for such a name too (code audit 3, p2 L10). The counts are read here once, off the main thread (p2 L8).
@@ -101,18 +107,18 @@ fun GamesForPopup(
         }) {
         Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
             PopupTitle(title, subtitle)
-            JoeyRow("All games", Modifier.initialFocus(if (backTo != null) backTo == "" else target == null), detail = "Every game without its own",
+            JoeyRow("All games", Modifier.initialFocus(if (backTo != null) backTo == "" else !fromPick && target == null), detail = "Every game without its own",
                 trailing = if (target == null) { _ -> PickerTick() } else null) { onPick(null, null) }
             if (games.isNotEmpty()) PopupDivider()
             for (g in games) {
                 val own = info[g]
                 // "" until the count is read: the row keeps its height.
-                JoeyRow(own?.title ?: g, Modifier.initialFocus(if (backTo != null) backTo == g else chosen(g)), detail = own?.changes?.let { n -> if (n == 1) "1 change" else "$n changes" } ?: "",
+                JoeyRow(own?.title ?: g, Modifier.initialFocus(if (backTo != null) backTo == g else !fromPick && chosen(g)), detail = own?.changes?.let { n -> if (n == 1) "1 change" else "$n changes" } ?: "",
                     onFocused = { if (it) focusedGame = g else if (focusedGame == g) focusedGame = null },
                     trailing = if (chosen(g)) { _ -> PickerTick() } else null) { onPick(own?.save ?: g, own?.title ?: g) }
             }
             PopupDivider()
-            JoeyRow("Pick a game", value = "›") { onPickGame() }
+            JoeyRow("Pick a game", Modifier.initialFocus(backTo == null && fromPick), value = "›") { PickReturn.armed = true; onPickGame() }
         }
     }
 }
@@ -142,6 +148,7 @@ fun PickGamePopup(subtitle: String, onDismiss: () -> Unit, exclude: String? = nu
                     items(list, key = { it.id }) { g ->
                         JoeyRow(g.title, if (g == list.first()) Modifier.initialFocus() else Modifier) {
                             if (looking) return@JoeyRow
+                            PickReturn.armed = false
                             looking = true
                             scope.launch {
                                 val save = withContext(Dispatchers.IO) {

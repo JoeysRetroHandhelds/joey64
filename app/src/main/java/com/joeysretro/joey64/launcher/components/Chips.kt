@@ -68,11 +68,13 @@ fun TabChip(text: String, on: Boolean, modifier: Modifier = Modifier) {
  * it, and the D-pad reaches it too (Joey 2026-11-09: tabs only L1 / R1 could change left a TV remote, and any D-pad
  * alone, unable to change them; "That needs to be fixed for all versions"). Up from the page lands on the tab in use,
  * ◀ ▶ move along the row, A opens the focused tab. [tab] draws tab i with the modifier it's given (focus, outline, press).
- * [onFocused] says whether a tab has focus, for the hint row.
+ * [onFocused] says whether a tab has focus, for the hint row. [entry] focuses the tab in use, for a chip above the row
+ * whose Down would skip it (A8 2026-11-12: Down from Settings' All games chip went past the tabs to the first row).
  */
 @Composable
 fun TabRow(
-    count: Int, on: Int, modifier: Modifier = Modifier, onFocused: ((Boolean) -> Unit)? = null, onPick: (Int) -> Unit,
+    count: Int, on: Int, modifier: Modifier = Modifier, onFocused: ((Boolean) -> Unit)? = null,
+    entry: androidx.compose.ui.focus.FocusRequester? = null, onPick: (Int) -> Unit,
     tab: @Composable (i: Int, m: Modifier) -> Unit,
 ) {
     val req = androidx.compose.runtime.remember(count) { List(count) { androidx.compose.ui.focus.FocusRequester() } }
@@ -93,7 +95,7 @@ fun TabRow(
         for (i in 0 until count) {
             val (source, focused) = rememberFocusState()
             // TalkBack (code audit 3, M33): a tab, and whether it's the one in use.
-            tab(i, Modifier.focusRequester(req[i]).coverSelection(focused, corner = 7.dp).pressable(source) { onPick(i) }
+            tab(i, Modifier.focusRequester(req[i]).then(if (i == on && entry != null) Modifier.focusRequester(entry) else Modifier).coverSelection(focused, corner = 7.dp).pressable(source) { onPick(i) }
                 .semantics { role = Role.Tab; selected = i == on })
         }
     }

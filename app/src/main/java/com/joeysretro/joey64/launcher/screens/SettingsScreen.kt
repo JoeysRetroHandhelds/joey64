@@ -47,6 +47,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.onSizeChanged
 import com.joeysretro.joey64.launcher.components.tabScroll
 import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import com.joeysretro.joey64.launcher.controls.Control
@@ -158,11 +159,14 @@ fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher
     }
     Column(Modifier.fillMaxSize().padding(horizontal = s.margin).padding(top = 14.dp, bottom = 8.dp)) {
         // No title under the top bar; the game chip is the first thing on the page (approved top bar, 2026-11-11).
+        val tabsEntry = remember { androidx.compose.ui.focus.FocusRequester() }
         if (perGame) com.joeysretro.joey64.launcher.components.PageHeader(null) {
-            PageChip((targetTitle ?: "All games") + "  ›", R.drawable.ic_sliders, on = target != null, onFocused = { onChip = it }) { gamesPopup = 1 }
+            PageChip((targetTitle ?: "All games") + "  ›", R.drawable.ic_sliders, Modifier.focusProperties { down = tabsEntry },
+                on = target != null, onFocused = { onChip = it }) { gamesPopup = 1 }
         }
         var focusedTab by remember { mutableIntStateOf(0) }
-        SettingsTabs(SettingsTab.entries.map { it.label }, tab.ordinal, onFocused = { onTabs = it }, onTabFocused = { focusedTab = it }) { tab = SettingsTab.entries[it] }
+        SettingsTabs(SettingsTab.entries.map { it.label }, tab.ordinal, onFocused = { onTabs = it }, onTabFocused = { focusedTab = it },
+            entry = tabsEntry) { tab = SettingsTab.entries[it] }
         val tabHelp = if (onTabs) SettingsTab.entries[focusedTab].let { com.joeysretro.joey64.launcher.components.PanelInfo(it.label, it.help + " " + TAB_ROW_HELP) }
             // The All games chip's own help (Joey 2026-11-12); it showed the first row's.
             else if (onChip && target == null) com.joeysretro.joey64.launcher.components.PanelInfo("All games", CHIP_HELP)
@@ -277,6 +281,8 @@ internal fun SettingsTabs(
     onFocused: ((Boolean) -> Unit)? = null,
     /** The tab that has focus, for the panel's help (F5). */
     onTabFocused: ((Int) -> Unit)? = null,
+    /** Focuses the tab in use: a chip above the row points its Down here. */
+    entry: androidx.compose.ui.focus.FocusRequester? = null,
     onTap: (Int) -> Unit,
 ) {
     val c = JoeyTheme.colors
@@ -293,7 +299,7 @@ internal fun SettingsTabs(
     val scope = rememberCoroutineScope()
     LaunchedEffect(on) { if (on in labels.indices) show(on) }
     com.joeysretro.joey64.launcher.components.TabRow(labels.size, on,
-        Modifier.fillMaxWidth().tabScroll(rememberScrollState()).padding(top = 6.dp, bottom = 8.dp), onFocused, onTap) { i, m ->
+        Modifier.fillMaxWidth().tabScroll(rememberScrollState()).padding(top = 6.dp, bottom = 8.dp), onFocused, entry, onTap) { i, m ->
             val label = labels[i]
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier
                 .bringIntoViewRequester(bring[i])

@@ -301,18 +301,20 @@ private fun GamePopupsFor(game: GameRef, summary: GameSummary, model: GameSettin
             }
         }
         GsPopup.Copy -> JoeyDialog(onDismiss = { onPopup(null) }, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 470.dp) {
+            val fromPick = remember { PickReturn.take() }
             Column {
                 PopupTitle("Copy to another game", "What to copy from ${game.title}.")
                 GamePart.entries.forEachIndexed { i, p ->
                     val has = p in own
-                    JoeyRow(p.label, if (i == 0) Modifier.initialFocus() else Modifier,
+                    JoeyRow(p.label, if (i == 0 && !fromPick) Modifier.initialFocus() else Modifier,
                         value = if (has && p in picked) "On" else "Off", enabled = has,
                         detail = if (has) rows(summary.count(p)) else "Same as All games, nothing to copy") {
                         if (has) picked = if (p in picked) picked - p else picked + p
                     }
                 }
                 PopupDivider()
-                JoeyOption("Pick a game", value = "›", enabled = picked.isNotEmpty()) { if (picked.isNotEmpty()) onPopup(GsPopup.PickGame) }
+                JoeyOption("Pick a game", Modifier.initialFocus(fromPick), value = "›", enabled = picked.isNotEmpty()) {
+                    if (picked.isNotEmpty()) { PickReturn.armed = true; onPopup(GsPopup.PickGame) } }
             }
         }
         GsPopup.PickGame -> PickGamePopup("Gets ${shortTitle(game.title)}'s ${picked.sortedBy { it.ordinal }.joinToString(" and ") { it.label }}.",

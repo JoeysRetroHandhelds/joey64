@@ -81,7 +81,11 @@ optional icon).
 8. **Tabs inside a page use the page-level pill** (Controls' players, achievement sets, Netplay's two lists).
    Google: pill for a page's sections, the bar indicator inside content. Only matters much with top bar B.
 9. **The portrait bottom bar is icons only.** Google's drawer shows names when open; the portrait bar never
-   does. Small: Material's bottom bar puts a name under each icon.
+   does. Small: Material's bottom bar puts a name under each icon. Joey 2026-11-11: "a, names under icons"
+   (scratchpad portrait_mock.png option A). Material 3 (m3.material.io navigation-bar guidelines): the bar sits
+   at the bottom "for convenient access", each item is an icon and a label, labels never removed, three to
+   five destinations, no more than five. Joey64 has six when signed in to RetroAchievements: one has to leave
+   the portrait bar (open question for Joey).
 
 ## Deliberate departures (keep, say so)
 

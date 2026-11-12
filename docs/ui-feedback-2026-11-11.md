@@ -50,6 +50,9 @@ Controls, then Settings tabs, then popups.
 - [ ] C5 A on a game takes a few seconds to start: measure where the time goes (tap to first frame).
 - [ ] C6 Controls: Hotkeys moves to the right of Player 4 (Joey's layout).
 - [ ] C7 Library: Sort by Recently played by default (Joey). Anyone who picked a sort keeps it.
+- [ ] C8 Fast forward shows an on-screen sign while it's on (Joey). Slow motion and Rewind already show the
+      shared in-game popup (`InGamePopup`, MainActivity ~440); fast forward gets the same one, "Fast forward"
+      with its speed (Adaptive: the speed it's at).
 
 ## D. Decisions and mockups
 

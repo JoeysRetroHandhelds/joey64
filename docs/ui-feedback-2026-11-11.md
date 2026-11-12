@@ -28,7 +28,7 @@ Controls, then Settings tabs, then popups.
 - [x] A6 (built f817b7c, not device-checked: the filter chip is the first thing under the bar (Library, Achievements, Settings' and Controls' game chip)) Pages with filters (Achievements and others): a button for the filters.
 - [x] A7 (built db20e54 + 2dfc6dc, Thor-checked 2026-11-12 frame by frame; JoeyDialog's first-item fallback ran before the window had focus while the marked row waited for it, so the first row lit and focus jumped; both wait for window focus now) Popups open on their marked row at once: Player 2 › Controller visibly moves the highlight to None
       after opening. JoeyOS: mark the row, open the list scrolled to it, no move after the first frame.
-- [ ] A8 (waits for a device: each case has to be found on one) B goes back to where you were, everywhere (one exit route per page and popup; containers restore
+- [x] A8 (swept on the Thor 2026-11-12, every page and popup; fixes f85a511, 9a9eaf5, 8cd6642, 7013124, e1e6956, each rechecked; see "A8 sweep" at the end) B goes back to where you were, everywhere (one exit route per page and popup; containers restore
       the row you left). "Not correct almost every time."
 - [x] A9 (built a04703c; host side Thor-checked 2026-11-12 through SHOW net-room, a made-up room with no server: B asks "Close the room?" with Cancel focused, in the room's place, Cancel back on the row B was pressed on (Who can join, Sam), Close the room back to the library; joiner B leaves: checked 2026-11-12 in a real private room, Thor hosting Duke, Odin 3 Portal joining on this Wi-Fi: B left, the Thor's place 2 went back to Waiting; Close the room on the Thor ended it on both, the router port closed (NAT-PMP ok). Found: leaving put focus on Host a room, not the room's card; fixed d36a1ab) B closes a room (host: asks first, since it ends the room for everyone).
 
@@ -367,3 +367,55 @@ Seventh round (2026-11-12 10:50-12:25 CST, APKs p1-5d0f142a, p2-0ab4f904, p3-b69
   space under the bar and scrolled to Username). Setup pages now take their smaller sizes when that space is under
   440 dp (Joey: "fix it"); Thor (p4-6099d01b): the sign-in page fits whole with the wordmark clear of the bar, and
   the ROMs folder, saves folder and Import pages look as before with the smaller wordmark.
+
+## A8 sweep (2026-11-12, Thor, APKs p9 to p16-ab1f3e6a)
+
+Joey: "Yes, start A8". Every page and popup opened with A, closed with B, the landing seen on a screenshot each time.
+Two changes Joey asked for mid-sweep came first (a5842b2): Search left the top bar for a Search chip next to All
+games (Y as before), and Settings › Library › Tidy names (On).
+
+Found and fixed (each rechecked on the Thor after the fix):
+
+- Pick a game (Settings' chip for Video, Audio, Emulation, Controls, Touch controls, and Game settings › Copy): B came
+  back on All games or the first part, not Pick a game (f85a511, `PickReturn`).
+- Down from Settings' All games chip went past the tabs to the first row (f85a511, TabRow `entry`); the same on
+  Controls (7013124).
+- Video › Colour's panel showed 10 and 0 for brightness and gamma; now 0% and 1.0 like the rows (f85a511).
+- ◀ and B from a list's choices panel went to the tab's first row, not the row (9a9eaf5): Video's Aspect ratio,
+  Emulation's Fast-forward mode and the rest.
+- Saves › Back up saves › Copies to keep, About › Send reports › What's sent, and a licence's text came back on the
+  popup's first row (8cd6642); the licence text also opened over the list's card, it now takes its place.
+- RetroAchievements tab: A on the tab put focus in the list (8cd6642).
+- The top bar: after B onto a page's tab, A did nothing on every page (7013124). It now goes back in where the page
+  lands (Achievements: the game you came from; Netplay: Host a room; Settings: the first row), else where Down goes
+  (Controls: the player tab). B on a tab took the Library with focus on its first game, not its tab (7013124).
+- A game's options › Netplay: B closed everything to the library; now back on the Netplay row (e1e6956).
+- Screenshots › a screenshot's Delete question, and Saves › a state's Delete question: Keep it and B closed to the
+  page; now back to the popup on Delete (e1e6956).
+- Details › Change box art always landed on Choose image…; now on the one in use (e1e6956).
+
+Checked, nothing to change: Video (Shader page and Advanced, RetroArch presets, Sides with its overlay, Overlay,
+Colour, Sharpening, Renderer page); Emulation; Audio › Latency; On screen › Position, What it shows; Saves (Back up,
+Back up Joey64, Import, Data folder, Recovery state); Library (Sort by, Regions › Betas, Hidden games, ROM folders and
+the remove question, 64DD BIOS); RetroAchievements (Offline unlocks, Pop-up place, stay for, Unlock sound); About
+(GPL text, Send reports); Controls (Controller, View controller, Profiles, Touch controls with its editor, Tap to
+hold, Turbo, Macros, Rumble and Pak, Stick feel › Response curve, Hotkeys › Rewind's popups); Netplay page (Join by
+code, Your name, the rooms filter: B goes to the bar tab); Achievements (a game, its set tabs, the All filter, B back
+on the game); the Search chip's B (on the chip, p8's open check); a game's options (Details, Game settings and its
+four parts, Cheats with a group and Add code, Achievements, Saves with the Auto state's popup, Screenshots with the
+viewer, the tile's Start popup and Delete, using a copied picture that the page's Delete then removed).
+
+Seen, for Joey:
+
+- A greyed row takes focus in some places (options › Screenshots "None", Saves' Back up now / Restore / Delete with
+  no save) while options › Netplay "1 player only" is skipped.
+- B on a new blank macro keeps an empty Macro 1.
+- Popup titles show the file name ("Legend of Zelda, The - Ocarina of Time (USA)"), not the tidied one.
+- A game's achievements Show popup counts more than the header: Mario Kart 64's main set "All 73 · Unlocked 4"
+  against "3 of 72". The extra one is RetroAchievements' "Warning: Unknown Emulator" (id 101000000), which the server
+  adds when it doesn't know the client, shown as a recent unlock; it means RetroAchievements doesn't know Joey64
+  (Hardcore would be refused). The fetched lists also keep Unofficial achievements, which All counts and the header
+  doesn't (Yoshi's Story 240 against 121).
+- On the Settings page the tab row sits 14 dp + 6 dp under the bar (the 6 is room for the focus outline).
+- The viewer shows ◀ ▶ Previous, next with one screenshot; the Search chip's hint row has A Search and no B.
+- Up from the set tabs on a game's achievements goes to the bar, past the All chip (Right from the last tab reaches it).

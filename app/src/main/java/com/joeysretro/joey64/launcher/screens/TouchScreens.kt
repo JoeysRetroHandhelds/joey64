@@ -67,7 +67,6 @@ import com.joeysretro.joey64.launcher.components.PopupDivider
 import com.joeysretro.joey64.launcher.components.PopupNote
 import com.joeysretro.joey64.launcher.components.PopupTitle
 import com.joeysretro.joey64.launcher.components.SectionLabel
-import com.joeysretro.joey64.launcher.components.TwoColumns
 import com.joeysretro.joey64.launcher.components.coverSelection
 import com.joeysretro.joey64.launcher.components.initialFocus
 import com.joeysretro.joey64.launcher.components.pressable
@@ -105,8 +104,19 @@ internal fun TouchControlsPage(
     onEdit: (portrait: Boolean) -> Unit,
     onPopup: (String) -> Unit,
     onSet: (TouchSettings) -> Unit,
+    hints: List<Hint>,
+    onHints: (List<Hint>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // One list with the panel beside it (approved 2026-11-11): the focused row's help and what it's set to.
+    val panel = com.joeysretro.joey64.launcher.components.rememberListPanel()
+    val (title, help) = touchRowHelp(focused)
+    val now = when (focused) {
+        TouchSettings.ROW_SHOW -> t.show.label; TouchSettings.ROW_HIDE -> TouchSettings.hideLabel(t.hideAfter)
+        TouchSettings.ROW_STICK -> t.stick.label; TouchSettings.ROW_OPACITY -> "${t.opacity}%"; TouchSettings.ROW_SENS -> "${t.sensitivity}%"
+        TouchSettings.ROW_DEAD -> "${t.deadZone}%"; TouchSettings.ROW_FULL -> "${t.fullAt}%"; else -> null
+    }
+    val info = com.joeysretro.joey64.launcher.components.PanelInfo(title, help, lines = listOfNotNull(now?.let { "Now" to it }))
     Column(modifier) {
         PageHeader("Controls", sub = "› Touch controls") {
             PageChip((targetTitle ?: "All games") + "  ›", com.joeysretro.joey64.R.drawable.ic_sliders, on = targetTitle != null,
@@ -115,7 +125,7 @@ internal fun TouchControlsPage(
             PageChip("Edit layout", com.joeysretro.joey64.R.drawable.ic_hand_click, modifier = Modifier.initialFocus(focused == "tChipEdit"),
                 onFocused = { if (it) onFocused("tChipEdit") }) { onEdit(false) }
         }
-        TwoColumns(Modifier.weight(1f).padding(top = 6.dp), left = {
+        com.joeysretro.joey64.launcher.components.ListPanel(panel, info, hints, onHints, Modifier.weight(1f).padding(top = 6.dp)) {
             SectionLabel("Showing")
             TRow("Show touch controls", TouchSettings.ROW_SHOW, t.show.label + "  ›", focused, changed, onFocused) { onPopup(TouchSettings.ROW_SHOW) }
             TStepRow("Opacity", TouchSettings.ROW_OPACITY, "${t.opacity}%", focused, changed, onFocused) { d ->
@@ -126,7 +136,6 @@ internal fun TouchControlsPage(
             TRow("Landscape layout", TouchSettings.ROW_LANDSCAPE, "Edit  ›", focused, changed, onFocused) { onEdit(false) }
             TRow("Portrait layout", TouchSettings.ROW_PORTRAIT, "Edit  ›", focused, changed, onFocused) { onEdit(true) }
             TRow("Reset layouts", "tResetLayouts", null, focused, changed, onFocused) { onPopup("tResetLayouts") }
-        }) {
             SectionLabel("Stick")
             TRow("Stick", TouchSettings.ROW_STICK, t.stick.label + "  ›", focused, changed, onFocused) { onPopup(TouchSettings.ROW_STICK) }
             TStepRow("Sensitivity", TouchSettings.ROW_SENS, "${t.sensitivity}%", focused, changed, onFocused) { d ->
@@ -143,6 +152,27 @@ internal fun TouchControlsPage(
                 focused, extrasChanged, onFocused) { onPopup("Macros") }
         }
     }
+}
+
+/** The touch page's panel title and help (approved list + panel, 2026-11-11). */
+private fun touchRowHelp(row: String): Pair<String, String> = when (row) {
+    TouchSettings.ROW_SHOW -> "Show touch controls" to "When the buttons show on the screen: when no controller is connected, always, or never."
+    TouchSettings.ROW_OPACITY -> "Opacity" to "How see-through the buttons are."
+    TouchSettings.ROW_HAPTICS -> "Haptics" to "A small tick when you press a button."
+    TouchSettings.ROW_HIDE -> "Hide when not touched" to "The buttons fade away after a while without a touch, and come back at the next one."
+    TouchSettings.ROW_LANDSCAPE -> "Landscape layout" to "Move and resize the buttons for when the device is sideways."
+    TouchSettings.ROW_PORTRAIT -> "Portrait layout" to "Move and resize the buttons for when the device is upright."
+    "tResetLayouts" -> "Reset layouts" to "Puts both layouts back as they came."
+    TouchSettings.ROW_STICK -> "Stick" to "Fixed in place, where you touch, or anywhere on the left half."
+    TouchSettings.ROW_SENS -> "Sensitivity" to "How far your thumb moves for a full tilt."
+    TouchSettings.ROW_DEAD -> "Dead zone" to "How far your thumb moves before the stick does."
+    TouchSettings.ROW_FULL -> "Full speed at" to "How far out counts as a full tilt."
+    TouchSettings.ROW_SLIDE -> "Slide between buttons" to "Slide your thumb from one button to the next without lifting it."
+    "Tap" -> "Tap to hold" to "Player 1's: ticked buttons stay held after a tap. Shared with the controller."
+    "Macros" -> "Macros" to "Player 1's macros, shared with the controller. A Macro button on the screen plays one."
+    "tChipGame" -> "All games or one game" to "Touch controls for every game, or for one game only."
+    "tChipEdit" -> "Edit layout" to "Move and resize the buttons."
+    else -> "Touch controls" to ""
 }
 
 @Composable

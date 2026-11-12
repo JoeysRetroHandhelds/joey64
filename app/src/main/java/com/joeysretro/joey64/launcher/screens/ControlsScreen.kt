@@ -296,9 +296,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
 
     // ---- hints ----
     val backLabel = if (inGame) "Back to the pause menu" else "Back"
-    LaunchedEffect(focused, hotkeysOpen, touchOpen, target, off) {
-        if (touchOpen) { onHints(touchPageHints(focused, target != null, backLabel)); return@LaunchedEffect }
-        onHints((when {
+    val ctlHints = (when {
             focused == "chipTouch" -> listOf(Hint("A", "Open"), Hint("B", backLabel))
             focused == "tabs" -> listOf(Hint("A", "Open"), Hint("B", backLabel))
             hotkeysOpen -> listOf(Hint("A", if (focused == "hkFastForward" || focused == "hkQuit") "Open" else "Change"), Hint("X", "Clear"),
@@ -317,8 +315,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
                 Hint("B", backLabel))
             else -> listOf(Hint("A", "Change"), Hint("X", "Clear"), Hint("Y", if (target == null) "Reset to default" else "Use All games"),
                 Hint("B", backLabel))
-        }).let { if (hotkeysOpen || off) it else withResetHint(it) })
-    }
+        }).let { if (hotkeysOpen || off) it else withResetHint(it) }
 
     val landing = LocalFocusLanding.current
     LaunchedEffect(hotkeysOpen, touchOpen) { landing?.arm() }
@@ -330,14 +327,14 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().padding(horizontal = s.margin).padding(top = 14.dp, bottom = 6.dp)) {
         if (hotkeysOpen) {
-            HotkeysPage(editor, version, focused, onFocused = { focused = it }, onOpen = { popup = it }) { popup = Popup.Remap(it) }
+            HotkeysPage(editor, version, focused, ctlHints, onHints, onFocused = { focused = it }, onOpen = { popup = it }) { popup = Popup.Remap(it) }
         } else if (touchOpen) {
             TouchControlsPage(touchNow, shown.players[0], targetTitle, if (target == null) emptySet() else touchNow.changedFrom(touchBase),
                 editor.changed(0), focused, onFocused = { focused = it }, onGames = { popup = Popup.TouchGames },
                 onEdit = { touchEdit = it },
                 onPopup = { row -> popup = when (row) { "Tap" -> Popup.Tap; "Macros" -> Popup.Macros; "tResetLayouts" -> Popup.TouchResetLayouts
                     else -> Popup.TouchChoice(row) } },
-                onSet = { setTouch(it) }, modifier = Modifier.weight(1f))
+                onSet = { setTouch(it) }, hints = touchPageHints(focused, target != null, backLabel), onHints = onHints, modifier = Modifier.weight(1f))
         } else {
             @Composable
             fun headerChips() {
@@ -363,13 +360,36 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
                 if (player == 0 && remember { com.joeysretro.joey64.launcher.layout.Tv.hasTouch(context) }) PageChip("Touch controls", R.drawable.ic_hand_click, modifier = Modifier.initialFocus(focused == "chipTouch"),
                     onFocused = { if (it) focused = "chipTouch" }) { touchOpen = true; focused = com.joeysretro.joey64.touch.TouchSettings.ROW_SHOW }
             }
-            TwoColumns(Modifier.weight(1f), left = {
+            // One list with the panel beside it (approved 2026-11-11): the focused row's help, and the choices of
+            // Stick, Pak and Rumble on.
+            val panel = com.joeysretro.joey64.launcher.components.rememberListPanel()
+            val (ctlTitle, ctlHelp) = controlsRowHelp(focused, setup, face, off)
+            val ctlInfo = when {
+                off -> com.joeysretro.joey64.launcher.components.PanelInfo(ctlTitle, ctlHelp)
+                focused == "Stick" -> StickSource.entries.let { all -> com.joeysretro.joey64.launcher.components.PanelInfo(ctlTitle, ctlHelp,
+                    all.map { com.joeysretro.joey64.launcher.components.PanelChoice(it.label, it.detail, it == setup.stick) }) { i ->
+                    edit { editor.set(player, setup.copy(stick = all[i])) } } }
+                focused == "Pak" -> Pak.entries.let { all -> com.joeysretro.joey64.launcher.components.PanelInfo(ctlTitle, ctlHelp,
+                    all.map { val oneGame = it == Pak.Transfer && target == null
+                        com.joeysretro.joey64.launcher.components.PanelChoice(pakValue(it, autoPak),
+                            if (oneGame) "For one game: pick it in the chip" else pakDetail(it), it == setup.pak, enabled = !oneGame) }) { i ->
+                    // Transfer Pak opens its setup (Game Boy game and save), as the popup did.
+                    if (all[i] == Pak.Transfer) popup = Popup.PakChoice else edit { editor.set(player, setup.copy(pak = all[i])) } } }
+                focused == "RumbleOn" -> {
+                    val motor = com.joeysretro.joey64.launcher.layout.Tv.hasVibrator(context)
+                    val ons = if (motor) RumbleOn.entries else RumbleOn.entries.filter { it != RumbleOn.Device }
+                    com.joeysretro.joey64.launcher.components.PanelInfo(ctlTitle, ctlHelp,
+                        ons.map { com.joeysretro.joey64.launcher.components.PanelChoice(it.label, if (!motor && it == RumbleOn.Controller) "Its own motor" else it.detail,
+                            it == setup.rumbleOn) }) { i -> edit { editor.set(player, setup.copy(rumbleOn = ons[i])) } }
+                }
+                else -> com.joeysretro.joey64.launcher.components.PanelInfo(ctlTitle, ctlHelp)
+            }
+            com.joeysretro.joey64.launcher.components.ListPanel(panel, ctlInfo, ctlHints, onHints, Modifier.weight(1f)) {
                 SectionLabel("Controller")
                 JoeyRow("Controller", Modifier.initialFocus(focused == "Controller"), value = deviceName(setup.device) + "  ›", sideways = true,
                     onFocused = { if (it) focused = "Controller" }) { popup = Popup.Controller }
                 SectionLabel("Buttons")
                 for (b in N64Button.BUTTONS) BindingRow(b, b.label, setup, face, off, b.name in changed, { focused = it }) { popup = Popup.Remap(Target.Button(b)) }
-            }) {
                 SectionLabel("D-pad and C buttons")
                 for ((key, label, dirs) in listOf(Triple(DPAD, "D-pad", N64Button.DPAD), Triple(CGROUP, "C buttons", N64Button.C))) {
                     val expanded = key in open
@@ -384,7 +404,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
                 SectionLabel("Analog stick")
                 JoeyRow("Stick", value = setup.stick.label + "  ›", enabled = !off, sideways = true,
                     dot = "Stick" in changed,
-                    onFocused = { if (it) focused = "Stick" }) { popup = Popup.Stick }
+                    onFocused = { if (it) focused = "Stick" }) { if (!panel.enter()) popup = Popup.Stick }
                 JoeyRow("Dead zone", Modifier.onPreviewKeyEvent { e ->
                     val n = e.nativeKeyEvent
                     val step = when (n.keyCode) { KeyEvent.KEYCODE_DPAD_LEFT -> -1; KeyEvent.KEYCODE_DPAD_RIGHT -> 1; else -> 0 }
@@ -403,12 +423,12 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
                 SectionLabel("Pak")
                 JoeyRow("Pak", value = pakValue(setup.pak, autoPak, setup) + "  ›", enabled = !off, sideways = true,
                     dot = "Pak" in changed,
-                    onFocused = { if (it) focused = "Pak" }) { popup = Popup.PakChoice }
+                    onFocused = { if (it) focused = "Pak" }) { if (!panel.enter()) popup = Popup.PakChoice }
                 // Greyed when the pak can't be a Rumble Pak (approved paks mockup 2026-11-08, screens 1 and 4a).
                 val rumble = !off && when (setup.pak) { Pak.Rumble -> true; Pak.Auto -> autoPak == null || autoPak == Pak.Rumble; else -> false }
                 JoeyRow("Rumble on", value = setup.rumbleOn.label + "  ›", enabled = rumble, sideways = true,
                     dot = "RumbleOn" in changed,
-                    onFocused = { if (it) focused = "RumbleOn" }) { if (rumble) popup = Popup.RumbleOnChoice }
+                    onFocused = { if (it) focused = "RumbleOn" }) { if (rumble && !panel.enter()) popup = Popup.RumbleOnChoice }
                 val strengthWorks = remember(setup.device, setup.rumbleOn, pads) { rumbleStrengthWorks(context, dev, setup) }
                 JoeyRow("Rumble strength", Modifier.onPreviewKeyEvent { e ->
                     val n = e.nativeKeyEvent
@@ -632,6 +652,36 @@ private val EXTRA_ROWS = setOf("Tap", "Turbo", "Macros")
 /** The Macros row's value: "None", "1 macro", "2 macros". */
 private fun macrosValue(n: Int) = when (n) { 0 -> "None"; 1 -> "1 macro"; else -> "$n macros" }
 
+/** The player page's panel title and help for the focused row (approved list + panel, 2026-11-11). */
+private fun controlsRowHelp(row: String, setup: PlayerSetup, face: AutoMap.FaceCodes?, off: Boolean): Pair<String, String> {
+    if (off) return "No controller" to "This player has no controller. Pick one in Controller to set their buttons."
+    N64Button.entries.firstOrNull { it.name == row }?.let { b ->
+        return b.label to "What presses the N64's ${b.label}: ${InputNames.of(setup.buttons[b], face)}. A changes it, X clears it."
+    }
+    return when (row) {
+        "Controller" -> "Controller" to "Which controller this player uses: the built-in controls, a pad, or None."
+        DPAD -> "D-pad" to "The N64 D-pad's four directions. A shows them one by one."
+        CGROUP -> "C buttons" to "The N64's four C buttons. A shows them one by one."
+        "Stick" -> "Stick" to "What moves the N64 stick."
+        "DeadZone" -> "Dead zone" to "How far the stick moves before the game sees it. Raise it if the game moves on its own."
+        "StickFeel" -> "Stick feel" to "Range, response curve, octagon gate, invert and more. A opens them, with a live preview."
+        "Pak" -> "Pak" to "What's in the back of the controller: Auto picks the Rumble Pak for games that use it, else the Controller Pak."
+        "RumbleOn" -> "Rumble on" to "Where the Rumble Pak's shaking goes."
+        "RumbleStrength" -> "Rumble strength" to "How hard it shakes. Some motors only have full strength."
+        "Tap" -> "Tap to hold" to "Ticked buttons stay held after a tap until the next tap."
+        "Turbo" -> "Turbo" to "Ticked buttons press again and again while held."
+        "Macros" -> "Macros" to "One button plays a list of presses. Up to 8 a player."
+        "tabs" -> "Players" to "Each player's controller and buttons. ◀ ▶ picks one."
+        "chipGame" -> "All games or one game" to "Controls for every game, or for one game only."
+        "chipHotkeys" -> "Hotkeys" to "The hotkey button and what each hotkey does."
+        "chipAuto" -> "Auto map" to "Sets this player's buttons from the controller's known layout."
+        "chipView" -> "View controller" to "A picture of the controller with what each button does."
+        "chipProfiles" -> "Profiles" to "Save this player's buttons under a name, or load a saved one."
+        "chipTouch" -> "Touch controls" to "Player 1's buttons on the screen."
+        else -> "" to ""
+    }
+}
+
 @Composable
 private fun BindingRow(b: N64Button, label: String, setup: PlayerSetup, face: AutoMap.FaceCodes?, off: Boolean, changed: Boolean,
                       onFocused: (String) -> Unit, indent: Boolean = false, onClick: () -> Unit) {
@@ -735,8 +785,8 @@ fun hotkeyKey(code: Int) = when (code) {
 }
 
 @Composable
-private fun HotkeysPage(editor: ControlsEditor, version: Int, focused: String, onFocused: (String) -> Unit, onOpen: (Popup) -> Unit,
-                        onChange: (Target) -> Unit) {
+private fun HotkeysPage(editor: ControlsEditor, version: Int, focused: String, hints: List<Hint>, onHints: (List<Hint>) -> Unit,
+                        onFocused: (String) -> Unit, onOpen: (Popup) -> Unit, onChange: (Target) -> Unit) {
     val c = JoeyTheme.colors
     @Suppress("UNUSED_EXPRESSION") version
     val h = editor.hotkeys
@@ -751,8 +801,15 @@ private fun HotkeysPage(editor: ControlsEditor, version: Int, focused: String, o
     Column(Modifier.fillMaxSize()) {
     Text("Hotkeys", style = JoeyTheme.type.pageTitle, color = c.text)
     Spacer(Modifier.height(8.dp))
-    // Longer than the screen: both columns scroll together, with the focus.
-    TwoColumns(Modifier.weight(1f).verticalScroll(rememberScrollState()), scroll = false, left = {
+    // One list with the panel beside it (approved 2026-11-11, Hotkeys included).
+    val hkPanel = com.joeysretro.joey64.launcher.components.rememberListPanel()
+    val hkInfo = if (focused == "hkButton") com.joeysretro.joey64.launcher.components.PanelInfo("Hotkey button",
+            "Hold it with another button for a hotkey. Pressed alone it does nothing in the game while it's the hotkey button.",
+            lines = listOf("Now" to hotkeyKey(h.button)))
+        else HotkeyAction.entries.firstOrNull { "hk" + it.name == focused }?.let { a ->
+            com.joeysretro.joey64.launcher.components.PanelInfo(a.label, hotkeyDescription(a) ?: "", lines = listOf("Button" to hotkeyValue(h, a)))
+        } ?: com.joeysretro.joey64.launcher.components.PanelInfo("Hotkeys", "")
+    com.joeysretro.joey64.launcher.components.ListPanel(hkPanel, hkInfo, hints, onHints, Modifier.weight(1f)) {
             SectionLabel("Hotkey button")
             JoeyRow("Hotkey button", Modifier.initialFocus(), value = hotkeyKey(h.button) + "  ›", sideways = true,
                 onFocused = { if (it) onFocused("hkButton") }) { onChange(Target.HotkeyButton) }
@@ -762,13 +819,10 @@ private fun HotkeysPage(editor: ControlsEditor, version: Int, focused: String, o
             for (a in listOf(HotkeyAction.VolumeUp, HotkeyAction.VolumeDown, HotkeyAction.Mute)) row(a)
             SectionLabel("Picture")
             for (a in listOf(HotkeyAction.UpscaleUp, HotkeyAction.UpscaleDown, HotkeyAction.NextShader, HotkeyAction.ShaderToggle)) row(a)
-    }) {
             SectionLabel("Game")
             for (a in listOf(HotkeyAction.PauseMenu, HotkeyAction.Pause, HotkeyAction.FrameAdvance, HotkeyAction.FastForward, HotkeyAction.SlowMotion, HotkeyAction.Rewind, HotkeyAction.Turbo, HotkeyAction.Screenshot, HotkeyAction.Stats,
                 HotkeyAction.Achievements, HotkeyAction.GameShark, HotkeyAction.Reset, HotkeyAction.Quit)) row(a)
     }
-    Spacer(Modifier.height(6.dp))
-    HotkeyAction.entries.firstOrNull { "hk" + it.name == focused }?.let { a -> hotkeyDescription(a)?.let { DescriptionLine(a.label, it) } }
     }
 }
 

@@ -1,6 +1,5 @@
 package com.joeysretro.joey64.launcher.screens
 
-import com.joeysretro.joey64.launcher.components.TwoColumns
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
@@ -208,11 +207,43 @@ private fun GamePage(game: GameRef, summary: GameSummary, inGame: Boolean, focus
     val s = JoeyTheme.spacing
     val name = shortTitle(game.title)
     val none = summary.total == 0
-    LaunchedEffect(Unit) { onHints(listOf(Hint("A", "Open"), Hint("B", "Back"))) }
+    val (title, text) = when {
+        focused == GamePart.Video.name -> "Video" to when {
+            summary.count(GamePart.Video) == 0 -> "$name follows All games' Video. Change a row there to give it its own."
+            inGame -> "$name's own Video settings. Most rows apply when you go back to the game. Resolution and the Renderer, driver, pacing rows apply when it next starts."
+            else -> "$name's own Video settings. The rows with a dot are its own; the rest follow All games."
+        }
+        focused == GamePart.Emulation.name -> "Emulation" to when {
+            summary.count(GamePart.Emulation) == 0 -> "$name follows All games' Emulation. Change a row there to give it its own."
+            inGame -> "$name's own Emulation settings. They apply when it next starts."
+            else -> "$name's own Emulation settings. The rows with a dot are its own; the rest follow All games."
+        }
+        focused == GamePart.Audio.name -> "Audio" to when {
+            summary.count(GamePart.Audio) == 0 -> "$name follows All games' Audio. A game can have its own Volume and Latency."
+            inGame -> "$name's own Audio settings. Volume applies when you go back to the game, Latency when it next starts."
+            else -> "$name's own Audio settings: Volume and Latency."
+        }
+        focused == GamePart.Controls.name -> "Controls" to when {
+            summary.count(GamePart.Controls) == 0 -> "$name follows All games' Controls. Change a row there to give it its own."
+            inGame -> "$name's own Controls. They apply when you go back to the game."
+            else -> "$name's own Controls. The rows with a dot are its own; the rest follow All games."
+        }
+        focused == "reset" -> "Reset to All games" to (if (none) "Nothing to reset: $name uses All games." else "Drops this game's own settings.")
+        focused == "copy" -> "Copy to another game" to (if (none) "Nothing to copy: $name uses All games." else "Gives another game these settings.")
+        else -> summary.changes.getOrNull(focused.removePrefix("ch").toIntOrNull() ?: -1)?.let {
+            it.name to "${it.value} for this game, ${it.allGames} on All games. A opens it."
+        } ?: ("" to "")
+    }
+    // One list with the panel beside it (approved 2026-11-11): a part's row shows what's changed in it.
+    val part = GamePart.entries.firstOrNull { it.name == focused }
+    val info = com.joeysretro.joey64.launcher.components.PanelInfo(title, text,
+        lines = part?.let { p -> summary.changes.filter { it.part == p }.map { it.name to "${it.value} · All games: ${it.allGames}" } } ?: emptyList())
+    val panel = com.joeysretro.joey64.launcher.components.rememberListPanel()
     Column(Modifier.fillMaxSize().padding(horizontal = s.margin).padding(top = 14.dp, bottom = 8.dp)) {
         com.joeysretro.joey64.launcher.components.PageHeader("Game settings") { InfoChip(game.title, R.drawable.ic_rail_controls) }
         Spacer(Modifier.height(12.dp))
-        TwoColumns(Modifier.weight(1f), left = {
+        com.joeysretro.joey64.launcher.components.ListPanel(panel, info, listOf(Hint("A", "Open"), Hint("B", "Back")), onHints, Modifier.weight(1f)) {
+        run {
             SectionLabel("This game")
             for (p in GamePart.entries) {
                 JoeyRow(p.label, Modifier.initialFocus(focused == p.name), value = summary.partLabel(p) + "  ›", sideways = true,
@@ -223,7 +254,6 @@ private fun GamePage(game: GameRef, summary: GameSummary, inGame: Boolean, focus
                 onFocused = { if (it) onFocused("reset") }) { if (!none) onReset() }
             JoeyRow("Copy to another game", Modifier.initialFocus(focused == "copy"), value = "›", enabled = !none, sideways = true,
                 onFocused = { if (it) onFocused("copy") }) { if (!none) onCopy() }
-        }) {
             SectionLabel("Changed for this game")
             if (none) Text("Nothing yet: $name uses All games' Video, Emulation, Audio and Controls.", style = JoeyTheme.type.note, color = c.textDim,
                 modifier = Modifier.padding(horizontal = s.rowPadH, vertical = 6.dp))
@@ -233,35 +263,7 @@ private fun GamePage(game: GameRef, summary: GameSummary, inGame: Boolean, focus
                     leading = { _ -> RowTag(ch.part.label, c.textSecondary, c.chip) }) { onOpen(ch.part, ch.row) }
             }
         }
-        Spacer(Modifier.height(6.dp))
-        val (title, text) = when {
-            focused == GamePart.Video.name -> "Video" to when {
-                summary.count(GamePart.Video) == 0 -> "$name follows All games' Video. Change a row there to give it its own."
-                inGame -> "$name's own Video settings. Most rows apply when you go back to the game. Resolution and the Renderer, driver, pacing rows apply when it next starts."
-                else -> "$name's own Video settings. The rows with a dot are its own; the rest follow All games."
-            }
-            focused == GamePart.Emulation.name -> "Emulation" to when {
-                summary.count(GamePart.Emulation) == 0 -> "$name follows All games' Emulation. Change a row there to give it its own."
-                inGame -> "$name's own Emulation settings. They apply when it next starts."
-                else -> "$name's own Emulation settings. The rows with a dot are its own; the rest follow All games."
-            }
-            focused == GamePart.Audio.name -> "Audio" to when {
-                summary.count(GamePart.Audio) == 0 -> "$name follows All games' Audio. A game can have its own Volume and Latency."
-                inGame -> "$name's own Audio settings. Volume applies when you go back to the game, Latency when it next starts."
-                else -> "$name's own Audio settings: Volume and Latency."
-            }
-            focused == GamePart.Controls.name -> "Controls" to when {
-                summary.count(GamePart.Controls) == 0 -> "$name follows All games' Controls. Change a row there to give it its own."
-                inGame -> "$name's own Controls. They apply when you go back to the game."
-                else -> "$name's own Controls. The rows with a dot are its own; the rest follow All games."
-            }
-            focused == "reset" -> "Reset to All games" to (if (none) "Nothing to reset: $name uses All games." else "Drops this game's own settings.")
-            focused == "copy" -> "Copy to another game" to (if (none) "Nothing to copy: $name uses All games." else "Gives another game these settings.")
-            else -> summary.changes.getOrNull(focused.removePrefix("ch").toIntOrNull() ?: -1)?.let {
-                it.name to "${it.value} for this game, ${it.allGames} on All games. A opens it."
-            } ?: ("" to "")
         }
-        if (title.isNotEmpty()) DescriptionLine(title, text)
     }
 }
 

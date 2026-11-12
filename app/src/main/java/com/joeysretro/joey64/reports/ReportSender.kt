@@ -20,7 +20,8 @@ import java.time.ZoneOffset
  * Sends what's waiting, at most once a day (UTC), when the library comes to the front and Send reports
  * is on. Each report is one device part and its events: sessions are grouped by the GPU and driver
  * they ran on (Settings can change the driver), covers and crashes go with the first. Anything the
- * server didn't take for a reason that may pass (offline, busy, 429) waits for the next day.
+ * server didn't take for a reason that may pass (offline, busy, 429) waits for the next time the library
+ * opens. Only a report the server took counts as the day's: nothing to send doesn't use it up.
  */
 object ReportSender {
     private const val TAG = "Joey64Reports"
@@ -106,7 +107,9 @@ object ReportSender {
             } else break
         }
         if (maxExit > 0) ReportPrefs.setExitsAfter(ctx, maxOf(maxExit, ReportPrefs.exitsAfter(ctx).takeIf { it != Long.MAX_VALUE } ?: 0L))
-        if (anySent || (plan.all { it.second.isEmpty() } && crashes.isEmpty() && coverEvents.isEmpty())) ReportPrefs.setLastSentDay(ctx, today())
+        // Only a report the server took uses up the day. A check with nothing to send marked it too, so a game finished
+        // later that day waited for the next one: a tester's first report never came the day they played (2026-11-11).
+        if (anySent) ReportPrefs.setLastSentDay(ctx, today())
     }
 
     /** The server takes at most 64 KB a report (server/reports/src/validate.js, MAX_BYTES); a report stays under this. */
@@ -148,7 +151,7 @@ object ReportSender {
             if (code >= 400) lastError = c.errorStream?.bufferedReader()?.use { it.readText().take(200) }
             code
         } catch (e: java.io.IOException) {
-            JLog.i(TAG, "reports: not sent ($e), trying again tomorrow")
+            JLog.i(TAG, "reports: not sent ($e), trying again when the library next opens")
             -1
         } finally { c.disconnect() }
     }

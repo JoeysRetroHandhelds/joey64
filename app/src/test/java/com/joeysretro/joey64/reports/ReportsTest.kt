@@ -16,6 +16,13 @@ class ReportsTest {
 
     private val md5 = "9feee5da895fb2e115bb15d1c4a9f906"
 
+    @Test fun onByDefaultOnlyInTestingBuilds() {
+        assertTrue(ReportPrefs.onByDefault("0.1.0.1"))
+        assertTrue(ReportPrefs.onByDefault("0.2.0.3"))
+        assertFalse(ReportPrefs.onByDefault("0.1"))
+        assertFalse(ReportPrefs.onByDefault("0.2.0"))
+    }
+
     @Test fun reportHasTheFieldsTheServerChecks() {
         val d = ReportJson.Device("AYN", "Thor", "SM8550", "Adreno 740", "Turnip Gen8 V38", 34)
         val r = ReportJson.report("3f2b8c1e-9a4d-4e6f-8b2a-1c3d5e7f9a0b", "0.9.0", "dd 0ac9d17", d, listOf(JSONObject().put("type", "x")))

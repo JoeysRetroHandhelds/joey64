@@ -10,7 +10,8 @@ import java.util.UUID
  * Reports (Joey 2026-11-08: approved reports mockup, version A, asked once over the library): when the
  * user turns Send reports on, Joey64 sends at most once a day how games ran on this device, games with
  * no cover or a cover the user replaced, and crashes, to the report server (server/reports, a Cloudflare
- * Worker). Off sends nothing and keeps nothing: sessions aren't even recorded.
+ * Worker). Off sends nothing and keeps nothing: sessions aren't even recorded. Testing builds start On
+ * (ReportPrefs.onByDefault).
  *
  * Files, all under files/reports/:
  *  - pending/<time>-<pid>.json: a finished play session waiting to be sent (an event, plus the gpu and
@@ -24,10 +25,19 @@ import java.util.UUID
 object ReportPrefs {
     private fun p(ctx: Context) = ctx.getSharedPreferences("reports", Context.MODE_PRIVATE)
 
-    fun on(ctx: Context) = p(ctx).getBoolean("on", false)
+    /**
+     * Testing builds (a fourth version number, Releases.isTesting) start with Send reports on and don't ask (Joey
+     * 2026-11-11: "send reports needs to be on by default for test apks"); Settings › About still turns it off.
+     * Public builds start Off. Only a choice the user made is stored, so a public build installed over a testing
+     * one is Off and asks again, unless they set it themselves.
+     */
+    internal fun onByDefault(version: String) = com.joeysretro.joey64.launcher.update.Releases.isTesting(version)
+    private val testing: Boolean get() = onByDefault(com.joeysretro.joey64.BuildConfig.VERSION_NAME)
+
+    fun on(ctx: Context) = p(ctx).getBoolean("on", testing)
 
     /** The library's question was answered (or Send reports set in Settings): it is never asked again. */
-    fun asked(ctx: Context) = p(ctx).getBoolean("asked", false)
+    fun asked(ctx: Context) = p(ctx).getBoolean("asked", testing)
     fun setAsked(ctx: Context) = p(ctx).edit().putBoolean("asked", true).apply()
 
     /**
@@ -36,7 +46,7 @@ object ReportPrefs {
      */
     fun setOn(ctx: Context, on: Boolean) {
         val e = p(ctx).edit().putBoolean("on", on).putBoolean("asked", true)
-        if (on && !p(ctx).getBoolean("on", false)) e.putLong("exits_after", System.currentTimeMillis())
+        if (on && !ReportPrefs.on(ctx)) e.putLong("exits_after", System.currentTimeMillis())
         e.apply()
         if (on) install(ctx) else ReportFiles.clear(ctx)
     }
@@ -51,8 +61,10 @@ object ReportPrefs {
     fun lastSentDay(ctx: Context): String? = p(ctx).getString("sent_day", null)
     fun setLastSentDay(ctx: Context, day: String) = p(ctx).edit().putString("sent_day", day).apply()
 
-    /** Process exits recorded before this time (ms) are not reported. */
-    fun exitsAfter(ctx: Context): Long = p(ctx).getLong("exits_after", Long.MAX_VALUE)
+    /** Process exits recorded before this time (ms) are not reported. On by default (a testing build): since it was installed. */
+    fun exitsAfter(ctx: Context): Long = p(ctx).getLong("exits_after", if (testing) installedAt(ctx) else Long.MAX_VALUE)
+    private fun installedAt(ctx: Context): Long =
+        try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).firstInstallTime } catch (e: Exception) { System.currentTimeMillis() }
     fun setExitsAfter(ctx: Context, t: Long) = p(ctx).edit().putLong("exits_after", t).apply()
 }
 

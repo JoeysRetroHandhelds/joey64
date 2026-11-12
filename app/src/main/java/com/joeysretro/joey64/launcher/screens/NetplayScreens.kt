@@ -150,14 +150,18 @@ fun NetplayScreen(model: LibraryModel, onHints: (List<Hint>) -> Unit, onClose: (
 
     fun gameOf(md5: String) = games.firstOrNull { it.md5.equals(md5, true) }
     val margin = JoeyTheme.spacing.margin
+    // A room left or cancelled lands back on its card while it's still listed, else on Host a room (Thor + Odin 3
+    // Portal 2026-11-12: leaving a joined room went to Host a room).
+    val roomKeys = wifi.map { "room wifi ${it.ip}:${it.port}" } + publicRooms.map { "room public ${it.ip}:${it.port}" }
+    val back = if (cardBack.startsWith("room ") && cardBack !in roomKeys) "host" else cardBack
 
     Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(top = 12.dp, bottom = 12.dp)) {
         // The actions row.
         Row(Modifier.padding(horizontal = margin).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             // A popup closing lands on the card that opened it (A8, Thor 2026-11-12: Your name's Cancel went to Host a room).
-            ActionCard(R.drawable.ic_plus, "Host a room", "Pick one of your games", Modifier.initialFocus(cardBack == "host"), onFocused = { focusKey = "host" }) { cardBack = "host"; picking = true }
-            ActionCard(R.drawable.ic_keyboard, "Join by code", "8 letters from the host", Modifier.initialFocus(cardBack == "code"), onFocused = { focusKey = "code" }) { cardBack = "code"; joinCode = true }
-            ActionCard(R.drawable.ic_user, "Your name", me.name, Modifier.initialFocus(cardBack == "name"), onFocused = { focusKey = "name" }) { cardBack = "name"; naming = true }
+            ActionCard(R.drawable.ic_plus, "Host a room", "Pick one of your games", Modifier.initialFocus(back == "host"), onFocused = { focusKey = "host" }) { cardBack = "host"; picking = true }
+            ActionCard(R.drawable.ic_keyboard, "Join by code", "8 letters from the host", Modifier.initialFocus(back == "code"), onFocused = { focusKey = "code" }) { cardBack = "code"; joinCode = true }
+            ActionCard(R.drawable.ic_user, "Your name", me.name, Modifier.initialFocus(back == "name"), onFocused = { focusKey = "name" }) { cardBack = "name"; naming = true }
         }
         RowHeading("On this Wi-Fi", "rooms near you, private ones included")
         // A line of text isn't a stop: with no rooms Down goes straight to the public rooms (mockup screen 5).
@@ -168,8 +172,8 @@ fun NetplayScreen(model: LibraryModel, onHints: (List<Hint>) -> Unit, onClose: (
                 val private = RoomCode.clean(r.code) !in publicCodes
                 RoomCard(model, g, r.md5, r.game, "${r.hostName}'s room",
                     if (g == null) "You don't have it" else (if (private) "Private · " else "") + "${r.players} of ${model.netPlaces(r.md5)}",
-                    r.pingMs, lock = private, onFocused = { focusKey = "room wifi ${r.ip}:${r.port}" }) {
-                    if (g != null) model.netplayJoin(PlayTogether.Target(r.ip, r.port, r.hostName))
+                    r.pingMs, lock = private, Modifier.initialFocus(back == "room wifi ${r.ip}:${r.port}"), onFocused = { focusKey = "room wifi ${r.ip}:${r.port}" }) {
+                    if (g != null) { cardBack = "room wifi ${r.ip}:${r.port}"; model.netplayJoin(PlayTogether.Target(r.ip, r.port, r.hostName)) }
                 }
             }
         }
@@ -188,8 +192,8 @@ fun NetplayScreen(model: LibraryModel, onHints: (List<Hint>) -> Unit, onClose: (
                     val g = gameOf(r.md5)
                     RoomCard(model, g, r.md5, r.game, "${r.name}'s room",
                         if (g == null) "You don't have it" else "${r.players} of ${model.netPlaces(r.md5)}",
-                        pings["${r.ip}:${r.port}"], lock = false, onFocused = { focusKey = "room public ${r.ip}:${r.port}" }) {
-                        if (g != null) model.netplayJoin(PlayTogether.Target(r.ip, r.port, r.name))
+                        pings["${r.ip}:${r.port}"], lock = false, Modifier.initialFocus(back == "room public ${r.ip}:${r.port}"), onFocused = { focusKey = "room public ${r.ip}:${r.port}" }) {
+                        if (g != null) { cardBack = "room public ${r.ip}:${r.port}"; model.netplayJoin(PlayTogether.Target(r.ip, r.port, r.name)) }
                     }
                 }
             }
@@ -233,7 +237,7 @@ private fun ActionCard(icon: Int, title: String, line: String, modifier: Modifie
  */
 @Composable
 private fun RoomCard(model: LibraryModel, game: LibraryGame?, md5: String, gameTitle: String, title: String, line: String, ping: Int?,
-                     lock: Boolean, onFocused: () -> Unit, onClick: () -> Unit) {
+                     lock: Boolean, modifier: Modifier = Modifier, onFocused: () -> Unit, onClick: () -> Unit) {
     val c = JoeyTheme.colors
     val (source, focused) = rememberFocusState()
     LaunchedEffect(focused) { if (focused) onFocused() }
@@ -241,7 +245,7 @@ private fun RoomCard(model: LibraryModel, game: LibraryGame?, md5: String, gameT
     if (game == null) LaunchedEffect(md5) { model.lookUpRoomCover(md5, gameTitle) }
     val cover by rememberCover(if (game != null) model.cover(game) else roomCovers[md5.lowercase()])
     Column(Modifier.width(150.dp)) {
-        Box(Modifier.fillMaxWidth().aspectRatio(1.45f).coverSelection(focused).background(c.chip, RoundedCornerShape(4.dp))
+        Box(modifier.fillMaxWidth().aspectRatio(1.45f).coverSelection(focused).background(c.chip, RoundedCornerShape(4.dp))
             .clip(RoundedCornerShape(4.dp)).pressable(source, onClick = onClick), contentAlignment = Alignment.Center) {
             val pic = cover
             if (pic != null) androidx.compose.foundation.Image(pic, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),

@@ -296,14 +296,17 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                     }
                     if (home) UpdatedToast(updates, Modifier.align(Alignment.TopEnd))
             }
+            val onPage = place == RailPlace.Settings || place == RailPlace.Controls || place == RailPlace.Search || place == RailPlace.Achievements ||
+                place == RailPlace.Netplay || cheatsFor != null || achievementsFor != null || gameSettingsFor != null || savesFor != null || screenshotsFor != null
+            // On the library's grid: what the focused tile plays, when it stands for several copies (approved mockup 2A).
+            val tileEnd by model.tileEnd.collectAsStateWithLifecycle()
             HintRow(when {
                 !home -> listOf(Hint("A", "Select"))
                 importAgain -> listOf(Hint("A", "Select"), Hint("B", "Back"))
                 onRail -> listOf(Hint("A", "Open"))
-                place == RailPlace.Settings || place == RailPlace.Controls || place == RailPlace.Search || place == RailPlace.Achievements || place == RailPlace.Netplay ||
-                    cheatsFor != null || achievementsFor != null || gameSettingsFor != null || savesFor != null || screenshotsFor != null -> settingsHints
+                onPage -> settingsHints
                 else -> listOf(Hint("A", "Play"), Hint("Start", "Options"), Hint("Y", "Search"))
-            })
+            }, end = tileEnd.takeIf { home && !importAgain && !onRail && !onPage })
             if (home) updates.prompt.collectAsStateWithLifecycle().value?.let { UpdatePopup(it, updates) }
             com.joeysretro.joey64.launcher.screens.NeedsControllerPopup(model)
             // Netplay: a game's options › Netplay, and the room screens wherever a room was opened or joined.

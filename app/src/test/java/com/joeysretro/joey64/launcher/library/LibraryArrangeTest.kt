@@ -61,6 +61,86 @@ class LibraryArrangeTest {
         assertEquals(ids(all), ids(LibraryArrange.visible(all, every, true, emptySet())))
     }
 
+    // The rule measured on the Odin 3's 1,231-game library (approved Versions mockup, 2026-11-11).
+    private fun arrange(vararg gs: LibraryGame, regions: Set<RegionGroup> = every, betas: BetaMode = BetaMode.WithGame) =
+        LibraryArrange.arrange(gs.toList(), regions, true, gs.filter { it.md5.startsWith("l") }.map { it.md5 }.toSet(), betas)
+
+    @Test fun twoNamesUnderOneCodeForOneDestinationAreTwoGames() {
+        // Ocarina of Time and its Master Quest share CZL; homebrew took NED from Power Struggle.
+        val mq = g(10, "Legend of Zelda, The - Ocarina of Time - Master Quest (USA) (Debug) (GameCube)", 'E', "CZLE")
+        val ps = g(11, "Power Struggle (USA)", 'E', "NEDE")
+        val styx = g(12, "Styx (World) (Aftermarket) (Unl)", 'E', "NEDE")
+        val slime = g(13, "Slime Heist (World)", 'E', "NEDE")
+        assertEquals(listOf(4L, 10L, 11L, 12L, 13L), ids(arrange(ootU2, mq, ps, styx, slime).shown))
+    }
+
+    @Test fun aNameLikeAGameThatHasItsDestinationIsAGameOfItsOwn() {
+        // Toki no Ocarina GC is like Ocarina of Time's Japanese name, which has a Japanese copy: it doesn't join
+        // Master Quest just because Master Quest had none. (GC Ura is Master Quest's, but nothing in its name says so.)
+        val mq = g(70, "Legend of Zelda, The - Ocarina of Time - Master Quest (USA) (GameCube)", 'E', "CZLE", rev = 15)
+        val gc = g(71, "Zelda no Densetsu - Toki no Ocarina GC (Japan) (GameCube)", 'J', "CZLJ", rev = 15)
+        val ura = g(72, "Zelda no Densetsu - Toki no Ocarina GC Ura (Japan) (GameCube)", 'J', "CZLJ", rev = 15)
+        assertEquals(listOf(4L, 70L, 71L, 72L), ids(arrange(ootU2, ootJ, mq, gc, ura).shown))
+    }
+
+    @Test fun regionalNamesAndTheSameNameUnderTwoCodesAreOneGame() {
+        val sf = g(20, "Star Fox 64 (USA)", 'E', "NFXE")
+        val lylat = g(21, "Lylat Wars (Europe) (En,Fr,De)", 'P', "NFXP")
+        val ootE = g(22, "Legend of Zelda, The - Ocarina of Time (Europe) (En,Fr,De)", 'P', "NZLP")
+        val a = arrange(sf, lylat, ootU2, ootJ, ootE)
+        assertEquals(listOf(20L, 4L), ids(a.shown))
+        assertEquals(listOf(4L, 22L, 5L), ids(a.versions.getValue(5L).copies))
+        assertEquals(listOf(20L, 21L), ids(a.versions.getValue(21L).copies))
+    }
+
+    @Test fun betasGoWithTheGameOfTheirNameNotTheirCode() {
+        // 007's v2 beta carries Mortal Kombat 4's code.
+        val bond = g(30, "007 - The World Is Not Enough (USA)", 'E', "NO7E")
+        val beta = g(31, "007 - The World Is Not Enough (USA) (v2) (Beta)", 'E', "NM4E", listed = false)
+        val mk4 = g(32, "Mortal Kombat 4 (USA)", 'E', "NM4E")
+        assertEquals(listOf(30L, 32L), ids(arrange(bond, beta, mk4).shown))
+        assertEquals(listOf(30L, 31L), ids(arrange(bond, beta, mk4).versions.getValue(30L).copies))
+        assertEquals(listOf(30L, 31L, 32L), ids(arrange(bond, beta, mk4, betas = BetaMode.OwnTile).shown))
+        assertEquals(listOf(30L, 32L), ids(arrange(bond, beta, mk4, betas = BetaMode.Hidden).shown))
+        assertTrue(arrange(bond, beta, mk4, betas = BetaMode.Hidden).versions.isEmpty())
+    }
+
+    @Test fun aGameNoOneReleasedKeepsItsOwnTile() {
+        // Glover 2 has Glover's code; there's no Glover 2 release, so its prototype is a tile of its own.
+        val glover = g(40, "Glover (USA)", 'E', "NGVE")
+        val gloverUnl = g(41, "Glover (USA) (Aftermarket) (Unl)", 'E', "NGVE", rev = 1)
+        val glover2 = g(42, "Glover 2 (USA) (Proto)", 'E', "NGVE")
+        val a = arrange(glover, gloverUnl, glover2)
+        assertEquals(listOf(40L, 42L), ids(a.shown))
+        // The cartridge before the aftermarket copy, newer revision or not.
+        assertEquals(listOf(40L, 41L), ids(a.versions.getValue(41L).copies))
+    }
+
+    @Test fun theCartBeforeAPortAndTheCopyPlayedOrPickedLast() {
+        val gc = g(50, "Legend of Zelda, The - Ocarina of Time (USA) (GameCube)", 'E', "CZLE", rev = 15)
+        assertEquals(listOf(4L), ids(arrange(ootU0, ootU2, gc).shown))
+        assertEquals(listOf(4L, 3L, 50L), ids(arrange(ootU0, ootU2, gc).versions.getValue(4L).copies))
+        val played = gc.copy(lastPlayedAt = 100)
+        assertEquals(listOf(50L), ids(arrange(ootU0, ootU2, played).shown))
+        val picked = ootU0.copy(pickedAt = 200)
+        assertEquals(listOf(3L), ids(arrange(picked, ootU2, played).shown))
+        // The Versions order doesn't move with the pick.
+        assertEquals(listOf(4L, 3L, 50L), ids(arrange(picked, ootU2, played).versions.getValue(3L).copies))
+        assertEquals(3L, arrange(picked, ootU2, played).versions.getValue(50L).plays.id)
+    }
+
+    @Test fun versionTagsCountBeforeTheHeaderRevision() {
+        val v10 = g(60, "Homebrew Game (World) (v1.0) (Aftermarket) (Unl)", 'E', "NHBE", rev = 3)
+        val v11 = g(61, "Homebrew Game (World) (v1.1) (Aftermarket) (Unl)", 'E', "NHBE", rev = 0)
+        assertEquals(listOf(61L), ids(arrange(v10, v11).shown))
+    }
+
+    @Test fun withoutOneVersionNothingFolds() {
+        val a = LibraryArrange.arrange(all, every, false, listed)
+        assertEquals(ids(all), ids(a.shown))
+        assertTrue(a.versions.isEmpty())
+    }
+
     @Test fun sortOrders() {
         val a = g(1, "banjo", last = 10, secs = 50, added = 3)
         val b = g(2, "Aero Gauge", last = null, secs = 500, added = 1, fav = true)

@@ -56,7 +56,7 @@ import com.joeysretro.joey64.launcher.library.DetailsText
 import com.joeysretro.joey64.launcher.theme.JoeyTheme
 
 /** Which of a game's popups is up. */
-enum class GamePopup { Options, Details, Collections }
+enum class GamePopup { Options, Details, Collections, Versions }
 
 /**
  * A game's popups over the library, in one window whose contents change (as the update popups:
@@ -66,12 +66,17 @@ enum class GamePopup { Options, Details, Collections }
  *    Add to collection (Phase 5). States, Game settings, Controls and Achievements come with their phases.
  *  - **Collections** (Add to collection, approved 2026-11-04, coll.html): see [AddToCollectionBody].
  *    B goes back to Options.
+ *  - **Versions** (Options › Version, approved mockup 3, Joey 2026-11-11: "1A + 2A + 3"; scratchpad
+ *    regional/build_versions.py): a tile that stands for several copies lists them; the ticked one is what the tile
+ *    plays, A picks another ([LibraryModel.useVersion]) and Options goes on with that copy. B goes back to Options.
  *  - **Details** (approved 2026-11-04, details2.html): the cover, then Last played, Play time,
  *    File, Revision, Region, Size and RA hash. The RetroAchievements row comes with Phase 7. The
  *    cover is the one thing to press: A opens Box art. B goes back to Options.
  */
 @Composable
-fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup: (GamePopup?) -> Unit, onPlay: () -> Unit) {
+fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup: (GamePopup?) -> Unit,
+    /** Versions picked another copy: Options goes on with that one. */
+    onGame: (Long) -> Unit = {}, onPlay: () -> Unit) {
     // The grid's landing (the popup's own is provided inside JoeyDialog): Hide game sends focus back to the first game.
     val gridLanding = LocalFocusLanding.current
     var boxArt by remember { mutableStateOf(false) }
@@ -88,25 +93,37 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
     val gameSettings by produceState<String?>(null, game.id) { value = model.gameSettingsLabel(game) }
     // Saves' and Screenshots' values (approved mockup 2026-11-08, screen 1): "3 states", "8".
     val counts by produceState<LibraryModel.SavesCounts?>(null, game.id) { value = model.savesCounts(game) }
+    // The copies its tile stands for, when more than one (approved mockup 3); null for a game on its own.
+    val versions = model.arranged.collectAsState().value?.versions?.get(game.id)
     JoeyDialog(
         onDismiss = { onPopup(null) },
         hints = when (popup) {
             GamePopup.Details -> listOf(Hint("A", "Change box art"), Hint("B", "Back"))
             GamePopup.Collections -> listOf(Hint("A", "Add / Remove"), Hint("B", "Back"))
             GamePopup.Options -> listOf(Hint("A", "Select"), Hint("B", "Close"))
+            // One word per action (review sheet L5); the drawing said "Use this one". B steps back to Options.
+            GamePopup.Versions -> listOf(Hint("A", "Select"), Hint("B", "Back"))
         },
         interceptBack = { if (popup != GamePopup.Options) { onPopup(GamePopup.Options); true } else false },
-        width = when (popup) { GamePopup.Details -> 640.dp; GamePopup.Collections -> 420.dp; GamePopup.Options -> 300.dp },
+        width = when (popup) { GamePopup.Details -> 640.dp; GamePopup.Collections -> 420.dp; GamePopup.Options -> 300.dp; GamePopup.Versions -> 470.dp },
     ) {
         val landing = LocalFocusLanding.current
         LaunchedEffect(popup) { landing?.arm() }
         if (popup == GamePopup.Collections) AddToCollectionBody(game, model) { naming = true }
         // Scrolls: with Saves and Screenshots the list is taller than a 1080p handheld's popup room (Thor, 2026-11-08).
         else Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())) {
-            PopupTitle(game.title)
+            if (popup == GamePopup.Versions) PopupTitle("Versions", "The tile plays the ticked one. Each keeps its own saves.")
+            else PopupTitle(game.title)
             when (popup) {
                 GamePopup.Options -> {
                     JoeyOption("Play", modifier = Modifier.initialFocus(from == null)) { onPopup(null); onPlay() }
+                    // Approved mockup 3: which copy this is, and the game's other copies.
+                    versions?.let { v ->
+                        val label = model.versionLabels(v).getOrNull(v.copies.indexOfFirst { it.id == game.id })?.ifEmpty { null }
+                        JoeyOption("Version", modifier = Modifier.initialFocus(from == GamePopup.Versions), value = (label ?: "${v.copies.size} copies") + "  ›") {
+                            from = GamePopup.Versions; onPopup(GamePopup.Versions)
+                        }
+                    }
                     // Approved netplay6 screen 8 (the v2 Play together, renamed Netplay).
                     // A 1-player game can't be hosted (Joey 2026-11-10): greyed "1 player only".
                     if (model.onePlayerOnly(game)) JoeyOption("Netplay", value = "1 player only", enabled = false) {}
@@ -134,6 +151,11 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
                 }
                 GamePopup.Details -> details?.let { d -> DetailsBody(game, d, model) { boxArt = true } }
                 GamePopup.Collections -> {}
+                GamePopup.Versions -> versions?.let { v ->
+                    VersionsBody(v, model) { copy ->
+                        if (copy.id != v.plays.id) model.useVersion(copy) { onGame(copy.id) } else onGame(copy.id)
+                    }
+                }
             }
         }
     }
@@ -141,6 +163,29 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
         model.newCollection(name, game)
     }
     if (boxArt) BoxArtPopup(game, details, model) { changed -> boxArt = false; if (changed) version++ }
+}
+
+/**
+ * The Versions rows (approved mockup 3): each copy's line ("USA", "USA · Rev 2", "Japan"), under it the copy's own
+ * name when it isn't the tile's ("Zelda no Densetsu - Toki no Ocarina"), its play time and states; the tick on the
+ * copy the tile plays, where focus starts.
+ */
+@Composable
+private fun VersionsBody(v: com.joeysretro.joey64.launcher.library.LibraryArrange.Versions, model: LibraryModel, onPick: (LibraryGame) -> Unit) {
+    val labels = remember(v) { model.versionLabels(v) }
+    val name = remember(v) { com.joeysretro.joey64.launcher.library.LibraryArrange.shortTitle(v.plays.title).lowercase() }
+    v.copies.forEachIndexed { i, copy ->
+        val states by produceState<Int?>(null, copy.id) { value = model.savesCounts(copy)?.states }
+        val own = com.joeysretro.joey64.launcher.library.LibraryArrange.shortTitle(copy.title)
+        val detail = listOfNotNull(
+            own.takeIf { it.lowercase() != name },
+            copy.playSeconds.takeIf { it > 0 }?.let { "Played " + DetailsText.playTime(it).replaceFirstChar { c -> c.lowercase() } },
+            states?.takeIf { it > 0 }?.let { if (it == 1) "1 state" else "$it states" },
+        ).joinToString(com.joeysretro.joey64.launcher.library.CopyLabels.SEPARATOR).ifEmpty { null }
+        val plays = copy.id == v.plays.id
+        JoeyRow(labels.getOrNull(i)?.ifEmpty { null } ?: copy.title, Modifier.initialFocus(plays), detail = detail,
+            trailing = if (plays) { _ -> PickerTick() } else null) { onPick(copy) }
+    }
 }
 
 @Composable

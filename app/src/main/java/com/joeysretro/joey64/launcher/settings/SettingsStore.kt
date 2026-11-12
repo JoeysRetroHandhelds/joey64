@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.datastore.preferences.core.longPreferencesKey
+import com.joeysretro.joey64.launcher.library.BetaMode
 import com.joeysretro.joey64.launcher.library.CoverSize
 import com.joeysretro.joey64.launcher.library.LookFor
 import com.joeysretro.joey64.launcher.library.NameStyle
@@ -45,6 +46,8 @@ data class LauncherSettings(
     val favouritesFirst: Boolean = false,
     val regions: Set<RegionGroup> = RegionGroup.entries.toSet(),
     val oneVersion: Boolean = true,
+    /** Regions › Betas and demos (approved mockup 1A, 2026-11-11), under One version per game. */
+    val betas: BetaMode = BetaMode.WithGame,
     val coverSize: CoverSize = CoverSize.Medium,
     val names: NamesMode = NamesMode.DEFAULT,
     val nameStyle: NameStyle = NameStyle.Short,
@@ -85,6 +88,7 @@ class SettingsStore(context: Context) {
             regions = p[REGIONS]?.mapNotNull { n -> RegionGroup.entries.firstOrNull { it.name == n } }?.toSet()?.takeIf { it.isNotEmpty() }
                 ?: RegionGroup.entries.toSet(),
             oneVersion = p[ONE_VERSION] ?: true,
+            betas = enumOr(p[BETAS], BetaMode.WithGame),
             coverSize = enumOr(p[COVER_SIZE], CoverSize.Medium),
             names = enumOr(p[NAMES], NamesMode.DEFAULT),
             nameStyle = enumOr(p[NAME_STYLE], NameStyle.Short),
@@ -110,6 +114,7 @@ class SettingsStore(context: Context) {
     /** At least one stays ticked (the popup won't untick the last). */
     suspend fun setRegions(v: Set<RegionGroup>) = store.edit { if (v.isNotEmpty()) it[REGIONS] = v.map { r -> r.name }.toSet() }
     suspend fun setOneVersion(on: Boolean) = store.edit { it[ONE_VERSION] = on }
+    suspend fun setBetas(v: BetaMode) = store.edit { it[BETAS] = v.name }
     suspend fun setCoverSize(v: CoverSize) = store.edit { it[COVER_SIZE] = v.name }
     suspend fun setNames(v: NamesMode) = store.edit { it[NAMES] = v.name }
     suspend fun setNameStyle(v: NameStyle) = store.edit { it[NAME_STYLE] = v.name }
@@ -131,6 +136,7 @@ class SettingsStore(context: Context) {
         val FAV_FIRST = booleanPreferencesKey("library_favourites_first")
         val REGIONS = stringSetPreferencesKey("library_regions")
         val ONE_VERSION = booleanPreferencesKey("library_one_version")
+        val BETAS = stringPreferencesKey("library_betas")
         val COVER_SIZE = stringPreferencesKey("library_cover_size")
         val NAMES = stringPreferencesKey("library_names")
         val NAME_STYLE = stringPreferencesKey("library_name_style")

@@ -42,6 +42,7 @@ import com.joeysretro.joey64.launcher.components.SectionLabel
 import com.joeysretro.joey64.launcher.components.initialFocus
 import com.joeysretro.joey64.launcher.data.LibraryGame
 import com.joeysretro.joey64.launcher.layout.LocalScreenLayout
+import com.joeysretro.joey64.launcher.library.BetaMode
 import com.joeysretro.joey64.launcher.library.CoverSize
 import com.joeysretro.joey64.launcher.library.LibraryArrange
 import com.joeysretro.joey64.launcher.library.LookFor
@@ -61,7 +62,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** The Library tab's popups (approved mockup 2026-11-08, screens 2-10). */
-private enum class LibPopup { Sort, Regions, Hidden, Size, Names, Style, Folders, Look }
+private enum class LibPopup { Sort, Regions, Betas, Hidden, Size, Names, Style, Folders, Look }
 
 /**
  * Settings › Library (approved mockup 2026-11-08, scratchpad build_libtab.py / libtab_mock.png, "Approve as
@@ -93,6 +94,9 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
     LaunchedEffect(folders, games, reading == null) { if (reading == null) counts = library.folderCounts() }
     var focused by remember { mutableStateOf("sort") }
     var popup by remember { mutableStateOf<LibPopup?>(null) }
+    // Regions: the hint says Select on Betas and demos (a popup, not a tick); back from its choices, focus lands on it.
+    var onBetas by remember { mutableStateOf(false) }
+    var backFromBetas by remember { mutableStateOf(false) }
     var removing by remember { mutableStateOf<String?>(null) }
     // Add a folder's outcome ("Added · 82 games"), or "Looking…" while it reads.
     var addStatus by remember { mutableStateOf<String?>(null) }
@@ -148,7 +152,7 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
         TwoColumns(Modifier.weight(1f), left = {
             SectionLabel("Show")
             row("sort", "Sort by", s.sortBy.label + "  ›") { popup = LibPopup.Sort }
-            row("regions", "Regions", LibraryArrange.regionsLabel(s.regions) + "  ›") { popup = LibPopup.Regions }
+            row("regions", "Regions", LibraryArrange.regionsLabel(s.regions) + "  ›") { backFromBetas = false; popup = LibPopup.Regions }
             row("hidden", "Hidden games", (if (hidden.isEmpty()) "None" else gamesWord(hidden.size)) + "  ›") { popup = LibPopup.Hidden }
             SectionLabel("Covers")
             row("size", "Cover size", s.coverSize.label + "  ›") { popup = LibPopup.Size }
@@ -190,12 +194,12 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
                     sideways = true) { set { setFavouritesFirst(!s.favouritesFirst) } }
             }
         }
-        LibPopup.Regions -> JoeyDialog(onDismiss = close, hints = listOf(Hint("A", "Tick"), Hint("B", "Close")), width = 470.dp) {
+        LibPopup.Regions -> JoeyDialog(onDismiss = close, hints = listOf(Hint("A", if (onBetas) "Select" else "Tick"), Hint("B", "Close")), width = 470.dp) {
             Column {
                 PopupTitle("Regions", "Games from the ticked regions show in the library.")
                 RegionGroup.entries.forEachIndexed { i, r ->
                     val on = r in s.regions
-                    JoeyRow(r.label, Modifier.initialFocus(i == 0), detail = r.detail, leading = { _ -> TickBox(on) }) {
+                    JoeyRow(r.label, Modifier.initialFocus(i == 0 && !backFromBetas), detail = r.detail, leading = { _ -> TickBox(on) }) {
                         // The last tick stays: an empty library would look like lost games.
                         if (!on) set { setRegions(s.regions + r) } else if (s.regions.size > 1) set { setRegions(s.regions - r) }
                     }
@@ -203,7 +207,17 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
                 PopupDivider()
                 JoeyRow("One version per game", detail = "Several regions or revisions of a game: show one", value = if (s.oneVersion) "On" else "Off",
                     sideways = true) { set { setOneVersion(!s.oneVersion) } }
+                // Approved mockup 1A (2026-11-11): what One version per game does with betas and demos; with it Off,
+                // every copy has its own tile, so the row is grey.
+                JoeyRow("Betas and demos", Modifier.initialFocus(backFromBetas),
+                    detail = if (s.oneVersion) "Betas, protos, demos and kiosk copies" else "Needs One version per game",
+                    value = s.betas.label + "  ›", enabled = s.oneVersion, sideways = true,
+                    onFocused = { onBetas = it }) { popup = LibPopup.Betas }
             }
+        }
+        LibPopup.Betas -> ChoiceList("Betas and demos", BetaMode.entries.map { b -> Triple(b.label, b.detail, b == s.betas) },
+            { backFromBetas = true; popup = LibPopup.Regions }) { i ->
+            set { setBetas(BetaMode.entries[i]) }; backFromBetas = true; popup = LibPopup.Regions
         }
         LibPopup.Size -> ChoiceList("Cover size", CoverSize.entries.map { z ->
             Triple(z.label, "${LibraryArrange.columns(base, z)} across on this screen", z == s.coverSize) }, close) { i ->
@@ -321,7 +335,7 @@ internal fun TickBox(on: Boolean) {
 /** The description line under the tab for the focused row. */
 private fun describe(key: String): Pair<String, String> = when (key) {
     "sort" -> "Sort by" to "The order of the library's covers."
-    "regions" -> "Regions" to "Which regions' games the library shows, from each game's header. One version per game shows one copy of a game you have in several regions or revisions; the others are still in Search."
+    "regions" -> "Regions" to "Which regions' games the library shows, from each game's header. One version per game shows one copy of a game you have in several regions or revisions; the game's options › Version picks which one, and Search still has them all."
     "hidden" -> "Hidden games" to "Games hidden from their options. They're not in the library, Search or the filters, and their saves are kept."
     "size" -> "Cover size" to "How big the library's covers are: Small fits more across, Large fewer."
     "names" -> "Names" to "Whether the library shows game names: under every cover, only on games without box art, or not at all."

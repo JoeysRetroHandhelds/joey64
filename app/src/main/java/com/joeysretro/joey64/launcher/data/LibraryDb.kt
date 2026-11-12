@@ -19,7 +19,7 @@ import com.joeysretro.joey64.launcher.library.RomInfo
  * the file is renamed or moved, or the same ROM sits in two folders.
  */
 object LibrarySchema {
-    const val VERSION = 6
+    const val VERSION = 7
 
     val V1 = listOf(
         // md5: RetroAchievements' N64 hash, the MD5 of the ROM in big-endian (.z64) byte order.
@@ -167,6 +167,14 @@ object LibrarySchema {
         "ALTER TABLE games ADD COLUMN hidden_at INTEGER",
     )
 
+    /**
+     * Version 7 (Versions, approved mockup 3, 2026-11-11): when a copy was picked in its game's Versions. A tile that
+     * stands for several copies plays the one played or picked last.
+     */
+    val V7 = listOf(
+        "ALTER TABLE games ADD COLUMN picked_at INTEGER",
+    )
+
     /** Tables the cache owns; emptied on sign-out. */
     val RA_CACHE = listOf("ra_achievements", "ra_sets")
 }
@@ -195,6 +203,8 @@ data class LibraryGame(
     val revision: Int? = null,
     /** When Hide game hid it; null = shown. */
     val hiddenAt: Long? = null,
+    /** When it was picked in its game's Versions (V7); the tile plays the copy played or picked last. */
+    val pickedAt: Long? = null,
 )
 
 /** A collection the user made (Phase 5). Favourites isn't one: it's games.favorite, always first. */
@@ -259,7 +269,7 @@ class LibraryDb private constructor(context: Context) :
     }
 
     override fun onCreate(db: SQLiteDatabase) {
-        for (sql in LibrarySchema.V1 + LibrarySchema.V2 + LibrarySchema.V3 + LibrarySchema.V4 + LibrarySchema.V5 + LibrarySchema.V6) db.execSQL(sql)
+        for (sql in LibrarySchema.V1 + LibrarySchema.V2 + LibrarySchema.V3 + LibrarySchema.V4 + LibrarySchema.V5 + LibrarySchema.V6 + LibrarySchema.V7) db.execSQL(sql)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -278,6 +288,7 @@ class LibraryDb private constructor(context: Context) :
         }
         if (oldVersion < 5) for (sql in LibrarySchema.V5) db.execSQL(sql)
         if (oldVersion < 6) for (sql in LibrarySchema.V6) db.execSQL(sql)
+        if (oldVersion < 7) for (sql in LibrarySchema.V7) db.execSQL(sql)
     }
 
     /** Adds a finished play session and keeps the game's total and last-played in step. */
@@ -304,11 +315,12 @@ class LibraryDb private constructor(context: Context) :
     fun exportLists(): org.json.JSONObject {
         val db = readableDatabase
         val games = org.json.JSONArray()
-        db.rawQuery("SELECT md5, crc32, header_id, title, added_at, last_played_at, favorite, hidden_at FROM games", null).use { c ->
+        db.rawQuery("SELECT md5, crc32, header_id, title, added_at, last_played_at, favorite, hidden_at, picked_at FROM games", null).use { c ->
             while (c.moveToNext()) games.put(org.json.JSONObject().apply {
                 put("md5", c.getString(0)); put("crc32", c.getString(1)); if (!c.isNull(2)) put("header_id", c.getString(2))
                 put("title", c.getString(3)); put("added_at", c.getLong(4)); if (!c.isNull(5)) put("last_played_at", c.getLong(5))
                 put("favorite", c.getInt(6) != 0); if (!c.isNull(7)) put("hidden_at", c.getLong(7))
+                if (!c.isNull(8)) put("picked_at", c.getLong(8))
             })
         }
         val sessions = org.json.JSONArray()
@@ -346,6 +358,8 @@ class LibraryDb private constructor(context: Context) :
                 update("games", ContentValues().apply {
                     put("favorite", if (g.optBoolean("favorite")) 1 else 0)
                     if (g.has("hidden_at")) put("hidden_at", g.optLong("hidden_at")) else putNull("hidden_at")
+                    // A backup from before Versions keeps the picks made here.
+                    if (g.has("picked_at")) put("picked_at", g.optLong("picked_at"))
                 }, "md5 = ?", arrayOf(md5))
             }
             val touched = mutableSetOf<Long>()
@@ -491,7 +505,7 @@ class LibraryDb private constructor(context: Context) :
     fun libraryGames(): List<LibraryGame> =
         readableDatabase.rawQuery(
             "SELECT g.id, g.title, g.md5, a.kind, g.crc32, g.last_played_at IS NOT NULL, g.favorite, g.header_key, g.header_id," +
-                " g.last_played_at, g.play_seconds, g.added_at, g.region, g.revision, g.hidden_at FROM games g LEFT JOIN box_art a ON a.game_id = g.id" +
+                " g.last_played_at, g.play_seconds, g.added_at, g.region, g.revision, g.hidden_at, g.picked_at FROM games g LEFT JOIN box_art a ON a.game_id = g.id" +
                 " WHERE EXISTS (SELECT 1 FROM files f WHERE f.game_id = g.id) ORDER BY g.title COLLATE NOCASE",
             null,
         ).use { c ->
@@ -500,7 +514,8 @@ class LibraryDb private constructor(context: Context) :
                     crc32 = c.getString(4), played = c.getInt(5) != 0, favourite = c.getInt(6) != 0, headerKey = c.getString(7),
                     headerId = c.getString(8), lastPlayedAt = if (c.isNull(9)) null else c.getLong(9), playSeconds = c.getLong(10),
                     addedAt = c.getLong(11), region = if (c.isNull(12)) null else c.getInt(12).toChar(),
-                    revision = if (c.isNull(13)) null else c.getInt(13), hiddenAt = if (c.isNull(14)) null else c.getLong(14)))
+                    revision = if (c.isNull(13)) null else c.getInt(13), hiddenAt = if (c.isNull(14)) null else c.getLong(14),
+                    pickedAt = if (c.isNull(15)) null else c.getLong(15)))
             }
         }
 
@@ -523,6 +538,11 @@ class LibraryDb private constructor(context: Context) :
     /** Hide game (Settings › Library › Hidden games shows it again): [at] when, null to show it. */
     fun setHidden(gameId: Long, at: Long?) {
         writableDatabase.execSQL("UPDATE games SET hidden_at = ? WHERE id = ?", arrayOf<Any?>(at, gameId))
+    }
+
+    /** Versions › Select: the copy its game's tile plays from now on (until another is played or picked). */
+    fun setPicked(gameId: Long, at: Long) {
+        writableDatabase.execSQL("UPDATE games SET picked_at = ? WHERE id = ?", arrayOf<Any?>(at, gameId))
     }
 
     fun setFavourite(gameId: Long, on: Boolean) {

@@ -157,7 +157,11 @@ fun LibraryScreen(model: LibraryModel, onSearch: () -> Unit) {
         if (list.isEmpty()) Text("No games here yet", style = JoeyTheme.type.note, color = c.textDim,
             modifier = Modifier.padding(start = JoeyTheme.spacing.margin, top = 20.dp))
         // A new view starts at its first game.
-        androidx.compose.runtime.key(view) { GamesGrid(list, model, onSearch, keepPlace = true) }
+        // The hint row says what the focused tile plays (approved mockup 2A, 2026-11-11).
+        androidx.compose.runtime.key(view) {
+            GamesGrid(list, model, onSearch, keepPlace = true, onFocusGame = { if (!it) model.focusedTile.value = null },
+                onFocused = { model.focusedTile.value = it })
+        }
     }
 }
 
@@ -198,6 +202,16 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
     // The game whose tile has focus, for Start; null while focus is elsewhere.
     var focusedGame by remember { mutableStateOf<LibraryGame?>(null) }
     var popup by remember { mutableStateOf<Pair<Long, GamePopup>?>(null) }
+    // Versions picked another copy for the tile: focus lands on it again when the popup closes.
+    var switched by remember { mutableStateOf(false) }
+    // The library's tiles are keyed by their game (its copies' first id), not by the copy they play, so a pick in
+    // Versions keeps the tile, and its focus, in place under the popup (keyed by copy, the old tile went and focus fell
+    // to the filter chip; Odin 3 2026-11-11). A key already taken (the list and the folds a moment apart) takes the id.
+    val versions = if (keepPlace) model.arranged.collectAsStateWithLifecycle().value?.versions else null
+    val keys = remember(list, versions) {
+        val used = HashSet<Long>()
+        list.associate { g -> g.id to (versions?.get(g.id)?.copies?.minOf { it.id }?.takeIf { used.add(it) }?.let { "v$it" } ?: "i${g.id}") }
+    }
     val currentFocused by rememberUpdatedState(focusedGame)
     val search by rememberUpdatedState(onSearch)
     LaunchedEffect(focusedGame != null) { onFocusGame(focusedGame != null) }
@@ -216,7 +230,12 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
     popup?.let { (id, which) ->
         val g = list.firstOrNull { it.id == id } ?: model.games.value?.firstOrNull { it.id == id }
         if (g == null) popup = null
-        else GamePopups(g, which, model, onPopup = { next -> popup = next?.let { id to it } }) { model.playAsked(g) { context.startActivity(it) } }
+        else GamePopups(g, which, model,
+            onPopup = { next -> popup = next?.let { id to it }; if (next == null && switched) { switched = false; if (keepPlace) landing?.arm() } },
+            onGame = { next ->
+                if (next != id) { switched = true; if (keepPlace) model.libraryFocus = next; onFocused(next) }
+                popup = next to GamePopup.Options
+            }) { model.playAsked(g) { context.startActivity(it) } }
     }
     run {
         // Focus moving to a row half off screen scrolls it fully in with a row gap to spare, so the
@@ -298,14 +317,17 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
                 true
             },
         ) {
-            itemsIndexed(list, key = { _, g -> g.id }) { i, g ->
+            itemsIndexed(list, key = { _, g -> keys[g.id] ?: "i${g.id}" }) { i, g ->
                 val own = remember { FocusRequester() }
                 androidx.compose.runtime.DisposableEffect(g.id) { tileFocus[g.id] = own; onDispose { if (tileFocus[g.id] === own) tileFocus.remove(g.id) } }
+                // The tile plays another copy now (Versions) and still has focus: Start and the hint row follow it.
+                var hasFocus by remember { mutableStateOf(false) }
+                LaunchedEffect(g.id) { if (hasFocus && focusedGame?.id != g.id) { focusedGame = g; focusedIndex = i; keep(g) } }
                 GameTile(g, model.cover(g), names, com.joeysretro.joey64.launcher.library.LibraryArrange.title(g, style), greyed = g.id in greyed,
                     copyLine = copyLines[g.id],
                     modifier = Modifier.initialFocus(if (landId != null) g.id == landId else firstFocus && i == 0).focusRequester(own)
                     .then(if (i == 0 && firstTile != null) Modifier.focusRequester(firstTile) else Modifier),
-                    onFocus = { on -> if (on) { focusedGame = g; focusedIndex = i; keep(g) } else if (focusedGame?.id == g.id) { focusedGame = null; focusedIndex = -1 } },
+                    onFocus = { on -> hasFocus = on; if (on) { focusedGame = g; focusedIndex = i; keep(g) } else if (focusedGame?.id == g.id) { focusedGame = null; focusedIndex = -1 } },
                     onOptions = { keep(g); popup = g.id to GamePopup.Options }) { keep(g); model.playAsked(g) { context.startActivity(it) } }
             }
         }

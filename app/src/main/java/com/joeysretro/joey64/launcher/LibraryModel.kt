@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import com.joeysretro.joey64.launcher.library.LibraryArrange
 import com.joeysretro.joey64.launcher.data.LibraryGame
@@ -132,12 +133,40 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
     val facts: StateFlow<com.joeysretro.joey64.launcher.library.LibraryFacts?> = _facts
 
     /**
-     * What the library grid lays out before its view (All games, a collection, a filter): [games] in the
-     * ticked Regions, one version per game when that's on (Settings › Library, approved 2026-11-08).
+     * [games] in the ticked Regions, one version per game when that's on (Settings › Library, approved 2026-11-08),
+     * with the betas as Regions › Betas and demos says, and each folded game's copies (Versions, approved mockup 3,
+     * 2026-11-11).
      */
-    val shown: StateFlow<List<LibraryGame>?> = combine(games, settings.settings, _facts) { g, s, f ->
-        g?.let { LibraryArrange.visible(it, s.regions, s.oneVersion, f?.listed.orEmpty()) }
+    val arranged: StateFlow<LibraryArrange.Arranged?> = combine(games, settings.settings, _facts) { g, s, f ->
+        g?.let { LibraryArrange.arrange(it, s.regions, s.oneVersion, f?.listed.orEmpty(), s.betas) }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** What the library grid lays out before its view (All games, a collection, a filter). */
+    val shown: StateFlow<List<LibraryGame>?> = arranged.map { it?.shown }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** Each copy's line in its game's Versions and the hint row: "USA", "USA · Rev 2", "Europe · GameCube". */
+    fun versionLabels(v: LibraryArrange.Versions): List<String> =
+        com.joeysretro.joey64.launcher.library.CopyLabels.lines(v.copies.map { it.title to it.region })
+
+    /** The library grid's focused tile, for the hint row's line (approved mockup 2A); null while focus is elsewhere. */
+    val focusedTile = MutableStateFlow<Long?>(null)
+
+    /** The hint row's right end on a tile that stands for several copies (approved mockup 2A): "Plays USA · 4 versions". */
+    val tileEnd: StateFlow<String?> = combine(focusedTile, arranged) { id, a ->
+        val v = id?.let { a?.versions?.get(it) }?.takeIf { it.plays.id == id } ?: return@combine null
+        val label = versionLabels(v)[v.copies.indexOf(v.plays)]
+        listOfNotNull(label.takeIf { it.isNotEmpty() }?.let { "Plays $it" }, "${v.copies.size} versions")
+            .joinToString(com.joeysretro.joey64.launcher.library.CopyLabels.SEPARATOR)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** Versions › Select: [copy] is what its game's tile plays from now on (until another copy is played or picked). */
+    fun useVersion(copy: LibraryGame, onDone: () -> Unit = {}) {
+        viewModelScope.launch {
+            _all.value = withContext(Dispatchers.IO) { db.setPicked(copy.id, System.currentTimeMillis()); db.libraryGames() }
+            JLog.i(TAG, "versions: ${copy.title} picked")
+            onDone()
+        }
+    }
 
     /** A game's options › Hide game, or Hidden games › Show again. Its saves, play time and collections stay. */
     fun setHidden(game: LibraryGame, hide: Boolean, onDone: () -> Unit = {}) {

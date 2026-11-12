@@ -117,6 +117,7 @@ object AppBackup {
                     put("box_art_low", s.boxArtLow)
                     put("library_sort", s.sortBy.name); put("library_favourites_first", s.favouritesFirst)
                     put("library_regions", org.json.JSONArray(s.regions.map { it.name })); put("library_one_version", s.oneVersion)
+                    put("library_betas", s.betas.name)
                     put("library_cover_size", s.coverSize.name); put("library_names", s.names.name)
                     put("library_name_style", s.nameStyle.name); put("library_look_for", s.lookFor.name)
                 }.toString(1).toByteArray())
@@ -215,6 +216,7 @@ object AppBackup {
                     store.setRegions((0 until a.length()).mapNotNull { i -> com.joeysretro.joey64.launcher.library.RegionGroup.entries.firstOrNull { it.name == a.optString(i) } }.toSet())
                 }
                 if (l.has("library_one_version")) store.setOneVersion(l.optBoolean("library_one_version"))
+                com.joeysretro.joey64.launcher.library.BetaMode.entries.firstOrNull { it.name == l.optString("library_betas") }?.let { store.setBetas(it) }
                 com.joeysretro.joey64.launcher.library.CoverSize.entries.firstOrNull { it.name == l.optString("library_cover_size") }?.let { store.setCoverSize(it) }
                 com.joeysretro.joey64.launcher.library.NamesMode.entries.firstOrNull { it.name == l.optString("library_names") }?.let { store.setNames(it) }
                 com.joeysretro.joey64.launcher.library.NameStyle.entries.firstOrNull { it.name == l.optString("library_name_style") }?.let { store.setNameStyle(it) }

@@ -166,18 +166,58 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
     LaunchedEffect(target) {
         onControl { ctl -> if (ctl == Control.Search) onY() else false }
     }
-    LaunchedEffect(target) {
-        onHints(listOf(Hint("A", "Change"), Hint("Y", if (target == null) "Reset to default" else "Use All games"), Hint("B", "Back")))
+    val hints = listOf(Hint("A", "Change"), Hint("Y", if (target == null) "Reset to default" else "Use All games"), Hint("B", "Back"))
+
+    // One list with the panel beside it (approved 2026-11-11, setlist_mock.png): Picture, then Look, then Advanced.
+    val panel = com.joeysretro.joey64.launcher.components.rememberListPanel()
+    val changed = target != null && rowKeys[focused].orEmpty().any { it in own }
+    val (title, text) = when (focused) {
+        "ws" -> "Widescreen" to extraText(ExtraKind.Widescreen, hardcore, target != null && extras?.widescreen?.isEmpty() == true)
+        "fps" -> fpsTitle to extraText(ExtraKind.Fps, hardcore, target != null && extras?.fps?.isEmpty() == true)
+        else -> describe(focused, v)
+    }
+    val help = if (changed) "Changed for this game. ${allGamesNote(focused, VideoSettings.resolve(all, null))}" else text
+    val choiceKey = mapOf("res" to VideoKey.Resolution, "asp" to VideoKey.Aspect, "int" to VideoKey.Integer, "ori" to VideoKey.Orientation,
+        "cut" to VideoKey.Cutout, "bfi" to VideoKey.Bfi)[focused]
+    val info = when {
+        choiceKey != null -> VideoChoices.of(choiceKey).let { chs ->
+            com.joeysretro.joey64.launcher.components.PanelInfo(title, help,
+                chs.map { com.joeysretro.joey64.launcher.components.PanelChoice(it.label, it.detail, it.value == v[choiceKey], it.experimental) }) { i ->
+                set(choiceKey, chs[i].value) }
+        }
+        focused == "ws" || focused == "fps" -> {
+            val kind = if (focused == "ws") ExtraKind.Widescreen else ExtraKind.Fps
+            val key = if (kind == ExtraKind.Widescreen) VideoKey.Widescreen else VideoKey.Fps
+            val x = extras
+            val opts = when {
+                !extraValue(kind).second -> emptyList()
+                target == null -> VideoChoices.extrasAll.map { ch -> ExtraOption(ch.value, ch.label, if (ch.value == GameExtras.ALL) countsLine(counts) else ch.detail, false) }
+                x != null -> listOf(ExtraOption("off", "Off", null, false)) + x.of(kind).map { ExtraOption(it.name, it.label, it.detail, it.wip) }
+                else -> emptyList()
+            }
+            val cur = if (target == null) v[key] else x?.pick(kind, v[key])?.name ?: "off"
+            com.joeysretro.joey64.launcher.components.PanelInfo(title, help,
+                opts.map { com.joeysretro.joey64.launcher.components.PanelChoice(it.label, it.detail, it.value == cur, it.wip) }) { i -> set(key, opts[i].value) }
+        }
+        // Rows that open a page of their own: the panel shows what's set inside (mockup screen 5), A opens it.
+        focused == "col" -> com.joeysretro.joey64.launcher.components.PanelInfo(title, help, lines = COLOUR_KEYS.map { k ->
+            (when (k) { VideoKey.Brightness -> "Brightness"; VideoKey.Contrast -> "Contrast"; VideoKey.Saturation -> "Saturation"; else -> "Gamma" }) to
+                "${v.int(k)}" })
+        focused == "shp" -> com.joeysretro.joey64.launcher.components.PanelInfo(title, help, lines = listOf("Sharpening" to sharpenValue(v)))
+        focused == "adv" -> com.joeysretro.joey64.launcher.components.PanelInfo(title, help, lines = listOf(
+            "Renderer" to VideoChoices.label(VideoKey.Renderer, v[VideoKey.Renderer]), "Driver" to VideoChoices.label(VideoKey.Driver, v[VideoKey.Driver]),
+            "Frame pacing" to VideoChoices.label(VideoKey.Pacing, v[VideoKey.Pacing])))
+        focused == "crop" -> com.joeysretro.joey64.launcher.components.PanelInfo(title, help, lines = listOf("Crop edges" to VideoChoices.label(VideoKey.Crop, v[VideoKey.Crop])))
+        else -> com.joeysretro.joey64.launcher.components.PanelInfo(title, help)
     }
 
-    Column(modifier.fillMaxSize()) {
-        // Seven rows: the last ones scroll into view (approved version A shows Fill the camera cutout below the fold).
-        TwoColumns(Modifier.weight(1f), left = {
+    com.joeysretro.joey64.launcher.components.ListPanel(panel, info, hints, onHints, modifier) {
+        run {
             SectionLabel("Picture")
             @Composable
             fun row(id: String, label: String, k: VideoKey) =
                 JoeyRow(label, Modifier.initialFocus(startRow == id), value = VideoChoices.label(k, v[k]), sideways = true,
-                    dot = dot(k), onFocused = { if (it) focused = id }) { popup = VPopup.Choice(k, row = id) }
+                    dot = dot(k), onFocused = { if (it) focused = id }) { if (!panel.enter()) popup = VPopup.Choice(k, row = id) }
             row("res", "Resolution", VideoKey.Resolution)
             row("asp", "Aspect ratio", VideoKey.Aspect)
             JoeyRow("Crop edges", Modifier.initialFocus(startRow == "crop"), value = VideoChoices.label(VideoKey.Crop, v[VideoKey.Crop]), sideways = true,
@@ -188,7 +228,7 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
                 val key = if (k == ExtraKind.Widescreen) VideoKey.Widescreen else VideoKey.Fps
                 val (value, enabled) = extraValue(k)
                 JoeyRow(if (k == ExtraKind.Widescreen) "Widescreen" else fpsTitle, Modifier.initialFocus(startRow == id), value = value,
-                    enabled = enabled, sideways = true, dot = dot(key), experimental = true, onFocused = { if (it) focused = id }) { popup = VPopup.Extra(k) }
+                    enabled = enabled, sideways = true, dot = dot(key), experimental = true, onFocused = { if (it) focused = id }) { if (!panel.enter()) popup = VPopup.Extra(k) }
             }
             row("int", "Integer scaling", VideoKey.Integer)
             // A TV is always landscape and has no camera hole (Android TV mockup 2026-11-09, screen 7).
@@ -196,7 +236,6 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
                 row("ori", "Screen orientation", VideoKey.Orientation)
                 row("cut", "Fill the camera cutout", VideoKey.Cutout)
             }
-        }) {
             SectionLabel("Look")
             val colourDefault = COLOUR_ROW_KEYS.all { v[it] == it.default }
             JoeyRow("Colour", Modifier.initialFocus(startRow == "col"), value = (if (colourDefault) "Default" else "Changed") + "  ›", sideways = true, dot = dot(*COLOUR_ROW_KEYS.toTypedArray()),
@@ -220,19 +259,11 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
                 if (onPicturePanel != null) onPicturePanel("ov") else popup = VPopup.Picture(PicPage.Overlay)
             }
             JoeyRow("Black frame insertion", Modifier.initialFocus(startRow == "bfi"), value = VideoChoices.label(VideoKey.Bfi, v[VideoKey.Bfi]), sideways = true, dot = dot(VideoKey.Bfi), experimental = true,
-                onFocused = { if (it) focused = "bfi" }) { popup = VPopup.Choice(VideoKey.Bfi, row = "bfi") }
+                onFocused = { if (it) focused = "bfi" }) { if (!panel.enter()) popup = VPopup.Choice(VideoKey.Bfi, row = "bfi") }
             SectionLabel("Advanced")
             JoeyRow("Renderer, driver, pacing", Modifier.initialFocus(startRow == "adv"), value = "›", sideways = true, dot = dot(*ADVANCED_KEYS.toTypedArray()),
                 onFocused = { if (it) focused = "adv" }) { popup = VPopup.Advanced("renderer") }
         }
-        Spacer(Modifier.height(6.dp))
-        val changed = target != null && rowKeys[focused].orEmpty().any { it in own }
-        val (title, text) = when (focused) {
-            "ws" -> "Widescreen" to extraText(ExtraKind.Widescreen, hardcore, target != null && extras?.widescreen?.isEmpty() == true)
-            "fps" -> fpsTitle to extraText(ExtraKind.Fps, hardcore, target != null && extras?.fps?.isEmpty() == true)
-            else -> describe(focused, v)
-        }
-        DescriptionLine(title, if (changed) "Changed for this game. ${allGamesNote(focused, VideoSettings.resolve(all, null))}" else text)
     }
 
     when (val p = popup) {

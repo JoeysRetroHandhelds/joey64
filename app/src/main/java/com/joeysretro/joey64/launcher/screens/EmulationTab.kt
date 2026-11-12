@@ -1,6 +1,5 @@
 package com.joeysretro.joey64.launcher.screens
 
-import com.joeysretro.joey64.launcher.components.TwoColumns
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -54,8 +53,17 @@ fun EmulationTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((C
     val all = remember(version) { store.all() }
     val own = remember(version, target) { target?.let { store.game(it) } ?: emptyMap() }
     val e = EmuSettings.resolve(all, own)
-    var focused by remember { mutableStateOf(start ?: EmuKey.ExpansionPak) }
+    // The focused row: an EmuKey's name, or one of the Speed group's ids (SPEED_*).
+    var focused by remember { mutableStateOf(start?.name ?: EmuKey.ExpansionPak.name) }
     var popup by remember { mutableStateOf<EmuKey?>(null) }
+    var speedPopup by remember { mutableStateOf<String?>(null) }
+    // The Speed group (approved emuspeed_mock.png, Joey 2026-11-11): the same settings as Controls › Hotkeys'
+    // Fast-forward, Slow motion and Rewind popups, in hotkeys.json; the same for every game.
+    val controls = remember { com.joeysretro.joey64.controls.ControlsStore(context) }
+    var hk by remember { mutableStateOf(controls.hotkeys()) }
+    fun setHk(f: (com.joeysretro.joey64.controls.Hotkeys) -> com.joeysretro.joey64.controls.Hotkeys) {
+        val h = f(controls.hotkeys()); controls.saveHotkeys(h); hk = h
+    }
     val game = target != null
     // The game's header code, for Auto's pick and the Expansion Pak's needs list.
     val code by produceState<String?>(null, target) {
@@ -80,7 +88,8 @@ fun EmulationTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((C
         version++
     }
     // Greyed: the Expansion Pak on All games, or for a game that needs it.
-    fun fixed(k: EmuKey) = k == EmuKey.ExpansionPak && (!game || needsPak)
+    // Thermal fallback, now in Speed, is the same for every game like the rest of the group (emuspeed_mock screen 4).
+    fun fixed(k: EmuKey) = (k == EmuKey.ExpansionPak && (!game || needsPak)) || (k == EmuKey.Thermal && game)
     // No dot on a greyed row: a game that needs the pak keeps it on whatever its file says.
     fun dot(k: EmuKey) = game && k in own && !fixed(k)
     fun autoGives(k: EmuKey): String? = when (k) {
@@ -89,48 +98,145 @@ fun EmulationTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((C
         else -> null
     }
 
+    fun keyOf(id: String) = EmuKey.entries.firstOrNull { it.name == id }
+    fun fixedRow(id: String) = keyOf(id)?.let { fixed(it) } ?: game
+    val defaults = com.joeysretro.joey64.controls.Hotkeys()
+    /** Y on a Speed row: back to its default (they have no All games / game split). */
+    fun resetSpeed(id: String) = setHk { h -> when (id) {
+        SPEED_FF -> h.copy(ffSpeed = defaults.ffSpeed); SPEED_FF_MODE -> h.copy(ffMode = defaults.ffMode)
+        SPEED_SLOW -> h.copy(slowSpeed = defaults.slowSpeed); SPEED_SLOW_MODE -> h.copy(slowMode = defaults.slowMode)
+        SPEED_RW -> h.copy(rewindOn = defaults.rewindOn); SPEED_RW_BACK -> h.copy(rewindSeconds = defaults.rewindSeconds); else -> h } }
+
     // The handler is set once per target; it calls this composition's Y (with the game's needs list as loaded since)
     // through rememberUpdatedState.
-    val onY by rememberUpdatedState { if (popup == null && !fixed(focused)) { reset(focused); true } else false }
+    val onY by rememberUpdatedState {
+        if (popup != null || speedPopup != null || fixedRow(focused)) false
+        else { keyOf(focused)?.let { reset(it) } ?: resetSpeed(focused); true }
+    }
     LaunchedEffect(target) {
         onControl { ctl -> if (ctl == Control.Search) onY() else false }
     }
-    LaunchedEffect(target, focused, needsPak) {
-        val y = Hint("Y", if (target == null) "Reset to default" else "Use All games")
-        onHints(if (fixed(focused)) listOf(Hint("B", "Back"))
-            else listOf(Hint("A", "Change"), y, Hint("B", "Back")))
+    val y = Hint("Y", if (target == null || keyOf(focused) == null) "Reset to default" else "Use All games")
+    val hints = when {
+        fixedRow(focused) -> listOf(Hint("B", "Back"))
+        focused == SPEED_FF || focused == SPEED_SLOW -> listOf(Hint("◀▶", "Change"), y, Hint("B", "Back"))
+        else -> listOf(Hint("A", "Change"), y, Hint("B", "Back"))
     }
 
-    Column(modifier.fillMaxSize()) {
+    // One list with the panel beside it (approved 2026-11-11).
+    val panel = com.joeysretro.joey64.launcher.components.rememberListPanel()
+    val allE = EmuSettings.resolve(all, null)
+    val fk = keyOf(focused)
+    val sameForAll = "The same for every game. Pick All games in the chip above to change it."
+    val info = if (fk != null) {
+        val help = when {
+            fk == EmuKey.ExpansionPak && !game -> "On for every game. To turn it off for one game, pick that game in the chip above."
+            fk == EmuKey.ExpansionPak && needsPak -> "This game needs the Expansion Pak, so it's always on."
+            fk == EmuKey.Thermal && game -> sameForAll
+            dot(fk) -> "Changed for this game. All games uses ${EmuChoices.label(fk, allE[fk])}."
+            else -> listOfNotNull(describe(fk), autoGives(fk)?.let { "$it." }).joinToString(" ")
+        }
+        if (fixed(fk)) com.joeysretro.joey64.launcher.components.PanelInfo(title(fk), help)
+        else EmuChoices.of(fk).let { chs -> com.joeysretro.joey64.launcher.components.PanelInfo(title(fk), help,
+            chs.map { com.joeysretro.joey64.launcher.components.PanelChoice(it.label, it.detail, it.value == e[fk]) }) { i -> set(fk, chs[i].value) } }
+    } else speedInfo(focused, hk, game, sameForAll) { f -> setHk(f) }
+
+    com.joeysretro.joey64.launcher.components.ListPanel(panel, info, hints, onHints, modifier) {
         @Composable
         fun row(k: EmuKey, label: String, value: String = EmuChoices.label(k, e[k])) =
-            JoeyRow(label, Modifier.initialFocus(focused == k), value = value, sideways = true, enabled = !fixed(k),
-                dot = dot(k), onFocused = { if (it) focused = k }) { if (!fixed(k)) popup = k }
-        TwoColumns(Modifier.weight(1f), left = {
-            SectionLabel("Console")
-            row(EmuKey.ExpansionPak, "Expansion Pak", when {
-                !game -> "Set for one game"
-                needsPak -> "Needed by this game"
-                else -> EmuChoices.label(EmuKey.ExpansionPak, e[EmuKey.ExpansionPak])
-            })
-        }) {
-            SectionLabel("Advanced")
-            row(EmuKey.Overclock, "Overclock")
-            row(EmuKey.CpuCore, "CPU core")
-            row(EmuKey.Thermal, "Thermal fallback")
-        }
-        Spacer(Modifier.height(6.dp))
-        val allE = EmuSettings.resolve(all, null)
-        DescriptionLine(title(focused), when {
-            focused == EmuKey.ExpansionPak && !game -> "The extra 4 MB of memory. Set it for one game: pick the game in the chip above."
-            focused == EmuKey.ExpansionPak && needsPak -> "This game needs the Expansion Pak, so it's always on."
-            dot(focused) -> "Changed for this game. All games uses ${EmuChoices.label(focused, allE[focused])}."
-            else -> describe(focused)
+            JoeyRow(label, Modifier.initialFocus(focused == k.name), value = value, sideways = true, enabled = !fixed(k),
+                dot = dot(k), onFocused = { if (it) focused = k.name }) { if (!fixed(k) && !panel.enter()) popup = k }
+        @Composable
+        fun speedRow(id: String, label: String, value: String) =
+            JoeyRow(label, Modifier.initialFocus(focused == id), value = value, sideways = true, enabled = !game,
+                onFocused = { if (it) focused = id }) {
+                if (!game) {
+                    if (id == SPEED_RW) setHk { it.copy(rewindOn = !it.rewindOn) } else if (!panel.enter()) speedPopup = id
+                }
+            }
+        SectionLabel("Console")
+        row(EmuKey.ExpansionPak, "Expansion Pak", when {
+            // All games: on for every game (Joey 2026-11-11: "On" rather than "Auto on"), greyed: it's set per game.
+            !game -> "On"
+            needsPak -> "Needed by this game"
+            else -> EmuChoices.label(EmuKey.ExpansionPak, e[EmuKey.ExpansionPak])
         })
+        SectionLabel("Speed")
+        val h = hk
+        StepRow("Fast-forward speed", "${h.ffSpeed}%", com.joeysretro.joey64.controls.Hotkeys.FF_SPEEDS, h.ffSpeed, focused == SPEED_FF,
+            first = focused == SPEED_FF, enabled = !game, onFocused = { if (it) focused = SPEED_FF }) { v -> setHk { it.copy(ffSpeed = v) } }
+        speedRow(SPEED_FF_MODE, "Fast-forward mode", h.ffMode.label + "  ›")
+        StepRow("Slow motion speed", "${h.slowSpeed}%", com.joeysretro.joey64.controls.Hotkeys.SLOW_SPEEDS, h.slowSpeed, focused == SPEED_SLOW,
+            first = focused == SPEED_SLOW, enabled = !game, onFocused = { if (it) focused = SPEED_SLOW }) { v -> setHk { it.copy(slowSpeed = v) } }
+        speedRow(SPEED_SLOW_MODE, "Slow motion mode", h.slowMode.label + "  ›")
+        speedRow(SPEED_RW, "Rewind", if (h.rewindOn) "On" else "Off")
+        speedRow(SPEED_RW_BACK, "Rewind: how far back", com.joeysretro.joey64.controls.Hotkeys.rewindSecondsLabel(h.rewindSeconds) + "  ›")
+        // Thermal fallback moved here from Advanced: it only changes the fast-forward speed (emuspeed_mock screen 4).
+        row(EmuKey.Thermal, "Thermal fallback", if (game) "Same for every game" else EmuChoices.label(EmuKey.Thermal, e[EmuKey.Thermal]))
+        SectionLabel("Advanced")
+        row(EmuKey.Overclock, "Overclock")
+        row(EmuKey.CpuCore, "CPU core")
     }
 
     popup?.let { k ->
         EmuChoicePopup(k, e[k], autoGives(k), onDismiss = { popup = null }) { set(k, it); popup = null }
+    }
+    // The narrow screens' popups for the Speed group's choice rows (no panel there).
+    speedPopup?.let { id ->
+        val i = speedInfo(id, hk, game, sameForAll) { f -> setHk(f) }
+        JoeyDialog(onDismiss = { speedPopup = null }, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 470.dp) {
+            Column {
+                PopupTitle(i.title, i.help)
+                i.choices.forEachIndexed { n, ch ->
+                    JoeyRow(ch.label, Modifier.initialFocus(ch.on), detail = ch.detail, experimental = ch.experimental,
+                        trailing = if (ch.on) { _ -> PickerTick() } else null) { i.onPick?.invoke(n); speedPopup = null }
+                }
+            }
+        }
+    }
+}
+
+private const val SPEED_FF = "speed_ff"
+private const val SPEED_FF_MODE = "speed_ff_mode"
+private const val SPEED_SLOW = "speed_slow"
+private const val SPEED_SLOW_MODE = "speed_slow_mode"
+private const val SPEED_RW = "speed_rw"
+private const val SPEED_RW_BACK = "speed_rw_back"
+
+/** The Speed group's panel (emuspeed_mock): its help, which button turns it on, and the choices of a mode row. */
+private fun speedInfo(id: String, h: com.joeysretro.joey64.controls.Hotkeys, game: Boolean, sameForAll: String,
+                      set: ((com.joeysretro.joey64.controls.Hotkeys) -> com.joeysretro.joey64.controls.Hotkeys) -> Unit):
+    com.joeysretro.joey64.launcher.components.PanelInfo {
+    fun button(a: com.joeysretro.joey64.controls.HotkeyAction) = "Button" to (if (h.keys[a] == null) "Not set · set one in Controls › Hotkeys"
+        else hotkeyValue(h, a) + " · change it in Controls › Hotkeys")
+    fun g(help: String) = if (game) sameForAll else help
+    val hk = com.joeysretro.joey64.controls.Hotkeys
+    return when (id) {
+        SPEED_FF -> com.joeysretro.joey64.launcher.components.PanelInfo("Fast-forward speed",
+            g("How fast the game runs while fast-forward is on. Also in Controls › Hotkeys › Fast-forward: it's the same setting."),
+            lines = listOf(button(com.joeysretro.joey64.controls.HotkeyAction.FastForward), "125% to 400%" to "In steps of 25. Default 400%"))
+        SPEED_FF_MODE -> if (game) com.joeysretro.joey64.launcher.components.PanelInfo("Fast-forward mode", sameForAll)
+            else com.joeysretro.joey64.controls.FastForwardMode.entries.let { m ->
+                com.joeysretro.joey64.launcher.components.PanelInfo("Fast-forward mode", "How the button works.",
+                    m.map { com.joeysretro.joey64.launcher.components.PanelChoice(it.label, it.detail, it == h.ffMode, it.experimental) }) { i ->
+                    set { x -> x.copy(ffMode = m[i]) } } }
+        SPEED_SLOW -> com.joeysretro.joey64.launcher.components.PanelInfo("Slow motion speed",
+            g("How slow the game runs while slow motion is on. Same setting as Controls › Hotkeys › Slow motion."),
+            lines = listOf(button(com.joeysretro.joey64.controls.HotkeyAction.SlowMotion), "20% to 90%" to "In steps of 10. Default 50%"))
+        SPEED_SLOW_MODE -> if (game) com.joeysretro.joey64.launcher.components.PanelInfo("Slow motion mode", sameForAll)
+            else com.joeysretro.joey64.controls.SlowMode.entries.let { m ->
+                com.joeysretro.joey64.launcher.components.PanelInfo("Slow motion mode", "How the button works.",
+                    m.map { com.joeysretro.joey64.launcher.components.PanelChoice(it.label, it.detail, it == h.slowMode) }) { i ->
+                    set { x -> x.copy(slowMode = m[i]) } } }
+        SPEED_RW -> com.joeysretro.joey64.launcher.components.PanelInfo("Rewind",
+            g("Records while you play, so holding the rewind button goes back in time. Takes memory and a little work every frame. A turns it on or off."),
+            lines = listOf(button(com.joeysretro.joey64.controls.HotkeyAction.Rewind),
+                "Memory" to "About ${hk.rewindMb(h.rewindSeconds, h.rewindEvery)} MB for ${hk.rewindSecondsLabel(h.rewindSeconds)}"))
+        else -> if (game) com.joeysretro.joey64.launcher.components.PanelInfo("Rewind: how far back", sameForAll)
+            else hk.REWIND_SECONDS.let { secs ->
+                com.joeysretro.joey64.launcher.components.PanelInfo("Rewind: how far back", "The oldest moment rewind can go back to. Longer takes more memory.",
+                    secs.map { com.joeysretro.joey64.launcher.components.PanelChoice(hk.rewindSecondsLabel(it), "About ${hk.rewindMb(it, h.rewindEvery)} MB", it == h.rewindSeconds) }) { i ->
+                    set { x -> x.copy(rewindSeconds = secs[i]) } } }
     }
 }
 

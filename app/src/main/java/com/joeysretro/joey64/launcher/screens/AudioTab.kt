@@ -75,41 +75,45 @@ fun AudioTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
     LaunchedEffect(target) {
         onControl { ctl -> if (ctl == Control.Search) onY() else false }
     }
-    LaunchedEffect(target, focused) {
-        val y = Hint("Y", if (target == null) "Reset to default" else "Use All games")
-        onHints(when {
-            fixed(focused) -> listOf(Hint("B", "Back"))
-            focused == AudioKey.Volume -> listOf(Hint("◀▶", "Change"), y, Hint("B", "Back"))
-            else -> listOf(Hint("A", "Change"), y, Hint("B", "Back"))
-        })
+    val y = Hint("Y", if (target == null) "Reset to default" else "Use All games")
+    val hints = when {
+        fixed(focused) -> listOf(Hint("B", "Back"))
+        focused == AudioKey.Volume -> listOf(Hint("◀▶", "Change"), y, Hint("B", "Back"))
+        else -> listOf(Hint("A", "Change"), y, Hint("B", "Back"))
     }
+    // One list with the panel beside it (approved 2026-11-11): the focused row's help and choices.
+    val panel = com.joeysretro.joey64.launcher.components.rememberListPanel()
+    val (title, text) = describe(focused)
+    val help = when {
+        dot(focused) -> "Changed for this game. All games uses ${AudioChoices.label(focused, AudioSettings.resolve(all, null)[focused])}."
+        fixed(focused) -> "The same for every game. Change it on All games."
+        else -> text
+    }
+    val fk = focused
+    val info = if (fk == AudioKey.Volume || fixed(fk)) com.joeysretro.joey64.launcher.components.PanelInfo(title, help)
+        else AudioChoices.of(fk).let { chs ->
+            com.joeysretro.joey64.launcher.components.PanelInfo(title, help,
+                chs.map { com.joeysretro.joey64.launcher.components.PanelChoice(it.label, it.detail, it.value == a[fk], it.experimental) }) { i -> set(fk, chs[i].value) }
+        }
 
-    Column(modifier.fillMaxSize()) {
+    com.joeysretro.joey64.launcher.components.ListPanel(panel, info, hints, onHints, modifier) {
         @Composable
         fun row(k: AudioKey, label: String) =
             JoeyRow(label, Modifier.initialFocus(start == k), value = AudioChoices.label(k, a[k]), sideways = true, enabled = !fixed(k),
                 dot = dot(k), experimental = AudioChoices.of(k).any { it.value == a[k] && it.experimental },
-                onFocused = { if (it) focused = k }) { popup = k }
-        TwoColumns(Modifier.weight(1f), left = {
+                onFocused = { if (it) focused = k }) { if (!panel.enter()) popup = k }
+        run {
             SectionLabel("Sound")
             StepRow("Volume", "${a.volume}%", AudioChoices.volumeSteps, a.volume, volumeFocused, first = start == null || start == AudioKey.Volume,
                 dot = dot(AudioKey.Volume), onFocused = { volumeFocused = it; if (it) focused = AudioKey.Volume }) { set(AudioKey.Volume, it.toString()) }
             row(AudioKey.Mute, "Mute")
             row(AudioKey.Mono, "Mono")
             row(AudioKey.Apps, "Play alongside other apps")
-        }) {
             SectionLabel("Fast-forward")
             row(AudioKey.FfSound, "Fast-forward sound")
             SectionLabel("Advanced")
             row(AudioKey.Latency, "Latency")
         }
-        Spacer(Modifier.height(6.dp))
-        val (title, text) = describe(focused)
-        DescriptionLine(title, when {
-            dot(focused) -> "Changed for this game. All games uses ${AudioChoices.label(focused, AudioSettings.resolve(all, null)[focused])}."
-            fixed(focused) -> "The same for every game. Change it on All games."
-            else -> text
-        })
     }
 
     popup?.let { k ->

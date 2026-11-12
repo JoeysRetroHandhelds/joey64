@@ -35,7 +35,7 @@ Controls, then Settings tabs, then popups.
 ## B. Flashes (find each cause on a device, then fix)
 
 - [x] B1 (built db2aa53, Thor-checked) Game settings: selecting Video (or any tab) flashes the rail's Continue icon.
-- [x] B2 (built db2aa53 + c77e7ce, Thor-checked; badge icons still come in a frame after the list) Game options › Cheats and › Achievements: something flashes.
+- [x] B2 (built db2aa53 + c77e7ce + 549bad2, Thor-checked; badges now come in the same frame as the list) Game options › Cheats and › Achievements: something flashes.
 - [x] B3 (built db2aa53 + c77e7ce, Thor-checked) GPU driver popup: a screen flashes as it opens.
 - [x] B4 (built a21382d, Thor-checked) Settings › Saves to Library tab: a border flashes around Library.
 - [x] B5 (built 1f08603, Thor-checked) In-game stats overlay: switching layouts visibly grows and shrinks it (no size animation).

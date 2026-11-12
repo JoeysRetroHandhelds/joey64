@@ -76,8 +76,10 @@ Controls, then Settings tabs, then popups.
       game picked. Hotkeys' panel shows each hotkey's button, mode and speed too. To build.
       Expansion Pak under All games (Joey: "yes on"): the greyed row reads On, and the panel says "On for every
       game. To turn it off for one game, pick that game in the chip above." (was "Set for one game"). To build.
-- [ ] D7 Unhiding a game: already there (Settings › Library › Hidden games). Joey to say if the library
-      needs its own way (a Show hidden filter, say).
+- [ ] D7 Unhiding a game, approved as drawn 2026-11-11 (Joey: "Add to the Filter", scratchpad build_hidden.py /
+      hidden_mock.png): the Show popup gets Hidden as the last filter with its count, only while a game is hidden;
+      the Hidden view's options have Show again where Hide game is; a line "<game> is back in the library"; the
+      last one shown goes back to All games. Settings › Library › Hidden games stays. To build.
 
 
 ## Added later the same day

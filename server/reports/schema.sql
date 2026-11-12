@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS posters (
 ) WITHOUT ROWID;
 
 -- States players sent for games on the wanted list (POST /v1/state, src/state.js; 2026-11-12). The files are in the
--- R2 bucket joey64-states under r2_key (.zst, and .srm when a save came with it); who is the address block's hash,
+-- R2 bucket joey64-states under r2_key (.state, and .srm.gz when a save came with it); who is the address block's hash,
 -- for that day's count only (NULL after the day).
 CREATE TABLE IF NOT EXISTS states (
   id INTEGER PRIMARY KEY,

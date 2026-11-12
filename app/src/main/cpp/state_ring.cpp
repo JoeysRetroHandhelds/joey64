@@ -67,7 +67,7 @@ void StateRing::configure(const std::string& dir, int everySec, int keep) {
     keep_ = keep > 0 ? keep : 5;
     seq_ = 0; counted_ = 0;
     nextAt_ = (uint64_t)(every_ * fps_);
-    entries_.clear(); jobs_.clear(); metaPlay_ = 0;
+    entries_.clear(); jobs_.clear(); metaPlay_ = 0; quitAt_ = 0;
     if (dir_.empty()) return;
     mkdirs(dir_);
     removeOldRing(dir_);
@@ -80,6 +80,8 @@ void StateRing::finish() {
         if (dir_.empty() && !worker_.joinable()) return;
         stop_ = true;
         metaPlay_ = playSeconds();
+        quitAt_ = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
     }
     cv_.notify_one();
     if (worker_.joinable()) worker_.join();
@@ -127,8 +129,10 @@ void StateRing::writeMeta() {
     {
         std::lock_guard<std::mutex> lk(m_);
         char buf[96];
-        snprintf(buf, sizeof buf, "{\"version\":1,\"playSeconds\":%.0f,\"entries\":[", metaPlay_);
+        snprintf(buf, sizeof buf, "{\"version\":1,\"playSeconds\":%.0f,", metaPlay_);
         s = buf;
+        if (quitAt_ > 0) { snprintf(buf, sizeof buf, "\"quitAt\":%lld,", quitAt_); s += buf; }
+        s += "\"entries\":[";
         for (size_t k = 0; k < entries_.size(); k++) {
             const Entry& e = entries_[k];
             std::string p;

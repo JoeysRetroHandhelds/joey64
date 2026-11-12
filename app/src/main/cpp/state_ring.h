@@ -5,8 +5,8 @@
 // thread counts play time and, every [every] counted seconds, takes the core's state; a worker writes it to
 // <dir>/<n>.raw (the core's M64+SAVE data, as N64_STATE loads and the PC finders read), marks whether its RDRAM holds a
 // perspective matrix (a 3D scene: title screens, menus and logos drawn flat have none), keeps the newest [keep], and
-// rewrites <dir>/meta.json: {"version":1,"playSeconds":N,"entries":[{"path","takenAt","playAt","drew3d"}, ...]},
-// oldest first. The launcher reads meta.json after the game has quit. A new session starts the ring over.
+// rewrites <dir>/meta.json: {"version":1,"playSeconds":N,"quitAt":ms,"entries":[{"path","takenAt","playAt","drew3d"}, ...]},
+// oldest first (path absolute; takenAt and quitAt epoch ms; quitAt only once the session has ended, written by finish()). The launcher reads meta.json after the game has quit. A new session starts the ring over.
 #pragma once
 #include <condition_variable>
 #include <cstddef>
@@ -48,6 +48,7 @@ private:
     std::deque<Job> jobs_;
     std::deque<Entry> entries_;   // worker-owned (under m_)
     double metaPlay_ = 0;         // play seconds the next meta.json says (under m_)
+    long long quitAt_ = 0;        // epoch ms the session ended, 0 while it runs (under m_)
 };
 
 template <class Size, class Ser>

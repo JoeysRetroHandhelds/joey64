@@ -4,15 +4,16 @@
 // only for our own test runs (the widescreen finder, problem games). One D1 row per state for the counts.
 //
 // Body: multipart/form-data with md5 (the ROM's, 32 hex), kind ("gameplay" or "problem", as the wanted list says),
-// app (version), state (the core's M64+SAVE data, zstd-compressed) and optionally save (the game's save file).
+// app (version), state (a RetroArch state file, RZIP: the app wraps the ring's raw M64+SAVE data with StateFormat.wrap,
+// java.util.zip only; Frontend 2026-11-12) and optionally save (the game's .srm, gzipped).
 // Answers: 204 stored; 400 a bad field; 404 the game isn't wanted (don't send again); 410 we have enough of it (don't
 // send again); 413 too big; 429 with Retry-After (seconds) when a limit is reached; 503 the wanted list didn't load.
 import { blockOf, limiterKeyOf, scramble } from "./address.js";
 import { today } from "./store.js";
 
-/** A zstd-compressed state: 16.8 MB raw packs to a few MB. */
+/** An RZIP state: 16.8 MB raw packs to about 2 MB (OoT's quit state 1.9 MB). */
 export const MAX_STATE = 20 << 20;
-/** The biggest cartridge save the core writes (its .srm holds EEPROM, SRAM, FlashRAM and paks: 0x48800 bytes). */
+/** The biggest cartridge save the core writes, gzipped or not (its .srm holds EEPROM, SRAM, FlashRAM and paks: 0x48800 bytes). */
 export const MAX_SAVE = 512 << 10;
 /** States kept a game unless the wanted list says otherwise. */
 export const DEFAULT_ENOUGH = 10;
@@ -23,7 +24,8 @@ export const DAY_STATES = 200;
 export const MAX_TOTAL_BYTES = 8 * (1 << 30);
 export const WANTED_URL = "https://raw.githubusercontent.com/JoeysRetroHandhelds/joey64-data/release/wanted/wanted.json";
 
-const ZSTD = [0x28, 0xb5, 0x2f, 0xfd];
+const RZIP = [..."#RZIPv\x01#"].map((c) => c.charCodeAt(0));
+const GZIP = [0x1f, 0x8b];
 let cache = { at: 0, list: null };
 
 /** The wanted list by md5: env.WANTED (tests) or the joey64-data release file, kept 10 minutes. */
@@ -73,8 +75,12 @@ export async function handleState(request, env, text) {
   if (state.size > MAX_STATE) return text(413, "state too big");
   if (save && typeof save !== "string" && save.size > MAX_SAVE) return text(413, "save too big");
   if (save && typeof save === "string" && save.length) return text(400, "bad save");
-  const head = new Uint8Array(await state.slice(0, 4).arrayBuffer());
-  if (state.size < 1024 || ZSTD.some((b, i) => head[i] !== b)) return text(400, "state isn't zstd");
+  const head = new Uint8Array(await state.slice(0, RZIP.length).arrayBuffer());
+  if (state.size < 1024 || RZIP.some((b, i) => head[i] !== b)) return text(400, "state isn't RZIP");
+  if (save && typeof save !== "string") {
+    const sh = new Uint8Array(await save.slice(0, 2).arrayBuffer());
+    if (GZIP.some((b, i) => sh[i] !== b)) return text(400, "save isn't gzip");
+  }
 
   let list;
   try { list = await wanted(env); } catch { return text(503, "wanted list unavailable", { "retry-after": "600" }); }
@@ -100,14 +106,14 @@ export async function handleState(request, env, text) {
   if (mine >= BLOCK_DAY_STATES) return text(429, "enough from this address today", { "retry-after": String(secondsToMidnight()) });
 
   const key = `states/${md5}/${day}-${crypto.randomUUID()}`;
-  await env.STATES.put(key + ".zst", state.stream(), { httpMetadata: { contentType: "application/zstd" }, customMetadata: { md5, kind, app } });
-  if (saveBytes) await env.STATES.put(key + ".srm", save.stream(), { customMetadata: { md5, kind, app } });
+  await env.STATES.put(key + ".state", state.stream(), { httpMetadata: { contentType: "application/octet-stream" }, customMetadata: { md5, kind, app } });
+  if (saveBytes) await env.STATES.put(key + ".srm.gz", save.stream(), { httpMetadata: { contentType: "application/gzip" }, customMetadata: { md5, kind, app } });
   try {
     await env.DB.prepare("INSERT INTO states (day, md5, kind, app, state_bytes, save_bytes, who, r2_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
       .bind(day, md5, kind, app, state.size, saveBytes, who, key).run();
   } catch (e) {
     // No row, no file: the count would miss it otherwise.
-    await env.STATES.delete([key + ".zst", key + ".srm"]);
+    await env.STATES.delete([key + ".state", key + ".srm.gz"]);
     throw e;
   }
   return text(204, null);

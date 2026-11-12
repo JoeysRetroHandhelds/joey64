@@ -45,25 +45,26 @@ function fakeR2() {
   };
 }
 
-const zst = (n = 4096) => { const b = new Uint8Array(n); b.set([0x28, 0xb5, 0x2f, 0xfd]); return b; };
+const rz = (n = 4096) => { const b = new Uint8Array(n); b.set([..."#RZIPv\x01#"].map((c) => c.charCodeAt(0))); return b; };
+const gz = (n = 300) => { const b = new Uint8Array(n); b.set([0x1f, 0x8b]); return b; };
 
 function post(fields, ip = "1.2.3.4") {
   const f = new FormData();
   for (const [k, v] of Object.entries(fields)) { if (v instanceof Uint8Array) f.append(k, new Blob([v]), k); else f.append(k, v); }
   return new Request("https://x/v1/state", { method: "POST", body: f, headers: { "cf-connecting-ip": ip } });
 }
-const good = (extra = {}) => ({ md5: MD5, kind: "gameplay", app: "0.2.0.1", state: zst(), ...extra });
+const good = (extra = {}) => ({ md5: MD5, kind: "gameplay", app: "0.2.0.1", state: rz(), ...extra });
 const env = (o = {}) => ({ DB: fakeDb(), STATES: fakeR2(), WANTED, ...o });
 
 test("a wanted game's state is stored privately with its save, and a row counts it", async () => {
   const e = env();
-  const res = await worker.fetch(post(good({ save: new Uint8Array(300) })), e);
+  const res = await worker.fetch(post(good({ save: gz() })), e);
   assert.equal(res.status, 204);
   assert.equal(e.DB.t.states.length, 1);
   const keys = [...e.STATES.files.keys()];
   assert.equal(keys.length, 2);
-  assert.match(keys[0], new RegExp(`^states/${MD5}/\\d{4}-\\d\\d-\\d\\d-[0-9a-f-]{36}\\.zst$`));
-  assert.ok(keys[1].endsWith(".srm"));
+  assert.match(keys[0], new RegExp(`^states/${MD5}/\\d{4}-\\d\\d-\\d\\d-[0-9a-f-]{36}\\.state$`));
+  assert.ok(keys[1].endsWith(".srm.gz"));
   assert.equal(e.STATES.files.get(keys[0]).length, 4096);
   assert.equal(JSON.stringify(e.DB.t).includes("1.2.3.4"), false, "the IP address is never stored");
 });
@@ -73,10 +74,10 @@ test("bad fields are refused and store nothing", async () => {
   const codes = [];
   for (const f of [
     good({ md5: "zz" }), good({ kind: "other" }), good({ app: "x y" }), good({ state: "text" }),
-    good({ state: new Uint8Array(4096) }), good({ state: zst(100) }), good({ save: new Uint8Array(MAX_SAVE + 1) }),
-    good({ kind: "problem" }),
+    good({ state: new Uint8Array(4096) }), good({ state: rz(100) }), good({ save: new Uint8Array(MAX_SAVE + 1) }),
+    good({ kind: "problem" }), good({ save: new Uint8Array(300) }),
   ]) codes.push((await worker.fetch(post(f), e)).status);
-  assert.deepEqual(codes, [400, 400, 400, 400, 400, 400, 413, 400]);
+  assert.deepEqual(codes, [400, 400, 400, 400, 400, 400, 413, 400, 400]);
   assert.equal((await worker.fetch(new Request("https://x/v1/state"), e)).status, 405);
   const json = new Request("https://x/v1/state", { method: "POST", body: "{}", headers: { "content-type": "application/json" } });
   assert.equal((await worker.fetch(json, e)).status, 400);

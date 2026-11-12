@@ -53,9 +53,9 @@ or an IPv6 /64; 80,000 rows written a day in all, under D1's free 100,000), 404/
 
 Players' save states for games on joey64-data's wanted list (`wanted/wanted.json` on its `release` branch, read
 every 10 minutes; `WANTED_URL` points it elsewhere for a local run), sent by the app's state-request popup
-(2026-11-12). Multipart: `md5`, `kind` (gameplay / problem, as the list says), `app`, `state` (the core's
-M64+SAVE data, zstd, 1 KB to 20 MB) and optionally `save` (the .srm, up to 512 KB). The files go to the private R2
-bucket `joey64-states` (`states/<md5>/<day>-<uuid>.zst|.srm`), never served; a `states` row counts each. Answers:
+(2026-11-12). Multipart: `md5`, `kind` (gameplay / problem, as the list says), `app`, `state` (a RetroArch
+state file, RZIP, 1 KB to 20 MB) and optionally `save` (the .srm gzipped, up to 512 KB). The files go to the private
+R2 bucket `joey64-states` (`states/<md5>/<day>-<uuid>.state|.srm.gz`), never served; a `states` row counts each. Answers:
 204 stored, 400 a bad field, 404 not wanted and 410 have enough (the app doesn't send that game again), 413 too
 big, 429 with Retry-After (the rate limiter 60 s; 10 a day an address block, 200 a day in all: to UTC midnight;
 8 GB stored in all: a day), 503 the wanted list didn't load. The address block's hash is kept for its day only.

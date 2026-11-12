@@ -1515,6 +1515,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             for (p in earlyPops) it.show(p)
             earlyPops.clear()
         }
+        // "Play will always ... Change it in Settings › Saves." (approved E4 screens 5-6), once, as the game opens.
+        launcherString(EXTRA_PLAY_NOTE)?.let { pop("playnote", InGamePopup.Kind.PlayNote, "Continue on Play", it, "Change it in Settings › Saves.") }
         // No touchscreen (a TV): no touch controls (Android TV mockup 2026-11-09, screen 7).
         if (com.joeysretro.joey64.launcher.layout.Tv.hasTouch(this)) touch = com.joeysretro.joey64.touch.TouchLayer(this, touchHost)
         applyTouch(fresh = true)
@@ -3297,9 +3299,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         /** Extras only Joey64's own starts may carry ([fromJoey64]); a start from another app has them dropped. */
         private val LAUNCHER_EXTRAS = listOf(EXTRA_ROM_PATH, EXTRA_SAVE_NAME, EXTRA_LOAD_STATE, EXTRA_SOURCE_URI, EXTRA_SOURCE_NAME,
             EXTRA_TITLE, EXTRA_MD5, EXTRA_KNOWN_MD5, EXTRA_DD_CART, EXTRA_NETPLAY_HOST, EXTRA_NETPLAY_JOIN, EXTRA_NETPLAY_NAME,
-            EXTRA_NETPLAY_KEYS, EXTRA_NETPLAY_KEY,
+            EXTRA_NETPLAY_KEYS, EXTRA_NETPLAY_KEY, EXTRA_PLAY_NOTE,
             com.joeysretro.joey64.launcher.library.GameLauncher.EXTRA_IS_DISK, com.joeysretro.joey64.launcher.library.GameLauncher.EXTRA_NEEDS_CART)
         const val STATE_AUTO = "auto"
+        /** Play's popup set Continue on Play (Y, Always do this; approved E4 2026-11-11): the line shown as the game opens. */
+        const val EXTRA_PLAY_NOTE = "com.joeysretro.joey64.PLAY_NOTE"
         const val STATE_RECOVERY = "recovery"
         /** How long the GPU-lost pop-up shows before the game screen closes. */
         private const val GPU_LOST_CLOSE_MS = 3_000L

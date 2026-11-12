@@ -68,7 +68,9 @@ data class InGamePopup(
         /** A RetroArch overlay's word at game start: "No overlay for this game" (approved mockup 2026-11-08). */
         Sides,
         /** Netplay (approved mockup 2026-11-10): waiting for a slow player (screen 3), a hotkey that waits until you leave (screen 6). */
-        NetWait, NetBlocked }
+        NetWait, NetBlocked,
+        /** Play's popup set Continue on Play (approved E4 2026-11-11, screens 5-6). */
+        PlayNote }
 }
 
 /**
@@ -145,6 +147,7 @@ fun InGamePopupCard(p: InGamePopup) {
         InGamePopup.Kind.Shader, InGamePopup.Kind.Sides -> R.drawable.ic_device_tv_old
         InGamePopup.Kind.NetWait -> R.drawable.ic_hourglass
         InGamePopup.Kind.NetBlocked -> R.drawable.ic_x
+        InGamePopup.Kind.PlayNote -> R.drawable.ic_history
     }
     JoeyToast(icon, p.label, p.name, p.line, iconTint = when (p.kind) {
         InGamePopup.Kind.Problem, InGamePopup.Kind.ChallengeFailed -> JoeyTheme.colors.error

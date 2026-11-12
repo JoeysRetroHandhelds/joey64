@@ -38,7 +38,7 @@ fun SearchScreen(model: LibraryModel, onHints: (List<Hint>) -> Unit, onClose: ()
     // Play here asks too (Settings › Saves › Continue on Play).
     val ctx = androidx.compose.ui.platform.LocalContext.current
     model.askContinue.collectAsStateWithLifecycle().value?.let { ask ->
-        AskContinuePopup(ask) { carryOn -> model.continueAnswered(carryOn) { ctx.startActivity(it) } }
+        CarryOnPopup(ask, model) { slot, always -> model.continueAnswered(slot, always) { ctx.startActivity(it) } }
     }
     NeedsBiosPopup(model) { ctx.startActivity(it) }
     StartFailedPopup(model)

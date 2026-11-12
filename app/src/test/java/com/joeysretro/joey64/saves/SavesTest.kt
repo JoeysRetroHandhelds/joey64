@@ -14,7 +14,7 @@ class SavesTest {
     @Test fun defaultsAreHowJoey64WorkedBefore() {
         val d = SavesOptions()
         assertTrue(d.saveOnQuit)
-        assertEquals(ContinueOnPlay.Never, d.continueOnPlay)
+        assertEquals(ContinueOnPlay.Ask, d.continueOnPlay)
         assertEquals(1, d.quitSaves)
         assertEquals(2, d.recoveryMinutes)
         assertEquals(BackupWhen.OnStart, d.backups)

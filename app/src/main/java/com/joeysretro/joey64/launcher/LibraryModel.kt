@@ -466,7 +466,11 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
     }
 
     /** Settings › Saves › Continue on Play is Ask, and [game] has a quit save from [quitAt]. */
-    data class AskContinue(val game: LibraryGame, val quitAt: Long)
+    /**
+     * Play's "Pick where to start" (approved E4 2026-11-11, contplay_mock.png): the game's states, Where you quit
+     * (Auto) first, then the older quit saves, then the slots, each with its picture.
+     */
+    data class AskContinue(val game: LibraryGame, val states: List<com.joeysretro.joey64.states.GameStates.SlotFile>)
     private val _askContinue = MutableStateFlow<AskContinue?>(null)
     /** "You quit this game 2 hours ago. Go on from there?" (approved Saves mockup 2026-11-07, screen 4). */
     val askContinue: StateFlow<AskContinue?> = _askContinue
@@ -481,22 +485,41 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
         viewModelScope.launch {
             val app = getApplication<Application>()
             val how = withContext(Dispatchers.IO) { com.joeysretro.joey64.saves.SavesStore(app).read().continueOnPlay }
-            val quitAt = if (how == com.joeysretro.joey64.saves.ContinueOnPlay.Never) null
-                else withContext(Dispatchers.IO) { launcher.saveNameFor(game)?.let { GameStates(app, it).savedAt(StateSlots.AUTO) } }
+            val states = if (how == com.joeysretro.joey64.saves.ContinueOnPlay.Never) emptyList()
+                else withContext(Dispatchers.IO) { launcher.saveNameFor(game)?.let { carryOnStates(GameStates(app, it).slotFiles()) }.orEmpty() }
+            val quit = states.any { it.slot == StateSlots.AUTO }
             when {
-                quitAt == null -> play(game, null, start)
-                how == com.joeysretro.joey64.saves.ContinueOnPlay.Always -> play(game, com.joeysretro.joey64.MainActivity.STATE_AUTO, start)
-                else -> _askContinue.value = AskContinue(game, quitAt)
+                // No states at all: Play starts at once (approved E4 screen 4).
+                states.isEmpty() -> play(game, null, start)
+                how == com.joeysretro.joey64.saves.ContinueOnPlay.Always -> play(game, if (quit) com.joeysretro.joey64.MainActivity.STATE_AUTO else null, start)
+                else -> _askContinue.value = AskContinue(game, states)
             }
         }
     }
 
-    /** The Ask popup's answer: Continue (true), Start over (false; the quit save stays), B (null: nothing starts). */
-    fun continueAnswered(carryOn: Boolean?, start: (Intent) -> Unit) {
+    /**
+     * The popup's answer: a state's slot, [FRESH] (Start fresh; the states stay), or null (B: nothing starts).
+     * [always] (Y, Always do this, on Where you quit or Start fresh): Continue on Play becomes Always / Never and the
+     * game opens with the line saying so.
+     */
+    fun continueAnswered(slot: Int?, always: Boolean = false, start: (Intent) -> Unit) {
         val ask = _askContinue.value ?: return
         _askContinue.value = null
-        if (carryOn == null) return
-        play(ask.game, if (carryOn) com.joeysretro.joey64.MainActivity.STATE_AUTO else null, start)
+        if (slot == null) return
+        val app = getApplication<Application>()
+        val note = if (always) {
+            val store = com.joeysretro.joey64.saves.SavesStore(app)
+            val to = if (slot == FRESH) com.joeysretro.joey64.saves.ContinueOnPlay.Never else com.joeysretro.joey64.saves.ContinueOnPlay.Always
+            store.save(store.read().copy(continueOnPlay = to))
+            JLog.i(TAG, "Continue on Play set to ${to.name} from Play's popup")
+            if (slot == FRESH) "Play will always start fresh." else "Play will always go on from where you quit."
+        } else null
+        val load = when (slot) {
+            FRESH -> null
+            StateSlots.AUTO -> com.joeysretro.joey64.MainActivity.STATE_AUTO
+            else -> com.joeysretro.joey64.MainActivity.STATE_SLOT + slot
+        }
+        play(ask.game, load) { intent -> start(if (note != null) intent.putExtra(com.joeysretro.joey64.MainActivity.EXTRA_PLAY_NOTE, note) else intent) }
     }
 
     // ---- reports (approved reports mockup, version A, Joey 2026-11-08) ---------------------------------
@@ -1207,3 +1230,16 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
 
 /** The netplay ends the library says (LibraryModel.netEnded). */
 private val NET_ENDS = setOf(GameStartFailed.Need.NetLost, GameStartFailed.Need.NetUnreachable, GameStartFailed.Need.NetMismatch, GameStartFailed.Need.NetTurnedDown)
+
+/** Start fresh in Play's popup ([LibraryModel.continueAnswered]). */
+const val FRESH = -1
+
+/** The popup's order (approved E4): Where you quit (Auto), the older quit saves (newest first), then the slots; empty ones left out. */
+internal fun carryOnStates(files: List<com.joeysretro.joey64.states.GameStates.SlotFile>): List<com.joeysretro.joey64.states.GameStates.SlotFile> {
+    val have = files.filter { it.savedAt != null }
+    val auto = have.filter { it.slot == com.joeysretro.joey64.states.StateSlots.AUTO }
+    val older = have.filter { it.slot != com.joeysretro.joey64.states.StateSlots.AUTO && com.joeysretro.joey64.states.StateSlots.isAuto(it.slot) }
+        .sortedBy { com.joeysretro.joey64.states.StateSlots.autoNumber(it.slot) }
+    val slots = have.filter { !com.joeysretro.joey64.states.StateSlots.isAuto(it.slot) }.sortedBy { it.slot }
+    return auto + older + slots
+}

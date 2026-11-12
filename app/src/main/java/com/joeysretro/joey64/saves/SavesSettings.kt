@@ -26,7 +26,8 @@ enum class BackupWhen(val label: String, val detail: String) {
 data class SavesOptions(
     /** Quit to library writes the auto slot (Continue's). Off: quitting writes no state. */
     val saveOnQuit: Boolean = true,
-    val continueOnPlay: ContinueOnPlay = ContinueOnPlay.Never,
+    /** Ask by default (approved E4 2026-11-11, contplay_mock.png; it was Never). */
+    val continueOnPlay: ContinueOnPlay = ContinueOnPlay.Ask,
     /** How many quit saves each game keeps: Auto, Auto 2, ... ([QUIT_SAVES]). */
     val quitSaves: Int = 1,
     val backups: BackupWhen = BackupWhen.OnStart,

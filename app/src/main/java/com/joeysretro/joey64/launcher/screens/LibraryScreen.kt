@@ -1,5 +1,17 @@
 package com.joeysretro.joey64.launcher.screens
 
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.asImageBitmap
+import com.joeysretro.joey64.R
+import com.joeysretro.joey64.launcher.FRESH
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.BringIntoViewSpec
@@ -108,7 +120,7 @@ fun LibraryScreen(model: LibraryModel, updateAsking: Boolean = false, onSearch: 
         RecoveryPopup(offer) { carryOn -> model.recoveryAnswered(carryOn) { context.startActivity(it) } }
     }
     model.askContinue.collectAsStateWithLifecycle().value?.let { ask ->
-        AskContinuePopup(ask) { carryOn -> model.continueAnswered(carryOn) { context.startActivity(it) } }
+        CarryOnPopup(ask, model) { slot, always -> model.continueAnswered(slot, always) { context.startActivity(it) } }
     }
     // Reports, asked once (approved reports mockup 2026-11-08, screen 5) when the library first shows (Joey 2026-11-11);
     // never over another question: it waits for the updater, the offline note, a lost folder, recovery and Continue.
@@ -455,18 +467,82 @@ private fun OfflinePopup(onOk: () -> Unit) {
 }
 
 /**
- * Settings › Saves › Continue on Play is Ask (approved Saves mockup 2026-11-07, screen 4): the game's
- * name, when it was quit, Continue or Start over. B closes it and nothing starts.
+ * Play on a game with states, Continue on Play on Ask (approved E4 2026-11-11, scratchpad build_contplay.py /
+ * contplay_mock.png, "approved as drawn"): Where you quit (focused), OLDER QUIT SAVES, SLOTS, each with its
+ * picture and date, then Start fresh (the cover). The big picture follows focus. A plays, B closes and nothing
+ * starts; Y (Always do this, only on Where you quit and Start fresh) sets Continue on Play and starts.
+ * [onAnswer]: (slot or [FRESH], always), or (null, false) for B.
  */
 @Composable
-internal fun AskContinuePopup(ask: LibraryModel.AskContinue, onAnswer: (Boolean?) -> Unit) {
-    JoeyDialog(onDismiss = { onAnswer(null) }, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 440.dp) {
+internal fun CarryOnPopup(ask: LibraryModel.AskContinue, model: LibraryModel, onAnswer: (Int?, Boolean) -> Unit) {
+    val c = JoeyTheme.colors
+    val now = remember { System.currentTimeMillis() }
+    var focused by remember { mutableStateOf(ask.states.first().slot) }
+    val pictures = remember(ask) {
+        ask.states.associate { s -> s.slot to s.picture?.let { p -> android.graphics.BitmapFactory.decodeByteArray(p, 0, p.size)?.asImageBitmap() } }
+    }
+    val cover by com.joeysretro.joey64.launcher.boxart.rememberCover(model.cover(ask.game))
+    val canAlways = focused == com.joeysretro.joey64.states.StateSlots.AUTO || focused == FRESH
+    val narrow = com.joeysretro.joey64.launcher.layout.LocalScreenLayout.current.singleColumnSettings
+    fun name(slot: Int) = if (slot == com.joeysretro.joey64.states.StateSlots.AUTO) "Where you quit" else com.joeysretro.joey64.states.StateSlots.label(slot)
+    fun date(at: Long): String {
+        val d = com.joeysretro.joey64.launcher.ingame.SlotDates.withTime(at, now)
+        return if (now - at < 24 * 60 * 60 * 1000L) "$d · ${quitAgo(at, now)}" else d
+    }
+    JoeyDialog(
+        onDismiss = { onAnswer(null, false) },
+        hints = listOfNotNull(Hint("A", "Play"), if (canAlways) Hint("Y", "Always do this") else null, Hint("B", "Close")),
+        width = if (narrow) 440.dp else 760.dp,
+        onPadButton = { key -> if (key == android.view.KeyEvent.KEYCODE_BUTTON_Y && canAlways) onAnswer(focused, true) },
+    ) {
         Column {
-            PopupTitle(ask.game.title, "You quit this game ${quitAgo(ask.quitAt, System.currentTimeMillis())}. Go on from there?")
-            JoeyOption("Continue", modifier = Modifier.initialFocus()) { onAnswer(true) }
-            JoeyOption("Start over") { onAnswer(false) }
+            PopupTitle(ask.game.title, "Pick where to start. Your in-game save is the same whichever you pick.")
+            Row(Modifier.padding(horizontal = 10.dp).padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Column(Modifier.weight(if (narrow) 1f else 0.46f).verticalScroll(rememberScrollState())) {
+                    var lastGroup = ""
+                    for (s in ask.states) {
+                        val group = when {
+                            s.slot == com.joeysretro.joey64.states.StateSlots.AUTO -> ""
+                            com.joeysretro.joey64.states.StateSlots.isAuto(s.slot) -> "OLDER QUIT SAVES"
+                            else -> "SLOTS"
+                        }
+                        if (group != lastGroup && group.isNotEmpty()) com.joeysretro.joey64.launcher.components.SectionLabel(group)
+                        lastGroup = group
+                        CarryOnRow(name(s.slot), date(s.savedAt!!), pictures[s.slot], null,
+                            Modifier.initialFocus(s === ask.states.first()).onFocusChanged { if (it.hasFocus) focused = s.slot }) { onAnswer(s.slot, false) }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    CarryOnRow("Start fresh", "From the game's title screen", null, R.drawable.ic_play,
+                        Modifier.onFocusChanged { if (it.hasFocus) focused = FRESH }) { onAnswer(FRESH, false) }
+                }
+                if (!narrow) Column(Modifier.weight(0.54f)) {
+                    val shape = RoundedCornerShape(6.dp)
+                    Box(Modifier.fillMaxWidth().aspectRatio(4f / 3f).clip(shape).background(c.chip, shape), contentAlignment = Alignment.Center) {
+                        val big = if (focused == FRESH) cover else pictures[focused]
+                        if (big != null) Image(big, contentDescription = null,
+                            contentScale = if (focused == FRESH) ContentScale.Fit else ContentScale.Crop,
+                            modifier = if (focused == FRESH) Modifier.fillMaxSize().padding(24.dp) else Modifier.fillMaxSize())
+                    }
+                    val at = ask.states.firstOrNull { it.slot == focused }?.savedAt
+                    Text(if (focused == FRESH) "Start fresh" else name(focused), style = JoeyTheme.type.rowBold, color = c.text, modifier = Modifier.padding(top = 8.dp))
+                    Text(if (focused == FRESH) "The game starts as if you just turned it on. Your states stay where they are." else at?.let(::date).orEmpty(),
+                        style = JoeyTheme.type.small, color = c.textDim)
+                }
+            }
         }
     }
+}
+
+/** One row of [CarryOnPopup]: the state's small picture (or an icon), its name and date. */
+@Composable
+private fun CarryOnRow(title: String, detail: String, picture: androidx.compose.ui.graphics.ImageBitmap?, icon: Int?, modifier: Modifier, onClick: () -> Unit) {
+    val c = JoeyTheme.colors
+    com.joeysretro.joey64.launcher.components.JoeyRow(title, modifier, detail = detail, leading = {
+        Box(Modifier.size(52.dp, 39.dp).clip(RoundedCornerShape(3.dp)).background(c.chip), contentAlignment = Alignment.Center) {
+            if (picture != null) Image(picture, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            else if (icon != null) Icon(painterResource(icon), contentDescription = null, tint = c.textDim, modifier = Modifier.size(20.dp))
+        }
+    }, onClick = onClick)
 }
 
 /** "2 hours ago", "yesterday" ... for the Ask popup. */

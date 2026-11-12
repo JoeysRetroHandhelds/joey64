@@ -27,7 +27,7 @@ class GameStates(
     val saveName: String,
     private val space: FileSpace = com.joeysretro.joey64.launcher.storage.DataFolders.current(context).space,
 ) {
-    private val recoveryDir = File(context.filesDir, RECOVERY_DIR)
+    private val recoveryDir = Recovery.dirOf(context, saveName)
 
     private fun path(name: String) = listOf(DataKind.States.dir, name)
 
@@ -268,6 +268,8 @@ class GameStates(
     // Written every few minutes while playing, apart from the slots and the auto slot, in Joey64's own
     // storage (it isn't the user's data). Quitting cleanly deletes it, so one still there on the next
     // start means Joey64 closed while a game was being played: the launcher offers to carry on.
+    // Each game has its own (Joey 2026-11-12, F3): `files/recovery/games/<save name>/`, so quitting one
+    // game cleanly, or playing another, never takes away a game's state still waiting to be offered.
 
     fun saveRecovery(): Boolean {
         val data = NativeBridge.saveState(TIMEOUT_MS) ?: return false
@@ -321,23 +323,70 @@ class GameStates(
     private fun readWhole(name: String): ByteArray? =
         (space.openRead(path(name)) ?: space.openRead(path("$name.old")))?.use { it.readBytes() }
 
-    /** Whether a recovery state is waiting, for the launcher (crash popup). */
-    data class Recovery(val saveName: String, val savedAt: Long) {
+    /** A recovery state waiting to be offered, for the launcher (crash popup) and the Saves page. */
+    data class Recovery(val saveName: String, val savedAt: Long, val size: Long = 0L) {
         companion object {
-            fun find(context: Context): Recovery? {
-                val dir = File(context.filesDir, RECOVERY_DIR)
-                if (!File(dir, RECOVERY_STATE).isFile) return null
-                val p = Properties()
-                try { File(dir, RECOVERY_INFO).inputStream().use { p.load(it) } } catch (e: IOException) { return null }
-                val name = p.getProperty("save_name") ?: return null
-                return Recovery(name, p.getProperty("saved_at")?.toLongOrNull() ?: 0L)
+            /** The folder [saveName]'s recovery state lives in. */
+            fun dirOf(context: Context, saveName: String) = dirIn(rootOf(context), saveName)
+            private fun rootOf(context: Context) = File(context.filesDir, RECOVERY_DIR)
+            internal fun dirIn(root: File, saveName: String) = File(File(root, GAMES_DIR), saveName)
+
+            /** The newest waiting recovery state, of any game. */
+            fun find(context: Context): Recovery? = allIn(rootOf(context)).firstOrNull()
+
+            /** [saveName]'s waiting recovery state. */
+            fun find(context: Context, saveName: String): Recovery? = findIn(rootOf(context), saveName)
+
+            /** Deletes [saveName]'s recovery state only. */
+            fun clear(context: Context, saveName: String) = clear(dirOf(context, saveName))
+
+            /** Every game's waiting recovery state under [root], newest first. */
+            internal fun allIn(root: File): List<Recovery> {
+                moveOldOne(root)
+                return (File(root, GAMES_DIR).listFiles() ?: emptyArray()).mapNotNull { read(it) }.sortedByDescending { it.savedAt }
             }
 
-            fun clear(context: Context) = clear(File(context.filesDir, RECOVERY_DIR))
+            internal fun findIn(root: File, saveName: String): Recovery? {
+                moveOldOne(root)
+                return read(dirIn(root, saveName))?.takeIf { it.saveName == saveName }
+            }
 
             internal fun clear(dir: File) {
                 File(dir, RECOVERY_STATE).delete()
                 File(dir, RECOVERY_INFO).delete()
+                dir.delete()
+            }
+
+            private fun read(dir: File): Recovery? {
+                val state = File(dir, RECOVERY_STATE)
+                if (!state.isFile) return null
+                val p = Properties()
+                try { File(dir, RECOVERY_INFO).inputStream().use { p.load(it) } } catch (e: IOException) { return null }
+                val name = p.getProperty("save_name") ?: return null
+                return Recovery(name, p.getProperty("saved_at")?.toLongOrNull() ?: 0L, state.length())
+            }
+
+            /**
+             * Builds before 2026-11-12 kept one recovery state for every game, in `files/recovery/` itself: it moves
+             * (renamed, the bytes unchanged) into its game's own folder the first time one is looked for.
+             */
+            @Synchronized internal fun moveOldOne(root: File) {
+                val state = File(root, RECOVERY_STATE)
+                val info = File(root, RECOVERY_INFO)
+                if (!state.isFile) return
+                val p = Properties()
+                val name = try { info.inputStream().use { p.load(it) }; p.getProperty("save_name") } catch (e: IOException) { null }
+                if (name.isNullOrEmpty() || name.contains('/') || name == "." || name == "..") {
+                    JLog.i(TAG, "old recovery state with no game: dropped"); state.delete(); info.delete(); return
+                }
+                val dir = File(File(root, GAMES_DIR), name)
+                dir.mkdirs()
+                val newer = read(dir)
+                val oldAt = p.getProperty("saved_at")?.toLongOrNull() ?: 0L
+                if (newer != null && newer.savedAt >= oldAt) { state.delete(); info.delete(); return }
+                if (state.renameTo(File(dir, RECOVERY_STATE)) && info.renameTo(File(dir, RECOVERY_INFO)))
+                    JLog.i(TAG, "old recovery state moved to its game's folder")
+                else JLog.e(TAG, "can't move the old recovery state to its game's folder")
             }
         }
     }
@@ -350,6 +399,7 @@ class GameStates(
         private const val RECOVERY_DIR = "recovery"
         private const val RECOVERY_STATE = "state"
         private const val RECOVERY_INFO = "info.properties"
+        private const val GAMES_DIR = "games"
         /** A new quit save's files wait under their names plus this until the kept ones have moved down ([saveQuit]). */
         private const val ASIDE = ".new"
 

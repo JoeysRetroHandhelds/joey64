@@ -50,8 +50,8 @@ class SaveManager(private val context: Context, val saveName: String) {
         val sizes = space.list(listOf(DataKind.States.dir)).associate { it.name to it.size }
         val files = GameStates(context, saveName, space).slotFiles().filter { it.savedAt != null }
             .map { State(it.slot, it.savedAt!!, sizes[StateSlots.fileName(saveName, it.slot)] ?: 0L, it.picture) }
-        val rec = GameStates.Recovery.find(context)?.takeIf { it.saveName == saveName }?.let {
-            State(RECOVERY, it.savedAt, File(File(context.filesDir, "recovery"), "state").length(), null)
+        val rec = GameStates.Recovery.find(context, saveName)?.let {
+            State(RECOVERY, it.savedAt, it.size, null)
         }
         val autos = files.filter { StateSlots.isAuto(it.slot) }.sortedBy { StateSlots.autoNumber(it.slot) }
         return autos + listOfNotNull(rec) + files.filter { !StateSlots.isAuto(it.slot) }.sortedBy { it.slot }
@@ -101,7 +101,7 @@ class SaveManager(private val context: Context, val saveName: String) {
     }
 
     fun deleteState(slot: Int): Boolean =
-        if (slot == RECOVERY) { GameStates.Recovery.clear(context); true }
+        if (slot == RECOVERY) { GameStates.Recovery.clear(context, saveName); true }
         else GameStates(context, saveName, space).deleteSlot(slot)
 
     /** A picked folder: the core's working copy in `files/saves` goes, so the next start takes the folder's. */

@@ -447,7 +447,7 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
     // ---- Continue and the recovery state (plan, Phase 3) ---------------------------------------------
 
     /** A recovery state left by a game that didn't quit cleanly, and how long before the close it was written. */
-    data class RecoveryOffer(val game: LibraryGame, val minutesBefore: Int)
+    data class RecoveryOffer(val game: LibraryGame, val minutesBefore: Int, val saveName: String = "")
     private val _recovery = MutableStateFlow<RecoveryOffer?>(null)
     /** "Joey64 closed while you were playing" (approved problem screen, 2026-11-05). */
     val recovery: StateFlow<RecoveryOffer?> = _recovery
@@ -462,10 +462,11 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
             if (game == null) {
                 // A game a frontend started, or one no longer in the ROM folders: the launcher can't start it.
                 JLog.i(TAG, "recovery state for ${r.saveName}, which isn't in the library: dropped")
-                GameStates.Recovery.clear(app)
+                GameStates.Recovery.clear(app, r.saveName)
+                checkStates() // another game's may be waiting
                 return@launch
             }
-            _recovery.value = RecoveryOffer(game, minutesBefore(app, r.savedAt))
+            _recovery.value = RecoveryOffer(game, minutesBefore(app, r.savedAt), r.saveName)
         }
     }
 
@@ -496,7 +497,7 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
         _recovery.value = null
         if (carryOn == null) return
         if (carryOn) play(offer.game, com.joeysretro.joey64.MainActivity.STATE_RECOVERY, start)
-        else viewModelScope.launch(Dispatchers.IO) { GameStates.Recovery.clear(getApplication()) }
+        else viewModelScope.launch(Dispatchers.IO) { GameStates.Recovery.clear(getApplication(), offer.saveName) }
     }
 
     /** Settings › Saves › Continue on Play is Ask, and [game] has a quit save from [quitAt]. */

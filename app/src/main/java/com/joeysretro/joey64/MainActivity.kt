@@ -2456,13 +2456,14 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // library's Play after Quit to library): the task keeps the library under the new game screen, so its Quit to
         // library goes back there (2026-11-07: CLEAR_TASK here sent every second game's quit to the home screen).
         val clearTask = owner != null
+        // The game before is closed on purpose: nothing to recover for it (only its own; another game's stays, F3).
+        val closing = owner?.states?.saveName
         owner?.let { NativeBridge.stop(); it.finish() }
         owner = null
         // Unpacking the new ROM (up to 64 MB, or a zip / 7z) runs on gameIo, as prepareGame does for the first game: on
         // the main thread it risked an ANR, and a missing file or a full disk crashed the app (code audit 3, H2).
         gameIo.execute {
-            // The game before is closed on purpose: nothing to recover for it.
-            GameStates.Recovery.clear(this)
+            closing?.let { GameStates.Recovery.clear(this, it) }
             val got = try { resolveRom() } catch (e: Exception) { JLog.e(TAG, "can't get the new game ready: $e"); null }
             // Its MD5 here too, so the next process's onCreate doesn't hash it (code audit 3, M18).
             val md5 = got?.let { knownMd5() ?: romMd5(it.first) }

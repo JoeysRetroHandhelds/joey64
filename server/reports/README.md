@@ -117,7 +117,7 @@ The daily caps (code audit 3, not deployed yet) need their two tables first:
 `wrangler d1 execute joey64-reports --remote --file schema.sql` (the rest of it is already there and is left
 as it is), then `wrangler deploy`.
 
-States (not deployed yet, each step needs Joey's go): `wrangler r2 bucket create joey64-states`,
+States: deployed 2026-11-12 (Joey's go; version e4cb97c3, the bucket in Western North America, no public URL, a live test state stored and removed). For a new account: `wrangler r2 bucket create joey64-states`,
 `wrangler d1 execute joey64-reports --remote --file migrations/0005-states.sql`, then `wrangler deploy`.
 
 ## Free plan limits (checked 2026-11-08, Cloudflare's pages of 2026-10-29/30)

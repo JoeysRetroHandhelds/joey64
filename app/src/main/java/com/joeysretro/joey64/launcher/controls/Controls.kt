@@ -105,9 +105,18 @@ object ControlBus {
      */
     var bar: ((Control) -> Boolean)? = null
 
+    /**
+     * L2 / R2 for the lists that page themselves (a Settings-type page's list, A5: "in every long list"). Offered
+     * before the page in charge, newest first; each returns false unless its list has focus.
+     */
+    private val pagers = ArrayList<(Control) -> Boolean>()
+    fun addPager(p: (Control) -> Boolean) { pagers.add(p) }
+    fun removePager(p: (Control) -> Boolean) { pagers.remove(p) }
+
     /** Offers an intent to the handler in charge. True when it was consumed. */
     fun dispatch(control: Control): Boolean {
         if ((control == Control.TabPrev || control == Control.TabNext) && bar?.invoke(control) == true) return true
+        if ((control == Control.PagePrev || control == Control.PageNext) && pagers.asReversed().any { it(control) }) return true
         val handler = handlers.lastOrNull()
         if (handler == null) {
             if (!loggedNoHandler) { loggedNoHandler = true; JLog.w(TAG, "$control pressed but nothing is handling buttons") }

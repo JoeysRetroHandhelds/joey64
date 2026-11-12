@@ -534,7 +534,8 @@ internal fun CarryOnPopup(ask: LibraryModel.AskContinue, model: LibraryModel, on
                     val at = ask.states.firstOrNull { it.slot == focused }?.savedAt
                     Text(if (focused == FRESH) "Start fresh" else name(focused), style = JoeyTheme.type.rowBold, color = c.text, modifier = Modifier.padding(top = 8.dp))
                     Text(if (focused == FRESH) "The game starts as if you just turned it on. Your states stay where they are." else at?.let(::date).orEmpty(),
-                        style = JoeyTheme.type.small, color = c.textDim)
+                        // Two lines kept for it whichever row has focus, so the popup doesn't grow on Start fresh (Thor 2026-11-12).
+                        style = JoeyTheme.type.small, color = c.textDim, minLines = 2, maxLines = 2)
                 }
             }
         }

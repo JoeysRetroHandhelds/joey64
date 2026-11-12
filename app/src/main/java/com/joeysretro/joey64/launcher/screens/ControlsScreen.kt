@@ -674,7 +674,7 @@ private fun controlsRowHelp(row: String, setup: PlayerSetup, face: AutoMap.FaceC
         "Tap" -> "Tap to hold" to "Ticked buttons stay held after a tap until the next tap."
         "Turbo" -> "Turbo" to "Ticked buttons press again and again while held."
         "Macros" -> "Macros" to "One button plays a list of presses. Up to 8 a player."
-        "tabs" -> "Players" to "Each player's controller and buttons. ◀ ▶ picks one."
+        "tabs" -> "Players" to TABS_HELP
         "chipGame" -> "All games or one game" to "Controls for every game, or for one game only."
         "chipAuto" -> "Auto map" to "Sets this player's buttons from the controller's known layout."
         "chipView" -> "View controller" to "A picture of the controller with what each button does."
@@ -818,7 +818,8 @@ private fun HotkeysPage(editor: ControlsEditor, version: Int, focused: String, h
                     "How far back" to Hotkeys.rewindSecondsLabel(h.rewindSeconds))
                 else -> emptyList()
             })
-        } ?: com.joeysretro.joey64.launcher.components.PanelInfo("Hotkeys", "")
+        } ?: if (focused == "tabs") com.joeysretro.joey64.launcher.components.PanelInfo("Players", TABS_HELP)
+        else com.joeysretro.joey64.launcher.components.PanelInfo("Hotkeys", "")
     com.joeysretro.joey64.launcher.components.ListPanel(hkPanel, hkInfo, hints, onHints, Modifier.weight(1f)) {
             SectionLabel("Hotkey button")
             JoeyRow("Hotkey button", Modifier.initialFocus(), value = hotkeyKey(h.button) + "  ›", sideways = true,
@@ -837,6 +838,9 @@ private fun HotkeysPage(editor: ControlsEditor, version: Int, focused: String, h
 }
 
 /** A hotkey's value on the page and in its popup: "Select + R1", just "Back" on its own, or Not set. */
+/** The tab row's help, on a player's tab and on Hotkeys (it was a bare "Hotkeys" there, Thor 2026-11-12). */
+private const val TABS_HELP = "Each player's controller and buttons, then the hotkeys. ◀ ▶ and A pick one."
+
 internal fun hotkeyValue(h: Hotkeys, a: HotkeyAction): String {
     val k = h.keys[a] ?: return InputNames.NOT_SET
     return if (h.isAlone(a)) hotkeyKey(k) else hotkeyKey(h.button) + " + " + hotkeyKey(k)

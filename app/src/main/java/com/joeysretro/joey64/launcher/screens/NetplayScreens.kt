@@ -285,9 +285,11 @@ private fun YourNamePopup(model: LibraryModel, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun RoomsEmpty(text: String) {
+private fun RoomsEmpty(text: String, onPage: Boolean = true) {
+    // On the page it lines up with the headings above it (it started a margin left of them, Thor 2026-11-12).
+    val start = JoeyTheme.spacing.rowPadH + if (onPage) JoeyTheme.spacing.margin else 0.dp
     Text(text, style = JoeyTheme.type.small, color = JoeyTheme.colors.textDim,
-        modifier = Modifier.padding(horizontal = JoeyTheme.spacing.rowPadH, vertical = 6.dp))
+        modifier = Modifier.padding(start = start, end = JoeyTheme.spacing.rowPadH, top = 6.dp, bottom = 6.dp))
 }
 
 /** A room on the Netplay page: its game's cover (greyed when it isn't in this library), host, game, players, ping. */
@@ -363,7 +365,7 @@ private fun HostPickPopup(model: LibraryModel, onDismiss: () -> Unit, onPick: (L
             if (searching) ControllerTextField(query, { query = it }, "Search your games", Modifier.padding(horizontal = 8.dp).padding(bottom = 6.dp), startTyping = true)
             // C2: focus is on the cover, so scrolling to it left the name under the bottom row cut off; the grid scrolls
             // a name's height more so the whole tile shows.
-            val nameRoom = with(androidx.compose.ui.platform.LocalDensity.current) { 26.dp.toPx() }
+            val nameRoom = with(androidx.compose.ui.platform.LocalDensity.current) { 31.dp.toPx() }
             @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
             androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides
                 remember(nameRoom) { TileNameSpec(nameRoom) }) {
@@ -381,7 +383,7 @@ private fun HostPickPopup(model: LibraryModel, onDismiss: () -> Unit, onPick: (L
                 }
             }
             }
-            if (sorted.isEmpty()) RoomsEmpty("No games match.")
+            if (sorted.isEmpty()) RoomsEmpty("No games match.", onPage = false)
         }
     }
 }
@@ -415,7 +417,8 @@ private fun PickTile(model: LibraryModel, game: LibraryGame, modifier: Modifier,
         // Like the library's tiles (Joey 2026-11-10): the focused game's name is gold and scrolls when it doesn't fit.
         Text(shortGame(game.title), style = JoeyTheme.type.small, color = if (focused) c.gold else c.textSecondary, maxLines = 1,
             overflow = if (focused) TextOverflow.Clip else TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 3.dp)
+            // 8 dp: clear of the focus ring, which ran through the name's top at 3 (Thor 2026-11-12); the library has 6.
+            modifier = Modifier.padding(top = 8.dp)
                 .then(if (focused) Modifier.basicMarquee(iterations = Int.MAX_VALUE,
                     animationMode = androidx.compose.foundation.MarqueeAnimationMode.Immediately,
                     initialDelayMillis = 900, repeatDelayMillis = 1_500) else Modifier))
@@ -451,14 +454,14 @@ fun NetplayGamePopup(model: LibraryModel) {
                 modifier = Modifier.padding(horizontal = JoeyTheme.spacing.rowPadH).padding(bottom = 6.dp))
             NetOption("Host a room", Modifier.initialFocus(), detail = "On this Wi-Fi it shows up by itself. Anywhere else, share the room code") { model.netplayHost(game) }
             SectionLabel("Rooms on this Wi-Fi")
-            if (wifi.isEmpty()) RoomsEmpty("No rooms on this Wi-Fi.")
+            if (wifi.isEmpty()) RoomsEmpty("No rooms on this Wi-Fi.", onPage = false)
             for (r in wifi) {
                 val have = games.any { it.md5.equals(r.md5, true) }
                 NetOption("${r.hostName}'s room", detail = if (have) roomLine(r.game, r.players, model.netPlaces(r.md5)) else "${shortGame(r.game)} · you don't have this game",
                     pingMs = r.pingMs, enabled = have) { model.netplayJoin(PlayTogether.Target(r.ip, r.port, r.hostName)) }
             }
             SectionLabel("Public rooms")
-            if (publicHere.isEmpty()) RoomsEmpty("No public rooms for this game right now.")
+            if (publicHere.isEmpty()) RoomsEmpty("No public rooms for this game right now.", onPage = false)
             for (r in publicHere) NetOption("${r.name}'s room", detail = roomLine(r.game, r.players, model.netPlaces(r.md5)), pingMs = pings["${r.ip}:${r.port}"]) {
                 model.netplayJoin(PlayTogether.Target(r.ip, r.port, r.name))
             }

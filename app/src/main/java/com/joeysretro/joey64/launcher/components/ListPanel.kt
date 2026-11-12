@@ -29,6 +29,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -55,6 +57,9 @@ class ListPanelState {
     internal var inside by mutableStateOf(false)
     internal var info: PanelInfo? = null
     internal val list = FocusRequester()
+    /** The list has focus (not the panel, the tabs or the chips above it): L2 / R2 page it then. */
+    internal var listFocused = false
+    internal var viewport = 0
     /** Where focus goes on [enter]: the ticked choice, else the first one ([landFocus], no frame wait). */
     internal val landing = FocusLanding(armed = false)
 
@@ -92,6 +97,32 @@ fun ListPanel(state: ListPanelState, info: PanelInfo, hints: List<Hint>, onHints
     state.info = info
     if (!wide && state.inside) state.inside = false
     val inside = state.inside
+    // L2 / R2: a screen of rows less one, by the focus system's own moves (all rows are composed: no frame wait).
+    // A move that leaves the list (Up from the first row goes to the tabs) is taken back and the paging stops there.
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val rowPx = with(androidx.compose.ui.platform.LocalDensity.current) { 40.dp.toPx() }
+    androidx.compose.runtime.DisposableEffect(state) {
+        val pager: (com.joeysretro.joey64.launcher.controls.Control) -> Boolean = p@{ ctl ->
+            val dir = when (ctl) {
+                com.joeysretro.joey64.launcher.controls.Control.PagePrev -> androidx.compose.ui.focus.FocusDirection.Up
+                com.joeysretro.joey64.launcher.controls.Control.PageNext -> androidx.compose.ui.focus.FocusDirection.Down
+                else -> return@p false
+            }
+            if (!state.listFocused || state.inside) return@p false
+            val back = if (dir == androidx.compose.ui.focus.FocusDirection.Up) androidx.compose.ui.focus.FocusDirection.Down
+                else androidx.compose.ui.focus.FocusDirection.Up
+            repeat(maxOf(1, (state.viewport / rowPx).toInt() - 1)) {
+                if (!focusManager.moveFocus(dir)) return@p true
+                if (!state.listFocused) { focusManager.moveFocus(back); return@p true }
+            }
+            true
+        }
+        com.joeysretro.joey64.launcher.controls.ControlBus.addPager(pager)
+        onDispose { com.joeysretro.joey64.launcher.controls.ControlBus.removePager(pager) }
+    }
+    val tracked = Modifier
+        .onFocusChanged { state.listFocused = it.hasFocus }
+        .onSizeChanged { state.viewport = it.height }
     LaunchedEffect(inside, hints, wide, info.pickable) {
         onHints(when {
             inside -> listOf(Hint("A", "Pick"), Hint("◀", "Back to the list"), Hint("B", "Back"))
@@ -101,7 +132,7 @@ fun ListPanel(state: ListPanelState, info: PanelInfo, hints: List<Hint>, onHints
     }
     if (!wide) {
         Column(modifier.fillMaxSize()) {
-            Column(Modifier.weight(1f).fillMaxWidth().focusRequester(state.list).focusRestorer().focusGroup()
+            Column(Modifier.weight(1f).fillMaxWidth().then(tracked).focusRequester(state.list).focusRestorer().focusGroup()
                 .verticalScroll(rememberScrollState()), content = list)
             Spacer(Modifier.height(6.dp))
             DescriptionLine(info.title, info.help)
@@ -109,7 +140,7 @@ fun ListPanel(state: ListPanelState, info: PanelInfo, hints: List<Hint>, onHints
         return
     }
     Row(modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-        Column(Modifier.weight(0.56f).fillMaxHeight()
+        Column(Modifier.weight(0.56f).fillMaxHeight().then(tracked)
             .onPreviewKeyEvent { e ->
                 // ▶ on a row with choices goes into them; rows that step with ◀ ▶ have none, so their own handler gets it.
                 val n = e.nativeKeyEvent

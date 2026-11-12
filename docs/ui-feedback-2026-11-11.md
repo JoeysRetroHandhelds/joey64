@@ -67,7 +67,7 @@ Controls, then Settings tabs, then popups.
 - [ ] D3 (approved as drawn 2026-11-11: rasetup1_mock.png, one setup page with Username, Password, Sign in, Skip; no
       progress page, the look-up joins the library's box art and cheats scan; wrong password shown on the same page) Achievements without playing first: fetch every library game's achievements when the ROMs folder
       is scanned (with the covers and game list), once signed in to RetroAchievements.
-- [ ] D4 (mockup feedback1_mock.png screen 7, waiting for Joey) Send reports popup: a Send now row (mockup).
+- [ ] D4 (approved as drawn 2026-11-11, feedback1_mock.png screen 7) Send reports popup: a Send now row (mockup).
 - [ ] D5 (mockup feedback1_mock.png screens 8-9, waiting for Joey) Netplay: set your own name (now: the RetroAchievements username, else the device name). Mockup.
 - [ ] D6 Fast-forward speed: already there (Controls › Hotkeys › Fast forward › Speed, 125 to 400% in
       steps of 25, default 400%). Joey to say if it should be somewhere easier to find.

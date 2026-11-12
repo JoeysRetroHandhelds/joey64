@@ -67,13 +67,14 @@ object GpuRules {
     }
 
     /**
-     * Auto's renderer: parallel-RDP needs Vulkan 1.1 with 16-bit storage buffers (without them it fails to start and the
-     * core crashes: Adreno 610), and a driver known to run it: a custom one, or stock Mali. Else GLideN64.
+     * Auto's renderer: parallel-RDP needs Vulkan 1.1 with 16-bit and 8-bit storage buffers (without them it fails to
+     * start: Adreno 610 has no 16-bit; Adreno 650 has 8-bit only on PurpleVK, as a Vulkan 1.2 core feature), and a driver
+     * known to run it: a custom one, or stock Mali. Else GLideN64.
      */
     fun autoRenderer(vulkan11: Boolean, storage16: Boolean, customDriver: Boolean, f: Family,
                      littleCoresOnly: Boolean = false, upscale: Int = 1): Pick<String> = when {
         !vulkan11 -> Pick("gliden64", "no Vulkan 1.1: GLideN64")
-        !storage16 -> Pick("gliden64", "no 16-bit storage buffers: GLideN64")
+        !storage16 -> Pick("gliden64", "no 16-bit or 8-bit storage buffers: GLideN64")
         customDriver -> Pick("parallel", "custom driver: parallel-RDP")
         // The stock driver on Adreno 8xx runs parallel-RDP (Odin 3 / Odin 3 Portal, Adreno 830: 82/82 compat at 4x and 8x), so
         // Auto never gives it GLideN64, at any resolution (Joey 2026-11-09: "Glide shouldn't be offered at auto there at all").

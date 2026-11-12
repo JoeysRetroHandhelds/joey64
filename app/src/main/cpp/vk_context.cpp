@@ -1,3 +1,4 @@
+#include <vector>
 #include "joeylog.h"
 #include "vk_context.h"
 #include "display_opts.h"
@@ -80,7 +81,12 @@ std::string VkContext::probe(bool custom) {
     auto gipa = reinterpret_cast<PFN_vkGetInstanceProcAddr>(dlsym(lib, "vkGetInstanceProcAddr"));
     auto create = gipa ? reinterpret_cast<PFN_vkCreateInstance>(gipa(VK_NULL_HANDLE, "vkCreateInstance")) : nullptr;
     VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
-    app.apiVersion = VK_API_VERSION_1_1;
+    // The probe asks for the loader's own version (up to 1.3), so the features it reads are what the driver has at
+    // its best, not only what a 1.1 instance sees; the game's instance stays at the core's 1.1
+    uint32_t instVersion = VK_API_VERSION_1_1;
+    if (auto enumVer = gipa ? reinterpret_cast<PFN_vkEnumerateInstanceVersion>(gipa(VK_NULL_HANDLE, "vkEnumerateInstanceVersion")) : nullptr)
+        if (enumVer(&instVersion) != VK_SUCCESS) instVersion = VK_API_VERSION_1_1;
+    app.apiVersion = std::max(VK_API_VERSION_1_1, std::min(instVersion, VK_API_VERSION_1_3));
     VkInstanceCreateInfo ici{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     ici.pApplicationInfo = &app;
     VkInstance inst = VK_NULL_HANDLE;
@@ -97,15 +103,42 @@ std::string VkContext::probe(bool custom) {
         if ((r == VK_SUCCESS || r == VK_INCOMPLETE) && n && gpu) {
             VkPhysicalDeviceProperties props;
             getProps(gpu, &props);
-            // parallel-RDP needs 16-bit storage buffers (storageBuffer16BitAccess); without them its init fails.
-            // The Adreno 610 (Snapdragon 665) has them on neither its Qualcomm driver nor Turnip.
+            // parallel-RDP needs 16-bit and 8-bit storage buffers (storageBuffer16BitAccess, storageBuffer8BitAccess);
+            // without either its init fails and the game doesn't start. It runs on a Vulkan 1.1 instance (the core's
+            // application info), so Granite takes 8-bit storage only through VK_KHR_8bit_storage: the driver must list
+            // it. The Adreno 610 (Snapdragon 665) has no 16-bit storage on its Qualcomm driver or Turnip. The Adreno 650
+            // (Snapdragon 865, RP Mini V2 tester report 2026-11-08) failed Granite's 8-bit check on its Qualcomm driver,
+            // the bundled Turnip and four dev Turnips; Mesa sets storage_8bit (feature and extension) only on a7xx
+            // and keeps a6xx at Vulkan 1.3 for it. The field stays one number: 1 only when parallel-RDP can start.
             int s16 = -1;
             if (getFeatures2 && props.apiVersion >= VK_API_VERSION_1_1) {
+                bool ext8 = false;
+                auto enumExt = reinterpret_cast<PFN_vkEnumerateDeviceExtensionProperties>(gipa(inst, "vkEnumerateDeviceExtensionProperties"));
+                uint32_t ne = 0;
+                if (enumExt && enumExt(gpu, nullptr, &ne, nullptr) == VK_SUCCESS && ne) {
+                    std::vector<VkExtensionProperties> ext(ne);
+                    if (enumExt(gpu, nullptr, &ne, ext.data()) == VK_SUCCESS)
+                        for (uint32_t i = 0; i < ne; i++)
+                            if (!strcmp(ext[i].extensionName, VK_KHR_8BIT_STORAGE_EXTENSION_NAME)) ext8 = true;
+                }
+                // 8-bit storage is core in Vulkan 1.2; its struct is only chained when the driver knows it
+                bool core8 = props.apiVersion >= VK_API_VERSION_1_2 && app.apiVersion >= VK_API_VERSION_1_2;
                 VkPhysicalDevice16BitStorageFeatures f16{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES};
+                VkPhysicalDevice8BitStorageFeatures f8{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES};
                 VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
                 f2.pNext = &f16;
+                if (ext8 || core8) f16.pNext = &f8;
                 getFeatures2(gpu, &f2);
-                s16 = f16.storageBuffer16BitAccess ? 1 : 0;
+                bool s8 = f8.storageBuffer8BitAccess;
+                // The core asks for a Vulkan 1.2 instance since core vk12 (31663e8), so Granite also takes 8-bit storage
+                // as a 1.2 core feature (PurpleVK on the Adreno 650 has it only that way, tester report 2026-11-08 19:32).
+                s16 = f16.storageBuffer16BitAccess && s8 && (ext8 || core8) ? 1 : 0;
+                LOGI("vulkan probe (%s): instance %u.%u, device %u.%u; storage buffers 16-bit %d, 8-bit %d, "
+                     "VK_KHR_8bit_storage %s%s", custom ? "custom" : "system",
+                     VK_VERSION_MAJOR(app.apiVersion), VK_VERSION_MINOR(app.apiVersion),
+                     VK_VERSION_MAJOR(props.apiVersion), VK_VERSION_MINOR(props.apiVersion),
+                     f16.storageBuffer16BitAccess ? 1 : 0, s8 ? 1 : 0, ext8 ? "listed" : "not listed",
+                     s8 && !ext8 ? " (8-bit storage only as Vulkan 1.2 core: needs the core's 1.2 instance)" : "");
             }
             // The driver's own name and version (Vulkan 1.2), for Settings › On screen's stats.
             std::string driver;

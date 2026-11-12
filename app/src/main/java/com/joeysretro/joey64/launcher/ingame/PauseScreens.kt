@@ -189,9 +189,12 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
     }
     val picker = screen as? PauseScreen.Picker
     val restart = screen as? PauseScreen.Restart
+    // The slot the picker's focus is on: Auto while saving has no A (it's dimmed, quitting writes it).
+    var pickerAt by androidx.compose.runtime.remember(picker) { androidx.compose.runtime.mutableIntStateOf(picker?.focus ?: -1) }
     val hints = when {
         restart != null -> listOf(Hint("A", "Select"), Hint("B", "Later"))
         picker == null -> listOf(Hint("A", "Select"), Hint("B", "Resume"))
+        picker.save && com.joeysretro.joey64.states.StateSlots.isAuto(pickerAt) -> listOf(Hint("D-pad", "Move"), Hint("B", "Back"))
         else -> listOf(Hint("A", if (picker.save) "Save" else "Load"), Hint("D-pad", "Move"), Hint("B", "Back"))
     }
     JoeyDialog(
@@ -240,7 +243,7 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
                 else JoeyOption(actions.quitLabel) { actions.quit() }
                 }
             }
-            is PauseScreen.Picker -> SlotGrid(screen, now) { actions.pick(screen.save, it) }
+            is PauseScreen.Picker -> SlotGrid(screen, now, onFocus = { pickerAt = it }) { actions.pick(screen.save, it) }
             is PauseScreen.Restart -> Column {
                 PopupTitle("Restart to use the new settings?", screen.subtitle)
                 com.joeysretro.joey64.launcher.components.JoeyRow("Restart now", Modifier.initialFocus(),
@@ -254,7 +257,7 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
 }
 
 @Composable
-private fun SlotGrid(picker: PauseScreen.Picker, now: Long, onPick: (Int) -> Unit) {
+private fun SlotGrid(picker: PauseScreen.Picker, now: Long, onFocus: (Int) -> Unit, onPick: (Int) -> Unit) {
     val c = JoeyTheme.colors
     var focused by remember(picker) { mutableIntStateOf(picker.focus) }
     Column(Modifier.padding(horizontal = 2.dp)) {
@@ -266,7 +269,9 @@ private fun SlotGrid(picker: PauseScreen.Picker, now: Long, onPick: (Int) -> Uni
                 Text(
                     buildAnnotatedString {
                         withStyle(SpanStyle(color = c.text, fontWeight = FontWeight.Bold)) { append(sel.name) }
-                        append(" · " + (sel.savedAt?.let { SlotDates.label(it, now) } ?: "Empty"))
+                        // Auto, dimmed when saving: says why (greyed items take focus, Joey 2026-11-12: "Focus them everywhere").
+                        append(" · " + if (picker.save && com.joeysretro.joey64.states.StateSlots.isAuto(sel.slot)) "Quitting saves here"
+                            else (sel.savedAt?.let { SlotDates.label(it, now) } ?: "Empty"))
                     },
                     style = JoeyTheme.type.small, color = c.textDim,
                     modifier = Modifier.padding(end = 10.dp, bottom = 8.dp),
@@ -279,7 +284,7 @@ private fun SlotGrid(picker: PauseScreen.Picker, now: Long, onPick: (Int) -> Uni
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     for (s in row) {
                         val off = picker.save && com.joeysretro.joey64.states.StateSlots.isAuto(s.slot)
-                        SlotCell(s, off, now, initial = s.slot == picker.focus, onFocused = { focused = s.slot }) {
+                        SlotCell(s, off, now, initial = s.slot == picker.focus, onFocused = { focused = s.slot; onFocus(s.slot) }) {
                             if (picker.save || s.savedAt != null) onPick(s.slot)
                         }
                     }
@@ -298,12 +303,14 @@ private fun SlotCell(s: SlotView, off: Boolean, now: Long, initial: Boolean, onF
     Box(
         Modifier
             .size(100.dp, 75.dp)
-            .alpha(if (off) 0.35f else 1f)
+            // The outline before the dimming: a dimmed cell takes focus too and its outline shows in full.
             .coverSelection(focused, 6.dp)
+            .alpha(if (off) 0.35f else 1f)
             .clip(shape)
             .background(c.chip)
             .then(if (initial && !off) Modifier.initialFocus() else Modifier)
-            .pressable(source, enabled = !off, onClick = onClick),
+            // A dimmed cell is still a focus stop (as greyed rows are, Joey 2026-11-12); A does nothing on it.
+            .pressable(source, onClick = { if (!off) onClick() }),
     ) {
         if (s.picture != null) {
             Image(s.picture, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())

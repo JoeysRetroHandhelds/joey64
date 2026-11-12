@@ -18,4 +18,15 @@ object GameCrop {
 
     /** The lines to crop: [v]'s Crop edges, or [gameCode]'s default when [v] doesn't set it. */
     fun of(gameCode: String?, v: VideoSettings): Int = lines(gameCode, v) ?: v.int(VideoKey.Crop)
+
+    /** The Crop edges row's value for [gameCode] (Joey 2026-11-12: "Yes, show the default"): "Normal (this game's
+     *  default)" while the game's default applies, else the setting's own label. */
+    fun label(gameCode: String?, v: VideoSettings): String =
+        lines(gameCode, v)?.let { "${VideoChoices.label(VideoKey.Crop, it.toString())} (this game's default)" }
+            ?: VideoChoices.label(VideoKey.Crop, v[VideoKey.Crop])
+
+    /** The game's header code for [saveName] from the library, off the main thread; null when it isn't there. */
+    fun codeFor(context: android.content.Context, saveName: String): String? = try {
+        com.joeysretro.joey64.launcher.data.LibraryDb.get(context).gameWithFile(saveName, com.joeysretro.joey64.states.GameStates::saveNameOf)?.headerId
+    } catch (e: Exception) { com.joeysretro.joey64.JLog.e("Joey64Video", "can't look up $saveName: $e"); null }
 }

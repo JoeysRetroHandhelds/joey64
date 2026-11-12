@@ -26,4 +26,11 @@ class GameCropTest {
         val allThin = VideoSettings.resolve(mapOf(VideoKey.Crop to "4"), null)
         assertEquals(4, GameCrop.of("NZLP", allThin))
     }
+
+    @Test fun theRowShowsTheGamesDefault() {
+        assertEquals("Normal (this game's default)", GameCrop.label("CZLE", unset))
+        assertEquals("Off", GameCrop.label("NSME", unset))
+        assertEquals("Off", GameCrop.label("CZLE", VideoSettings.resolve(mapOf(VideoKey.Crop to "0"), null)))
+        assertEquals("Wide", GameCrop.label("NZLP", VideoSettings.resolve(emptyMap(), mapOf(VideoKey.Crop to "12"))))
+    }
 }

@@ -410,7 +410,9 @@ Seen, for Joey:
 - A greyed row takes focus in some places (options › Screenshots "None", Saves' Back up now / Restore / Delete with
   no save) while options › Netplay "1 player only" is skipped.
 - B on a new blank macro keeps an empty Macro 1.
-- Popup titles show the file name ("Legend of Zelda, The - Ocarina of Time (USA)"), not the tidied one.
+- Popup titles show the file name ("Legend of Zelda, The - Ocarina of Time (USA)"), not the tidied one. Joey: "Yes
+  tidy should change popup too": done (`gameName`, every popup title and page header naming a game, the pause menu
+  too); seen on the Thor (p18-83c01bbe): the recovery question, OoT's options title, Saves' header and help line.
 - A game's achievements Show popup counts more than the header: Mario Kart 64's main set "All 73 · Unlocked 4"
   against "3 of 72". The extra one is RetroAchievements' "Warning: Unknown Emulator" (id 101000000), which the server
   adds when it doesn't know the client, shown as a recent unlock; it means RetroAchievements doesn't know Joey64

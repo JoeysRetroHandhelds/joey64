@@ -539,7 +539,7 @@ internal fun CarryOnPopup(ask: LibraryModel.AskContinue, model: LibraryModel, on
         onPadButton = { key -> if (key == android.view.KeyEvent.KEYCODE_BUTTON_Y && canAlways) onAnswer(focused, true) },
     ) {
         Column {
-            PopupTitle(ask.game.title, "Pick where to start. Your in-game save is the same whichever you pick.")
+            PopupTitle(com.joeysretro.joey64.launcher.components.gameName(ask.game.title), "Pick where to start. Your in-game save is the same whichever you pick.")
             Row(Modifier.padding(horizontal = 10.dp).padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 Column(Modifier.weight(if (narrow) 1f else 0.46f).verticalScroll(rememberScrollState())) {
                     var lastGroup = ""
@@ -625,7 +625,7 @@ private fun RecoveryPopup(offer: LibraryModel.RecoveryOffer, onAnswer: (Boolean?
             PopupTitle("Joey64 closed while you were playing")
             PromptText(androidx.compose.ui.text.buildAnnotatedString {
                 pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = JoeyTheme.colors.text))
-                append(offer.game.title)
+                append(com.joeysretro.joey64.launcher.components.gameName(offer.game.title))
                 pop()
                 append(" has a recovery state from $ago before it closed. Carry on from there?")
             })

@@ -146,7 +146,7 @@ fun PickGamePopup(subtitle: String, onDismiss: () -> Unit, exclude: String? = nu
                 list.isEmpty() -> PopupNote("The library has no games yet.")
                 else -> LazyColumn(Modifier.heightIn(max = 380.dp)) {
                     items(list, key = { it.id }) { g ->
-                        JoeyRow(g.title, if (g == list.first()) Modifier.initialFocus() else Modifier) {
+                        JoeyRow(com.joeysretro.joey64.launcher.components.gameName(g.title), if (g == list.first()) Modifier.initialFocus() else Modifier) {
                             if (looking) return@JoeyRow
                             PickReturn.armed = false
                             looking = true

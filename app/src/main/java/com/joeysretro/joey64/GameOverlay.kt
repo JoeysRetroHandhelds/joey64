@@ -120,7 +120,8 @@ class GameOverlay(private val activity: Activity, private val actions: PauseActi
             val popupHost = remember { com.joeysretro.joey64.launcher.components.PopupHost() }
             if (s != null) JoeyTheme(settings?.theme ?: ThemeChoice.Dark) {
                 CompositionLocalProvider(LocalActivityResultRegistryOwner provides resultsOwner,
-                    com.joeysretro.joey64.launcher.components.LocalPopupHost provides popupHost) {
+                    com.joeysretro.joey64.launcher.components.LocalPopupHost provides popupHost,
+                    com.joeysretro.joey64.launcher.components.LocalTidyNames provides (settings?.tidyNames ?: true)) {
                     PausePopup(s, title, saveSlotName, System.currentTimeMillis(), actions)
                     com.joeysretro.joey64.launcher.components.PopupHostWindow(popupHost)
                 }

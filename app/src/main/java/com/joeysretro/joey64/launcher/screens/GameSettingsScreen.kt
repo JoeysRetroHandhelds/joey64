@@ -187,7 +187,7 @@ private fun GameTabs(game: GameRef, v: GsView.Tabs, onHints: (List<Hint>) -> Uni
     val s = JoeyTheme.spacing
     val parts = TAB_PARTS
     Column(Modifier.fillMaxSize().padding(horizontal = s.margin).padding(top = 14.dp, bottom = 8.dp)) {
-        com.joeysretro.joey64.launcher.components.PageHeader("Settings") { InfoChip(game.title, R.drawable.ic_sliders, on = true) }
+        com.joeysretro.joey64.launcher.components.PageHeader("Settings") { InfoChip(com.joeysretro.joey64.launcher.components.gameName(game.title), R.drawable.ic_sliders, on = true) }
         // The tab row has focus: its own hints; the tab's come back when focus goes down (Joey 2026-11-09, D-pad tabs).
         var onTabs by remember { mutableStateOf(false) }
         var pageHints by remember { mutableStateOf(listOf(Hint("B", "Back"))) }
@@ -221,7 +221,7 @@ private fun GamePage(game: GameRef, summary: GameSummary, inGame: Boolean, focus
                      onHints: (List<Hint>) -> Unit, onOpen: (GamePart, String?) -> Unit, onReset: () -> Unit, onCopy: () -> Unit) {
     val c = JoeyTheme.colors
     val s = JoeyTheme.spacing
-    val name = shortTitle(game.title)
+    val name = shortTitle(com.joeysretro.joey64.launcher.components.gameName(game.title))
     val none = summary.total == 0
     val (title, text) = when {
         focused == GamePart.Video.name -> "Video" to when {
@@ -256,7 +256,7 @@ private fun GamePage(game: GameRef, summary: GameSummary, inGame: Boolean, focus
         lines = part?.let { p -> summary.changes.filter { it.part == p }.map { it.name to "${it.value} · All games: ${it.allGames}" } } ?: emptyList())
     val panel = com.joeysretro.joey64.launcher.components.rememberListPanel()
     Column(Modifier.fillMaxSize().padding(horizontal = s.margin).padding(top = 14.dp, bottom = 8.dp)) {
-        com.joeysretro.joey64.launcher.components.PageHeader("Game settings") { InfoChip(game.title, R.drawable.ic_rail_controls) }
+        com.joeysretro.joey64.launcher.components.PageHeader("Game settings") { InfoChip(com.joeysretro.joey64.launcher.components.gameName(game.title), R.drawable.ic_rail_controls) }
         Spacer(Modifier.height(12.dp))
         com.joeysretro.joey64.launcher.components.ListPanel(panel, info, listOf(Hint("A", "Open"), Hint("B", "Back")), onHints, Modifier.weight(1f)) {
         run {
@@ -295,7 +295,7 @@ private fun GamePopupsFor(game: GameRef, summary: GameSummary, model: GameSettin
         null -> {}
         GsPopup.Reset -> JoeyDialog(onDismiss = { onPopup(null) }, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 470.dp) {
             Column {
-                PopupTitle("Reset to All games?", "${game.title} uses All games' Video, Audio and Controls again. Its cheats, saves and states stay.")
+                PopupTitle("Reset to All games?", "${com.joeysretro.joey64.launcher.components.gameName(game.title)} uses All games' Video, Audio and Controls again. Its cheats, saves and states stay.")
                 JoeyOption("Reset") { model.reset(game.saveName); onPopup(null); onChanged() }
                 JoeyOption("Cancel", Modifier.initialFocus()) { onPopup(null) }
             }
@@ -303,7 +303,7 @@ private fun GamePopupsFor(game: GameRef, summary: GameSummary, model: GameSettin
         GsPopup.Copy -> JoeyDialog(onDismiss = { onPopup(null) }, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 470.dp) {
             val fromPick = remember { PickReturn.take() }
             Column {
-                PopupTitle("Copy to another game", "What to copy from ${game.title}.")
+                PopupTitle("Copy to another game", "What to copy from ${com.joeysretro.joey64.launcher.components.gameName(game.title)}.")
                 GamePart.entries.forEachIndexed { i, p ->
                     val has = p in own
                     JoeyRow(p.label, if (i == 0 && !fromPick) Modifier.initialFocus() else Modifier,
@@ -317,7 +317,7 @@ private fun GamePopupsFor(game: GameRef, summary: GameSummary, model: GameSettin
                     if (picked.isNotEmpty()) { PickReturn.armed = true; onPopup(GsPopup.PickGame) } }
             }
         }
-        GsPopup.PickGame -> PickGamePopup("Gets ${shortTitle(game.title)}'s ${picked.sortedBy { it.ordinal }.joinToString(" and ") { it.label }}.",
+        GsPopup.PickGame -> PickGamePopup("Gets ${shortTitle(com.joeysretro.joey64.launcher.components.gameName(game.title))}'s ${picked.sortedBy { it.ordinal }.joinToString(" and ") { it.label }}.",
             onDismiss = { onPopup(GsPopup.Copy) }, exclude = game.title) { save, title ->
             when {
                 save == game.saveName -> onPopup(GsPopup.Copy)
@@ -334,7 +334,7 @@ private fun GamePopupsFor(game: GameRef, summary: GameSummary, model: GameSettin
             JoeyDialog(onDismiss = { onPopup(null) }, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 470.dp) {
                 Column {
                     PopupTitle("Replace ${popup.title}'s ${clash.joinToString(" and ") { it.label }}?",
-                        "${popup.title} has $counts $rowWord of its own. They're replaced by ${game.title}'s." +
+                        "${com.joeysretro.joey64.launcher.components.gameName(popup.title)} has $counts $rowWord of its own. They're replaced by ${com.joeysretro.joey64.launcher.components.gameName(game.title)}'s." +
                             if (rest.isEmpty()) "" else " Its ${rest.joinToString(" and ") { it.label }} ${if (rest.size == 1) "is" else "are"} copied as well.")
                     // Cancel focused: Replace overwrites another game's own settings (code audit 3, p2 L4), as Reset and Delete focus Keep.
                     JoeyOption("Replace and copy") { copyTo(popup.to) }

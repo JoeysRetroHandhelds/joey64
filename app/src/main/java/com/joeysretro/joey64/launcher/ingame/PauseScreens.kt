@@ -206,7 +206,7 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
         LaunchedEffect(screen) { landing?.arm() }
         when (screen) {
             is PauseScreen.Menu -> Column {
-                PopupTitle(title)
+                PopupTitle(com.joeysretro.joey64.launcher.components.gameName(title))
                 // Netplay screen 2: only the line is new; the menu is today's.
                 val netLine = androidx.compose.runtime.remember(screen) { actions.netLine }
                 if (netLine != null) Text(netLine, style = JoeyTheme.type.note, color = JoeyTheme.colors.gold,

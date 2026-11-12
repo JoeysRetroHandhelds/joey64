@@ -124,7 +124,7 @@ fun SavesScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onPlay: (String) ->
     // After each read (a delete or restore changes the rows): the focused row may be gone, so land on the page again, not the rail.
     LaunchedEffect(data) { if (data != null) landing?.arm() }
     fun changed() { popup = null; version++ }
-    val name = shortName(g.game.title)
+    val name = shortName(com.joeysretro.joey64.launcher.components.gameName(g.game.title))
     /** [job] off the main thread; false or an exception (a picked folder's permission half gone) shows [failed] with [stays]. */
     fun work(failed: String, stays: String, job: () -> Boolean) {
         if (working) return
@@ -142,7 +142,7 @@ fun SavesScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onPlay: (String) ->
     val d = data
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().padding(horizontal = s.margin).padding(top = 14.dp, bottom = 8.dp)) {
-        PageHeader("Saves") { InfoChip(g.game.title, R.drawable.ic_device_floppy) }
+        PageHeader("Saves") { InfoChip(com.joeysretro.joey64.launcher.components.gameName(g.game.title), R.drawable.ic_device_floppy) }
         Spacer(Modifier.height(12.dp))
         if (d == null) return@Column
         val hasSave = d.saves.isNotEmpty()

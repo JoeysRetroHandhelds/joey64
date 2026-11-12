@@ -163,7 +163,7 @@ fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher
         // No title under the top bar; the game chip is the first thing on the page (approved top bar, 2026-11-11).
         val tabsEntry = remember { androidx.compose.ui.focus.FocusRequester() }
         if (perGame) com.joeysretro.joey64.launcher.components.PageHeader(null) {
-            PageChip((targetTitle ?: "All games") + "  ›", R.drawable.ic_sliders, Modifier.focusProperties { down = tabsEntry },
+            PageChip((targetTitle?.let { com.joeysretro.joey64.launcher.components.gameName(it) } ?: "All games") + "  ›", R.drawable.ic_sliders, Modifier.focusProperties { down = tabsEntry },
                 on = target != null, onFocused = { onChip = it }) { gamesPopup = 1 }
         }
         var focusedTab by remember { mutableIntStateOf(0) }

@@ -331,7 +331,7 @@ private fun HiddenPopup(hidden: List<LibraryGame>, onDismiss: () -> Unit, onShow
                 PopupTitle("Hidden games", "Not in the library, Search or the filters. Their saves are kept.")
                 hidden.forEachIndexed { i, g ->
                     val at = g.hiddenAt?.let { java.time.Instant.ofEpochMilli(it).atZone(zone).format(day) }
-                    JoeyRow(g.title, Modifier.initialFocus(i == 0), detail = at?.let { "Hidden $it" }, value = "Show again", sideways = true) { onShow(g) }
+                    JoeyRow(com.joeysretro.joey64.launcher.components.gameName(g.title), Modifier.initialFocus(i == 0), detail = at?.let { "Hidden $it" }, value = "Show again", sideways = true) { onShow(g) }
                 }
             }
         }

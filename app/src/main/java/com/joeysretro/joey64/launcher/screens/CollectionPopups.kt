@@ -158,7 +158,7 @@ fun AddToCollectionBody(game: LibraryGame, model: LibraryModel, landOnNew: Boole
     // The game as it is now: Favourites is a column on it, read again after a change.
     val now = games.firstOrNull { it.id == game.id } ?: game
     Column {
-        PopupTitle("Add to collection", game.title)
+        PopupTitle("Add to collection", com.joeysretro.joey64.launcher.components.gameName(game.title))
         JoeyRow(LibraryDb.FAVOURITES, Modifier.initialFocus(!landOnNew),
             trailing = { f -> TickCount(now.favourite, games.count { it.favourite }, f) }) {
             model.setInCollection(now, null, !now.favourite)

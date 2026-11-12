@@ -128,7 +128,7 @@ fun ScreenshotsScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onClose: () -
 
     val now = System.currentTimeMillis()
     Column(Modifier.fillMaxSize().padding(horizontal = s.margin).padding(top = 14.dp, bottom = 8.dp)) {
-        PageHeader("Screenshots") { InfoChip("${g.game.title} · ${l?.size ?: 0}", R.drawable.ic_camera) }
+        PageHeader("Screenshots") { InfoChip("${com.joeysretro.joey64.launcher.components.gameName(g.game.title)} · ${l?.size ?: 0}", R.drawable.ic_camera) }
         if (l == null || l.isEmpty()) return@Column
         // As many across as fit, like the covers: tiles at least 180 dp wide.
         // Each picture's size in pixels, read with its tile: the description line shows it once it's in.

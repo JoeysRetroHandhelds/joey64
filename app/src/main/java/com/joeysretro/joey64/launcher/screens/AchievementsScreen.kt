@@ -117,7 +117,7 @@ fun GameAchievementsScreen(game: AchievementsGame, onHints: (List<Hint>) -> Unit
     var showing by remember { mutableStateOf(false) }
     val tabs = remember { SetTabStep() }
     PageShell(onClose = { if (showing) showing = false else onClose() }, onTab = { tabs.step(it) }, onPage = { tabs.page(it) })
-    GameAchievementsContent(game.title, data, live = false, onHints = onHints, showing = showing, onShow = { showing = it }, tabs = tabs, tabHint = "Set")
+    GameAchievementsContent(com.joeysretro.joey64.launcher.components.gameName(game.title), data, live = false, onHints = onHints, showing = showing, onShow = { showing = it }, tabs = tabs, tabHint = "Set")
 }
 
 /** The pause menu's Achievements: the same page as a panel over the paused game, rc_client's live list. */

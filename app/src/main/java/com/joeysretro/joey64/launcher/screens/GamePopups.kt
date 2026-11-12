@@ -108,7 +108,7 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
     // New collection and Change box art take this card's place, and B comes back to it (F2 audit 4-5, Joey
     // 2026-11-12): one card at a time. Back on Add to collection focus lands on New collection…; on Details, the cover.
     if (naming) {
-        NamePopup("New collection", "", "${game.title} goes in it", null, model, onDismiss = { naming = false; backToNew = true }) { name ->
+        NamePopup("New collection", "", "${com.joeysretro.joey64.launcher.components.gameName(game.title)} goes in it", null, model, onDismiss = { naming = false; backToNew = true }) { name ->
             model.newCollection(name, game)
         }
         return
@@ -142,7 +142,7 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
         // Scrolls: with Saves and Screenshots the list is taller than a 1080p handheld's popup room (Thor, 2026-11-08).
         else Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())) {
             if (popup == GamePopup.Versions) PopupTitle("Versions", "The tile plays the ticked one. Each keeps its own saves.")
-            else PopupTitle(game.title)
+            else PopupTitle(com.joeysretro.joey64.launcher.components.gameName(game.title))
             when (popup) {
                 GamePopup.Options -> {
                     JoeyOption("Play", modifier = Modifier.initialFocus(from == null && back == null)) { onPopup(null); onPlay() }
@@ -236,7 +236,7 @@ private fun DetailsBody(game: LibraryGame, d: GameDetails, model: LibraryModel, 
         ) {
             val p = picture
             if (p != null) Image(p, contentDescription = "Box art", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(shape))
-            else if (file == null) Text(game.title, style = JoeyTheme.type.tile, color = c.textSecondary, textAlign = TextAlign.Center,
+            else if (file == null) Text(com.joeysretro.joey64.launcher.components.gameName(game.title), style = JoeyTheme.type.tile, color = c.textSecondary, textAlign = TextAlign.Center,
                 maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(10.dp))
         }
         Column(Modifier.weight(1f)) {

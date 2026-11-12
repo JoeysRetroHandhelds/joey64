@@ -338,7 +338,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             val tabsEntry = remember { androidx.compose.ui.focus.FocusRequester() }
             @Composable
             fun headerChips() {
-                PageChip((targetTitle ?: "All games") + "  ›", R.drawable.ic_sliders,
+                PageChip((targetTitle?.let { com.joeysretro.joey64.launcher.components.gameName(it) } ?: "All games") + "  ›", R.drawable.ic_sliders,
                     androidx.compose.ui.Modifier.focusProperties { down = tabsEntry }, on = target != null,
                     onFocused = { if (it) focused = "chipGame" }) { popup = Popup.Games }
             }

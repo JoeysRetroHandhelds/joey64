@@ -119,7 +119,7 @@ internal fun TouchControlsPage(
     val info = com.joeysretro.joey64.launcher.components.PanelInfo(title, help, lines = listOfNotNull(now?.let { "Now" to it }))
     Column(modifier) {
         PageHeader("Controls", sub = "› Touch controls") {
-            PageChip((targetTitle ?: "All games") + "  ›", com.joeysretro.joey64.R.drawable.ic_sliders, on = targetTitle != null,
+            PageChip((targetTitle?.let { com.joeysretro.joey64.launcher.components.gameName(it) } ?: "All games") + "  ›", com.joeysretro.joey64.R.drawable.ic_sliders, on = targetTitle != null,
                 modifier = Modifier.initialFocus(focused == "tChipGame"), onFocused = { if (it) onFocused("tChipGame") }) { onGames() }
             Spacer(Modifier.width(8.dp))
             PageChip("Edit layout", com.joeysretro.joey64.R.drawable.ic_hand_click, modifier = Modifier.initialFocus(focused == "tChipEdit"),

@@ -419,10 +419,10 @@ private fun PickTile(model: LibraryModel, game: LibraryGame, modifier: Modifier,
             .clip(RoundedCornerShape(4.dp)).pressable(source, onClick = onClick), contentAlignment = Alignment.Center) {
             val pic = cover
             if (pic != null) androidx.compose.foundation.Image(pic, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            else Text(shortGame(game.title), style = JoeyTheme.type.small, color = c.textSecondary, modifier = Modifier.padding(6.dp))
+            else Text(shortGame(com.joeysretro.joey64.launcher.components.gameName(game.title)), style = JoeyTheme.type.small, color = c.textSecondary, modifier = Modifier.padding(6.dp))
         }
         // Like the library's tiles (Joey 2026-11-10): the focused game's name is gold and scrolls when it doesn't fit.
-        Text(shortGame(game.title), style = JoeyTheme.type.small, color = if (focused) c.gold else c.textSecondary, maxLines = 1,
+        Text(shortGame(com.joeysretro.joey64.launcher.components.gameName(game.title)), style = JoeyTheme.type.small, color = if (focused) c.gold else c.textSecondary, maxLines = 1,
             overflow = if (focused) TextOverflow.Clip else TextOverflow.Ellipsis,
             // 8 dp: clear of the focus ring, which ran through the name's top at 3 (Thor 2026-11-12); the library has 6.
             modifier = Modifier.padding(top = 8.dp)
@@ -465,7 +465,7 @@ fun NetplayGamePopup(model: LibraryModel) {
     JoeyDialog(onDismiss = { model.closeNetplay(back = true) }, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 620.dp) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             LandAgain()
-            PopupTitle("Netplay", shortGame(game.title))
+            PopupTitle("Netplay", shortGame(com.joeysretro.joey64.launcher.components.gameName(game.title)))
             // The game's real count (the 4 players filter's table); 4 when it isn't known.
             val most = model.netPlaces(game)
             Text("Up to $most players. Everyone needs Joey64 and the same copy of the game.", style = JoeyTheme.type.small, color = JoeyTheme.colors.textDim,
@@ -662,7 +662,7 @@ private fun YourRoom(model: LibraryModel, s: PlayTogether.Hosting) {
         }) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             LandAgain()
-            PopupTitle("Your room", shortGame(s.game.title))
+            PopupTitle("Your room", shortGame(com.joeysretro.joey64.launcher.components.gameName(s.game.title)))
             Row(Modifier.padding(horizontal = 8.dp).padding(bottom = 6.dp).fillMaxWidth().background(c.page, RoundedCornerShape(8.dp))
                 .padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(s.code?.let { RoomCode.shown(it) } ?: "No Wi-Fi", style = JoeyTheme.type.roomCode, color = c.text,
@@ -710,7 +710,7 @@ private fun TheirRoom(s: PlayTogether.InRoom, places: Int) {
         tapOutsideCloses = false) {
         Column {
             LandAgain()
-            PopupTitle("$host's room", shortGame(s.game.title))
+            PopupTitle("$host's room", shortGame(com.joeysretro.joey64.launcher.components.gameName(s.game.title)))
             TwoColumns(gap = 18.dp, scroll = false, left = {
                 com.joeysretro.joey64.launcher.components.SectionLabel("Players")
                 for (n in 1..places) {

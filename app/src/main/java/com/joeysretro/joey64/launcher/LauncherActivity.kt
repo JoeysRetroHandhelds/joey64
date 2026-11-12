@@ -197,7 +197,8 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
     JoeyTheme(s?.theme ?: com.joeysretro.joey64.launcher.theme.ThemeChoice.Dark) {
     // The launcher's one popup window (Joey 2026-11-12, F2): every card popup draws in it.
     val popupHost = remember { com.joeysretro.joey64.launcher.components.PopupHost() }
-    CompositionLocalProvider(com.joeysretro.joey64.launcher.components.LocalPopupHost provides popupHost) {
+    CompositionLocalProvider(com.joeysretro.joey64.launcher.components.LocalPopupHost provides popupHost,
+        com.joeysretro.joey64.launcher.components.LocalTidyNames provides (s?.tidyNames ?: true)) {
     // A long press on a page's row offers its key-only actions (review sheet M30).
     com.joeysretro.joey64.launcher.components.ProvidePageRowActions {
         val landing = remember { FocusLanding() }

@@ -91,7 +91,7 @@ internal fun NeedsCartPopup(model: LibraryModel, start: (Intent) -> Unit) {
         uri?.let { model.cartPicked(it, start) }
     }
     val cart = GameLauncher.CART_NAMES[ask.code] ?: ask.code
-    val disk = GameLauncher.DISK_NAMES[ask.code] ?: ask.game.title
+    val disk = GameLauncher.DISK_NAMES[ask.code] ?: com.joeysretro.joey64.launcher.components.gameName(ask.game.title)
     JoeyDialog(onDismiss = { model.cartCancelled() }, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 460.dp) {
         // Built again when the text changes, so focus starts on its first option.
         key(ask.missed) { Column {

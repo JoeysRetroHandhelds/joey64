@@ -245,7 +245,7 @@ private fun CheatsContent(game: CheatsGame, sink: CheatsSink, onHints: (List<Hin
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Icon(painterResource(R.drawable.ic_rail_controls), contentDescription = null, tint = c.textSecondary, modifier = Modifier.size(16.dp))
-                Text(game.title, style = JoeyTheme.type.label, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                Text(com.joeysretro.joey64.launcher.components.gameName(game.title), style = JoeyTheme.type.label, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(end = 2.dp).widthIn(max = 320.dp))
             }
             Spacer(Modifier.width(10.dp))

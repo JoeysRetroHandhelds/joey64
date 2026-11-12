@@ -48,13 +48,13 @@ internal fun StartFailedPopup(model: LibraryModel) {
             LandAgain()
             if (!details) {
                 val where = (listOf(f.file) + listOfNotNull(f.folders.joinToString(" › ").ifEmpty { null })).joinToString(" · ")
-                PopupTitle("${f.game.title} won't start",
+                PopupTitle("${com.joeysretro.joey64.launcher.components.gameName(f.game.title)} won't start",
                     (if (f.damaged) "The file looks damaged: it doesn't match any known copy of the game. Copying it again usually fixes this."
                     else "Joey64 couldn't start it.") + "\n" + where)
                 JoeyOption("OK", Modifier.initialFocus()) { model.startFailedSeen() }
                 JoeyOption("Details") { details = true }
             } else {
-                PopupTitle(f.game.title, "Why it didn't start")
+                PopupTitle(com.joeysretro.joey64.launcher.components.gameName(f.game.title), "Why it didn't start")
                 @Composable
                 fun Row(label: String, value: String, code: Boolean = false) =
                     InfoRow(label, value, labelColor = c.textDim, valueColor = c.text,
@@ -101,7 +101,7 @@ internal fun NetEndedPopup(model: LibraryModel) {
             fun bold(s: String) = SpanStyle(fontWeight = FontWeight.Bold, color = c.text)
             when {
                 details && n.game != null -> {
-                    PopupTitle(n.game.title, "Your copy")
+                    PopupTitle(com.joeysretro.joey64.launcher.components.gameName(n.game.title), "Your copy")
                     InfoRow("File", n.file, labelColor = c.textDim, valueColor = c.text)
                     InfoRow("MD5", n.game.md5, labelColor = c.textDim, valueColor = c.text, valueStyle = JoeyTheme.type.code)
                     JoeyOption("OK", Modifier.initialFocus()) { model.netEndedSeen() }
@@ -138,7 +138,7 @@ internal fun NetEndedPopup(model: LibraryModel) {
                 else -> {
                     PopupTitle("Your copy doesn't match the host's")
                     // As approved (v2 screen f): "The host has <theirs>; yours is <mine>." once the room says its copy.
-                    val named = n.hostGame ?: n.game?.title ?: ""
+                    val named = com.joeysretro.joey64.launcher.components.gameName(n.hostGame ?: n.game?.title ?: "")
                     PromptText(buildAnnotatedString {
                         append("Everyone needs the same copy of ")
                         pushStyle(bold("")); append(com.joeysretro.joey64.launcher.library.LibraryArrange.shortTitle(named)); pop()

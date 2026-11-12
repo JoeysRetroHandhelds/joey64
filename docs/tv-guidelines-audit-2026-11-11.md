@@ -85,7 +85,8 @@ optional icon).
    (scratchpad portrait_mock.png option A). Material 3 (m3.material.io navigation-bar guidelines): the bar sits
    at the bottom "for convenient access", each item is an icon and a label, labels never removed, three to
    five destinations, no more than five. Joey64 has six when signed in to RetroAchievements: one has to leave
-   the portrait bar (open question for Joey).
+   the portrait bar. Joey 2026-11-11: "Search": in portrait Search leaves the bar and is a search icon at
+   the top of the Library page (and Y there, as today). Landscape keeps all six in the top bar.
 
 ## Deliberate departures (keep, say so)
 

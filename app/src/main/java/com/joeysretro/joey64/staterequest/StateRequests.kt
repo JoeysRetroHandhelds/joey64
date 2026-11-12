@@ -42,7 +42,7 @@ object StateRequests {
     }
 
     /** One game on the wanted list: its ROM [md5], [title], what [kind] of state we need, and [need], the line players see. */
-    data class Wanted(val md5: String, val kind: Kind, val need: String, val title: String = "")
+    data class Wanted(val md5: String, val kind: Kind, val need: String, val title: String = "", val why: String = "")
 
     /**
      * One state in the ring: [path] (absolute, files/states/ring/<md5>/<n>.raw: the core's raw M64+SAVE data), taken at
@@ -74,7 +74,7 @@ object StateRequests {
             val g = games.optJSONObject(i) ?: continue
             val md5 = g.optString("md5").trim().lowercase()
             val kind = Kind.parse(g.optString("kind")) ?: continue
-            if (MD5.matches(md5)) m[md5] = Wanted(md5, kind, g.optString("need").trim(), g.optString("title").trim())
+            if (MD5.matches(md5)) m[md5] = Wanted(md5, kind, g.optString("need").trim(), g.optString("title").trim(), g.optString("why").trim())
         }
         return m
     }
@@ -172,6 +172,10 @@ object StateRequests {
         }
         JLog.i(TAG, "state request for ${ask.wanted.md5}: $answer")
     }
+
+    /** Settings › About › Ask for save states (approved mockup 2026-11-12, screen 4): Off is Don't ask again's answer. */
+    fun asking(ctx: Context) = !prefs(ctx).getBoolean("never", false)
+    fun setAsking(ctx: Context, on: Boolean) { prefs(ctx).edit().putBoolean("never", !on).apply() }
 
     // ---- The wanted list, read from joey64-data like our covers ----
 

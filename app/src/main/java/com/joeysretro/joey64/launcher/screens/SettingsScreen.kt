@@ -347,6 +347,7 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
     // The popup open over About: "oss" (the licences list), "gpl" (Joey64's licence) or "reports" (Send reports).
     var open by remember { mutableStateOf<String?>(null) }
     var reportsOn by remember { mutableStateOf(com.joeysretro.joey64.reports.ReportPrefs.on(context)) }
+    var askStates by remember { mutableStateOf(com.joeysretro.joey64.staterequest.StateRequests.asking(context)) }
     // "Checked 10 minutes ago" stays true as time passes.
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { delay(30_000); now = System.currentTimeMillis() } }
@@ -359,7 +360,7 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
         "copy" -> listOf(Hint("A", "Copy"), Hint("B", "Back"))
         "logs" -> listOf(Hint("A", "Share"), Hint("B", "Back"))
         "gpl", "oss" -> listOf(Hint("A", "Read"), Hint("B", "Back"))
-        "rep" -> listOf(Hint("A", "Change"), Hint("B", "Back"))
+        "rep", "ask" -> listOf(Hint("A", "Change"), Hint("B", "Back"))
         "src" -> listOf(Hint("A", "Open"), Hint("B", "Back"))
         else -> listOf(Hint("B", "Back"))
     }
@@ -369,6 +370,7 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
         "rdr" -> "Renderer" to "What draws the games on this device, picked when a game starts."
         "dev" -> "Device" to info.deviceDetail
         "rep" -> "Send reports" to "Off: Joey64 sends nothing. On: how games run on this device, games with no cover, and crashes, to help make Joey64 better."
+        "ask" -> "Ask for save states" to "On: after you play a game we need a save state of, Joey64 may ask whether to send one. Off: it never asks."
         "gpl" -> "Joey64 is free software" to "Under the GNU General Public License 3.0 or later: use it, share it, change it. Select to read it."
         // The core is GPL code we changed, so its source is named too (code audit 3, M25).
         "src" -> "Source code" to "The code this build is made from: ${JOEY64_LICENCE.url}, and its emulator core: ${info.coreSource}."
@@ -411,6 +413,11 @@ private fun AboutTab(updates: UpdateModel, onHints: (List<Hint>) -> Unit, modifi
             // Reports (approved reports mockup 2026-11-08, screen 1): at the top of the right column.
             SectionLabel("Reports")
             JoeyRow("Send reports", value = if (reportsOn) "On ›" else "Off ›", sideways = true, onFocused = { if (it) focused = "rep" }) { open = "reports" }
+            // State requests' way back from Don't ask again (approved mockup 2026-11-12, screen 4): A switches it.
+            JoeyRow("Ask for save states", value = if (askStates) "On" else "Off", sideways = true, onFocused = { if (it) focused = "ask" }) {
+                askStates = !askStates
+                com.joeysretro.joey64.staterequest.StateRequests.setAsking(context, askStates)
+            }
             SectionLabel("Licence")
             JoeyRow("Joey64 is free software", value = "GPL 3.0 or later ›", sideways = true, onFocused = { if (it) focused = "gpl" }) { open = "gpl" }
             JoeyRow("Source code", value = "joey64 on GitHub ›", sideways = true, onFocused = { if (it) focused = "src" }) {

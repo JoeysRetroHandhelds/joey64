@@ -142,6 +142,10 @@ fun LibraryScreen(model: LibraryModel, updateAsking: Boolean = false, onSearch: 
     val askingSomething = model.recovery.collectAsStateWithLifecycle().value != null || model.askContinue.collectAsStateWithLifecycle().value != null ||
         updateAsking || model.offline.collectAsStateWithLifecycle().value || model.lostFolder.collectAsStateWithLifecycle().value != null
     if (model.askReports.collectAsStateWithLifecycle().value && !askingSomething) AskReportsPopup(model::reportsAnswered)
+    // A save state of a game on the wanted list (approved mockup 2026-11-12): after reports' question, never over another.
+    val askState = model.askState.collectAsStateWithLifecycle().value
+    if (askState != null && !askingSomething && !model.askReports.collectAsStateWithLifecycle().value)
+        StateRequestPopup(askState, model, model::stateAnswered)
     NeedsBiosPopup(model) { context.startActivity(it) }
     NeedsCartPopup(model) { context.startActivity(it) }
     StartFailedPopup(model)

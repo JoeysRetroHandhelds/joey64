@@ -204,7 +204,7 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
             _all.value = games
             JLog.i(TAG, "${game.title} ${if (hide) "hidden" else "shown again"}")
             if (!hide) {
-                _libraryNote.value = "${game.title} is back in the library"
+                _libraryNote.value = LibraryNote("Library", "${game.title} is back in the library")
                 if (_view.value == com.joeysretro.joey64.launcher.library.LibraryView.Hidden && _all.value.orEmpty().none { it.hiddenAt != null }) {
                     show(com.joeysretro.joey64.launcher.library.LibraryView.All)
                     libraryFocus = game.id
@@ -214,9 +214,11 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
         }
     }
 
-    private val _libraryNote = MutableStateFlow<String?>(null)
+    /** A note at the bottom of the library for 3 s: its [label] line and its [text]. */
+    data class LibraryNote(val label: String, val text: String)
+    private val _libraryNote = MutableStateFlow<LibraryNote?>(null)
     /** A line at the bottom of the library for a few seconds ("<game> is back in the library"), null when none. */
-    val libraryNote: StateFlow<String?> = _libraryNote
+    val libraryNote: StateFlow<LibraryNote?> = _libraryNote
     fun libraryNoteSeen() { _libraryNote.value = null }
 
     fun show(v: com.joeysretro.joey64.launcher.library.LibraryView) {
@@ -528,6 +530,17 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
     private val _askState = MutableStateFlow<com.joeysretro.joey64.staterequest.StateRequests.Ask?>(null)
     val askState: StateFlow<com.joeysretro.joey64.staterequest.StateRequests.Ask?> = _askState
 
+    /**
+     * Debug (SHOW state-ask, state-ask-problem): the popup for the first library game with made-up wanted data and a
+     * state path that doesn't exist, so Yes queues nothing (the thank-you note still shows).
+     */
+    fun debugAskState(problem: Boolean) {
+        val g = _all.value?.firstOrNull() ?: return
+        val w = if (problem) com.joeysretro.joey64.staterequest.StateRequests.Wanted(g.md5.lowercase(), com.joeysretro.joey64.staterequest.StateRequests.Kind.Problem, "Some players see a black screen in the second level", g.title, "problem")
+            else com.joeysretro.joey64.staterequest.StateRequests.Wanted(g.md5.lowercase(), com.joeysretro.joey64.staterequest.StateRequests.Kind.Gameplay, "A save state while playing", g.title, "widescreen")
+        _askState.value = com.joeysretro.joey64.staterequest.StateRequests.Ask(w, com.joeysretro.joey64.staterequest.StateRequests.RingEntry("/nonexistent/debug.raw", System.currentTimeMillis(), true, 720))
+    }
+
     fun stateAnswered(answer: com.joeysretro.joey64.staterequest.StateRequests.Answer) {
         val ask = _askState.value ?: return
         _askState.value = null
@@ -535,7 +548,11 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
         viewModelScope.launch(Dispatchers.IO) {
             val saveName = _all.value?.firstOrNull { it.md5.equals(ask.wanted.md5, ignoreCase = true) }?.let { launcher.saveNameFor(it) }
             com.joeysretro.joey64.staterequest.StateRequests.answer(app, ask, answer, saveName)
-            if (answer == com.joeysretro.joey64.staterequest.StateRequests.Answer.Yes) com.joeysretro.joey64.staterequest.StateUpload.maybeSend(app)
+            if (answer == com.joeysretro.joey64.staterequest.StateRequests.Answer.Yes) {
+                // "Thanks! The save state is on its way." at the bottom for 3 s (approved mockup 2026-11-12, screen 6).
+                _libraryNote.value = LibraryNote("Save state", "Thanks! The save state is on its way.")
+                com.joeysretro.joey64.staterequest.StateUpload.maybeSend(app)
+            }
         }
     }
 

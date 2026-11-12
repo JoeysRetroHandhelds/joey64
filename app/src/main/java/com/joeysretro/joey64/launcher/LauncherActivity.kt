@@ -164,6 +164,7 @@ class LauncherActivity : ComponentActivity() {
                     if (what == "size") com.joeysretro.joey64.launcher.layout.DevScreen.size = com.joeysretro.joey64.launcher.layout.DevScreen.parse(i.getStringExtra("size"))
                     else if (what == "boxart-reset") model.debugResetArt()
                     else if (what == "reports-ask") model.debugAskReports()
+                    else if (what == "state-ask" || what == "state-ask-problem") model.debugAskState(what.endsWith("problem"))
                     else if (what == "reports-send") model.debugSendReports()
                     else if (what == "lost-folder" || what == "lost-folder-off") model.debugLostFolder(what == "lost-folder")
                     else if (what.startsWith("net-reach-")) com.joeysretro.joey64.netplay.PlayTogether.debugRouterState = what.removePrefix("net-reach-").toIntOrNull()
@@ -400,7 +401,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                         // "<game> is back in the library" (approved D7 2026-11-11, screen 4): at the bottom for 3 s.
                         model.libraryNote.collectAsStateWithLifecycle().value?.let { note ->
                             LaunchedEffect(note) { kotlinx.coroutines.delay(3_000L); model.libraryNoteSeen() }
-                            com.joeysretro.joey64.launcher.components.JoeyToast(com.joeysretro.joey64.R.drawable.ic_circle_check, "Library", note, "",
+                            com.joeysretro.joey64.launcher.components.JoeyToast(com.joeysretro.joey64.R.drawable.ic_circle_check, note.label, note.text, "",
                                 Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(bottom = 12.dp))
                         }
                     }

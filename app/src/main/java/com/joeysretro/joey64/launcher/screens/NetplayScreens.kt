@@ -134,6 +134,8 @@ fun NetplayScreen(model: LibraryModel, onHints: (List<Hint>) -> Unit, onClose: (
         onDispose { ControlBus.pop(handler) }
     }
     val landing = LocalFocusLanding.current
+    // The action card focus goes back to when a popup over the page closes; Host a room when the page opens.
+    var cardBack by remember { mutableStateOf("host") }
     val roomState = PlayTogether.state.collectAsStateWithLifecycle().value
     val ended = model.netEnded.collectAsStateWithLifecycle().value
     val overPage = picking || joinCode || naming || ended != null || roomState !is PlayTogether.Idle
@@ -152,9 +154,10 @@ fun NetplayScreen(model: LibraryModel, onHints: (List<Hint>) -> Unit, onClose: (
     Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(top = 12.dp, bottom = 12.dp)) {
         // The actions row.
         Row(Modifier.padding(horizontal = margin).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            ActionCard(R.drawable.ic_plus, "Host a room", "Pick one of your games", Modifier.initialFocus(), onFocused = { focusKey = "host" }) { picking = true }
-            ActionCard(R.drawable.ic_keyboard, "Join by code", "8 letters from the host", onFocused = { focusKey = "code" }) { joinCode = true }
-            ActionCard(R.drawable.ic_user, "Your name", me.name, onFocused = { focusKey = "name" }) { naming = true }
+            // A popup closing lands on the card that opened it (A8, Thor 2026-11-12: Your name's Cancel went to Host a room).
+            ActionCard(R.drawable.ic_plus, "Host a room", "Pick one of your games", Modifier.initialFocus(cardBack == "host"), onFocused = { focusKey = "host" }) { cardBack = "host"; picking = true }
+            ActionCard(R.drawable.ic_keyboard, "Join by code", "8 letters from the host", Modifier.initialFocus(cardBack == "code"), onFocused = { focusKey = "code" }) { cardBack = "code"; joinCode = true }
+            ActionCard(R.drawable.ic_user, "Your name", me.name, Modifier.initialFocus(cardBack == "name"), onFocused = { focusKey = "name" }) { cardBack = "name"; naming = true }
         }
         RowHeading("On this Wi-Fi", "rooms near you, private ones included")
         // A line of text isn't a stop: with no rooms Down goes straight to the public rooms (mockup screen 5).

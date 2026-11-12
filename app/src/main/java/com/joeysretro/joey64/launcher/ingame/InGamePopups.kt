@@ -55,6 +55,8 @@ data class InGamePopup(
         Volume, Mute, Resolution, Paused, NoAchievements,
         /** Approved Slow motion and Rewind mockup (2026-11-08). */
         SlowMotion, Rewind,
+        /** Fast forward while it's on, as Slow motion (Joey 2026-11-11: "fast forward should have an on screen indicator"). */
+        FastForward,
         /** Controls extras' Tap to hold: a button held by a tap (approved mockup 2026-11-08). */
         Held,
         /** Offline unlocks: RAOfflineProxy picked and not running (approved mockup 2026-11-08). */
@@ -134,6 +136,7 @@ fun InGamePopupCard(p: InGamePopup) {
         InGamePopup.Kind.NoAchievements -> R.drawable.ic_trophy
         InGamePopup.Kind.SlowMotion -> R.drawable.ic_clock
         InGamePopup.Kind.Rewind -> R.drawable.ic_history
+        InGamePopup.Kind.FastForward -> R.drawable.ic_fast_forward
         InGamePopup.Kind.Held -> R.drawable.ic_hand_click
         InGamePopup.Kind.AchievementsOff -> R.drawable.ic_trophy_off
         InGamePopup.Kind.Turbo -> R.drawable.ic_bolt

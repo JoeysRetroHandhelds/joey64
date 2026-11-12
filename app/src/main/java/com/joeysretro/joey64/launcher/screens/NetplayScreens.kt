@@ -227,7 +227,9 @@ private fun RoomRow(model: LibraryModel, game: LibraryGame?, md5: String, gameTi
 /** Host a room's game picker (approved netplay6 screen 3): recently played first, then A to Z; Y searches. */
 @Composable
 private fun HostPickPopup(model: LibraryModel, onDismiss: () -> Unit, onPick: (LibraryGame) -> Unit) {
-    val games = model.games.collectAsStateWithLifecycle().value.orEmpty()
+    // The games the library shows: one per game when One version per game is on, in the ticked Regions. Every copy
+    // (model.games) listed Conker's Bad Fur Day twice (Joey 2026-11-11).
+    val games = model.shown.collectAsStateWithLifecycle().value.orEmpty()
     var query by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
     val facts = model.facts.collectAsStateWithLifecycle().value

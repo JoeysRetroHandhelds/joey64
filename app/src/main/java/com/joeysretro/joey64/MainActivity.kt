@@ -132,6 +132,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // games and runs a 120 Hz vsync loop in our process (Duo: ~17 ms of CPU a second). The window's
         // views no longer draw, so the FPS counter is its own panel window (showFpsCounter).
         window.takeSurface(this)
+        hideSystemBars()
         requestUnbufferedJoystick(late = false)
         registerDebugStick()
 
@@ -420,7 +421,16 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         NativeBridge.setFastForwardSpeed(percent)
         if (on != fastForward) { sessionMark(); fastForward = on; NativeBridge.setFastForward(on) }
         if (on && slowMotion) setSlowMotion(false) // straight to fast-forward
+        // On screen while it's on, as Slow motion's (Joey 2026-11-11); Adaptive's speed follows the trigger, so the
+        // same pop-up is shown again with each new speed (an id already showing is updated in place, as Rewind's).
+        if (on) { if (percent != ffShown) { ffShown = percent
+            overlay?.show(InGamePopup("ff", InGamePopup.Kind.FastForward, "Fast forward", "$percent%",
+                if (hotkeys.ffMode == FastForwardMode.Toggle) "Press again to go back to full speed" else "Let go to go back to full speed",
+                stayMs = com.joeysretro.joey64.launcher.ingame.PopupQueue.UNTIL_HIDDEN)) } }
+        else if (ffShown != 0) { ffShown = 0; overlay?.hide("ff", waiting = true) }
     }
+    /** The speed the fast-forward pop-up shows; 0: not shown. */
+    private var ffShown = 0
 
     // ---- Slow motion and Rewind (approved mockup 2026-11-08; Controls > Hotkeys) -----------------------------
     // Slow motion: Toggle or Hold, at Hotkeys.slowSpeed; a pop-up stays while it's on. Rewind: held, the game goes
@@ -2494,6 +2504,15 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // shade): let go of it here, or B alone would quit to the library afterwards.
         if (!hasFocus) { hotkeyHeld = false; fastForwardRelease(); slowMotionRelease(); rewindRelease(); if (!menuOpen) gameSharkButton(false); return }
         requestUnbufferedJoystick()
+        hideSystemBars()
+    }
+
+    /**
+     * Hides the status and navigation bars. Also in onCreate, before the window first shows: started by another
+     * launcher (JoeyOS), the navigation bar showed while the game loaded, since focus (above) only comes once it has
+     * (Joey 2026-11-11). From Joey64's own library the bars were already hidden, so it didn't show there.
+     */
+    private fun hideSystemBars() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.setDecorFitsSystemWindows(false)
             window.insetsController?.let {

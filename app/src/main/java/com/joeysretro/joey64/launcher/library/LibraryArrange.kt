@@ -8,7 +8,7 @@ import com.joeysretro.joey64.launcher.data.LibraryGame
  * and names. Pure, so LibraryArrangeTest checks them.
  */
 
-/** Sort by: Name (A to Z, the default), Recently played, Most played (play time), Recently added. */
+/** Sort by: Name (A to Z), Recently played (the default, Joey 2026-11-11; never-played games after, A to Z), Most played (play time), Recently added. */
 enum class SortBy(val label: String, val detail: String) {
     Name("Name", "A to Z"),
     RecentlyPlayed("Recently played", "The last game played first"),

@@ -42,7 +42,8 @@ data class LauncherSettings(
     /** First run's "Where should Joey64 keep saves, states and screenshots?" was answered (screens 3-4, built 2026-11-07). */
     val dataAsked: Boolean = false,
     // Settings › Library (approved mockup 2026-11-08): Show, Covers, Look for new games.
-    val sortBy: SortBy = SortBy.Name,
+    // Recently played by default (Joey 2026-11-11; it was Name). A sort someone picked is kept.
+    val sortBy: SortBy = SortBy.RecentlyPlayed,
     val favouritesFirst: Boolean = false,
     val regions: Set<RegionGroup> = RegionGroup.entries.toSet(),
     val oneVersion: Boolean = true,
@@ -83,7 +84,7 @@ class SettingsStore(context: Context) {
             boxArtLow = p[BOX_ART_LOW] ?: false,
             setupDone = p[SETUP_DONE] ?: false,
             dataAsked = p[DATA_ASKED] ?: false,
-            sortBy = enumOr(p[SORT_BY], SortBy.Name),
+            sortBy = enumOr(p[SORT_BY], SortBy.RecentlyPlayed),
             favouritesFirst = p[FAV_FIRST] ?: false,
             regions = p[REGIONS]?.mapNotNull { n -> RegionGroup.entries.firstOrNull { it.name == n } }?.toSet()?.takeIf { it.isNotEmpty() }
                 ?: RegionGroup.entries.toSet(),

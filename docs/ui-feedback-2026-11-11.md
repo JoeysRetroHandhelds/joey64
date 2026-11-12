@@ -30,7 +30,7 @@ Controls, then Settings tabs, then popups.
       after opening. JoeyOS: mark the row, open the list scrolled to it, no move after the first frame.
 - [ ] A8 (waits for a device: each case has to be found on one) B goes back to where you were, everywhere (one exit route per page and popup; containers restore
       the row you left). "Not correct almost every time."
-- [x] A9 (built a04703c; host side Thor-checked 2026-11-12 through SHOW net-room, a made-up room with no server: B asks "Close the room?" with Cancel focused, in the room's place, Cancel back on the row B was pressed on (Who can join, Sam), Close the room back to the library; joiner B leaves, not device-checked) B closes a room (host: asks first, since it ends the room for everyone).
+- [x] A9 (built a04703c; host side Thor-checked 2026-11-12 through SHOW net-room, a made-up room with no server: B asks "Close the room?" with Cancel focused, in the room's place, Cancel back on the row B was pressed on (Who can join, Sam), Close the room back to the library; joiner B leaves: checked 2026-11-12 in a real private room, Thor hosting Duke, Odin 3 Portal joining on this Wi-Fi: B left, the Thor's place 2 went back to Waiting; Close the room on the Thor ended it on both, the router port closed (NAT-PMP ok). Found: leaving put focus on Host a room, not the room's card; fixed d36a1ab) B closes a room (host: asks first, since it ends the room for everyone).
 
 ## B. Flashes (find each cause on a device, then fix)
 
@@ -64,10 +64,10 @@ Controls, then Settings tabs, then popups.
       a different icon, or something else.
 - [x] D2 (built f817b7c with the top bar) (decided 2026-11-11 with the top bar: every filter and game chip is the first thing under the bar; see the TV audit doc) Top-right corner items are hard to reach: lay out per Android TV guidance (Joey: "we may need to
       avoid top right menu and change that everywhere"). Mockup of the new layout first.
-- [x] D3 (built 1379db5, not device-checked: first run's page 4; RaLibraryFetch looks up achievementsets + unlocks for each game with a set after each scan, kept in ra_sets as "fetched", again after a week; a played game keeps rc_client's own) (approved as drawn 2026-11-11: rasetup1_mock.png, one setup page with Username, Password, Sign in, Skip; no
+- [x] D3 (built 1379db5; real first run on the Odin 3 Portal 2026-11-12, uninstalled and installed fresh: ROMs folder picker, saves folder, Import, sign-in page, reports question over the library, box art downloaded. Found: the sign-in page came up with nothing highlighted; fixed 1096174, it lands on Username (also seen on the Odin 2 Portal). The look-up after the scan needs a sign-in, not checked: page 4; RaLibraryFetch looks up achievementsets + unlocks for each game with a set after each scan, kept in ra_sets as "fetched", again after a week; a played game keeps rc_client's own) (approved as drawn 2026-11-11: rasetup1_mock.png, one setup page with Username, Password, Sign in, Skip; no
       progress page, the look-up joins the library's box art and cheats scan; wrong password shown on the same page) Achievements without playing first: fetch every library game's achievements when the ROMs folder
       is scanned (with the covers and game list), once signed in to RetroAchievements.
-- [x] D4 (built c58abd9, not device-checked) (approved as drawn 2026-11-11, feedback1_mock.png screen 7) Send reports popup: a Send now row (mockup).
+- [x] D4 (built c58abd9; Send now pressed once on the Thor 2026-11-12 (Joey: "Yes, once on the Thor"): Sending…, then Sent, the line "Last sent today, 10:55 am", server 204 for 16 sessions) (approved as drawn 2026-11-11, feedback1_mock.png screen 7) Send reports popup: a Send now row (mockup).
 - [x] D5 (built 46e905e, not device-checked) (approved 2026-11-11: Your name as an action in the Netplay rows, netrows_mock.png; its popup as drawn in feedback1_mock.png screen 9) Netplay: set your own name (now: the RetroAchievements username, else the device name). Mockup.
 - [x] D6 (built b8b3783, not device-checked) Fast-forward speed, approved 2026-11-11 (Joey: "looks good", scratchpad build_emuspeed.py / emuspeed_mock.png):
       Settings › Emulation gets a Speed group, the same settings as Controls › Hotkeys' popups (one setting, two
@@ -160,7 +160,7 @@ Second round (00:38-00:48 CST, APK 30a2498f):
   above the first column). Mario Kart 64's "Where you quit" picture (20:41) is a black frame; its log was rotated out,
   and trying again means quitting Mario Kart over Joey's quit save, so it's left.
 
-Still not device-checked: A9's joiner side (needs a real room), D3's real first run, D4's Send now press, a real TV (the TV paths were checked on the Thor as a TV).
+Still not device-checked: D3's achievements look-up after the scan (needs a real sign-in, which only Joey types), a real TV (the TV paths were checked on the Thor as a TV). A9's joiner side, D3's first run and D4's Send now were checked 2026-11-12 (seventh round, at the end).
 
 Third round (00:55-01:25 CST, APKs b4-fe7358fa to b5b-7bfb63d3, screen recordings read frame by frame):
 
@@ -314,7 +314,7 @@ Joey's answers to the morning report (2026-11-12, asked one by one):
   Join by code), 8 with SHOW net-unreach over the Netplay card (the card steps aside, OK brings it back), 10 with
   SHOW lost-folder over the Netplay card (the note waited, then came up when the card closed), 6 with a made-up Video
   file for Duke (Keep them back on Duke, Remove back on All games; file and folder removed). Not pressed there: 5
-  (Change box art). 8's Joining… and 9 checked later the same day through SHOW net-room (f2g-1aae7f7c): the question in the room's place in the same window (94f913d), Cancel back on Who can join and on Sam; SHOW net-joining (f2h-4bb4a78b) over Duke's Netplay card: Joining Sam's room… in its place in the same window (705810), B Cancel brings the card back.
+  (Change box art; checked 2026-11-12 on Duke, p1-5d0f142a: the Box art card took Details' place in the same window, B only, back on Details with the cover focused, Downloaded art kept). 8's Joining… and 9 checked later the same day through SHOW net-room (f2g-1aae7f7c): the question in the room's place in the same window (94f913d), Cancel back on Who can join and on Sam; SHOW net-joining (f2h-4bb4a78b) over Duke's Netplay card: Joining Sam's room… in its place in the same window (705810), B Cancel brings the card back.
   Step 2 (built, Joey 2026-11-12 "Yes, start step 2"): the game screen has its own host (GameOverlay), so the pause
   menu, slot picker, Restart and the problem and netplay cards share one window; and every full-screen page, side
   panel and bare popup gets a host of its own, so the cards opened over it share one window above it (in the
@@ -326,3 +326,30 @@ Joey's answers to the morning report (2026-11-12, asked one by one):
 - [x] F3 A clean quit clears only its own game's recovery state (b3a5d04: `files/recovery/games/<save name>/`; Thor 2026-11-12: the old OoT state moved in unchanged, b099ac2d / f4823052, the popup still offers it; compat_53 got its own after 2 min and quitting it removed only that one; OoT's Saves page still lists Recovery).
 - [x] F4 Send reports' line with only the day known: "Last sent today" / "Last sent Nov 11", not "Nothing sent yet" (627c875, `ReportPrefs.sentDayLabel`, ReportsTest; Thor 2026-11-12: sent_day today with no sent_at, Send now reads "Last sent today").
 - [x] F5 With focus on a tab row or the top bar the panel shows that tab's or place's own help, as Controls' tab row does (`LocalPanelHelp`; Thor 2026-11-12: Settings' tab row follows the focused tab, the bar shows Settings / Controls help, Down brings the tab's and then the row's help back; Game settings' Video / Emulation tabs).
+
+Seventh round (2026-11-12 10:50-12:25 CST, APKs p1-5d0f142a, p2-0ab4f904, p3-b69306e0; Joey's one-by-one answers):
+
+- All games chip: its own help in the panel, "These settings are for every game. Pick a game to give it its own." (0bc02e7).
+- D4 Send now, once on the Thor: Sending…, Sent, "Last sent today, 10:55 am"; before it the line read "Last sent
+  today" (the earlier report kept only the day, F4). Check for updates says Couldn't check: GitHub's 404 while the
+  repo is private.
+- Swap case 5: Duke › Details › Change box art › B only (see the case list).
+- A9 joiner side, real room (Thor + Odin 3 Portal, private, this Wi-Fi, Duke copied into the Odin 3 Portal's test
+  folder and removed after): the room listed by itself on the Odin 3 Portal (Private, 1 of 4, 7 ms); joining showed
+  both players on both screens; B left. Found: focus went to Host a room after leaving; the page now goes back to
+  the room's card, or to Host a room when the room is gone (d36a1ab, checked both ways: B back on the card; the host
+  closing the room, OK, Host a room). The router port the room opened (NAT-PMP) closed with the room.
+- D3 real first run on the Odin 3 Portal (files, shared_prefs, databases and its external folder backed up whole;
+  uninstalled; installed fresh): Choose ROMs folder opened the picker at the SD card's ROMs folder (no n64 folder
+  there), Joey64Test › n64 picked, "Found 7 N64 games", Keep them in Joey64, Import Skip, the sign-in page, B Skip,
+  the reports question over the library, box art downloaded. Found and fixed: the sign-in page had no highlight
+  (1096174); the whole first run done again with the fix. Not done: signing in (no password typed). Put back after:
+  the original build (fb70c6e3), all 110 entries and library.db identical, the external folder, the folder grant.
+- OoT's in-game Crop panel on the Odin 2 Portal, with main's build (app-cropdef-1, 5b35552 + rel3; phase0 hasn't
+  the OoT default yet): Game settings › Video's row "Normal (this game's default)", the panel opens on Normal (Exact
+  8) over the live game, B back on the row with the default kept, Resume, the game moving at 60 fps. Seen: a phase0
+  build moves library.db to schema 7 and main's (6) then can't open it ("Can't downgrade database"), so the Odin 2
+  Portal's data was put back before main's build went on; put back again after (0285af85, 292 entries, library.db
+  identical).
+- Seen, not changed: the setup pages' wordmark sits partly under the top bar on 1920x1080 (the page scrolls, as
+  recorded in the fifth round).

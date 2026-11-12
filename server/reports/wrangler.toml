@@ -22,3 +22,10 @@ database_id = "1588b528-c34a-4082-b520-744c545571bb"
 name = "PER_IP"
 namespace_id = "6401"
 simple = { limit = 10, period = 60 }
+
+# Players' states for games on the wanted list (POST /v1/state, src/state.js). Private: never served. The bucket is
+# made once in the Joey64 account (wrangler r2 bucket create joey64-states), with Joey's go, before the first deploy
+# that has this binding.
+[[r2_buckets]]
+binding = "STATES"
+bucket_name = "joey64-states"

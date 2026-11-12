@@ -16,6 +16,7 @@ add_library(joey64host SHARED
     libra.cpp
     rewind_test.cpp
     rewind.cpp
+    state_ring.cpp
     achievements.cpp
     netplay_server.cpp
     upnp.cpp)

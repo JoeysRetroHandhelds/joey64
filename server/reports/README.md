@@ -49,6 +49,17 @@ or an IPv6 /64; 80,000 rows written a day in all, under D1's free 100,000), 404/
 `GET /health` says `ok`. The daily caps came with code audit 3 (M23): before them one address could post about
 250 full reports in 25 minutes, use up D1's day, and every real report failed until 00:00 UTC.
 
+## States (POST /v1/state)
+
+Players' save states for games on joey64-data's wanted list (`wanted/wanted.json` on its `release` branch, read
+every 10 minutes; `WANTED_URL` points it elsewhere for a local run), sent by the app's state-request popup
+(2026-11-12). Multipart: `md5`, `kind` (gameplay / problem, as the list says), `app`, `state` (the core's
+M64+SAVE data, zstd, 1 KB to 20 MB) and optionally `save` (the .srm, up to 512 KB). The files go to the private R2
+bucket `joey64-states` (`states/<md5>/<day>-<uuid>.zst|.srm`), never served; a `states` row counts each. Answers:
+204 stored, 400 a bad field, 404 not wanted and 410 have enough (the app doesn't send that game again), 413 too
+big, 429 with Retry-After (the rate limiter 60 s; 10 a day an address block, 200 a day in all: to UTC midnight;
+8 GB stored in all: a day), 503 the wanted list didn't load. The address block's hash is kept for its day only.
+
 ## What is kept out
 
 - No IP address: the rate limiter counts by it, nothing stores it. An address block's share of the day (the
@@ -66,9 +77,10 @@ or an IPv6 /64; 80,000 rows written a day in all, under D1's free 100,000), 404/
   new database gets them.
 - `migrations/`: changes for a database made before them, each run once (`0002-session-details.sql`: the
   session details, 2026-11-08; `0003-screen.sql`: the screen size, 2026-11-08; `0004-gpu-rules.sql`: Auto's driver and
-  renderer rules, the start-up trial's level and who picked, 2026-11-09, read by `queries/rules.sql`). Run a migration before deploying the Worker that writes its columns.
+  renderer rules, the start-up trial's level and who picked, 2026-11-09, read by `queries/rules.sql`; `0005-states.sql`: players' states, 2026-11-12). Run a migration before deploying the Worker that writes its columns.
 - `src/index.js`: the Worker (handlers only: a Worker's main module may export nothing else).
-- `src/validate.js`, `src/store.js`: checking and storing; `src/address.js`: address blocks and their hashes.
+- `src/validate.js`, `src/store.js`: checking and storing; `src/address.js`: address blocks and their hashes;
+  `src/state.js`: POST /v1/state.
 - `queries/`: `missing-covers.sql` (covers to make for joey64-data), `replaced-covers.sql` (wrong
   downloads, for the app's `fixes.tsv`), `drivers.sql` (fps, underruns and crashes per GPU, driver,
   game and renderer, 3 sessions or more), `failed-boots.sql`, `crashes.sql`.
@@ -104,6 +116,9 @@ wrangler d1 execute joey64-reports --remote --file queries/missing-covers.sql
 The daily caps (code audit 3, not deployed yet) need their two tables first:
 `wrangler d1 execute joey64-reports --remote --file schema.sql` (the rest of it is already there and is left
 as it is), then `wrangler deploy`.
+
+States (not deployed yet, each step needs Joey's go): `wrangler r2 bucket create joey64-states`,
+`wrangler d1 execute joey64-reports --remote --file migrations/0005-states.sql`, then `wrangler deploy`.
 
 ## Free plan limits (checked 2026-11-08, Cloudflare's pages of 2026-10-29/30)
 

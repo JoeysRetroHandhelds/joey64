@@ -229,14 +229,14 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
             _all.value = withContext(Dispatchers.IO) { db.libraryGames() }
             try { reloadCollections() } catch (e: Exception) { JLog.e(TAG, "can't read collections" + "\n" + Log.getStackTraceString(e)) }
         }
-        // A disk the library started didn't start (no IPL for its region, or its cartridge didn't unpack): ask again.
+        // A game the library started didn't start: a disk with no IPL for its region or a cartridge that didn't unpack is asked for again, a game that stopped gets its won't-start popup.
         viewModelScope.launch {
             GameStartFailed.failed.collect { failed ->
                 if (failed == null) return@collect
                 GameStartFailed.take()
                 val md5 = failed.intent.getStringExtra(com.joeysretro.joey64.MainActivity.EXTRA_MD5)
                 val game = (_all.value ?: withContext(Dispatchers.IO) { db.libraryGames() }).firstOrNull { it.md5 == md5 }
-                if (game == null) { JLog.w(TAG, "a 64DD disk didn't start, and it isn't in the library ($md5)"); return@collect }
+                if (game == null) { JLog.w(TAG, "a game the library started didn't start, and it isn't in the library ($md5)"); return@collect }
                 val code = GameLauncher.cartCode(game)
                 if (failed.need == GameStartFailed.Need.Cart && code != null) {
                     JLog.i(TAG, "${game.title} didn't start (its $code cartridge didn't unpack): asking for it")

@@ -418,6 +418,21 @@
     {
       "disk": "Randnet Disk (Japan) [b]", "title": "Randnet Disk (64DD)",
       "notes": ["Thor (2026-11-07, app 9263f30 + core dd ddf3103, before the VI event fix in core dd 7a8c4ba, IPL_JPN = Japan v1.2, 30-60 s from the start): \"press start\" title (asks to plug in the modem), 61 emu fps; Rev 1 [b] the same"]
+    },
+    {
+      "crc": "6EE8AAA61517C148", "title": "Featherlight v1.1 (N64brew Game Jam 2021 homebrew; its header has no game code)",
+      "issues": [
+        {"status": "open", "devices": "all", "what": "jumps to a bogus address 16 s in (\"Compile at bogus memory address: 9e20d357\"); the game ends there", "evidence": "README Full-run fixes (b): fx1-flip 2026-11-12; not looked at why it jumps there"}
+      ],
+      "fixed": [
+        {"what": "the recompiler's exit(1) on that jump closed the whole app", "fix": "core rel2 ab1304b (unmapped-page exception) + main 8bf1958 (the host stops the game on that line); Flip bg1-flip / bgui-flip 2026-11-12: the game screen closes, the app stays up, the library gets the won't-start report"}
+      ]
+    },
+    {
+      "id": "CMD", "crc": "0000000000000000", "title": "Nintendo 64 Modem (Japan) (Add-on) (the 64DD Randnet modem cartridge, not a game)",
+      "fixed": [
+        {"what": "\"Compile at bogus memory address: 80800000\" then the recompiler's exit(1) closed the whole app 16-17 s in", "fix": "core rel2 ab1304b + main 8bf1958; Flip bg1-flip 2026-11-12: the game screen closes, the app stays up"}
+      ]
     }
   ]
 }

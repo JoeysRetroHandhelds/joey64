@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher.screens
 
+import com.joeysretro.joey64.launcher.settings.lastSettings
 import com.joeysretro.joey64.launcher.components.TwoColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -80,7 +81,7 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
     val landing = LocalFocusLanding.current
     val scope = rememberCoroutineScope()
     val store = remember { SettingsStore(context) }
-    val settings by store.settings.collectAsState(initial = null)
+    val settings by store.settings.collectAsState(initial = lastSettings)
     val s = settings ?: return
     val folders = s.romFolders.sorted()
     var counts by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }

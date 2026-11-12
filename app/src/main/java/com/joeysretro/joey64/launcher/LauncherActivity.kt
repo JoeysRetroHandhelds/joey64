@@ -1,5 +1,6 @@
 package com.joeysretro.joey64.launcher
 
+import com.joeysretro.joey64.launcher.settings.lastSettings
 import com.joeysretro.joey64.LogFiles
 import android.annotation.SuppressLint
 import android.os.Bundle
@@ -184,7 +185,7 @@ class LauncherActivity : ComponentActivity() {
 private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: UpdateModel) {
     val context = LocalContext.current
     val store = remember { SettingsStore(context) }
-    val settings by store.settings.collectAsState(initial = null)
+    val settings by store.settings.collectAsState(initial = lastSettings)
     val scope = rememberCoroutineScope()
     val s = settings
     JoeyTheme(s?.theme ?: com.joeysretro.joey64.launcher.theme.ThemeChoice.Dark) {

@@ -20,6 +20,7 @@ import com.joeysretro.joey64.launcher.theme.PopupTheme
 import com.joeysretro.joey64.launcher.theme.ThemeChoice
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 
 /** The launcher's settings as one value; screens read it as a Flow and recompose on change. */
 data class LauncherSettings(
@@ -71,6 +72,14 @@ private val Context.settingsStore: DataStore<Preferences> by preferencesDataStor
  * Settings in DataStore (plan: built the way JoeyOS is built). One DataStore per file per
  * process, so everything goes through this.
  */
+/**
+ * The settings DataStore last gave anyone, so a screen opened later draws its first frame with them instead of
+ * blank while DataStore answers (B4: Settings › Library's page was empty for a frame). Null until the first read.
+ */
+@Volatile
+var lastSettings: LauncherSettings? = null
+    private set
+
 class SettingsStore(context: Context) {
     private val store = context.applicationContext.settingsStore
 
@@ -99,7 +108,7 @@ class SettingsStore(context: Context) {
             lookFor = enumOr(p[LOOK_FOR], LookFor.Start),
             lastLookDay = p[LAST_LOOK_DAY],
         )
-    }
+    }.onEach { lastSettings = it }
 
     suspend fun setTheme(choice: ThemeChoice) = store.edit { it[THEME] = choice.name }
     suspend fun setPopupTheme(choice: PopupTheme) = store.edit { it[POPUP_THEME] = choice.name }

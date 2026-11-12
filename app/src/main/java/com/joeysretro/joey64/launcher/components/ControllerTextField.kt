@@ -31,6 +31,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onInterceptKeyBeforeSoftKeyboard
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -86,6 +87,8 @@ fun ControllerTextField(
     val (boxSource, boxFocused) = rememberFocusState()
     val (fieldSource, fieldFocused) = rememberFocusState()
     val lit = boxFocused || fieldFocused
+    // A B / Back press that stopped typing: its key-up is eaten as well.
+    var eatBackUp by remember { mutableStateOf(false) }
 
     fun stopTyping(moveOn: Boolean) {
         val movedOn = moveOn && (if (onDone != null) onDone() else focusManager.moveFocus(FocusDirection.Down))
@@ -158,6 +161,19 @@ fun ControllerTextField(
                     // (Thor release pass 2026-11-10: typing stayed on, Down only brought the cursor back, so focus
                     // stayed here until Enter). A D-pad Up or Down while typing ends it: Down moves on as Enter
                     // does, Up stays on the box. Not in the code box, where they move between lines.
+                    // B / Back while typing, taken before the keyboard sees it: typing stops and the keyboard goes in one
+                    // press. Left to the keyboard it took three to close New collection (Thor 2026-11-12: the keyboard,
+                    // then typing, then the popup) though its hint says B Close. Its key-up is eaten too, so the same
+                    // press doesn't also close the popup or page.
+                    .onInterceptKeyBeforeSoftKeyboard { e ->
+                        val back = e.key == Key.Back || e.key == Key.ButtonB
+                        when {
+                            !back -> false
+                            e.type == KeyEventType.KeyDown && typing -> { eatBackUp = true; stopTyping(moveOn = false); true }
+                            e.type == KeyEventType.KeyUp && eatBackUp -> { eatBackUp = false; true }
+                            else -> false
+                        }
+                    }
                     .onPreviewKeyEvent { e ->
                         if (!typing || code || e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                         when (e.key) {

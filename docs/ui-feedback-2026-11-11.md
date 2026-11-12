@@ -13,10 +13,10 @@ SlangPopups, TransferPakPopups; `delay(350)` in PicturePopups) and key intercept
 device before the next. Rail first, then library + Search, then Host a room, then Achievements, then
 Controls, then Settings tabs, then popups.
 
-- [ ] A1 (built 484da07, not device-checked) Rail: coming from the right side lands on the icon you're on (JoeyOS dock: a focusGroup whose
+- [x] A1 (built 484da07, Thor-checked 2026-11-12) Rail: coming from the right side lands on the icon you're on (JoeyOS dock: a focusGroup whose
       `focusProperties { enter }` sends every entry to the current place's icon; no restorer mixed with
       explicit requests). "Going from right side window to left side icons is finicky."
-- [ ] A2 (built 484da07, not device-checked) Search box: Down goes to the first result, not the second (`focusProperties { down = grid }`, the
+- [x] A2 (built 484da07, Thor-checked 2026-11-12) Search box: Down goes to the first result, not the second (`focusProperties { down = grid }`, the
       grid's restorer picks the item; JoeyOS device finding).
 - [x] A3 (built f817b7c + 484da07, not device-checked: L1/R1 move along the top bar on every page under it, L2/R2 a page of the grid) L1/R1 and L2/R2 in the library (Joey: "shoulders and triggers should work on library screen").
       L2/R2 built 484da07 (a page of the grid, not device-checked); L1/R1: Joey picked "option 1" (they move
@@ -152,7 +152,7 @@ Second round (00:38-00:48 CST, APK 30a2498f):
   above the first column). Mario Kart 64's "Where you quit" picture (20:41) is a black frame; its log was rotated out,
   and trying again means quitting Mario Kart over Joey's quit save, so it's left.
 
-Still not device-checked: A1, A2 (in part), A9, D3 (first run), D4 Send now, D5, E3, the TV paths.
+Still not device-checked: A9 (needs a room), D3's real first run, D4's Send now press, the TV paths.
 
 Third round (00:55-01:25 CST, APKs b4-fe7358fa to b5b-7bfb63d3, screen recordings read frame by frame):
 
@@ -196,3 +196,20 @@ Fourth round (01:30-01:45 CST, APKs c5-27ed2cc4, pic-c48804d5, rec-cbe00c86; F-Z
   result. Only one result matched, so first-against-second isn't shown yet.
 - Test leftovers put back again: F-Zero X's .srm, quit state and picture, a save backup, two report files, and the
   library database (the copy without F-Zero X's plays).
+
+Fifth round (01:50-02:10 CST, APK net-fc09ebed), looked at and closed, nothing saved or sent:
+
+- A1: Up from Mario Kart 64 (under Achievements on the bar) lands on Library; Up from Search's box lands on Search.
+- A2: "Bomberman" (3 results): B closes the keyboard, Down lands on the first result, not the second.
+- E3: the bar across the top on every page tonight; R1 / L1 along it.
+- D5: Netplay › Your name opens the popup (field, Save, Use my RetroAchievements name). Found (A8): its Cancel put
+  focus on Host a room; a popup over the Netplay page now lands back on the card that opened it (d6648c0, checked).
+- D3: the sign-in page through `SHOW --es what ra-setup`: Username, Password, Sign in, Skip and the line under them.
+  The debug page doesn't take focus (it stays on the bar) and keeps the page's hints; the real first run lands on
+  Username through the page's landing. The wordmark sits about 4 dp under the bar here (468 dp tall, the page scrolls).
+  The wrong-password line wasn't tried (no password typed).
+- D4: Send reports' popup has Send now under On, "Nothing sent yet", not pressed. Seen: a report did go today
+  (sent_day 2026-11-12) from a build before Send now, which kept the day but not the time the line reads; it says
+  "Nothing sent yet" until the next report goes (tomorrow: one a day).
+- Seen: Settings' tab row doesn't wrap (Left on Appearance stays); About's panel shows Check for updates' help while
+  the tab has focus; Check for updates says Couldn't check (the release check gets 404 while the repo is private).

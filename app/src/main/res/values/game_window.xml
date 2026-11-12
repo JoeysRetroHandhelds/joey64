@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The game screen opens and closes without Android's slide (C5, Thor 2026-11-12: the slide took 0.43 s of the
+         0.65 s from A to the game's first picture, and its edge showed the game's surface before it had drawn). -->
+    <style name="JoeyGame" parent="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+        <item name="android:windowAnimationStyle">@style/JoeyGameAnimations</item>
+    </style>
+    <style name="JoeyGameAnimations">
+        <item name="android:activityOpenEnterAnimation">@null</item>
+        <item name="android:activityOpenExitAnimation">@null</item>
+        <item name="android:activityCloseEnterAnimation">@null</item>
+        <item name="android:activityCloseExitAnimation">@null</item>
+    </style>
+</resources>

@@ -251,8 +251,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             }
             // L1 / R1 move along the bar on every page under it (Joey 2026-11-11, option 1); popups, the pause menu
             // and the picture viewer are their own windows and keep L1 / R1 for themselves.
-            val barPlaces = RailPlace.entries.filter { (it != RailPlace.Achievements || raAccount != null) &&
-                (!com.joeysretro.joey64.launcher.layout.LocalScreenLayout.current.bottomBar || it != RailPlace.Search) }
+            val barPlaces = RailPlace.entries.filter { (it != RailPlace.Achievements || raAccount != null) && it != RailPlace.Search }
             val barNow by androidx.compose.runtime.rememberUpdatedState(barPlaces)
             val barLife = LocalLifecycleOwner.current.lifecycle
             DisposableEffect(home) {
@@ -294,6 +293,8 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             LaunchedEffect(place) {
                 model.closeCheats(); model.closeAchievements(); model.closeGameSettings(); model.closeSaves(); model.closeScreenshots()
                 if (place != RailPlace.Search) model.forgetSearch()
+                // Left Search another way (L1 / R1): the chip's landing is only for B.
+                if (place != RailPlace.Search && place != RailPlace.Library) model.searchFromChip = false
             }
             if (home) UpdateChecks(updates)
             // The places along the top, or a bar along the bottom in portrait.
@@ -305,7 +306,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                 // No bar during the first run (Joey 2026-11-12): its places did nothing there but looked as if they
                 // would, and the setup pages get the whole screen. The debug setup pages leave it out too.
                 val setupDebug by model.debugSetup.collectAsStateWithLifecycle()
-                if (home && setupDebug == null) LauncherRail(if (home) place else RailPlace.Library, bar, enabled = home,
+                if (home && setupDebug == null) LauncherRail(if (home && place != RailPlace.Search) place else RailPlace.Library, bar, enabled = home,
                     showAchievements = home && raAccount != null, bottom = bottom, onFocused = { onRail = it; if (!it) barPlace = null },
                     onPlaceFocused = { barPlace = it }) {
                     place = it
@@ -363,7 +364,12 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                                     if (place != RailPlace.Settings) settingsTab = com.joeysretro.joey64.launcher.screens.SettingsTab.entries.first()
                                 }
                                 place == RailPlace.Controls -> ControlsScreen(onHints = { settingsHints = it }) { backFromPage() }
-                                place == RailPlace.Search -> com.joeysretro.joey64.launcher.screens.SearchScreen(model, onHints = { settingsHints = it }) { backFromPage() }
+                                // Search is part of the Library (Joey 2026-11-12, not on the bar): B goes back to what opened
+                                // it, the Search chip or the tile Y was pressed on (A8).
+                                place == RailPlace.Search -> com.joeysretro.joey64.launcher.screens.SearchScreen(model, onHints = { settingsHints = it }) {
+                                    place = RailPlace.Library
+                                    landing.arm()
+                                }
                                 place == RailPlace.Netplay -> com.joeysretro.joey64.launcher.screens.NetplayScreen(model, onHints = { settingsHints = it }) { backFromPage() }
                                 else -> LibraryScreen(model, updateAsking = updates.prompt.collectAsStateWithLifecycle().value != null) { place = RailPlace.Search }
                             }
@@ -386,6 +392,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             // On the library's grid: what the focused tile plays, when it stands for several copies (approved mockup 2A).
             val tileEnd by model.tileEnd.collectAsStateWithLifecycle()
             val libraryChip by model.chipFocused.collectAsStateWithLifecycle()
+            val searchChip by model.searchChipFocused.collectAsStateWithLifecycle()
             // The debug setup pages get the first run's row, not the library's under them.
             val setupShown by model.debugSetup.collectAsStateWithLifecycle()
             HintRow(when {
@@ -396,6 +403,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                 onPage || heldPage != null -> settingsHints
                 // The filter chip (it showed the grid's Play and Options, Thor 2026-11-12).
                 libraryChip -> listOf(Hint("A", "Change"), Hint("Y", "Search"))
+                searchChip -> listOf(Hint("A", "Search"))
                 else -> listOf(Hint("A", "Play"), Hint("Start", "Options"), Hint("Y", "Search"))
             }, end = tileEnd.takeIf { home && setupShown == null && !importAgain && !onRail && !onPage && heldPage == null })
             if (home) updates.prompt.collectAsStateWithLifecycle().value?.let { UpdatePopup(it, updates) }

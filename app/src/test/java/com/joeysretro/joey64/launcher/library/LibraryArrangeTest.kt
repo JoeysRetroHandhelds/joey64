@@ -174,4 +174,17 @@ class LibraryArrangeTest {
         assertFalse(LibraryArrange.lookNow(LookFor.Daily, 100, 100))
         assertFalse(LibraryArrange.lookNow(LookFor.Asked, null, 100))
     }
+
+    @Test fun tidyNamesPutTheArticleInFront() {
+        assertEquals("The Legend of Zelda - Ocarina of Time (USA) (Rev 2)", LibraryArrange.tidyTitle(ootU2.title))
+        assertEquals("The Legend of Zelda - Ocarina of Time", LibraryArrange.title(ootU0, NameStyle.Short, tidy = true))
+        assertEquals("Legend of Zelda, The - Ocarina of Time", LibraryArrange.title(ootU0, NameStyle.Short))
+        assertEquals("The New Tetris (USA)", LibraryArrange.tidyTitle("New Tetris, The (USA)"))
+        assertEquals("The World Is Not Enough", LibraryArrange.tidyTitle("World Is Not Enough, The"))
+        assertEquals("Bomberman 64 - The Second Attack! (USA)", LibraryArrange.tidyTitle("Bomberman 64 - The Second Attack! (USA)"))
+        assertEquals("Conker's Bad Fur Day (Europe)", LibraryArrange.tidyTitle(conkerE.title))
+        // Only the name before the tags: a tag with a comma stays as it is.
+        assertEquals("Wipeout 64 (USA, Europe)", LibraryArrange.tidyTitle("Wipeout 64 (USA, Europe)"))
+        assertEquals("A Bug's Life [hack]", LibraryArrange.tidyTitle("Bug's Life, A [hack]"))
+    }
 }

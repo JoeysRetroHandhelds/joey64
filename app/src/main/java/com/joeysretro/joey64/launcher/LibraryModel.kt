@@ -115,6 +115,11 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
     var libraryFocus: Long?
         get() = saved.get<Long>(KEY_FOCUS)
         set(value) { saved[KEY_FOCUS] = value }
+    /**
+     * Search was opened from the Library's Search chip (A or Y with the chip focused), not from a tile: B on Search
+     * lands back on the chip, else on the tile (Joey 2026-11-12: Search off the bar, a chip by All games).
+     */
+    var searchFromChip = false
     /** B on the grid (approved Back order): the grid goes back to the top as focus moves to the bar. */
     private val _toTop = kotlinx.coroutines.flow.MutableStateFlow(0)
     val toTop: kotlinx.coroutines.flow.StateFlow<Int> = _toTop
@@ -157,6 +162,8 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
     val focusedTile = MutableStateFlow<Long?>(null)
     /** The library's filter chip has focus: the hint row says what A does there. */
     val chipFocused = MutableStateFlow(false)
+    /** The Library's Search chip has focus: the hint row says A Search. */
+    val searchChipFocused = MutableStateFlow(false)
 
     /** The hint row's right end on a tile that stands for several copies (approved mockup 2A): "Plays USA · 4 versions". */
     val tileEnd: StateFlow<String?> = combine(focusedTile, arranged) { id, a ->

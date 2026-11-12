@@ -78,7 +78,8 @@ fun LauncherRail(selected: RailPlace, focus: BarFocus, modifier: Modifier = Modi
                  onFocused: (Boolean) -> Unit = {}, onPlaceFocused: (RailPlace) -> Unit = {}, onSelect: (RailPlace) -> Unit = {}) {
     val c = JoeyTheme.colors
     val requesters = focus.requesters
-    val places = RailPlace.entries.filter { (it != RailPlace.Achievements || showAchievements) && (!bottom || it != RailPlace.Search) }
+    // Search isn't a place on the bar (Joey 2026-11-12): it's the Library's Search chip, and Y.
+    val places = RailPlace.entries.filter { (it != RailPlace.Achievements || showAchievements) && it != RailPlace.Search }
     val group = Modifier
         .onFocusChanged { onFocused(it.hasFocus) }
         .focusProperties { onEnter = { requesters.getValue(if (selected in places) selected else places.first()).requestFocus() } }

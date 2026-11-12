@@ -55,6 +55,8 @@ data class LauncherSettings(
     val coverSize: CoverSize = CoverSize.Medium,
     val names: NamesMode = NamesMode.DEFAULT,
     val nameStyle: NameStyle = NameStyle.Short,
+    /** Tidy names (Joey 2026-11-12, on by default): "Legend of Zelda, The" shows as "The Legend of Zelda". */
+    val tidyNames: Boolean = true,
     val lookFor: LookFor = LookFor.Start,
     /** Once a day: the epoch day the folders were last read. */
     val lastLookDay: Long? = null,
@@ -105,6 +107,7 @@ class SettingsStore(context: Context) {
             coverSize = enumOr(p[COVER_SIZE], CoverSize.Medium),
             names = enumOr(p[NAMES], NamesMode.DEFAULT),
             nameStyle = enumOr(p[NAME_STYLE], NameStyle.Short),
+            tidyNames = p[TIDY_NAMES] ?: true,
             lookFor = enumOr(p[LOOK_FOR], LookFor.Start),
             lastLookDay = p[LAST_LOOK_DAY],
         )
@@ -132,6 +135,7 @@ class SettingsStore(context: Context) {
     suspend fun setCoverSize(v: CoverSize) = store.edit { it[COVER_SIZE] = v.name }
     suspend fun setNames(v: NamesMode) = store.edit { it[NAMES] = v.name }
     suspend fun setNameStyle(v: NameStyle) = store.edit { it[NAME_STYLE] = v.name }
+    suspend fun setTidyNames(on: Boolean) = store.edit { it[TIDY_NAMES] = on }
     suspend fun setLookFor(v: LookFor) = store.edit { it[LOOK_FOR] = v.name }
     suspend fun setLastLookDay(day: Long) = store.edit { it[LAST_LOOK_DAY] = day }
 
@@ -155,6 +159,7 @@ class SettingsStore(context: Context) {
         val COVER_SIZE = stringPreferencesKey("library_cover_size")
         val NAMES = stringPreferencesKey("library_names")
         val NAME_STYLE = stringPreferencesKey("library_name_style")
+        val TIDY_NAMES = booleanPreferencesKey("library_tidy_names")
         val LOOK_FOR = stringPreferencesKey("library_look_for")
         val LAST_LOOK_DAY = longPreferencesKey("library_last_look_day")
 

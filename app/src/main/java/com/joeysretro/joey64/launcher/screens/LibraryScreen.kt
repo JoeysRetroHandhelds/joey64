@@ -149,6 +149,10 @@ fun LibraryScreen(model: LibraryModel, updateAsking: Boolean = false, onSearch: 
     if (lostUp) LostFolderPopup(model)
     var showing by remember { mutableStateOf(false) }
     if (showing) ShowPopup(model) { showing = false }
+    // The Search chip: B on a Search opened from it lands back on it through the page's landing (LauncherActivity
+    // arms it); otherwise on the tile Y was pressed on. Read once as the Library comes back.
+    val chipBack = remember { model.searchFromChip.also { model.searchFromChip = false } }
+    var searchChipFocused by remember { mutableStateOf(false) }
 
     val c = JoeyTheme.colors
     val all = games ?: return
@@ -169,7 +173,7 @@ fun LibraryScreen(model: LibraryModel, updateAsking: Boolean = false, onSearch: 
             }
         }
         // The page can go (L1 / R1) with the chip focused: the hint row mustn't keep its hints then.
-        androidx.compose.runtime.DisposableEffect(Unit) { onDispose { model.chipFocused.value = false } }
+        androidx.compose.runtime.DisposableEffect(Unit) { onDispose { model.chipFocused.value = false; model.searchChipFocused.value = false } }
         // The filter chip, and at the right end of its line (Joey 2026-11-07) covers downloading, the same
         // progress line as reading, or why they paused.
         androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().padding(start = JoeyTheme.spacing.margin, end = JoeyTheme.spacing.margin, top = 12.dp),
@@ -177,6 +181,11 @@ fun LibraryScreen(model: LibraryModel, updateAsking: Boolean = false, onSearch: 
             com.joeysretro.joey64.launcher.components.PageChip(view.label, com.joeysretro.joey64.R.drawable.ic_filter,
                 on = view != com.joeysretro.joey64.launcher.library.LibraryView.All,
                 onFocused = { model.chipFocused.value = it }) { showing = true }
+            // Search sits by the filter on every screen, not on the bar (Joey 2026-11-12; it was portrait's only, as
+            // the bottom bar holds five), and Y opens it from anywhere on the Library. B on Search comes back here.
+            com.joeysretro.joey64.launcher.components.PageChip("Search", com.joeysretro.joey64.R.drawable.ic_rail_search,
+                modifier = Modifier.padding(start = 8.dp).initialFocus(chipBack),
+                onFocused = { searchChipFocused = it; model.searchChipFocused.value = it }) { model.searchFromChip = true; onSearch() }
             androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
             art?.takeIf { reading == null }?.let { a ->
                 ProgressLine(a, width = 160.dp, label = "Getting box art")
@@ -184,11 +193,6 @@ fun LibraryScreen(model: LibraryModel, updateAsking: Boolean = false, onSearch: 
             if (artPaused && art == null && reading == null) {
                 Text("Box art paused · ScreenScraper is busy. Joey64 will try again later.", style = JoeyTheme.type.note, color = c.textDim)
             }
-            // Portrait: Search isn't on the bottom bar (Material's five at most), so it's here at the top of the
-            // Library, and Y as everywhere (Joey 2026-11-11, docs/tv-guidelines-audit-2026-11-11.md).
-            if (com.joeysretro.joey64.launcher.layout.LocalScreenLayout.current.bottomBar)
-                com.joeysretro.joey64.launcher.components.PageChip("Search", com.joeysretro.joey64.R.drawable.ic_rail_search,
-                    modifier = Modifier.padding(start = 8.dp)) { onSearch() }
         }
         val f = facts
         val hiddenGames by model.hidden.collectAsStateWithLifecycle()
@@ -206,7 +210,7 @@ fun LibraryScreen(model: LibraryModel, updateAsking: Boolean = false, onSearch: 
         // A new view starts at its first game.
         // The hint row says what the focused tile plays (approved mockup 2A, 2026-11-11).
         androidx.compose.runtime.key(view) {
-            GamesGrid(list, model, onSearch, keepPlace = true, onFocusGame = { if (!it) model.focusedTile.value = null },
+            GamesGrid(list, model, { model.searchFromChip = searchChipFocused; onSearch() }, land = !chipBack, keepPlace = true, onFocusGame = { if (!it) model.focusedTile.value = null },
                 onFocused = { model.focusedTile.value = it })
         }
     }
@@ -219,7 +223,9 @@ fun LibraryScreen(model: LibraryModel, updateAsking: Boolean = false, onSearch: 
  */
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
-fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit, firstFocus: Boolean = true, onFocusGame: (Boolean) -> Unit = {},
+fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit, firstFocus: Boolean = true,
+    /** False: no tile is a landing target (the Library's Search chip takes focus back instead). */
+    land: Boolean = true, onFocusGame: (Boolean) -> Unit = {},
     /** Focuses the first tile (Search's Enter: the first result, not the tile under the box). */
     firstTile: androidx.compose.ui.focus.FocusRequester? = null,
     /**
@@ -239,6 +245,7 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
     val size = look?.coverSize ?: com.joeysretro.joey64.launcher.library.CoverSize.Medium
     val names = look?.names ?: com.joeysretro.joey64.launcher.library.NamesMode.DEFAULT
     val style = look?.nameStyle ?: com.joeysretro.joey64.launcher.library.NameStyle.Short
+    val tidy = look?.tidyNames ?: true
     val greyed by model.greyed.collectAsStateWithLifecycle()
     // Copies that would look alike here get a line under the name: "USA", "USA · v2 · Beta" (approved mockup A, 2026-11-11).
     val copyLines = remember(list) { com.joeysretro.joey64.launcher.library.CopyLabels.of(list) }
@@ -396,9 +403,9 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
                 // The tile plays another copy now (Versions) and still has focus: Start and the hint row follow it.
                 var hasFocus by remember { mutableStateOf(false) }
                 LaunchedEffect(g.id) { if (hasFocus && focusedGame?.id != g.id) { focusedGame = g; focusedIndex = i; keep(g) } }
-                GameTile(g, model.cover(g), names, com.joeysretro.joey64.launcher.library.LibraryArrange.title(g, style), greyed = g.id in greyed,
+                GameTile(g, model.cover(g), names, com.joeysretro.joey64.launcher.library.LibraryArrange.title(g, style, tidy), greyed = g.id in greyed,
                     copyLine = copyLines[g.id],
-                    modifier = Modifier.initialFocus(if (landId != null) g.id == landId else firstFocus && i == 0)
+                    modifier = Modifier.initialFocus(land && (if (landId != null) g.id == landId else firstFocus && i == 0))
                     .landFocus(move, g.id == moveTo)
                     .then(if (i == 0 && firstTile != null) Modifier.focusRequester(firstTile) else Modifier),
                     onFocus = { on -> hasFocus = on; if (on) { focusedGame = g; focusedIndex = i; keep(g) } else if (focusedGame?.id == g.id) { focusedGame = null; focusedIndex = -1 } },

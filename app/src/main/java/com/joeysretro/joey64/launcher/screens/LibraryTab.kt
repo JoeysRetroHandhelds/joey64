@@ -179,6 +179,7 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
             row("size", "Cover size", s.coverSize.label + "  ›") { if (!panel.enter()) popup = LibPopup.Size }
             row("names", "Names", s.names.label + "  ›") { if (!panel.enter()) popup = LibPopup.Names }
             row("style", "Name style", s.nameStyle.label + "  ›", enabled = s.names != NamesMode.Off) { if (!panel.enter()) popup = LibPopup.Style }
+            row("tidy", "Tidy names", if (s.tidyNames) "On" else "Off", enabled = s.names != NamesMode.Off) { set { setTidyNames(!s.tidyNames) } }
             SectionLabel("Games")
             row("folders", "ROM folders", (if (folders.size == 1) "1 folder" else "${folders.size} folders") + "  ›") { popup = LibPopup.Folders }
             row("look", "Look for new games", s.lookFor.label + "  ›") { if (!panel.enter()) popup = LibPopup.Look }
@@ -356,6 +357,7 @@ private fun describe(key: String): Pair<String, String> = when (key) {
     "size" -> "Cover size" to "How big the library's covers are: Small fits more across, Large fewer."
     "names" -> "Names" to "Whether the library shows game names: under every cover, only on games without box art, or not at all."
     "style" -> "Name style" to "Short leaves out the tags in brackets. Full keeps them, which tells apart two versions of a game."
+    "tidy" -> "Tidy names" to "Puts a name's The, A or An back in front: Legend of Zelda, The shows as The Legend of Zelda. The order of the library stays the same."
     "folders" -> "ROM folders" to "Where Joey64 finds your games. Removing one keeps their saves, states and play time."
     "look" -> "Look for new games" to "When Joey64 reads the ROM folders for new, changed and removed games. A folder you add is always read."
     "now" -> "Look now" to "Reads the ROM folders for new, changed and removed games."

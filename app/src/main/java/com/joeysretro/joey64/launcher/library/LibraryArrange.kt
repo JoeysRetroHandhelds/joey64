@@ -216,7 +216,27 @@ object LibraryArrange {
         return title.substring(0, cut).trim().ifEmpty { title }
     }
 
-    fun title(game: LibraryGame, style: NameStyle) = if (style == NameStyle.Short) shortTitle(game.title) else game.title
+    fun title(game: LibraryGame, style: NameStyle, tidy: Boolean = false): String {
+        val t = if (style == NameStyle.Short) shortTitle(game.title) else game.title
+        return if (tidy) tidyTitle(t) else t
+    }
+
+    // No-Intro's names put an article at the end of the name or of a part of it: "Legend of Zelda, The - Ocarina of Time".
+    private val TRAILING_ARTICLE = Regex("""^(.+), (The|A|An|Die|Der|Das|Le|La|Les|El|Los|Las|Il|Lo)$""")
+
+    /**
+     * Tidy names (Joey 2026-11-12): the article goes back in front, in each " - " part of the name before its tags:
+     * "Legend of Zelda, The - Ocarina of Time (USA)" -> "The Legend of Zelda - Ocarina of Time (USA)",
+     * "New Tetris, The" -> "The New Tetris". Only the name shown changes; sorting and matching use the file's name.
+     */
+    fun tidyTitle(title: String): String {
+        val cut = listOf(title.indexOf(" ("), title.indexOf(" [")).filter { it > 0 }.minOrNull() ?: title.length
+        val name = title.substring(0, cut)
+        val tidy = name.split(" - ").joinToString(" - ") { part ->
+            TRAILING_ARTICLE.matchEntire(part)?.let { m -> m.groupValues[2] + " " + m.groupValues[1] } ?: part
+        }
+        return tidy + title.substring(cut)
+    }
 
     /** Covers across: the screen's own count ([base], as before) with Small one more, Large one fewer, never under 2. */
     fun columns(base: Int, size: CoverSize) = (base + size.delta).coerceAtLeast(2)

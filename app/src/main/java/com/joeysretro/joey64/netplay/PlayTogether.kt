@@ -42,6 +42,9 @@ object PlayTogether {
     private const val CONNECT_MS = 5000
     /** How long the host waits for its game's room server before telling the others the room closed. */
     private const val SERVER_WAIT_MS = 30_000L
+    /** A joiner looking for the host's game's room after the lobby went (goWhenRoomOpens): one try, and the gap after. */
+    private const val CONNECT_PROBE_MS = 1000
+    private const val PROBE_GAP_MS = 300L
     /**
      * Connections that haven't said HELLO yet, and how long one may take (code audit 3, H6: anyone who reached the room's
      * port could open sockets without end, each holding one of Dispatchers.IO's 64 threads). Past it new ones are closed.
@@ -515,6 +518,31 @@ object PlayTogether {
     private var joinSocket: Socket? = null
 
     /**
+     * After START the host's lobby went without a GO (Thor 2026-11-11: its game started in a fresh process because a
+     * game had run in the launcher's process before, and the lobby died with the old process, so the joiner waited for
+     * good). The game's room takes over the lobby's port, so this device goes once that port takes a connection again:
+     * a connection that never registers is dropped by the room and isn't a player. False after [SERVER_WAIT_MS].
+     */
+    private suspend fun goWhenRoomOpens(me: Me, target: Target, slot: Int, game: Game?): Boolean {
+        val g = game ?: return false
+        if (slot !in 1..4) return false
+        JLog.i(TAG, "the host's lobby closed after START: looking for its game's room on port ${target.port}")
+        val t0 = System.currentTimeMillis()
+        while (System.currentTimeMillis() - t0 < SERVER_WAIT_MS) {
+            val open = try { Socket().use { it.connect(InetSocketAddress(target.ip, target.port), CONNECT_PROBE_MS) }; true } catch (e: java.io.IOException) { false }
+            if (open) {
+                JLog.i(TAG, "go: player $slot on port ${target.port} (the game's room answered after ${System.currentTimeMillis() - t0} ms)")
+                _state.value = Idle
+                _go.value = Go(g.md5, "${target.ip}:${target.port}:$slot", me.name)
+                return true
+            }
+            delay(PROBE_GAP_MS)
+        }
+        JLog.i(TAG, "the host's game's room didn't open in ${SERVER_WAIT_MS / 1000} s")
+        return false
+    }
+
+    /**
      * Joins the room at [target]. [findGame]: this library's game with that MD5 (the room says which game it plays);
      * [mine]: the game Play together was opened from, for the mismatch's "yours is".
      */
@@ -532,6 +560,11 @@ object PlayTogether {
             var hostGame = Game("", "", "")
             var pinger: Job? = null
             var gone = true
+            var slot = 0
+            // START came, then no GO: the host's game may have started in a fresh process (a game had run in its
+            // launcher's process before), which ends the lobby with it, so this device looks for the game's room itself.
+            var startedAt = 0L
+            var closed = false
             try {
                 sock.connect(InetSocketAddress(target.ip, target.port), CONNECT_MS)
                 sock.tcpNoDelay = true
@@ -539,7 +572,6 @@ object PlayTogether {
                 val out = PrintWriter(sock.getOutputStream().bufferedWriter(Charsets.UTF_8))
                 fun send(l: String) = synchronized(out) { out.print(l); out.print('\n'); out.flush() }
                 val input = sock.getInputStream().buffered()
-                var slot = 0
                 var players = emptyList<Player>()
                 var hostPing: Int? = null
                 val hostBurst = PingBurst()
@@ -585,7 +617,7 @@ object PlayTogether {
                         }
                         "FULL" -> { _state.value = Full(hostName, target.copy(hostName = hostName)); gone = false; break }
                         "MISMATCH" -> { _state.value = Mismatch(hostName, hostGame, mine); gone = false; break }
-                        "START" -> { JLog.i(TAG, "$hostName is starting the game"); sock.soTimeout = (SERVER_WAIT_MS + 5000).toInt() }
+                        "START" -> { JLog.i(TAG, "$hostName is starting the game"); startedAt = System.currentTimeMillis(); sock.soTimeout = (SERVER_WAIT_MS + 5000).toInt() }
                         "GO" -> {
                             val s = f.getOrNull(1)?.toIntOrNull() ?: slot
                             // It goes to the game as the player number: only 1 to 4 (code audit 3, p3 L7).
@@ -600,12 +632,14 @@ object PlayTogether {
                             _go.value = Go(g.md5, "${target.ip}:$port:$s", me.name, key)
                             gone = false; break
                         }
-                        "CLOSED" -> break
+                        "CLOSED" -> { closed = true; break }
                     }
                 }
+                if (gone && startedAt > 0 && !closed && joinSocket === sock && goWhenRoomOpens(me, target, slot, game)) gone = false
                 if (gone && joinSocket === sock) { JLog.i(TAG, "${hostName ?: "the host"} closed the room"); _state.value = Closed(hostName ?: "The host") }
             } catch (e: Exception) {
                 if (joinSocket !== sock) return@launch // left
+                if (startedAt > 0 && !closed && goWhenRoomOpens(me, target, slot, game)) return@launch
                 JLog.i(TAG, com.joeysretro.joey64.LogMask.addresses("can't reach ${target.ip}:${target.port}: $e"))
                 _state.value = if (game == null) Unreachable(hostName, target.fromCode) else Closed(hostName ?: "The host")
             } finally {

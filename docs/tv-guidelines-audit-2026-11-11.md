@@ -42,7 +42,11 @@ optional icon).
 - One place for a page's filter or game chip (Joey 2026-11-11: "lets be consistent ... under the bar"): the
   first thing under the bar, at the start of the page. Library's Filter, Settings' and Controls' game chip
   (topbar2_mock.png), and now the Achievements page's filter. Netplay's All games / Games I have is drawn over
-  the public rooms column instead; Joey: "Yes, under the bar", so it moves there too. Settles failure 3.
+  the public rooms column instead. Then (Google: related content in one panel, categories down, items across)
+  Netplay was redrawn as rows, approved as drawn 2026-11-11 (scratchpad build_netrows.py / netrows_mock.png):
+  an actions row (Host a room, Join by code, Your name), On this Wi-Fi (private rooms only here, with a lock),
+  Public rooms with All games / Games I have at the start of its heading; room cards with cover, name, game,
+  players, ping. Settles failure 3.
 
 ## Where it fails
 

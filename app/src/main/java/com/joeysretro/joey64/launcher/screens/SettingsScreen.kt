@@ -91,6 +91,8 @@ enum class SettingsTab(val label: String, /** The panel's help while the tab row
 
 /** The tab row's line after a tab's help, as Controls' tab row says it. */
 internal const val TAB_ROW_HELP = "◀ ▶ and A pick a tab."
+/** The All games chip's help in the panel (Joey 2026-11-12). */
+internal const val CHIP_HELP = "These settings are for every game. Pick a game to give it its own."
 
 /**
  * Settings (approved Settings mockups, 2026-11-05). The tabs that are built, L1/R1 (or a tap)
@@ -162,6 +164,8 @@ fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher
         var focusedTab by remember { mutableIntStateOf(0) }
         SettingsTabs(SettingsTab.entries.map { it.label }, tab.ordinal, onFocused = { onTabs = it }, onTabFocused = { focusedTab = it }) { tab = SettingsTab.entries[it] }
         val tabHelp = if (onTabs) SettingsTab.entries[focusedTab].let { com.joeysretro.joey64.launcher.components.PanelInfo(it.label, it.help + " " + TAB_ROW_HELP) }
+            // The All games chip's own help (Joey 2026-11-12); it showed the first row's.
+            else if (onChip && target == null) com.joeysretro.joey64.launcher.components.PanelInfo("All games", CHIP_HELP)
             else com.joeysretro.joey64.launcher.components.LocalPanelHelp.current
         androidx.compose.runtime.CompositionLocalProvider(com.joeysretro.joey64.launcher.components.LocalPanelHelp provides tabHelp) {
         key(tab, target, resetGen) {

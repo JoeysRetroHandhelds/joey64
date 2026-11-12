@@ -262,8 +262,10 @@ private fun GameAchievementsContent(
     fun pickSet(i: Int) { setPicked = i; if (!onTabs) landing?.arm() }
     tabs?.onStep = { delta -> if (tabbed) pickSet((setIdx + delta + sets.size) % sets.size) }
     LaunchedEffect(onChip, tabbed, onTabs) {
+        // L/R changes the set only in game: in the launcher L1/R1 move along the top bar (Joey 2026-11-11, option 1),
+        // so the hint said "L/R Set" while R1 opened Search (Thor 2026-11-12); the sets are D-pad tabs there.
         onHints(listOfNotNull(if (onChip) Hint("A", "Show") else if (onTabs) Hint("A", "Open") else null,
-            if (tabbed) Hint("L/R", tabHint) else null, Hint("B", "Back")))
+            if (tabbed && live) Hint("L/R", tabHint) else null, Hint("B", "Back")))
     }
     val d = data ?: return
     val g = d.game

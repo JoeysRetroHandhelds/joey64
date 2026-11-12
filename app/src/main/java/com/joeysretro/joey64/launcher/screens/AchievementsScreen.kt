@@ -99,10 +99,14 @@ data class AchievementsGame(val gameId: Long, val title: String)
 fun AchievementsScreen(onHints: (List<Hint>) -> Unit, onClose: () -> Unit) {
     var open by remember { mutableStateOf<AchievementsGame?>(null) }
     var lastOpen by remember { mutableStateOf<Long?>(null) }
+    // The games list's Show and Sort, kept here so they outlast a visit to a game's page (Thor 2026-11-12: Name was
+    // back to Recently played after B from a game; the list is made again when it comes back).
+    val filter = remember { mutableStateOf(GameFilter.All) }
+    val sort = remember { mutableStateOf(GameSort.RecentlyPlayed) }
     val o = open
     if (o != null) androidx.compose.runtime.key(o) {
         GameAchievementsScreen(o, onHints) { lastOpen = o.gameId; open = null }
-    } else GamesList(onHints, onClose, focusGame = lastOpen) { open = it }
+    } else GamesList(onHints, onClose, focusGame = lastOpen, filterState = filter, sortState = sort) { open = it }
 }
 
 /** A game's page in the launcher (from the games list, or a game's options › Achievements). */
@@ -186,13 +190,15 @@ private fun PageShell(onClose: () -> Unit, onTab: ((Int) -> Unit)? = null, onPag
 }
 
 @Composable
-private fun GamesList(onHints: (List<Hint>) -> Unit, onClose: () -> Unit, focusGame: Long?, onOpen: (AchievementsGame) -> Unit) {
+private fun GamesList(onHints: (List<Hint>) -> Unit, onClose: () -> Unit, focusGame: Long?,
+                      filterState: androidx.compose.runtime.MutableState<GameFilter>, sortState: androidx.compose.runtime.MutableState<GameSort>,
+                      onOpen: (AchievementsGame) -> Unit) {
     val context = LocalContext.current
     val c = JoeyTheme.colors
     val account by RaBridge.account.collectAsState()
     var games by remember { mutableStateOf<List<RaGame>?>(null) }
-    var filter by remember { mutableStateOf(GameFilter.All) }
-    var sort by remember { mutableStateOf(GameSort.RecentlyPlayed) }
+    var filter by filterState
+    var sort by sortState
     var showing by remember { mutableStateOf(false) }
     var sorting by remember { mutableStateOf(false) }
     val pager = remember { ListPager() }

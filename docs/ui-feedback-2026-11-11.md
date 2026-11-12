@@ -140,4 +140,16 @@ Checked on the Thor, one key per step with a screenshot after each (the OoT reco
   It measures to the first exit after the state now: "1 minute" (state 22:49, force stop 22:51:22) (3bfdda1).
 - Found: Settings' game chip showed the rows' hints with no A; it has "A Change, B Back" (3bfdda1).
 
-Still not device-checked: A1, A2, A7, A9, D3 (first run), D4 Send now, D5, D7 Hidden, E3, the TV paths, the B flashes, C5.
+Second round (00:38-00:48 CST, APK 30a2498f):
+
+- A7: Player 2 › Controller opens on None (ticked) in the first frame after A; nothing moves after.
+- D7: Hide game takes Body Harvest out; Show lists Hidden 1 last; the Hidden view shows it alone; its options have Show
+  again; that puts "Body Harvest (USA) is back in the library" at the bottom and the library back on All games. Found:
+  focus went to the first game both ways; hiding now lands on the game in its place and showing again on the game
+  itself (577c2b2, checked).
+- Found: the library's filter chip showed the grid's hints (A Play, Start Options); it says "A Change, Y Search" (577c2b2).
+- Seen, not changed: Up from a top-row game outside the first column goes to the bar, not the filter chip (it's only
+  above the first column). Mario Kart 64's "Where you quit" picture (20:41) is a black frame; its log was rotated out,
+  and trying again means quitting Mario Kart over Joey's quit save, so it's left.
+
+Still not device-checked: A1, A2, A9, D3 (first run), D4 Send now, D5, E3, the TV paths, the B flashes, C5.

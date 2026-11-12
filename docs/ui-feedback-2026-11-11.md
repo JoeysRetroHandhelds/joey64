@@ -18,14 +18,14 @@ Controls, then Settings tabs, then popups.
       explicit requests). "Going from right side window to left side icons is finicky."
 - [x] A2 (built 484da07, Thor-checked 2026-11-12) Search box: Down goes to the first result, not the second (`focusProperties { down = grid }`, the
       grid's restorer picks the item; JoeyOS device finding).
-- [x] A3 (built f817b7c + 484da07, not device-checked: L1/R1 move along the top bar on every page under it, L2/R2 a page of the grid) L1/R1 and L2/R2 in the library (Joey: "shoulders and triggers should work on library screen").
-      L2/R2 built 484da07 (a page of the grid, not device-checked); L1/R1: Joey picked "option 1" (they move
+- [x] A3 (built f817b7c + 484da07, device-checked on the Thor 2026-11-12: L1/R1 move along the top bar on every page under it, L2/R2 a page of the grid) L1/R1 and L2/R2 in the library (Joey: "shoulders and triggers should work on library screen").
+      L2/R2 built 484da07 (a page of the grid, device-checked 2026-11-12); L1/R1: Joey picked "option 1" (they move
       along the top bar everywhere; see docs/tv-guidelines-audit-2026-11-11.md).
-- [x] A4 (built 2c98d4b, not device-checked: L1/R1 are the bar's; in the game picker L2/R2 go a page of the grid (FocusLanding); its D-pad is the grid's own, like the library's, which waits for a device) Host a room: L1/R1, L2/R2, and the same D-pad fix as the library.
+- [x] A4 (built 2c98d4b, device-checked on the Thor 2026-11-12: L1/R1 are the bar's; in the game picker L2/R2 go a page of the grid (FocusLanding); its D-pad is the grid's own, like the library's, which waits for a device) Host a room: L1/R1, L2/R2, and the same D-pad fix as the library.
 - [x] A5 (built d34a52c + a3bf87a, Thor-checked 2026-11-12: the sets are D-pad tabs, L2/R2 a page; L2/R2
       through the shared ListPager on the games list, a game's list and the in-game panel) Achievements page: L1/R1 moves the highlight to the rail's Continue icon (should change tab);
       L2/R2 scroll a page there and in every long list.
-- [x] A6 (built f817b7c, not device-checked: the filter chip is the first thing under the bar (Library, Achievements, Settings' and Controls' game chip)) Pages with filters (Achievements and others): a button for the filters.
+- [x] A6 (built f817b7c, device-checked on the Thor 2026-11-12: the filter chip is the first thing under the bar (Library, Achievements, Settings' and Controls' game chip)) Pages with filters (Achievements and others): a button for the filters.
 - [x] A7 (built db20e54 + 2dfc6dc, Thor-checked 2026-11-12 frame by frame; JoeyDialog's first-item fallback ran before the window had focus while the marked row waited for it, so the first row lit and focus jumped; both wait for window focus now) Popups open on their marked row at once: Player 2 › Controller visibly moves the highlight to None
       after opening. JoeyOS: mark the row, open the list scrolled to it, no move after the first frame.
 - [x] A8 (swept on the Thor 2026-11-12, every page and popup; fixes f85a511, 9a9eaf5, 8cd6642, 7013124, e1e6956, each rechecked; see "A8 sweep" at the end) B goes back to where you were, everywhere (one exit route per page and popup; containers restore
@@ -47,11 +47,11 @@ Controls, then Settings tabs, then popups.
 
 - [x] C1 (eb71e7c) Host a room shows two Conkers: its picker lists every copy (`HostPickPopup` uses `model.games`),
       not the library's one-version fold. Use the games the library shows.
-- [x] C2 (built 2c98d4b, not device-checked: my reading is the game picker's bottom row, where focus scrolled to the cover and cut the name under it; the grid now scrolls a name's height more) Host a room cuts off the game's title: the page moves up so the title shows.
-- [x] C3 (built, not device-checked: a focused outline reaches 5 dp past a chip (8 in light mode) and the chips were 6 dp apart; every TabRow and Controls' chips are 12 dp apart now, the chips 12 dp under the tabs, tabScroll gives 10 dp at the ends) Controls: the Auto map / View controller tabs' borders overlap (check every tab row).
-- [x] C4 (built, not device-checked: C up's value ends 4 dp above its button and grows upward; C left / right 4 dp clear of theirs) View controls: R stick up (C-up) label is behind the yellow circle.
+- [x] C2 (built 2c98d4b, device-checked on the Thor 2026-11-12: my reading is the game picker's bottom row, where focus scrolled to the cover and cut the name under it; the grid now scrolls a name's height more) Host a room cuts off the game's title: the page moves up so the title shows.
+- [x] C3 (built, device-checked on the Thor 2026-11-12: a focused outline reaches 5 dp past a chip (8 in light mode) and the chips were 6 dp apart; every TabRow and Controls' chips are 12 dp apart now, the chips 12 dp under the tabs, tabScroll gives 10 dp at the ends) Controls: the Auto map / View controller tabs' borders overlap (check every tab row).
+- [x] C4 (built, device-checked on the Thor 2026-11-12: C up's value ends 4 dp above its button and grows upward; C left / right 4 dp clear of theirs) View controls: R stick up (C-up) label is behind the yellow circle.
 - [x] C5 (measured on the Thor 2026-11-12; dad49db, 2517850) A on a game takes a few seconds to start: measure where the time goes (tap to first frame).
-- [x] C6 (built beaf692, not device-checked: Hotkeys is the fifth tab, the chip is gone, L1/R1 go round all five) Controls: Hotkeys moves to the right of Player 4 (Joey's layout).
+- [x] C6 (built beaf692, device-checked on the Thor 2026-11-12: Hotkeys is the fifth tab, the chip is gone, L1/R1 go round all five) Controls: Hotkeys moves to the right of Player 4 (Joey's layout).
 - [x] C7 (eb71e7c) Library: Sort by Recently played by default (Joey). Anyone who picked a sort keeps it.
 - [x] C8 (eb71e7c) Fast forward shows an on-screen sign while it's on (Joey). Slow motion and Rewind already show the
       shared in-game popup (`InGamePopup`, MainActivity ~440); fast forward gets the same one, "Fast forward"
@@ -68,15 +68,15 @@ Controls, then Settings tabs, then popups.
       progress page, the look-up joins the library's box art and cheats scan; wrong password shown on the same page) Achievements without playing first: fetch every library game's achievements when the ROMs folder
       is scanned (with the covers and game list), once signed in to RetroAchievements.
 - [x] D4 (built c58abd9; Send now pressed once on the Thor 2026-11-12 (Joey: "Yes, once on the Thor"): Sending…, then Sent, the line "Last sent today, 10:55 am", server 204 for 16 sessions) (approved as drawn 2026-11-11, feedback1_mock.png screen 7) Send reports popup: a Send now row (mockup).
-- [x] D5 (built 46e905e, not device-checked) (approved 2026-11-11: Your name as an action in the Netplay rows, netrows_mock.png; its popup as drawn in feedback1_mock.png screen 9) Netplay: set your own name (now: the RetroAchievements username, else the device name). Mockup.
-- [x] D6 (built b8b3783, not device-checked) Fast-forward speed, approved 2026-11-11 (Joey: "looks good", scratchpad build_emuspeed.py / emuspeed_mock.png):
+- [x] D5 (built 46e905e, device-checked on the Thor 2026-11-12) (approved 2026-11-11: Your name as an action in the Netplay rows, netrows_mock.png; its popup as drawn in feedback1_mock.png screen 9) Netplay: set your own name (now: the RetroAchievements username, else the device name). Mockup.
+- [x] D6 (built b8b3783, device-checked on the Thor 2026-11-12) Fast-forward speed, approved 2026-11-11 (Joey: "looks good", scratchpad build_emuspeed.py / emuspeed_mock.png):
       Settings › Emulation gets a Speed group, the same settings as Controls › Hotkeys' popups (one setting, two
       places): Fast-forward speed (◀▶) and mode, Slow motion speed (◀▶) and mode, Rewind, Rewind: how far back;
       Thermal fallback moves from Advanced into Speed. Same for every game: greyed "Same for every game" with a
       game picked. Hotkeys' panel shows each hotkey's button, mode and speed too. To build.
       Expansion Pak under All games (Joey: "yes on"): the greyed row reads On, and the panel says "On for every
       game. To turn it off for one game, pick that game in the chip above." (was "Set for one game"). To build.
-- [x] D7 (built 6153885 + 9a95aa8, not device-checked) Unhiding a game, approved as drawn 2026-11-11 (Joey: "Add to the Filter", scratchpad build_hidden.py /
+- [x] D7 (built 6153885 + 9a95aa8, device-checked on the Thor 2026-11-12) Unhiding a game, approved as drawn 2026-11-11 (Joey: "Add to the Filter", scratchpad build_hidden.py /
       hidden_mock.png): the Show popup gets Hidden as the last filter with its count, only while a game is hidden;
       the Hidden view's options have Show again where Hide game is; a line "<game> is back in the library"; the
       last one shown goes back to All games. Settings › Library › Hidden games stays. To build.
@@ -89,16 +89,16 @@ Controls, then Settings tabs, then popups.
       2026-11-11 23:00 (Thor, parallel-RDP, 0.1.0.1, a dungeon room): a teal "]" about 2 N64 pixels wide in the first
       ~3 N64 pixels of the top and left edges, the overscan border. Guess, unchecked: junk the game draws where a TV hid
       it (Crop edges would hide it). Handed to the Joey64 (perf) session for its rendering list.
-- [x] E3 (built f817b7c, not device-checked) The rail as a row across the top in landscape (Joey: "show me a mockup"): toprail_mock.png,
+- [x] E3 (built f817b7c, device-checked on the Thor 2026-11-12) The rail as a row across the top in landscape (Joey: "show me a mockup"): toprail_mock.png,
       version A icons only, version B icons with names. Decided: the top bar with names (topbar2_mock.png),
       with the rest of the decisions in docs/tv-guidelines-audit-2026-11-11.md. To build.
-- [x] E4 (built f34cf1b, not device-checked; the "Play will always ..." line is the in-game pop-up (shared JoeyToast at the pop-up place), not a bottom line of its own) Carry on from a state. Approved as drawn 2026-11-11 (scratchpad build_contplay.py / contplay_mock.png):
+- [x] E4 (built f34cf1b, device-checked on the Thor 2026-11-12; the "Play will always ..." line is the in-game pop-up (shared JoeyToast at the pop-up place), not a bottom line of its own) Carry on from a state. Approved as drawn 2026-11-11 (scratchpad build_contplay.py / contplay_mock.png):
       Settings › Saves › Continue on Play defaults to Ask. Play on a game with states opens a list + picture popup:
       Where you quit (focused), OLDER QUIT SAVES, SLOTS, each with its picture, then Start fresh (the cover); the
       big picture follows focus; A plays, B closes. No states: Play starts at once. Y, Always do this (only on
       Where you quit and Start fresh): sets Always / Never and starts, with a line in game for a few seconds
       ("Play will always ... Change it in Settings › Saves."). Replaces today's AskContinuePopup. To build.
-- [x] E5 (built b8b3783, 37d8aa2, 6a259c9, not device-checked; Video's Shader, Sides and Overlay rows stay pages of their own (their pickers have previews)) Settings-type pages as one list with a detail panel (Joey: "yes one list + panel for everything,
+- [x] E5 (built b8b3783, 37d8aa2, 6a259c9, device-checked on the Thor 2026-11-12; Video's Shader, Sides and Overlay rows stay pages of their own (their pickers have previews)) Settings-type pages as one list with a detail panel (Joey: "yes one list + panel for everything,
       thats perfect", setlist_mock.png): every Settings tab, Game settings, Controls, Touch controls. Details
       in docs/tv-guidelines-audit-2026-11-11.md. To build.
 
@@ -422,7 +422,9 @@ Seen, for Joey:
 - A game's achievements Show popup counts more than the header: Mario Kart 64's main set "All 73 · Unlocked 4"
   against "3 of 72". The extra one is RetroAchievements' "Warning: Unknown Emulator" (id 101000000), which the server
   adds when it doesn't know the client, shown as a recent unlock; it means RetroAchievements doesn't know Joey64
-  (Hardcore would be refused). Joey: "Keep it shown" (no change). The fetched lists also keep Unofficial achievements,
+  (Hardcore would be refused). Joey: "Keep it shown" (no change); then (2026-11-12) "unknown emulator shouldnt count
+  as a numbered achievement": it's still shown but the Show counts and a filtered "N of M" leave it out
+  (`RaAchievement.isWarning`, 0f380f1; Thor p30: Banjo-Kazooie All 60, Unlocked 4, "Unlocked · 4 of 60"). The fetched lists also keep Unofficial achievements,
   which All counts and the header doesn't (Yoshi's Story 240 against 121; about 40 of the Thor's games have some).
   Joey: "Yes, follow setting": a game's page leaves them out while Settings › Achievements › Unofficial achievements is
   off (its default) and shows them in their Unofficial section when it's on (`RaAchievement.forSetting`; the in-game
@@ -431,3 +433,37 @@ Seen, for Joey:
 - On the Settings page the tab row sat 14 dp + 6 dp under the bar. Joey: "Yes trim" (after a before/after picture): 8 dp now (2 + the row's 6 for the focus outline) when the tabs are first under the bar; Video, Emulation and Audio keep 14 above their All games chip. Thor p17-532132b9: the outline clears the bar.
 - The viewer shows ◀ ▶ Previous, next with one screenshot; the Search chip's hint row has A Search and no B.
 - Up from the set tabs on a game's achievements goes to the bar, past the All chip (Right from the last tab reaches it).
+  Fixed 2026-11-12 (d4a6fc1): Up from the tabs and from the list's first row goes to the chips (below).
+
+## Sort chips round (2026-11-12 afternoon, Thor, APKs p25 to p31-ae47cc28)
+
+Joey approved sortchip_mock.png and showlist_mock.png as drawn. Built and seen on the Thor:
+
+- Library chips [All games] [Sort] [Search]. Sort opens Settings › Library's own Sort by popup (`LibrarySortPopup`,
+  one setting in both places): its title is "Sort by" and each sort has its line under it, so it differs a little from
+  the drawing ("Sort", no lines). The Show popup is one list (All games, Collections, Filters, Hidden).
+- A new sort starts the grid from its top, from the chip or from Settings (`LibraryModel.gridSort`): after Name the
+  A to C games were above the screen.
+- Down from the Sort chip went to the second tile. Google's TV pages: the D-pad goes to the nearest element that way,
+  and Restore focus uses focusRestorer with a fallback. The grid now has a focusRestorer whose fallback is the first
+  tile in view (no chip Down overrides). Down from Sort lands on the first tile.
+- Achievements: a Sort chip by the filter chip (after it on the games list, before it on a game's page); Show and Sort
+  are each one list, A picks and closes. A new filter or sort starts the list from its top (`ToTopOnChange`).
+- Up from the first achievements row skipped the chips for the top bar: the rows are full width, so Compose's search
+  scores the chips at the side as far off, though they're the nearest thing above. Up from the first row (and from a
+  game's set tabs, `TabRow`'s new `up`) now goes to the chips, a focusRestorer group (the last chip used, else the
+  first). Seen on the games list, Banjo-Kazooie (no tabs) and Mario Kart 64 (tabs).
+- The games list's Show and Sort reset on B from a game (the list is made again): kept one level up now (b011ef5).
+- Joey: "right align the retroachievements username and points": the avatar, name and points sit at the right edge
+  of the Achievements page's header ("how come its not fully right": the space was shared with a spacer; fixed).
+- Sands of Time showed Ocarina's cover though joey64-data's release has our own (2589aba): the Thor's list of our
+  covers was from 2026-11-07, read again once a week. Read again by hand, the cover came, but the tile kept the old
+  picture until a restart (same file path, same game row). Box art runs now bump `CoverImages.version` so covers look
+  again (3197cac); seen on p31 from the Thor's backup state. The backup put back after has the old list, so the Thor
+  shows the old cover until its weekly read.
+- Device checks passed: A3, A4 (L2/R2 a page in Host a room, the column kept), A6, C2 (the bottom row's name shows),
+  C3 (tab and chip outlines clear each other), C4 (R stick ↑ clear of its button), C6 (Hotkeys the fifth tab), D5
+  (Your name popup, opened and cancelled), D6 (Emulation's Speed group), D7, E3, E4 (Play's popup on Ocarina: Where you
+  quit, Slots, Start fresh with the cover; the picture follows focus; Y only on Where you quit and Start fresh; closed
+  with B, no game started), E5.
+- The Thor's app data was put back from the backup after (md5s match) and the Thor slept.

@@ -589,15 +589,6 @@ class LibraryDb private constructor(context: Context) :
         writableDatabase.delete("collections", "id = ?", arrayOf(id.toString()))
     }
 
-    /** The library game played last, for Continue; null before anything has been played. */
-    fun lastPlayed(): LibraryGame? =
-        readableDatabase.rawQuery(
-            "SELECT g.id, g.title, g.md5, a.kind FROM games g LEFT JOIN box_art a ON a.game_id = g.id" +
-                " WHERE g.last_played_at IS NOT NULL AND EXISTS (SELECT 1 FROM files f WHERE f.game_id = g.id)" +
-                " ORDER BY g.last_played_at DESC LIMIT 1",
-            null,
-        ).use { c -> if (c.moveToFirst()) LibraryGame(c.getLong(0), c.getString(1), c.getString(2), ArtKind.of(c.getString(3))) else null }
-
     /** The library game with a file whose [nameOf] (its save name) is [saveName]: whose recovery state it is. */
     /** The newest file name (of a game) whose [nameOf] is [key], or null. */
     fun fileNameWith(key: String, nameOf: (String) -> String): String? =

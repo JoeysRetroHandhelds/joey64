@@ -36,9 +36,9 @@ import com.joeysretro.joey64.R
 import com.joeysretro.joey64.launcher.theme.JoeyTheme
 
 /** A place the rail leads to. Only the ones that are built are shown. */
+// Continue (the last game from its auto slot) was the first place until 2026-11-11: Joey removed it ("remove the play
+// icon"), it read as the way to the library and started Mario Kart 64 instead. The library's Continue on Play stays.
 enum class RailPlace(@DrawableRes val icon: Int, val label: String) {
-    /** Not a page: starts the last game from its auto slot. Shown once there's one to continue. */
-    Continue(R.drawable.ic_rail_continue, "Continue"),
     Library(R.drawable.ic_rail_library, "Library"),
     Search(R.drawable.ic_rail_search, "Search"),
     /** Every open Netplay room (approved netplay6 mockup 2026-11-10, Joey: "home screen, lobbies icon on the left"). */
@@ -74,13 +74,12 @@ fun RailLayout(modifier: Modifier = Modifier,
 
 /**
  * The slim left rail (approved library design, 2026-11-04): the J64 logo at the top, then the
- * places, Settings pinned at the bottom. Continue only once there's a game to continue
- * ([showContinue]); Achievements while signed in ([showAchievements]). Its places are focus stops (left from the library's first column, or a tap); A
+ * places, Settings pinned at the bottom. Achievements while signed in ([showAchievements]). Its places are focus stops (left from the library's first column, or a tap); A
  * opens one. [open] (the focus is on it, or the J64 logo was tapped): it widens over the dimmed page with the JOEY64
  * wordmark and each place's name (that design, built 2026-11-11: review sheet L10). [onLogo]: a tap on the J64 logo.
  */
 @Composable
-fun LauncherRail(selected: RailPlace, modifier: Modifier = Modifier, enabled: Boolean = true, showContinue: Boolean = false, showAchievements: Boolean = false,
+fun LauncherRail(selected: RailPlace, modifier: Modifier = Modifier, enabled: Boolean = true, showAchievements: Boolean = false,
                  /** Along the bottom (portrait): the same items left to right, Settings at the right end. */
                  horizontal: Boolean = false, open: Boolean = false, onLogo: () -> Unit = {},
                  onFocused: (Boolean) -> Unit = {}, onSelect: (RailPlace) -> Unit = {}) {
@@ -99,7 +98,6 @@ fun LauncherRail(selected: RailPlace, modifier: Modifier = Modifier, enabled: Bo
         ) {
             Image(painterResource(R.drawable.rail_logo), contentDescription = "Joey64", modifier = Modifier.padding(end = 10.dp).size(30.dp))
             for (place in RailPlace.entries) {
-                if (place == RailPlace.Continue && !showContinue) continue
                 if (place == RailPlace.Achievements && !showAchievements) continue
                 if (place == RailPlace.Settings) Spacer(Modifier.weight(1f))
                 RailItem(place, place == selected, enabled, false, Modifier.width(48.dp)) { onSelect(place) }
@@ -135,7 +133,6 @@ fun LauncherRail(selected: RailPlace, modifier: Modifier = Modifier, enabled: Bo
         }
         Spacer(Modifier.height(2.dp))
         for (place in RailPlace.entries) {
-            if (place == RailPlace.Continue && !showContinue) continue
             if (place == RailPlace.Achievements && !showAchievements) continue
             if (place == RailPlace.Settings) Spacer(Modifier.weight(1f))
             RailItem(place, place == selected, enabled, width > 120.dp, Modifier.fillMaxWidth()) { onSelect(place) }

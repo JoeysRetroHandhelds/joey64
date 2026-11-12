@@ -235,12 +235,11 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             val railFocus = androidx.compose.ui.platform.LocalFocusManager.current
             com.joeysretro.joey64.launcher.components.RailLayout(Modifier.weight(1f).fillMaxWidth(), open = railOpen,
                 onClose = { railTapped = false; if (onRail) railFocus.moveFocus(androidx.compose.ui.focus.FocusDirection.Right) }, rail = { horizontal ->
-                val continueGame by model.continueGame.collectAsStateWithLifecycle()
-                LauncherRail(if (home) place else RailPlace.Library, enabled = home, showContinue = home && continueGame != null,
+                LauncherRail(if (home) place else RailPlace.Library, enabled = home,
                     showAchievements = home && raAccount != null, horizontal = horizontal, open = railOpen && !horizontal,
                     onLogo = { if (home) railTapped = !railTapped }, onFocused = { onRail = it }) {
                     railTapped = false
-                    if (it == RailPlace.Continue) model.continuePlaying { intent -> context.startActivity(intent) } else place = it
+                    place = it
                 }
             }) {
                     Box(Modifier.fillMaxSize()) {

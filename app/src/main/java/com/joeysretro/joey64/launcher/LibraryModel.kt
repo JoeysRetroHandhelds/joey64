@@ -403,23 +403,16 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
 
     // ---- Continue and the recovery state (plan, Phase 3) ---------------------------------------------
 
-    private val _continueGame = MutableStateFlow<LibraryGame?>(null)
-    /** The game Continue starts from its auto slot: the one played last, once it has one. Null hides Continue. */
-    val continueGame: StateFlow<LibraryGame?> = _continueGame
-
     /** A recovery state left by a game that didn't quit cleanly, and how long before the close it was written. */
     data class RecoveryOffer(val game: LibraryGame, val minutesBefore: Int)
     private val _recovery = MutableStateFlow<RecoveryOffer?>(null)
     /** "Joey64 closed while you were playing" (approved problem screen, 2026-11-05). */
     val recovery: StateFlow<RecoveryOffer?> = _recovery
 
-    /** Looks again for Continue's game and a recovery state; each time the launcher comes to the front. */
+    /** Looks again for a recovery state; each time the launcher comes to the front. */
     private fun checkStates() {
         viewModelScope.launch(Dispatchers.IO) {
             val app = getApplication<Application>()
-            _continueGame.value = db.lastPlayed()?.takeIf { g ->
-                launcher.saveNameFor(g)?.let { GameStates(app, it).exists(StateSlots.AUTO) } == true
-            }
             if (com.joeysretro.joey64.MainActivity.gameRunning) return@launch
             val r = GameStates.Recovery.find(app) ?: run { _recovery.value = null; return@launch }
             val game = db.gameWithFile(r.saveName, GameStates::saveNameOf)
@@ -487,12 +480,6 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
         _askContinue.value = null
         if (carryOn == null) return
         play(ask.game, if (carryOn) com.joeysretro.joey64.MainActivity.STATE_AUTO else null, start)
-    }
-
-    /** Continue: the last game, from its auto slot. */
-    fun continuePlaying(start: (Intent) -> Unit) {
-        val g = _continueGame.value ?: return
-        play(g, com.joeysretro.joey64.MainActivity.STATE_AUTO, start)
     }
 
     // ---- reports (approved reports mockup, version A, Joey 2026-11-08) ---------------------------------

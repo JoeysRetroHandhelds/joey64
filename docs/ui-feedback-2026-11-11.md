@@ -34,11 +34,11 @@ Controls, then Settings tabs, then popups.
 
 ## B. Flashes (find each cause on a device, then fix)
 
-- [ ] B1 Game settings: selecting Video (or any tab) flashes the rail's Continue icon.
-- [ ] B2 Game options › Cheats and › Achievements: something flashes.
-- [ ] B3 GPU driver popup: a screen flashes as it opens.
-- [ ] B4 Settings › Saves to Library tab: a border flashes around Library.
-- [ ] B5 In-game stats overlay: switching layouts visibly grows and shrinks it (no size animation).
+- [x] B1 (built db2aa53, Thor-checked) Game settings: selecting Video (or any tab) flashes the rail's Continue icon.
+- [x] B2 (built db2aa53 + c77e7ce, Thor-checked; badge icons still come in a frame after the list) Game options › Cheats and › Achievements: something flashes.
+- [x] B3 (built db2aa53 + c77e7ce, Thor-checked) GPU driver popup: a screen flashes as it opens.
+- [x] B4 (built a21382d, Thor-checked) Settings › Saves to Library tab: a border flashes around Library.
+- [x] B5 (built 1f08603, Thor-checked) In-game stats overlay: switching layouts visibly grows and shrinks it (no size animation).
 - [x] B6 (eb71e7c) Started from JoeyOS (Mario Kart 64), the Android nav bar shows while the game loads. Cause: MainActivity
       hides the bars only in `onWindowFocusChanged`, which comes after loading starts; from Joey64's own
       library the bars are already hidden. Fix: hide them in `onCreate` too, before the window shows.
@@ -152,4 +152,23 @@ Second round (00:38-00:48 CST, APK 30a2498f):
   above the first column). Mario Kart 64's "Where you quit" picture (20:41) is a black frame; its log was rotated out,
   and trying again means quitting Mario Kart over Joey's quit save, so it's left.
 
-Still not device-checked: A1, A2, A9, D3 (first run), D4 Send now, D5, E3, the TV paths, the B flashes, C5.
+Still not device-checked: A1, A2, A9, D3 (first run), D4 Send now, D5, E3, the TV paths, C5.
+
+Third round (00:55-01:25 CST, APKs b4-fe7358fa to b5b-7bfb63d3, screen recordings read frame by frame):
+
+- B4: Saves to Library by D-pad and by tap: no frame without the settings (the tab started from defaults, then drew
+  the saved ones a frame later). The settings store keeps the last read settings and Library and the launcher start
+  from them (a21382d).
+- B1: Video in Game settings: no Library ring on the bar on A or on B back; the page's first-row landing is armed with
+  the view change, not a frame after it. Options › Game settings no longer shows the bare library for a frame: the
+  options popup stays until the page is there (db2aa53).
+- B2: Cheats and Achievements: no bare library. Cause: the popup closed before the page's data reached Compose (a
+  frame late), and a popup's own window lets the one under it draw 1-2 frames (27 ms on the Thor) later. Popup windows
+  now hold 80 ms as they close, fading at the end (JoeyPopupWindow, c77e7ce): a plain close takes about 90 ms.
+- B3: the driver popup: the old build showed 4 frames of bare page; none now. Seen: while one popup swaps to another the
+  two dims stack for the hold (background 11 against 19) and ease back. One shared popup window that changes its
+  contents would end that; not built (it touches every popup).
+- B5: each stats hotkey step (Off, Simple, Full, Custom) shows its final layout in the first frame, the CPU row
+  included: the overlay measures every tick even while hidden, and draws once with the new mode before it shows (1f08603).
+- Test leftovers put back: F-Zero X's two test plays out of the library database (last played, play time, sessions 34),
+  its .srm and two report files; Settings › On screen › Stats back to Off; OoT's recovery state unchanged.

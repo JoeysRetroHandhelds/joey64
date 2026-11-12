@@ -304,7 +304,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             hotkeysOpen -> listOf(Hint("A", if (focused == "hkFastForward" || focused == "hkQuit") "Open" else "Change"), Hint("X", "Clear"),
                 Hint("Y", "Reset to default"), Hint("B", "Back"))
             focused.startsWith("chip") -> listOf(Hint("A", "Select"), Hint("L/R", "Player"), Hint("B", backLabel))
-            focused == "DeadZone" || (focused == "RumbleStrength" && !off) -> listOf(Hint("◀▶", "Adjust"), Hint("Y", if (target == null) "Reset to default" else "Use All games"),
+            focused == "DeadZone" || (focused == "RumbleStrength" && !off) -> listOf(Hint("◀▶", "Change"), Hint("Y", if (target == null) "Reset to default" else "Use All games"),
                 Hint("L/R", "Player"), Hint("B", backLabel))
             focused == "Controller" -> listOf(Hint("A", "Change"), Hint("L/R", "Player"), Hint("B", backLabel))
             // Pak and Rumble on: nothing for X to clear (approved paks mockup screen 1's hints).
@@ -550,7 +550,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
         }
         is Popup.GbFolders -> GameBoyFoldersPopup { popup = if (p.games) Popup.GbGame else Popup.GbSave }
         Popup.Games -> GamesForPopup("Controls for", "A game's own controls are used instead of All games when it starts.", target,
-            gamesWithOwn = { editor.gamesWithOwn() }, changeCount = { editor.changeCount(it) }, removeLabel = "Remove the game's controls",
+            gamesWithOwn = { editor.gamesWithOwn() }, changeCount = { editor.changeCount(it) }, what = "controls",
             onDismiss = close, onPick = { save, title -> target = save; targetTitle = title; close() },
             onPickGame = { popup = Popup.PickGame }, onRemoved = { save -> edit { editor.removeGame(save) } })
         Popup.PickGame -> PickGamePopup("Its controls start as a copy of All games.", { popup = Popup.Games }) { save, title -> target = save; targetTitle = title; close() }
@@ -591,7 +591,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             }
         }
         Popup.TouchGames -> GamesForPopup("Touch controls for", "A game's own touch controls are used instead of All games when it starts.", target,
-            gamesWithOwn = { touchStore.gamesWithOwn() }, changeCount = { touchStore.changeCount(it) }, removeLabel = "Remove the game's touch controls",
+            gamesWithOwn = { touchStore.gamesWithOwn() }, changeCount = { touchStore.changeCount(it) }, what = "touch controls",
             onDismiss = close, onPick = { save, title -> target = save; targetTitle = title; close() },
             onPickGame = { popup = Popup.TouchPickGame }, onRemoved = { save -> touchStore.removeGame(save); touchVer++ })
         Popup.TouchPickGame -> PickGamePopup("Its touch controls start as a copy of All games.", { popup = Popup.TouchGames }) { save, title ->
@@ -880,7 +880,7 @@ private fun FastForwardPopup(editor: ControlsEditor, version: Int, startRow: Str
     val buttonName = hotkeyValue(h, HotkeyAction.FastForward)
     JoeyDialog(onDismiss = onDismiss, width = 400.dp,
         hints = when (row) {
-            "speed" -> listOf(Hint("◀▶", "Speed"), Hint("B", "Close"))
+            "speed" -> listOf(Hint("◀▶", "Change"), Hint("B", "Close"))
             "button" -> listOf(Hint("A", "Change"), Hint("X", "Clear"), Hint("B", "Close"))
             else -> listOf(Hint("A", "Select"), Hint("B", "Close"))
         },
@@ -900,7 +900,7 @@ private fun FastForwardPopup(editor: ControlsEditor, version: Int, startRow: Str
                     onSet(h.copy(ffSpeed = Hotkeys.FF_SPEEDS[i.coerceIn(0, Hotkeys.FF_SPEEDS.lastIndex)]))
                 }
                 true
-            }, value = if (row == "speed") "◀ ${h.ffSpeed}% ▶" else "${h.ffSpeed}%", sideways = true, onFocused = { if (it) row = "speed" })
+            }, value = "◀ ${h.ffSpeed}% ▶", sideways = true, onFocused = { if (it) row = "speed" })
             if (h.ffMode == FastForwardMode.Adaptive && button != null && !Hotkeys.hasPressure(button))
                 PopupInfoNote("${hotkeyKey(button)} can't sense how hard it's pressed, so Adaptive works like Hold.")
             if (row == "alone") TakenFromPlayer1(h, HotkeyAction.FastForward, player1)
@@ -930,7 +930,7 @@ private fun SlowMotionPopup(editor: ControlsEditor, version: Int, startRow: Stri
     var row by remember { mutableStateOf(startRow) }
     val a = HotkeyAction.SlowMotion
     JoeyDialog(onDismiss = onDismiss, width = 400.dp,
-        hints = buttonHints(row, if (row == "speed") listOf(Hint("◀▶", "Speed"), Hint("B", "Close")) else emptyList()),
+        hints = buttonHints(row, if (row == "speed") listOf(Hint("◀▶", "Change"), Hint("B", "Close")) else emptyList()),
         onPadButton = { code -> if (code == KeyEvent.KEYCODE_BUTTON_X && row == "button") onSet(h.withKey(a, null)) }) {
         Column {
             PopupTitle("Slow motion", "Slows the game down while you need it.")
@@ -946,7 +946,7 @@ private fun SlowMotionPopup(editor: ControlsEditor, version: Int, startRow: Stri
                     onSet(h.copy(slowSpeed = Hotkeys.SLOW_SPEEDS[i.coerceIn(0, Hotkeys.SLOW_SPEEDS.lastIndex)]))
                 }
                 true
-            }, value = if (row == "speed") "◀ ${h.slowSpeed}% ▶" else "${h.slowSpeed}%", sideways = true, onFocused = { if (it) row = "speed" })
+            }, value = "◀ ${h.slowSpeed}% ▶", sideways = true, onFocused = { if (it) row = "speed" })
             if (row == "alone") TakenFromPlayer1(h, a, player1)
             Spacer(Modifier.height(6.dp))
             when (row) {
@@ -1035,7 +1035,7 @@ private fun Tick() {
 
 @Composable
 internal fun ChoicePopup(title: String, subtitle: String?, choices: List<Choice>, onDismiss: () -> Unit, onPick: (Int) -> Unit) {
-    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Back")), width = 470.dp) {
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 470.dp) {
         Column {
             PopupTitle(title, subtitle)
             choices.forEachIndexed { i, ch ->
@@ -1060,7 +1060,7 @@ private fun ControllerPopup(player: Int, devices: List<DeviceChoice>, pads: List
         // Controllers players have that aren't connected now.
         for (d in devices) if (d is DeviceChoice.Pad && none { it.first == d }) add(Triple(d as DeviceChoice, null, "Not connected"))
     }
-    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Back")), width = 470.dp) {
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 470.dp) {
         Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
             PopupTitle("Player ${player + 1} controller", "The buttons and sticks Player ${player + 1} plays with.")
             for ((choice, d, detail) in entries) {

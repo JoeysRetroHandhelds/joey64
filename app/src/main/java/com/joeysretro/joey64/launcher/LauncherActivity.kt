@@ -207,6 +207,8 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             var place by remember { mutableStateOf(RailPlace.Library) }
             var settingsHints by remember { mutableStateOf(listOf(Hint("B", "Back"))) }
             var onRail by remember { mutableStateOf(false) }
+            // The rail opened by a tap on its logo (review sheet L10); a tap outside or a pick closes it.
+            var railTapped by remember { mutableStateOf(false) }
             // Settings › Saves › Import from RetroArch: the first-run import pages again, then back to that tab.
             var importAgain by remember { mutableStateOf(false) }
             var settingsTab by remember { mutableStateOf(com.joeysretro.joey64.launcher.screens.SettingsTab.entries.first()) }
@@ -227,10 +229,15 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             }
             if (home) UpdateChecks(updates)
             // The rail on the left, or a bar along the bottom in portrait.
-            com.joeysretro.joey64.launcher.components.RailLayout(Modifier.weight(1f).fillMaxWidth(), rail = { horizontal ->
+            val railOpen = home && (onRail || railTapped)
+            val railFocus = androidx.compose.ui.platform.LocalFocusManager.current
+            com.joeysretro.joey64.launcher.components.RailLayout(Modifier.weight(1f).fillMaxWidth(), open = railOpen,
+                onClose = { railTapped = false; if (onRail) railFocus.moveFocus(androidx.compose.ui.focus.FocusDirection.Right) }, rail = { horizontal ->
                 val continueGame by model.continueGame.collectAsStateWithLifecycle()
                 LauncherRail(if (home) place else RailPlace.Library, enabled = home, showContinue = home && continueGame != null,
-                    showAchievements = home && raAccount != null, horizontal = horizontal, onFocused = { onRail = it }) {
+                    showAchievements = home && raAccount != null, horizontal = horizontal, open = railOpen && !horizontal,
+                    onLogo = { if (home) railTapped = !railTapped }, onFocused = { onRail = it }) {
+                    railTapped = false
                     if (it == RailPlace.Continue) model.continuePlaying { intent -> context.startActivity(intent) } else place = it
                 }
             }) {

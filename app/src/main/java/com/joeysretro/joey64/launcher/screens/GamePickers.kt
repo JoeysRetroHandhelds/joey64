@@ -39,8 +39,8 @@ import kotlinx.coroutines.withContext
 
 /**
  * "<What> for" (approved Controls mockup 8, also Settings › Video): All games, the games with
- * their own settings (X removes them), and Pick a game. One popup for every page with per-game
- * settings; [what] names them ("Controls", "Video").
+ * their own settings (X removes them, after asking: review sheet M28), and Pick a game. One popup
+ * for every page with per-game settings; [what] names them in the question ("audio", "touch controls").
  */
 @Composable
 fun GamesForPopup(
@@ -49,7 +49,8 @@ fun GamesForPopup(
     target: String?,
     gamesWithOwn: () -> List<String>,
     changeCount: (String) -> Int,
-    removeLabel: String,
+    /** What X removes, for its question: "Remove the game's [what] settings?" ("audio", "touch controls"). */
+    what: String,
     onDismiss: () -> Unit,
     onPick: (String?, String?) -> Unit,
     onPickGame: () -> Unit,
@@ -74,15 +75,14 @@ fun GamesForPopup(
     }
     val chosen = { g: String -> g == target || (target != null && g == com.joeysretro.joey64.controls.ControlsStore.safe(target)) }
     var focusedGame by remember { mutableStateOf<String?>(null) }
+    // X asks first (review sheet M28, approved 2026-11-11): it took all of a game's own settings at once, no undo.
+    var asking by remember { mutableStateOf<String?>(null) }
     JoeyDialog(onDismiss = onDismiss, width = 470.dp,
-        hints = if (focusedGame != null) listOf(Hint("A", "Select"), Hint("X", removeLabel), Hint("B", "Back"))
-            else listOf(Hint("A", "Select"), Hint("B", "Back")),
+        hints = if (focusedGame != null) listOf(Hint("A", "Select"), Hint("X", "Remove"), Hint("B", "Close"))
+            else listOf(Hint("A", "Select"), Hint("B", "Close")),
         onPadButton = { code ->
             val g = focusedGame
-            if (code == KeyEvent.KEYCODE_BUTTON_X && g != null) {
-                onRemoved(g); games = gamesWithOwn(); focusedGame = null
-                if (chosen(g)) onPick(null, null)
-            }
+            if (code == KeyEvent.KEYCODE_BUTTON_X && g != null) asking = g
         }) {
         Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
             PopupTitle(title, subtitle)
@@ -100,6 +100,17 @@ fun GamesForPopup(
             JoeyRow("Pick a game", value = "›") { onPickGame() }
         }
     }
+    asking?.let { g ->
+        val own = info[g]
+        val n = own?.changes ?: 0
+        ResetTabPopup("Remove the game's $what settings?",
+            "${own?.title ?: g}'s " + (if (n == 1) "1 change goes" else "$n changes go") + ", and it uses All games' again.",
+            keep = "Keep them", reset = "Remove", onDismiss = { asking = null }) {
+            asking = null
+            onRemoved(g); games = gamesWithOwn(); focusedGame = null
+            if (chosen(g)) onPick(null, null)
+        }
+    }
 }
 
 /** Pick a game: the library; its settings start as All games' (on the first change). [exclude]: a game's title left out (Copy's own game). */
@@ -115,7 +126,7 @@ fun PickGamePopup(subtitle: String, onDismiss: () -> Unit, exclude: String? = nu
     LaunchedEffect(Unit) {
         games = withContext(Dispatchers.IO) { try { LibraryDb.get(context).libraryGames().filter { it.title != exclude } } catch (e: Exception) { JLog.e(TAG, "library: $e"); emptyList() } }
     }
-    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Back")), width = 470.dp) {
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 470.dp) {
         Column {
             PopupTitle("Pick a game", subtitle)
             cantRead?.let { PopupNote("$it: its ROMs folder can't be reached") }

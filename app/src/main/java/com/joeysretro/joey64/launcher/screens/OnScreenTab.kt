@@ -129,13 +129,13 @@ fun OnScreenTab(onHints: (List<Hint>) -> Unit, onControl: (((Control) -> Boolean
     }
 
     when (popup) {
-        "stats" -> ChoiceList("Stats", StatsMode.entries.map { Triple(it.label, it.detail, it == o.stats) }, { popup = null }) {
+        "stats" -> ChoiceList("Stats", StatsMode.entries.map { Triple(it.label, it.detail, it == o.stats) }, { popup = null }, sub = describe("stats").second) {
             set(o.copy(stats = StatsMode.entries[it])); popup = null
         }
-        "layout" -> ChoiceList("Layout", StatsLayout.entries.map { Triple(it.label, it.detail, it == o.layout) }, { popup = null }) {
+        "layout" -> ChoiceList("Layout", StatsLayout.entries.map { Triple(it.label, it.detail, it == o.layout) }, { popup = null }, sub = describe("layout").second) {
             set(o.copy(layout = StatsLayout.entries[it])); popup = null
         }
-        "pos" -> ChoiceList("Position", StatsCorner.entries.map { Triple(it.label, null, it == o.corner) }, { popup = null }) {
+        "pos" -> ChoiceList("Position", StatsCorner.entries.map { Triple(it.label, null, it == o.corner) }, { popup = null }, sub = describe("pos").second) {
             set(o.copy(corner = StatsCorner.entries[it])); popup = null
         }
         "what" -> LinesPopup(o.custom, { popup = null }) { line ->

@@ -60,7 +60,7 @@ import com.joeysretro.joey64.video.VideoStore
  * cut it (display_opts.h cropOf), so it works on both renderers, paused too.
  */
 
-private val HINTS = listOf(Hint("A", "Pick"), Hint("◀▶", "Exact"), Hint("B", "Done"))
+private val HINTS = listOf(Hint("A", "Pick"), Hint("◀▶", "Change"), Hint("B", "Close"))
 
 /** The line under the popup: for the focused choice, or Exact ([n] null). */
 private fun cropText(n: Int?): Pair<String, String> = when (n) {

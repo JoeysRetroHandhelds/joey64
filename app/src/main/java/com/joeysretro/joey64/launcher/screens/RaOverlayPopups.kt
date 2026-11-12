@@ -204,7 +204,7 @@ internal fun RaOverlayPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
             if (!(f is OvRow.Overlay && f.touch))
                 add(Hint("A", when (f) { OvRow.Pick -> "Pick a folder"; OvRow.Match, OvRow.Other -> "Change"; else -> "Use" }))
             if (sections.size > 1) add(Hint("L1/R1", "Folder up, down"))
-            add(Hint("B", "Back"))
+            add(Hint("B", "Close"))
         },
         onPadButton = { code ->
             when (code) {

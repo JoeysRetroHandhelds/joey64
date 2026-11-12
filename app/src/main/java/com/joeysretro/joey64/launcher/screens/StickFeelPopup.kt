@@ -104,7 +104,7 @@ fun StickFeelPopup(player: Int, setup: PlayerSetup, changed: Set<String>, allGam
     var axes by remember { mutableStateOf(FloatArray(4)) }
     val y = Hint("Y", if (allGames == null) "Reset to default" else "Use All games")
     JoeyDialog(onDismiss = onDismiss, width = 700.dp,
-        hints = listOf(if (row in STEP_ROWS) Hint("◀▶", "Change") else Hint("A", "Change"), y, Hint("B", "Back")),
+        hints = listOf(if (row in STEP_ROWS) Hint("◀▶", "Change") else Hint("A", "Change"), y, Hint("B", "Close")),
         onPadButton = { code -> if (code == KeyEvent.KEYCODE_BUTTON_Y) onReset(row) }) {
         Column {
             StickWatch { axes = it } // the dialog's own window

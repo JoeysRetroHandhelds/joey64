@@ -172,7 +172,7 @@ private fun ClashPopup(clash: RaClash, index: Int, total: Int, onCancel: () -> U
     val h24 = DateFormat.is24HourFormat(context)
     val theirsNewer = clash.file.modified > clash.ours.modified
     val oursNewer = clash.ours.modified > clash.file.modified
-    JoeyDialog(onDismiss = onCancel, hints = listOf(Hint("A", "Select"), Hint("B", "Back")), width = 440.dp) {
+    JoeyDialog(onDismiss = onCancel, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 440.dp) {
         Column {
             PopupTitle(ImportText.clashTitle(kind, clash.file.name), ImportText.clashQuestion(kind, index + 1, total))
             JoeyOption(ImportText.keepOurs(kind), modifier = Modifier.initialFocus(),

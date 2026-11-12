@@ -32,6 +32,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusDirection
@@ -191,6 +193,17 @@ fun JoeyDialog(
 
         val landing = remember { FocusLanding() }
         val body = remember { FocusRequester() }
+        // A long press on a row: its key-only actions, run as this popup's own keys run them (review sheet M30).
+        val latestHints by rememberUpdatedState(hints)
+        val latestPad by rememberUpdatedState(onPadButton)
+        val latestOptions by rememberUpdatedState(onOptions)
+        val rowActions = rememberRowActionsHost({ latestHints }) { key ->
+            when (key) {
+                "Start" -> latestOptions?.invoke()
+                "X" -> latestPad?.invoke(KeyEvent.KEYCODE_BUTTON_X)
+                "Y" -> latestPad?.invoke(KeyEvent.KEYCODE_BUTTON_Y)
+            }
+        }
         var aDownTime by remember { mutableLongStateOf(-1L) }
         val c = JoeyTheme.colors
         val s = JoeyTheme.spacing
@@ -257,7 +270,7 @@ fun JoeyDialog(
                                         view.dispatchKeyEvent(com.joeysretro.joey64.launcher.layout.RemoteKeys.synth(KeyEvent.ACTION_DOWN))
                                         view.dispatchKeyEvent(com.joeysretro.joey64.launcher.layout.RemoteKeys.synth(KeyEvent.ACTION_UP))
                                     }
-                                }, hold = { onOptions?.invoke() })) return@onPreviewKeyEvent true
+                                }, hold = { if (!RowActions.holdOk(rowActions)) onOptions?.invoke() })) return@onPreviewKeyEvent true
                             when (native.keyCode) {
                                 KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_BUTTON_SELECT -> {
                                     if (native.action == KeyEvent.ACTION_DOWN && native.repeatCount == 0) aDownTime = native.downTime
@@ -300,7 +313,8 @@ fun JoeyDialog(
                             }
                         },
                 ) {
-                    CompositionLocalProvider(LocalDialogBack provides backRegistry, LocalFocusLanding provides landing) {
+                    CompositionLocalProvider(LocalDialogBack provides backRegistry, LocalFocusLanding provides landing, LocalRowActions provides rowActions,
+                        LocalPopupBack provides (if (fullScreen && !bare) ({ requestClose() }) else null)) {
                         content()
                     }
                 }
@@ -314,6 +328,27 @@ fun JoeyDialog(
         LaunchedEffect(Unit) {
             if (landing.pending) body.requestFocus(FocusDirection.Enter)
         }
+    }
+}
+
+/**
+ * A full-screen popup's way back by touch (review sheet L2, approved 2026-11-11): it fills the screen, so there's no
+ * outside to tap. [PageHeader] draws [PopupBackButton] before the title when this is set; a full-screen popup without
+ * a title (the screenshot viewer, Place the game) draws it in its top-left corner. A tap does what B does.
+ */
+val LocalPopupBack = androidx.compose.runtime.compositionLocalOf<(() -> Unit)?> { null }
+
+/** The ‹ before a full-screen popup's title: a 30 dp round chip, touch only (B is the key). Nothing outside one. */
+@Composable
+fun PopupBackButton(modifier: Modifier = Modifier) {
+    val back = LocalPopupBack.current ?: return
+    val c = JoeyTheme.colors
+    Box(modifier.size(30.dp).background(c.chip, androidx.compose.foundation.shape.CircleShape)
+        .focusProperties { canFocus = false }
+        .clickable(onClickLabel = "Back") { back() }
+        .semantics { contentDescription = "Back" },
+        contentAlignment = Alignment.Center) {
+        Text("‹", style = JoeyTheme.type.heading, color = c.text)
     }
 }
 

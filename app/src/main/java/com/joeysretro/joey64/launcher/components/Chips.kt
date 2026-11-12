@@ -138,6 +138,8 @@ fun PageHeader(title: String, sub: String? = null, chips: @Composable androidx.c
     val c = JoeyTheme.colors
     val below = com.joeysretro.joey64.launcher.layout.LocalScreenLayout.current.widthDp < 520f
     Row(verticalAlignment = Alignment.CenterVertically) {
+        // In a full-screen popup: ‹ back before the title (review sheet L2); nothing on a page with the rail.
+        if (LocalPopupBack.current != null) PopupBackButton(Modifier.padding(end = 10.dp))
         Text(title, style = JoeyTheme.type.pageTitle, color = c.text, maxLines = 1, softWrap = false,
             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(end = if (sub == null) 12.dp else 8.dp)
                 .semantics { heading() })

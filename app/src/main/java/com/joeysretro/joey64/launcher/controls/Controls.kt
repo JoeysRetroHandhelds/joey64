@@ -137,7 +137,10 @@ class KeyNormaliser(private val tv: () -> Boolean = { false }, private val super
         if (isTv && okHold.handle(event, click = {
                 superDispatch(com.joeysretro.joey64.launcher.layout.RemoteKeys.synth(KeyEvent.ACTION_DOWN))
                 superDispatch(com.joeysretro.joey64.launcher.layout.RemoteKeys.synth(KeyEvent.ACTION_UP))
-            }, hold = { ControlBus.dispatch(Control.Options) })) return true
+            }, hold = {
+                // The focused row's key-only actions when it has more than Start (review sheet M30), else Start.
+                if (!com.joeysretro.joey64.launcher.components.RowActions.holdOnPage()) ControlBus.dispatch(Control.Options)
+            })) return true
         Controls.translate(event.keyCode)?.let { keyCode ->
             if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER) {
                 if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) centerDownTime = event.downTime

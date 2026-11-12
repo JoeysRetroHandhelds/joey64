@@ -151,9 +151,9 @@ internal fun SlangPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
     JoeyDialog(onDismiss = { onPage(PicPage.Shader) }, width = 760.dp,
         hints = buildList {
             if (f is SlRow.Pick) add(Hint("A", "Pick a folder")) else add(Hint("A", "Use"))
-            if (fv != null) add(Hint("X", "Settings"))
+            if (fv != null) add(Hint("X", "Adjust")) // as the shader list (review sheet L5; was "Settings")
             if (sections.size > 1) add(Hint("L1/R1", "Folder up, down"))
-            add(Hint("B", "Back"))
+            add(Hint("B", "Close"))
         },
         onPadButton = { code ->
             when (code) {
@@ -243,8 +243,15 @@ internal fun SlangAdjustPopup(ctx: PictureCtx, value: String, onDone: () -> Unit
     val changed = Slang.paramsOf(ctx.v[VideoKey.SlangParams])
     var row by remember { mutableIntStateOf(0) }
     val params = loaded?.first
-    JoeyDialog(onDismiss = onDone, width = 760.dp, hints = listOf(Hint("◀▶", "Change"), Hint("X", "Reset all"), Hint("B", "Done")),
-        onPadButton = { code -> if (code == KeyEvent.KEYCODE_BUTTON_X) ctx.set(VideoKey.SlangParams, "") }) {
+    // Y the focused setting, Start all of them (review sheet L5; X reset all).
+    JoeyDialog(onDismiss = onDone, width = 760.dp,
+        hints = listOf(Hint("◀▶", "Change"), Hint("Y", "Reset to default"), Hint("Start", "Reset all"), Hint("B", "Close")),
+        onOptions = { ctx.set(VideoKey.SlangParams, "") },
+        onPadButton = { code ->
+            if (code == KeyEvent.KEYCODE_BUTTON_Y) loaded?.first?.getOrNull(row)?.let { p ->
+                ctx.set(VideoKey.SlangParams, Slang.paramsString(changed - p.name))
+            }
+        }) {
         Column {
             PopupTitle(Slang.name(value), "${ctx.who} · Adjust" + (params?.let { " · ${it.size} settings" } ?: ""))
             Row(Modifier.weight(1f, fill = false), verticalAlignment = Alignment.Top) {
@@ -268,7 +275,7 @@ internal fun SlangAdjustPopup(ctx: PictureCtx, value: String, onDone: () -> Unit
                                         ctx.set(VideoKey.SlangParams, Slang.paramsString(m))
                                     }
                                     true
-                                }, value = if (row == i) "◀ $text ▶" else text, sideways = true, dot = p.name in changed,
+                                }, value = "◀ $text ▶", sideways = true, dot = p.name in changed,
                                     onFocused = { if (it) row = i })
                             }
                         }

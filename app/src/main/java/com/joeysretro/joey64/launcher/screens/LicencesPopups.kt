@@ -140,7 +140,7 @@ fun ossText(context: Context, entry: OssEntry): String = entry.files.joinToStrin
 @Composable
 fun OssListPopup(onDismiss: () -> Unit) {
     var reading by remember { mutableStateOf<OssEntry?>(null) }
-    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Read licence"), Hint("D-pad", "Move"), Hint("B", "Back")), width = 600.dp) {
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Read licence"), Hint("D-pad", "Move"), Hint("B", "Close")), width = 600.dp) {
         Column {
             PopupTitle("Open-source licences", "Select one to read its licence text and copyright notice.")
             val groups = OSS_ENTRIES.groupBy { it.group }
@@ -174,7 +174,7 @@ fun TextBoxPopup(title: String, subtitle: String?, text: String, onDismiss: () -
     val scroll = rememberScrollState()
     val scope = rememberCoroutineScope()
     // L1 / R1 a page up or down (pad buttons reach a popup only through onPadButton).
-    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("D-pad", "Scroll"), Hint("B", "Back")), width = 620.dp,
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("D-pad", "Scroll"), Hint("B", "Close")), width = 620.dp,
         onPadButton = { k ->
             if (k == KeyEvent.KEYCODE_BUTTON_R1) scope.launch { scroll.animateScrollBy(600f) }
             if (k == KeyEvent.KEYCODE_BUTTON_L1) scope.launch { scroll.animateScrollBy(-600f) }

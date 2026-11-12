@@ -10,6 +10,9 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -98,10 +101,12 @@ private fun Note(text: String, x: Dp, y: Dp) = Centered(x, y, 200.dp) {
 private fun Pill(text: String, x: Dp, y: Dp, dashed: Boolean) {
     val c = JoeyTheme.colors
     val shape = RoundedCornerShape(50)
-    Centered(x, y, 118.dp) {
-        Box(Modifier.width(118.dp).height(30.dp).then(if (dashed) Modifier.border(1.dp, c.textDim, shape) else Modifier.background(c.chip, shape)),
+    // Grows with its words (review sheet L8, 2026-11-11): at least 118 x 30 dp, centred where it was.
+    Box(Modifier.offset(x - 118.dp / 2, y).width(118.dp).wrapContentWidth(Alignment.CenterHorizontally, unbounded = true)) {
+        Box(Modifier.widthIn(min = 118.dp).heightIn(min = 30.dp).then(if (dashed) Modifier.border(1.dp, c.textDim, shape) else Modifier.background(c.chip, shape))
+            .padding(horizontal = 12.dp, vertical = 4.dp),
             contentAlignment = Alignment.Center) {
-            Text(text, style = JoeyTheme.type.tab, color = c.text)
+            Text(text, style = JoeyTheme.type.tab, color = c.text, maxLines = 1, softWrap = false)
         }
     }
 }

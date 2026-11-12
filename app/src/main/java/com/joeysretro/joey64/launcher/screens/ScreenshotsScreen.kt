@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -137,13 +138,21 @@ fun ScreenshotsScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onClose: () -
             itemsIndexed(l, key = { _, it -> it.name }) { i, shot ->
                 val (source, isFocused) = rememberFocusState()
                 LaunchedEffect(isFocused) { if (isFocused) focused = i }
+                // A long press: Share and Delete, the popup Start opens (review sheet M30), on this tile.
+                val tileFocus = remember { FocusRequester() }
+                val inputMode = androidx.compose.ui.platform.LocalInputModeManager.current
                 val picture by produceState<ImageBitmap?>(null, shot.name) {
                     val read = withContext(Dispatchers.IO) { shots.picture(shot.name, 360)?.let { (b, wh) -> b.asImageBitmap() to wh } }
                     read?.let { (bmp, wh) -> sizes[shot.name] = wh; value = bmp }
                 }
                 Column(Modifier.padding(4.dp)) {
                     Box(Modifier.fillMaxWidth().aspectRatio(4f / 3f).initialFocus(i == at).coverSelection(isFocused, 6.dp)
-                        .clip(RoundedCornerShape(6.dp)).background(c.chip).pressable(source) { viewing = i }
+                        .clip(RoundedCornerShape(6.dp)).background(c.chip).focusRequester(tileFocus)
+                        .pressable(source, onLongClick = {
+                            inputMode.requestInputMode(androidx.compose.ui.input.InputMode.Keyboard)
+                            runCatching { tileFocus.requestFocus() }
+                            popup = ShotPopup.Options(shot)
+                        }) { viewing = i }
                         .semantics { contentDescription = "Screenshot, " + SlotDates.withTime(shot.takenAt, now) }) {
                         picture?.let { Image(it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
                     }
@@ -200,11 +209,14 @@ private fun ShotViewer(g: SavesGame, shots: GameScreenshots, shot: GameScreensho
     }
     val focus = remember { FocusRequester() }
     val move by rememberUpdatedState(onMove) // the swipe's handler outlives a recomposition
+    val options by rememberUpdatedState(onOptions)
     JoeyDialog(onDismiss = onClose, fullScreen = true, onOptions = onOptions,
         hints = listOf(Hint("◀ ▶", "Previous, next"), Hint("Start", "Share, delete"), Hint("B", "Back")),
         hintEnd = "${g.game.title.substringBefore(" (").ifBlank { g.game.title }} · ${SlotDates.withTime(shot.takenAt, now)} · ${index + 1} of $count") {
         Box(Modifier.fillMaxSize().background(Color.Black).focusRequester(focus).focusable()
             // Touch: a swipe moves to the next or previous picture (code audit 3, p8 L3; only the keys did).
+            // A long press: Share and Delete, as Start (review sheet M30).
+            .pointerInput(Unit) { detectTapGestures(onLongPress = { options() }) }
             .pointerInput(Unit) {
                 var dx = 0f
                 detectHorizontalDragGestures(onDragStart = { dx = 0f }, onDragCancel = { dx = 0f },
@@ -221,6 +233,7 @@ private fun ShotViewer(g: SavesGame, shots: GameScreenshots, shot: GameScreensho
                 d != 0
             }, contentAlignment = Alignment.Center) {
             picture?.let { Image(it, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize()) }
+            com.joeysretro.joey64.launcher.components.PopupBackButton(Modifier.align(Alignment.TopStart).padding(12.dp))
         }
     }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }

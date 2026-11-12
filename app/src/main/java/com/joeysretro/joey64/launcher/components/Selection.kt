@@ -22,7 +22,8 @@ import com.joeysretro.joey64.launcher.theme.JoeyTheme
  * The approved selection rules (light mode approved 2026-11-04), in one place so no screen draws
  * its own:
  *  - **Rows, options, tabs** (anything with text): dark mode fills #1A2448 with a 2 dp yellow
- *    outline inside the row; light mode fills yellow with navy text, no outline.
+ *    outline inside the row; light mode fills yellow with navy text and a 2 dp navy outline (review sheet M34,
+ *    2026-11-11: the yellow alone was hard to find on a white page).
  *  - **Covers and tiles**: a 3 dp yellow outline 2 dp outside the art and a slight scale; light
  *    mode adds a navy ring outside the yellow so it reads on a white page.
  */
@@ -33,7 +34,7 @@ fun Modifier.rowSelection(focused: Boolean, shape: RoundedCornerShape = RoundedC
     val c = JoeyTheme.colors
     if (!focused) return this
     return if (c.isDark) this.background(c.chip, shape).border(JoeyTheme.spacing.focusOutline, c.accent, shape)
-    else this.background(c.accent, shape)
+    else this.background(c.accent, shape).border(JoeyTheme.spacing.focusOutline, c.navy, shape)
 }
 
 /** Text colour on a row: navy on light mode's yellow fill, else [normal]. */

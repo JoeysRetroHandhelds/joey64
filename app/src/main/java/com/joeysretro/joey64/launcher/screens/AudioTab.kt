@@ -137,7 +137,7 @@ private fun title(k: AudioKey) = when (k) {
 private fun AudioChoicePopup(k: AudioKey, current: String, onDismiss: () -> Unit, onPick: (String) -> Unit) {
     JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 470.dp) {
         Column {
-            PopupTitle(title(k))
+            PopupTitle(title(k), describe(k).second) // the row's description (review sheet L9)
             for (ch in AudioChoices.of(k)) {
                 val on = ch.value == current
                 JoeyRow(ch.label, Modifier.initialFocus(on), detail = ch.detail, experimental = ch.experimental,

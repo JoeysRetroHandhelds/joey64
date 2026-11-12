@@ -440,7 +440,7 @@ private fun PlacePicker(
     badges: Boolean = false, onDismiss: () -> Unit, onPick: (PopupSpot) -> Unit,
 ) {
     var shown by remember { mutableStateOf(current) }
-    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Pick"), Hint("B", "Back")), width = 600.dp) {
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Pick"), Hint("B", "Close")), width = 600.dp) {
         Column {
             PopupTitle(title, subtitle)
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -487,7 +487,7 @@ private fun PopupSpot.alignment(): Alignment = when (this) {
 
 @Composable
 private fun StayPicker(current: Int, onDismiss: () -> Unit, onPick: (Int) -> Unit) {
-    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Pick"), Hint("B", "Back"))) {
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Pick"), Hint("B", "Close"))) {
         Column {
             PopupTitle("Pop-ups stay for", "Unlock and game-start pop-ups")
             for (s in RaOptions.STAY_SECONDS) {
@@ -523,7 +523,7 @@ private fun SoundPicker(current: UnlockSoundChoice, volume: Int, onDismiss: () -
         if (!opened) { opened = true; return }
         if (s != UnlockSoundChoice.Own || UnlockSound.ownFile(context).isFile) UnlockSound.play(context, s, volume) else UnlockSound.stop()
     }
-    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Pick"), Hint("B", "Back"))) {
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Pick"), Hint("B", "Close"))) {
         Column {
             PopupTitle("Unlock sound", "Each one plays as you move to it")
             for (s in UnlockSoundChoice.entries) {

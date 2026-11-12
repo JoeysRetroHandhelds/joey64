@@ -54,7 +54,7 @@ import kotlinx.coroutines.withContext
 @Composable
 internal fun TransferSetupPopup(gameTitle: String, setup: PlayerSetup, row: String, onDismiss: () -> Unit,
                                 onGame: () -> Unit, onSave: () -> Unit) {
-    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Change"), Hint("B", "Done")), width = 470.dp) {
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Change"), Hint("B", "Close")), width = 470.dp) {
         Column {
             PopupTitle("Transfer Pak", "Pick the Game Boy game and its save for $gameTitle.")
             JoeyRow("Game Boy game", Modifier.initialFocus(row == "game"),
@@ -118,7 +118,7 @@ internal fun GameBoyListPopup(games: Boolean, setup: PlayerSetup, onDismiss: () 
         !games && game != null -> "For ${GameBoyFiles.title(game.name)}."
         else -> "From " + fromLabel(context, found!!, list.orEmpty()) + "."
     }
-    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Back")), width = 470.dp) {
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 470.dp) {
         val scroll = rememberScrollState()
         Column(Modifier.heightIn(max = 460.dp).verticalScroll(scroll)) {
             PopupTitle(if (games) "Game Boy game" else "Game Boy save", subtitle)
@@ -176,7 +176,7 @@ internal fun GameBoyFoldersPopup(onDismiss: () -> Unit) {
     val picker = if (canPick) rememberGbFolderPicker { scanned++ } else null
     removing?.let { tree ->
         val name = placeLabel(context, tree)
-        JoeyDialog(onDismiss = { removing = null }, hints = listOf(Hint("A", "Select"), Hint("B", "Back")), width = 470.dp) {
+        JoeyDialog(onDismiss = { removing = null }, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 470.dp) {
             Column {
                 PopupTitle("Remove $name?", "Joey64 stops looking there for Game Boy games and saves. Nothing in it is deleted.")
                 JoeyRow("Keep it", Modifier.initialFocus(true)) { removing = null }
@@ -194,7 +194,7 @@ internal fun GameBoyFoldersPopup(onDismiss: () -> Unit) {
         }
         return
     }
-    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Back")), width = 470.dp) {
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 470.dp) {
         Column {
             PopupTitle("Game Boy folders", "Where Joey64 looks for Game Boy games and saves.")
             folders?.forEachIndexed { i, tree ->

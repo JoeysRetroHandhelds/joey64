@@ -238,7 +238,7 @@ private fun HostPickPopup(model: LibraryModel, onDismiss: () -> Unit, onPick: (L
         val rest = hostable.filter { it.lastPlayedAt == null }.sortedBy { it.title.lowercase() }
         (played + rest).filter { query.isBlank() || it.title.contains(query.trim(), ignoreCase = true) }
     }
-    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Host"), Hint("Y", "Search"), Hint("B", "Back")), width = 640.dp,
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Host"), Hint("Y", "Search"), Hint("B", "Close")), width = 640.dp,
         onPadButton = { k -> if (k == KeyEvent.KEYCODE_BUTTON_Y) searching = true }) {
         Column {
             LandAgain()
@@ -301,7 +301,7 @@ fun NetplayGamePopup(model: LibraryModel) {
     val wifiCodes = wifi.map { RoomCode.clean(it.code) }.toSet()
     val publicHere = listed.filter { it.players < model.netPlaces(it.md5) && it.code !in wifiCodes && it.md5.equals(game.md5, true) }
         .sortedBy { pings["${it.ip}:${it.port}"] ?: Int.MAX_VALUE }.take(3)
-    JoeyDialog(onDismiss = { model.closeNetplay() }, hints = listOf(Hint("A", "Select"), Hint("B", "Back")), width = 620.dp) {
+    JoeyDialog(onDismiss = { model.closeNetplay() }, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 620.dp) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             LandAgain()
             PopupTitle("Netplay", shortGame(game.title))
@@ -349,7 +349,7 @@ fun JoinByCodePopup(model: LibraryModel, title: String, subtitle: String, onDism
     fun delete() { if (code.isNotEmpty()) { code = code.dropLast(1); bad = false } }
     fun join() { if (code.length == RoomCode.LENGTH) bad = !model.netplayJoinCode(code) else bad = code.isNotEmpty() }
     val c = JoeyTheme.colors
-    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Type"), Hint("X", "Delete"), Hint("Start", "Join"), Hint("B", "Back")), width = 560.dp,
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Type"), Hint("X", "Delete"), Hint("Start", "Join"), Hint("B", "Close")), width = 560.dp,
         onOptions = { join() },
         onPadButton = { k -> if (k == KeyEvent.KEYCODE_BUTTON_X) delete() }) {
         Column {
@@ -474,7 +474,9 @@ private fun YourRoom(model: LibraryModel, s: PlayTogether.Hosting) {
     }
     // B and a tap outside closed the room for everyone, the hint saying "Back" (code audit 3, M31): the room closes
     // only from its Close the room row now.
-    JoeyDialog(onDismiss = { PlayTogether.leave() }, hints = listOf(Hint("A", "Select"), Hint("X", "Move a player")), width = 640.dp,
+    // X only on a player's row, where it works (a long press offers it there too: review sheet M30).
+    JoeyDialog(onDismiss = { PlayTogether.leave() }, width = 640.dp,
+        hints = if (focusedSlot in 1..s.game.places) listOf(Hint("A", "Select"), Hint("X", "Move a player")) else listOf(Hint("A", "Select")),
         dismissible = false,
         onPadButton = { k ->
             if (k == KeyEvent.KEYCODE_BUTTON_X && focusedSlot in 1..s.game.places && PlayTogether.movePlayer(focusedSlot))

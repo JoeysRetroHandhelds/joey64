@@ -92,7 +92,7 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
         onDismiss = { onPopup(null) },
         hints = when (popup) {
             GamePopup.Details -> listOf(Hint("A", "Change box art"), Hint("B", "Back"))
-            GamePopup.Collections -> listOf(Hint("A", "Add / Remove"), Hint("B", "Done"))
+            GamePopup.Collections -> listOf(Hint("A", "Add / Remove"), Hint("B", "Back"))
             GamePopup.Options -> listOf(Hint("A", "Select"), Hint("B", "Close"))
         },
         interceptBack = { if (popup != GamePopup.Options) { onPopup(GamePopup.Options); true } else false },

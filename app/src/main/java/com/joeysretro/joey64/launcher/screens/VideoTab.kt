@@ -177,7 +177,7 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
             @Composable
             fun row(id: String, label: String, k: VideoKey) =
                 JoeyRow(label, Modifier.initialFocus(startRow == id), value = VideoChoices.label(k, v[k]), sideways = true,
-                    dot = dot(k), onFocused = { if (it) focused = id }) { popup = VPopup.Choice(k) }
+                    dot = dot(k), onFocused = { if (it) focused = id }) { popup = VPopup.Choice(k, row = id) }
             row("res", "Resolution", VideoKey.Resolution)
             row("asp", "Aspect ratio", VideoKey.Aspect)
             JoeyRow("Crop edges", Modifier.initialFocus(startRow == "crop"), value = VideoChoices.label(VideoKey.Crop, v[VideoKey.Crop]), sideways = true,
@@ -220,7 +220,7 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
                 if (onPicturePanel != null) onPicturePanel("ov") else popup = VPopup.Picture(PicPage.Overlay)
             }
             JoeyRow("Black frame insertion", Modifier.initialFocus(startRow == "bfi"), value = VideoChoices.label(VideoKey.Bfi, v[VideoKey.Bfi]), sideways = true, dot = dot(VideoKey.Bfi), experimental = true,
-                onFocused = { if (it) focused = "bfi" }) { popup = VPopup.Choice(VideoKey.Bfi) }
+                onFocused = { if (it) focused = "bfi" }) { popup = VPopup.Choice(VideoKey.Bfi, row = "bfi") }
             SectionLabel("Advanced")
             JoeyRow("Renderer, driver, pacing", Modifier.initialFocus(startRow == "adv"), value = "›", sideways = true, dot = dot(*ADVANCED_KEYS.toTypedArray()),
                 onFocused = { if (it) focused = "adv" }) { popup = VPopup.Advanced("renderer") }
@@ -237,7 +237,8 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
 
     when (val p = popup) {
         null -> {}
-        is VPopup.Choice -> ChoicePopup(p.key, v[p.key], onDismiss = { popup = p.back }) { set(p.key, it); popup = p.back }
+        is VPopup.Choice -> ChoicePopup(p.key, v[p.key], sub = p.row?.let { describe(it, v).second },
+            onDismiss = { popup = p.back }) { set(p.key, it); popup = p.back }
         VPopup.Crop -> CropPopup(v.int(VideoKey.Crop), target ?: "All games", onDismiss = { popup = null }) { set(VideoKey.Crop, it.toString()) }
         VPopup.Colour -> ColourPopup(context, v, onDismiss = { popup = null }, onSet = { k, n -> set(k, n) },
             onReset = { set(COLOUR_ROW_KEYS.associateWith { it.default }) })
@@ -277,7 +278,8 @@ private val ADVANCED_KEYS = listOf(VideoKey.Renderer, VideoKey.Driver, VideoKey.
     listOf(VideoKey.Deinterlace, VideoKey.Supersample, VideoKey.NativeTexLod, VideoKey.NativeTexRect)
 
 private sealed class VPopup {
-    data class Choice(val key: VideoKey, val back: VPopup? = null) : VPopup()
+    /** [row]: the tab row it opened from, whose description is the popup's subtitle (review sheet L9). */
+    data class Choice(val key: VideoKey, val back: VPopup? = null, val row: String? = null) : VPopup()
     object Colour : VPopup()
     object Crop : VPopup()
     object Sharpen : VPopup()
@@ -390,11 +392,11 @@ private fun ExtraPopup(title: String, subtitle: String?, options: List<ExtraOpti
 
 /** The approved small popup: a title and the choices with their lines, the tick on the one in use. */
 @Composable
-private fun ChoicePopup(k: VideoKey, current: String, onDismiss: () -> Unit, onPick: (String) -> Unit) {
+private fun ChoicePopup(k: VideoKey, current: String, sub: String? = null, onDismiss: () -> Unit, onPick: (String) -> Unit) {
     val choices = VideoChoices.of(k)
     JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 470.dp) {
         Column {
-            PopupTitle(title(k))
+            PopupTitle(title(k), sub)
             for (ch in choices) {
                 val on = ch.value == current
                 JoeyRow(ch.label, Modifier.initialFocus(on), detail = ch.detail, experimental = ch.experimental,
@@ -404,7 +406,7 @@ private fun ChoicePopup(k: VideoKey, current: String, onDismiss: () -> Unit, onP
     }
 }
 
-/** A row that changes its value with Left / Right (◀ value ▶ while focused), as fast-forward's Speed. */
+/** A row that changes its value with Left / Right, or a tap on its ◀ ▶ (review sheet M29), as fast-forward's Speed. */
 @Composable
 internal fun StepRow(label: String, value: String, steps: List<Int>, current: Int, focused: Boolean, first: Boolean,
                      enabled: Boolean = true, dot: Boolean = false, onFocused: (Boolean) -> Unit, onStep: (Int) -> Unit) {
@@ -417,10 +419,11 @@ internal fun StepRow(label: String, value: String, steps: List<Int>, current: In
             onStep(steps[i.coerceIn(0, steps.lastIndex)])
         }
         true
-    }, value = if (focused && enabled) "◀ $value ▶" else value, enabled = enabled, sideways = true, dot = dot, onFocused = onFocused)
+    }, value = "◀ $value ▶", enabled = enabled, sideways = true, dot = dot, onFocused = onFocused)
 }
 
-/** Colour (mockup 3): the four values with Left / Right, the picture beside them showing the result. X resets all four. */
+/** Colour (mockup 3): the four values with Left / Right, the picture beside them showing the result. Y resets the
+ *  focused one, Start all of them (review sheet L5, 2026-11-11; X reset all four). */
 @Composable
 private fun ColourPopup(context: Context, v: VideoSettings, onDismiss: () -> Unit, onSet: (VideoKey, String) -> Unit, onReset: () -> Unit) {
     var row by remember { mutableStateOf(VideoKey.Brightness) }
@@ -434,8 +437,9 @@ private fun ColourPopup(context: Context, v: VideoSettings, onDismiss: () -> Uni
         preview = withContext(Dispatchers.Default) { colourPreview(src, b, c, s, g, cb) }
     }
     JoeyDialog(onDismiss = onDismiss, width = 520.dp,
-        hints = listOf(Hint("◀▶", "Change"), Hint("X", "Reset"), Hint("B", "Done")),
-        onPadButton = { code -> if (code == KeyEvent.KEYCODE_BUTTON_X) onReset() }) {
+        hints = listOf(Hint("◀▶", "Change"), Hint("Y", "Reset to default"), Hint("Start", "Reset all"), Hint("B", "Close")),
+        onOptions = onReset,
+        onPadButton = { code -> if (code == KeyEvent.KEYCODE_BUTTON_Y) onSet(row, row.default) }) {
         Column {
             PopupTitle("Colour")
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -541,7 +545,7 @@ private fun SharpenPopup(v: VideoSettings, onDismiss: () -> Unit, onSet: (VideoK
     var strengthFocused by remember { mutableStateOf(false) }
     val cur = v[VideoKey.Sharpen]
     JoeyDialog(onDismiss = onDismiss, width = 470.dp,
-        hints = if (strengthFocused) listOf(Hint("◀▶", "Strength"), Hint("B", "Close")) else listOf(Hint("A", "Select"), Hint("B", "Close"))) {
+        hints = if (strengthFocused) listOf(Hint("◀▶", "Change"), Hint("B", "Close")) else listOf(Hint("A", "Select"), Hint("B", "Close"))) {
         Column {
             PopupTitle("Sharpening")
             for (ch in VideoChoices.sharpen) {

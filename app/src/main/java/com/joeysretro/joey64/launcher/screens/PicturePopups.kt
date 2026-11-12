@@ -1,5 +1,10 @@
 package com.joeysretro.joey64.launcher.screens
 
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -454,7 +459,7 @@ private fun ShaderPopup(ctx: PictureCtx, rows: MutableMap<PicPage, String>, onPa
         if (adjustable) add(Hint("X", "Adjust"))
         if (savable) add(Hint("Y", "Save as preset"))
         if (f is ShEntry.Preset) add(Hint("Start", "Options"))
-        add(Hint("B", "Done"))
+        add(Hint("B", "Close"))
     }
     JoeyDialog(onDismiss = { onPage(null) }, hints = hints, width = 720.dp,
         onOptions = { (focused as? ShEntry.Preset)?.let { onPage(PicPage.PresetOptions(it.p.name)) } },
@@ -517,9 +522,12 @@ private fun AdjustPopup(def: ShaderDef, ctx: PictureCtx, onDone: () -> Unit) {
     val params = Picture.paramsOf(ctx.v[VideoKey.ShaderParams])
     val setup = ShaderSetup(listOf(def.id), params, ctx.v[VideoKey.ShaderScale])
     val values = setup.paramsOf(def.id)
-    JoeyDialog(onDismiss = onDone, width = 720.dp, hints = listOf(Hint("◀▶", "Change"), Hint("X", "Reset"), Hint("B", "Done")),
+    // Y the focused value, Start all of them (review sheet L5; X reset all).
+    JoeyDialog(onDismiss = onDone, width = 720.dp,
+        hints = listOf(Hint("◀▶", "Change"), Hint("Y", "Reset to default"), Hint("Start", "Reset all"), Hint("B", "Close")),
+        onOptions = { ctx.set(VideoKey.ShaderParams, Picture.paramsString(params - def.id)) },
         onPadButton = { code ->
-            if (code == KeyEvent.KEYCODE_BUTTON_X) ctx.set(VideoKey.ShaderParams, Picture.paramsString(params - def.id))
+            if (code == KeyEvent.KEYCODE_BUTTON_Y) def.params.getOrNull(row)?.let { setParam(ctx, def.id, row, it.default) }
         }) {
         Column {
             PopupTitle(def.label, "${ctx.who} · Adjust")
@@ -587,8 +595,8 @@ private fun AdvancedShaderPopup(ctx: PictureCtx, rows: MutableMap<PicPage, Strin
     var row by remember { mutableIntStateOf(landRow) }
     androidx.compose.runtime.SideEffect { rows[PicPage.Advanced] = row.toString() }
     JoeyDialog(onDismiss = { rows.remove(PicPage.Advanced); onPage(PicPage.Shader) }, width = 520.dp,
-        hints = if (row < stack.size) listOf(Hint("A", "Change"), Hint("X", "Remove"), Hint("Y", "Move up"), Hint("B", "Done"))
-            else listOf(Hint("A", "Change"), Hint("B", "Done")),
+        hints = if (row < stack.size) listOf(Hint("A", "Change"), Hint("X", "Remove"), Hint("Y", "Move up"), Hint("B", "Close"))
+            else listOf(Hint("A", "Change"), Hint("B", "Close")),
         onPadButton = { code ->
             if (row < stack.size) when (code) {
                 KeyEvent.KEYCODE_BUTTON_X -> { setStack(ctx, stack.filterIndexed { i, _ -> i != row }); row = row.coerceAtMost(stack.size - 2).coerceAtLeast(0) }
@@ -625,7 +633,7 @@ private fun AdvancedShaderPopup(ctx: PictureCtx, rows: MutableMap<PicPage, Strin
 @Composable
 private fun AdvancedSlangPopup(ctx: PictureCtx, onDone: () -> Unit) {
     var row by remember { mutableIntStateOf(0) }
-    JoeyDialog(onDismiss = onDone, width = 520.dp, hints = listOf(Hint("B", "Done"))) {
+    JoeyDialog(onDismiss = onDone, width = 520.dp, hints = listOf(Hint("B", "Close"))) {
         Column {
             PopupTitle("Shader, advanced", ctx.who)
             SectionLabel("Stack, drawn in this order")
@@ -714,7 +722,7 @@ private fun SidesPopup(ctx: PictureCtx, rows: MutableMap<PicPage, String>, onPag
     val left = remember { rows[PicPage.Sides] }
     val back = left?.takeIf { it != "place" || canPlace }
     var focused by remember { mutableStateOf(back ?: v[VideoKey.Sides]) }
-    JoeyDialog(onDismiss = { onPage(null) }, hints = listOf(Hint("A", "Pick"), Hint("B", "Done")), width = 760.dp) {
+    JoeyDialog(onDismiss = { onPage(null) }, hints = listOf(Hint("A", "Pick"), Hint("B", "Close")), width = 760.dp) {
         Column {
             PopupTitle("Sides of the picture", if (Picture.noSides(v, ctx.widescreenOn)) "${ctx.who} · None at this shape: Widescreen or Stretch fills the screen" else ctx.who)
             Row(verticalAlignment = Alignment.Top) {
@@ -807,13 +815,19 @@ private fun PlacePopup(ctx: PictureCtx, ra: RaPlace?, onDone: () -> Unit) {
         else ctx.set(VideoKey.SidesPlace, Picture.placeString(x, y, w))
     }
     val focus = remember { FocusRequester() }
+    /** The game [nw] wide, about its centre (L/R, a pinch). */
+    fun sizeTo(nw: Int) { moved = true; val c = x + w / 2; val m = y + hOf(w) / 2; w = nw.coerceIn(100, 1000); x = c - w / 2; y = m - hOf(w) / 2 }
+    /** Half the game may leave the area, no more (as the D-pad). */
+    fun keepOn() { x = x.coerceIn(-w / 2, 1000 - w / 2); y = y.coerceIn(-hOf(w) / 2, 1000 - hOf(w) / 2) }
+    val xAction = if (raValue != null) "Use what was found" else "Centre"
+    fun doX() { if (raValue != null) { moved = false; centre(); raStore.setPlace(raValue, null); ctx.set(emptyMap()) } else { centre(); save() } }
     JoeyDialog(onDismiss = onDone, fullScreen = true,
-        hints = listOf(Hint("D-pad", "Move"), Hint("L/R", "Size"), Hint("X", if (raValue != null) "Use what was found" else "Centre"), Hint("B", "Done")),
+        hints = listOf(Hint("D-pad", "Move"), Hint("L/R", "Size"), Hint("X", xAction), Hint("B", "Done")),
         onPadButton = { code ->
             when (code) {
-                KeyEvent.KEYCODE_BUTTON_L1 -> { moved = true; val c = x + w / 2; val m = y + hOf(w) / 2; w = (w - 10).coerceAtLeast(100); x = c - w / 2; y = m - hOf(w) / 2; save() }
-                KeyEvent.KEYCODE_BUTTON_R1 -> { moved = true; val c = x + w / 2; val m = y + hOf(w) / 2; w = (w + 10).coerceAtMost(1000); x = c - w / 2; y = m - hOf(w) / 2; save() }
-                KeyEvent.KEYCODE_BUTTON_X -> if (raValue != null) { moved = false; centre(); raStore.setPlace(raValue, null); ctx.set(emptyMap()) } else { centre(); save() }
+                KeyEvent.KEYCODE_BUTTON_L1 -> { sizeTo(w - 10); save() }
+                KeyEvent.KEYCODE_BUTTON_R1 -> { sizeTo(w + 10); save() }
+                KeyEvent.KEYCODE_BUTTON_X -> doX()
             }
         }) {
         Box(Modifier.fillMaxSize().background(JoeyTheme.colors.page), contentAlignment = Alignment.Center) {
@@ -831,8 +845,18 @@ private fun PlacePopup(ctx: PictureCtx, ra: RaPlace?, onDone: () -> Unit) {
                     else -> return@onPreviewKeyEvent false
                 }
                 moved = true
-                x = x.coerceIn(-w / 2, 1000 - w / 2); y = y.coerceIn(-hOf(w) / 2, 1000 - hOf(w) / 2)
+                keepOn()
                 save(); true
+            }
+            // Touch (review sheet M32): a drag moves the game, a pinch sizes it; the corners below size it too.
+            .pointerInput(Unit) {
+                detectTransformGestures { _, pan, zoom, _ ->
+                    if (size.width <= 0 || size.height <= 0) return@detectTransformGestures
+                    if (zoom != 1f) sizeTo((w * zoom).toInt())
+                    moved = true
+                    x += (pan.x * 1000 / size.width).toInt(); y += (pan.y * 1000 / size.height).toInt()
+                    keepOn(); save()
+                }
             }) {
             if (raImage == null) bg?.let { Image(it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
             if (w > 0) {
@@ -850,10 +874,34 @@ private fun PlacePopup(ctx: PictureCtx, ra: RaPlace?, onDone: () -> Unit) {
                 Box(Modifier.offset(left, top).size(bw, bh).drawBehind {
                     drawRect(gold, style = Stroke(width = 2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f))))
                 })
+                // The corners: drag one to size the game, the opposite corner staying where it is.
+                for ((cx, cy) in listOf(0 to 0, 1 to 0, 0 to 1, 1 to 1)) {
+                    Box(Modifier.offset(left + bw * cx - 16.dp, top + bh * cy - 16.dp).size(32.dp)
+                        .pointerInput(cx, cy) {
+                            detectDragGestures { change, drag ->
+                                change.consume()
+                                if (size.width <= 0) return@detectDragGestures
+                                val right = x + w; val bottom = y + hOf(w)
+                                val dw = (drag.x * 1000 / size.width).toInt() * (if (cx == 1) 1 else -1)
+                                w = (w + dw).coerceIn(100, 1000); moved = true
+                                if (cx == 0) x = right - w
+                                if (cy == 0) y = bottom - hOf(w)
+                                keepOn(); save()
+                            }
+                        }, contentAlignment = Alignment.Center) {
+                        Box(Modifier.size(12.dp).background(gold, RoundedCornerShape(2.dp)))
+                    }
+                }
                 val f = if (raValue != null) found() else null
                 val label = (if (raValue != null && f == Triple(x, y, w)) "Found in the image: " else "") + Picture.placeLabel(x, y, w)
                 Text(label, style = JoeyTheme.type.note, color = gold, modifier = Modifier.offset(left, (top - 24.dp).coerceAtLeast(4.dp))
                     .background(JoeyTheme.colors.page.copy(alpha = 0.85f), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp))
+            }
+            com.joeysretro.joey64.launcher.components.PopupBackButton(Modifier.align(Alignment.TopStart).padding(12.dp))
+            // Centre (or Use what was found) and Done, for touch: never a focus stop, so the D-pad still moves the game.
+            Row(Modifier.align(Alignment.BottomEnd).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                JoeyButton(xAction, primary = false, modifier = Modifier.focusProperties { canFocus = false }) { doX() }
+                JoeyButton("Done", primary = true, modifier = Modifier.focusProperties { canFocus = false }) { onDone() }
             }
         }
         }
@@ -873,7 +921,7 @@ private fun OverlayPopup(ctx: PictureCtx, onDone: () -> Unit) {
     var row by remember { mutableStateOf(if (on) "image" else "off") }
     val picker = rememberImagePicker(ctx) { name -> ctx.set(mapOf(VideoKey.Overlay to "image", VideoKey.OverlayImage to name)) }
     val opacity = v.int(VideoKey.OverlayOpacity)
-    JoeyDialog(onDismiss = onDone, hints = listOf(Hint("A", "Pick"), Hint("◀▶", "Opacity"), Hint("B", "Done")), width = 720.dp) {
+    JoeyDialog(onDismiss = onDone, hints = listOf(Hint("A", "Pick"), Hint("◀▶", "Change"), Hint("B", "Close")), width = 720.dp) {
         Column {
             PopupTitle("Overlay", ctx.who)
             Row(verticalAlignment = Alignment.Top) {
@@ -959,7 +1007,7 @@ internal fun PicturePanel(saveName: String, row: String, onChanged: () -> Unit, 
             val ownOn = Slang.isSlang(v[VideoKey.Shader])
             if ((f is ShEntry.BuiltIn && f.def.params.isNotEmpty()) || (f == ShEntry.Own && ownOn)) add(Hint("X", "Adjust"))
             if (f != null && (f != ShEntry.Own || ownOn)) add(Hint("Y", "Save as preset"))
-            add(Hint("B", "Done"))
+            add(Hint("B", "Close"))
         },
         onOptions = { (focused as? ShEntry.Preset)?.let { page = PicPage.PresetOptions(it.p.name) } },
         onPadButton = { code ->

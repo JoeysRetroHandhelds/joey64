@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
@@ -54,7 +55,7 @@ fun HintRow(hints: List<Hint>, modifier: Modifier = Modifier, end: String? = nul
         // One line on any screen: a hint's words never wrap; when they don't all fit, the gaps
         // narrow, then hints go from the middle (the first, A, and the last, usually B Back, stay).
         androidx.compose.ui.layout.Layout(
-            modifier = Modifier.fillMaxWidth().height(s.hintRow).padding(horizontal = s.margin),
+            modifier = Modifier.fillMaxWidth().heightIn(min = s.hintRow).padding(horizontal = s.margin),
             content = {
                 for (hint in hints) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -63,7 +64,7 @@ fun HintRow(hints: List<Hint>, modifier: Modifier = Modifier, end: String? = nul
                     }
                 }
                 // [end]: a line on the right of the bar (the screenshot viewer's "Mario Tennis · Today, 9:14 pm · 1 of 8").
-                if (end != null) Box(Modifier.height(s.hintRow), contentAlignment = Alignment.CenterEnd) {
+                if (end != null) Box(Modifier.heightIn(min = s.hintRow), contentAlignment = Alignment.CenterEnd) {
                     Text(end, style = JoeyTheme.type.hint, color = c.textSecondary, maxLines = 1, softWrap = false)
                 }
             },
@@ -74,12 +75,14 @@ fun HintRow(hints: List<Hint>, modifier: Modifier = Modifier, end: String? = nul
             val placeables = if (end != null) all.dropLast(1) else all
             val room = constraints.maxWidth - (endText?.let { it.width + 18.dp.roundToPx() } ?: 0)
             val shown = HintFit.fit(placeables.map { it.width }, room.coerceAtLeast(0), 18.dp.roundToPx(), 10.dp.roundToPx())
-            layout(constraints.maxWidth, constraints.maxHeight) {
-                endText?.placeRelative(constraints.maxWidth - endText.width, 0)
+            // At least the bar's height; taller only if a font scale makes the words taller (review sheet L1).
+            val h = maxOf(constraints.minHeight, all.maxOfOrNull { it.height } ?: 0)
+            layout(constraints.maxWidth, h) {
+                endText?.placeRelative(constraints.maxWidth - endText.width, (h - endText.height) / 2)
                 var x = 0
                 for (ix in shown.indices) {
                     val p = placeables[ix]
-                    p.placeRelative(x, (constraints.maxHeight - p.height) / 2)
+                    p.placeRelative(x, (h - p.height) / 2)
                     x += p.width + shown.gap
                 }
             }

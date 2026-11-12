@@ -414,7 +414,7 @@ private fun AddCodePopup(editing: OwnCode?, taken: Set<String>, onDismiss: () ->
 /** Start on one of the user's codes: Edit, Delete (no "are you sure", Joey's rule). */
 @Composable
 private fun OwnCodePopup(code: OwnCode, onDismiss: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
-    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Back")), width = 340.dp) {
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 340.dp) {
         Column {
             PopupTitle(code.name)
             JoeyOption("Edit", modifier = Modifier.initialFocus(), onClick = onEdit)

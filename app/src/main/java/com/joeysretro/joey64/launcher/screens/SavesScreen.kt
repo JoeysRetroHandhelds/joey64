@@ -245,7 +245,7 @@ fun SavesScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onPlay: (String) ->
         SvPopup.Restore -> {
             val list = d?.backups.orEmpty()
             val both = list.map { it.of }.distinct().size > 1
-            JoeyDialog(onDismiss = { popup = null }, hints = listOf(Hint("A", "Restore"), Hint("B", "Back")), width = 470.dp) {
+            JoeyDialog(onDismiss = { popup = null }, hints = listOf(Hint("A", "Restore"), Hint("B", "Close")), width = 470.dp) {
                 Column {
                     PopupTitle("Restore a backup", "Today's save is backed up first.")
                     list.forEachIndexed { i, b ->

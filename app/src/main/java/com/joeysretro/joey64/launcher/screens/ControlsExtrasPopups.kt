@@ -76,7 +76,7 @@ internal fun macroKeyLabel(m: Macro): String {
 @Composable
 internal fun TapToHoldPopup(player: Int, latch: Set<N64Button>, onSet: (Set<N64Button>) -> Unit, onDismiss: () -> Unit) {
     var focused by remember { mutableStateOf(LATCHABLE.firstOrNull { it in latch } ?: N64Button.A) }
-    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Tick"), Hint("B", "Done")), width = 560.dp) {
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Tick"), Hint("B", "Close")), width = 560.dp) {
         Column {
             PopupTitle("Player ${player + 1} tap to hold",
                 "A ticked button stays held after one tap, until it's tapped again. For holding Z to aim, R to shield, A to run.")
@@ -103,7 +103,7 @@ internal fun TurboPopup(player: Int, turbo: Set<N64Button>, speed: Int, latch: S
                         onSet: (Set<N64Button>, Int) -> Unit, onDismiss: () -> Unit) {
     // null: the Speed row.
     var focused by remember { mutableStateOf<N64Button?>(TURBO_BUTTONS.firstOrNull { it in turbo && it !in latch } ?: TURBO_BUTTONS.first { it !in latch }) }
-    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Tick"), Hint("◀▶", "Speed"), Hint("B", "Done")), width = 560.dp) {
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Tick"), Hint("◀▶", "Change"), Hint("B", "Close")), width = 560.dp) {
         Column {
             PopupTitle("Player ${player + 1} turbo",
                 "A ticked button presses itself again and again while you hold it. For mashing A through text, firing with Z or B.")
@@ -124,7 +124,7 @@ internal fun TurboPopup(player: Int, turbo: Set<N64Button>, speed: Int, latch: S
                 onSet(turbo, TURBO_SPEEDS[i.coerceIn(0, TURBO_SPEEDS.lastIndex)])
             }
             JoeyRow("Speed", Modifier.sideways(onStep = step), detail = "How many presses a second",
-                value = if (focused == null) "◀ $speed a second ▶" else "$speed a second", sideways = true,
+                value = "◀ $speed a second ▶", sideways = true,
                 onFocused = { if (it) focused = null }) { }
             Spacer(Modifier.height(6.dp))
             val f = focused
@@ -212,7 +212,7 @@ private inline fun <T> List<T>.anyIndexed(pred: (Int, T) -> Boolean): Boolean { 
 private fun MacroList(player: Int, macros: List<Macro>, focus: Int, onDismiss: () -> Unit, onEdit: (Int) -> Unit, onAdd: () -> Unit, onRemove: (Int) -> Unit) {
     var focused by remember { mutableIntStateOf(if (macros.isEmpty()) -1 else focus.coerceIn(0, macros.lastIndex)) }
     JoeyDialog(onDismiss = onDismiss, width = 520.dp,
-        hints = if (focused >= 0) listOf(Hint("A", "Edit"), Hint("X", "Remove"), Hint("B", "Done")) else listOf(Hint("A", "Select"), Hint("B", "Done")),
+        hints = if (focused >= 0) listOf(Hint("A", "Edit"), Hint("X", "Remove"), Hint("B", "Close")) else listOf(Hint("A", "Select"), Hint("B", "Close")),
         onPadButton = { code -> if (code == KeyEvent.KEYCODE_BUTTON_X && focused >= 0) onRemove(focused) }) {
         Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
             PopupTitle("Player ${player + 1} macros", "One button plays a run of N64 presses.")
@@ -239,8 +239,8 @@ private fun MacroEditor(m: Macro, hotkeys: Hotkeys, startRow: String, onDismiss:
         onSet(m.copy(steps = m.steps.toMutableList().also { it[i] = s.copy(frames = (s.frames + d).coerceIn(MacroStep.MIN_FRAMES, MacroStep.MAX_FRAMES)) }))
     }
     JoeyDialog(onDismiss = onDismiss, width = 520.dp,
-        hints = if (stepRow) listOf(Hint("A", "Edit"), Hint("◀▶", "Time"), Hint("X", "Remove step"), Hint("B", "Done"))
-            else listOf(Hint("A", "Edit"), Hint("B", "Done")),
+        hints = if (stepRow) listOf(Hint("A", "Edit"), Hint("◀▶", "Change"), Hint("X", "Remove"), Hint("B", "Close"))
+            else listOf(Hint("A", "Edit"), Hint("B", "Close")),
         onPadButton = { code ->
             if (code == KeyEvent.KEYCODE_BUTTON_X && stepIdx in m.steps.indices) {
                 onSet(m.copy(steps = m.steps.filterIndexed { i, _ -> i != stepIdx }))
@@ -260,7 +260,7 @@ private fun MacroEditor(m: Macro, hotkeys: Hotkeys, startRow: String, onDismiss:
             m.steps.forEachIndexed { i, s ->
                 val on = row == "s$i"
                 JoeyRow(s.label(), Modifier.initialFocus(startRow == "s$i").sideways { d -> time(i, d) },
-                    value = if (on) "◀ ${s.framesLabel()} ▶" else s.framesLabel(), sideways = true,
+                    value = "◀ ${s.framesLabel()} ▶", sideways = true,
                     leading = { _ -> Text("${i + 1}", style = JoeyTheme.type.small, color = c.textDim, modifier = Modifier.width(22.dp)) },
                     onFocused = { if (it) row = "s$i" }) { onStep(i) }
             }
@@ -310,7 +310,7 @@ private fun StepPopup(index: Int, s: MacroStep, onDismiss: () -> Unit, onSet: (M
     )
     fun frames(d: Int) = onSet(s.copy(frames = (s.frames + d).coerceIn(MacroStep.MIN_FRAMES, MacroStep.MAX_FRAMES)))
     JoeyDialog(onDismiss = onDismiss, width = 680.dp,
-        hints = if (row == "time") listOf(Hint("◀▶", "Time"), Hint("B", "Done")) else listOf(Hint("A", "Tick"), Hint("B", "Done"))) {
+        hints = if (row == "time") listOf(Hint("◀▶", "Change"), Hint("B", "Close")) else listOf(Hint("A", "Tick"), Hint("B", "Close"))) {
         Column {
             PopupTitle("Step ${index + 1}")
             Row {
@@ -350,7 +350,7 @@ internal fun NameEntryPopup(title: String, initial: String, note: String?, taken
         if (n.isEmpty() || n == initial) { onDismiss(); return }
         if (taken(n)) clash = n else onSave(n)
     }
-    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Type"), Hint("B", "Back")), width = 460.dp, atTop = true) {
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Type"), Hint("B", "Close")), width = 460.dp, atTop = true) {
         Column {
             PopupTitle(title)
             ControllerTextField(name, { name = it; clash = null }, "Name", Modifier.initialFocus().padding(horizontal = 4.dp),

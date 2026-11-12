@@ -64,26 +64,30 @@ fun AppearanceTab(onHints: (List<Hint>) -> Unit, modifier: Modifier = Modifier) 
                 onFocused = { if (it) focused = "pop" }) { picker = "pop" }
         }
         Spacer(Modifier.height(6.dp))
-        if (focused == "theme") DescriptionLine("Theme", "Match system follows Android's dark mode setting.")
-        else DescriptionLine("Pop-ups", "Achievement, leaderboard and cheat pop-ups shown during play. Match theme uses the Theme setting.")
+        if (focused == "theme") DescriptionLine("Theme", THEME_TEXT)
+        else DescriptionLine("Pop-ups", POPUPS_TEXT)
     }
 
     when (picker) {
-        "theme" -> ChoicePicker("Theme", ThemeChoice.entries, s.theme, { it.label }, onDismiss = { picker = null }) { t ->
+        "theme" -> ChoicePicker("Theme", ThemeChoice.entries, s.theme, { it.label }, sub = THEME_TEXT, onDismiss = { picker = null }) { t ->
             scope.launch { store.setTheme(t) }; picker = null
         }
-        "pop" -> ChoicePicker("Pop-ups", PopupTheme.entries, s.popupTheme, { it.label }, onDismiss = { picker = null }) { t ->
+        "pop" -> ChoicePicker("Pop-ups", PopupTheme.entries, s.popupTheme, { it.label }, sub = POPUPS_TEXT, onDismiss = { picker = null }) { t ->
             scope.launch { store.setPopupTheme(t) }; picker = null
         }
     }
 }
 
+private const val THEME_TEXT = "Match system follows Android's dark mode setting."
+private const val POPUPS_TEXT = "Achievement, leaderboard and cheat pop-ups shown during play. Match theme uses the Theme setting."
+
 /** The approved small popup: a title and the choices, the tick on the one in use. */
 @Composable
-private fun <T> ChoicePicker(title: String, choices: List<T>, current: T, label: (T) -> String, onDismiss: () -> Unit, onPick: (T) -> Unit) {
+private fun <T> ChoicePicker(title: String, choices: List<T>, current: T, label: (T) -> String, sub: String? = null,
+                             onDismiss: () -> Unit, onPick: (T) -> Unit) {
     JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close"))) {
         Column {
-            PopupTitle(title)
+            PopupTitle(title, sub) // the row's description (review sheet L9)
             for (c in choices) TickOption(label(c), c == current, modifier = if (c == current) Modifier.initialFocus() else Modifier) { onPick(c) }
         }
     }

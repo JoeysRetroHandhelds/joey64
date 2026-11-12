@@ -153,7 +153,8 @@ private fun describe(k: EmuKey): String = when (k) {
 private fun EmuChoicePopup(k: EmuKey, current: String, autoGives: String?, onDismiss: () -> Unit, onPick: (String) -> Unit) {
     JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 500.dp) {
         Column {
-            PopupTitle(title(k), autoGives)
+            // The row's description (review sheet L9), then "Auto gives ..."; the note below says when it applies.
+            PopupTitle(title(k), listOfNotNull(describe(k).removeSuffix(" Applies when the game next starts."), autoGives).joinToString("\n"))
             for (ch in EmuChoices.of(k)) {
                 val on = ch.value == current
                 JoeyRow(ch.label, Modifier.initialFocus(on), detail = ch.detail,

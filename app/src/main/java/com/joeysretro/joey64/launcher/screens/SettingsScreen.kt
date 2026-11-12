@@ -161,17 +161,17 @@ fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher
     when (gamesPopup) {
         1 -> if (tab == SettingsTab.Emulation) GamesForPopup("Emulation for", "A game's own settings are used instead of All games when it starts.", target,
             gamesWithOwn = { emuStore.gamesWithOwn() }, changeCount = { emuStore.game(it)?.size ?: 0 },
-            removeLabel = "Remove the game's settings", onDismiss = { gamesPopup = 0 },
+            what = "emulation", onDismiss = { gamesPopup = 0 },
             onPick = { save, title -> target = save; targetTitle = title; gamesPopup = 0 },
             onPickGame = { gamesPopup = 2 }, onRemoved = { emuStore.removeGame(it) })
         else if (tab == SettingsTab.Audio) GamesForPopup("Audio for", "A game's own Volume and Latency are used instead of All games when it starts.", target,
             gamesWithOwn = { audioStore.gamesWithOwn() }, changeCount = { audioStore.game(it)?.size ?: 0 },
-            removeLabel = "Remove the game's settings", onDismiss = { gamesPopup = 0 },
+            what = "audio", onDismiss = { gamesPopup = 0 },
             onPick = { save, title -> target = save; targetTitle = title; gamesPopup = 0 },
             onPickGame = { gamesPopup = 2 }, onRemoved = { audioStore.removeGame(it) })
         else GamesForPopup("Video for", "A game's own settings are used instead of All games when it starts.", target,
             gamesWithOwn = { videoStore.gamesWithOwn() }, changeCount = { videoStore.game(it)?.size ?: 0 },
-            removeLabel = "Remove the game's settings", onDismiss = { gamesPopup = 0 },
+            what = "video", onDismiss = { gamesPopup = 0 },
             onPick = { save, title -> target = save; targetTitle = title; gamesPopup = 0 },
             onPickGame = { gamesPopup = 2 }, onRemoved = { videoStore.removeGame(it) })
         2 -> PickGamePopup("Its settings start as All games'.", { gamesPopup = 1 }) { save, title -> target = save; targetTitle = title; gamesPopup = 0 }

@@ -22,6 +22,13 @@ import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.focus.focusRequester
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.text.style.TextOverflow
@@ -83,13 +90,20 @@ fun JoeyRow(
     val (source, focused) = rememberFocusState()
     if (onFocused != null) androidx.compose.runtime.LaunchedEffect(focused) { onFocused(focused) }
     val shape = RoundedCornerShape(JoeyTheme.spacing.rowCorner)
+    // The row's own requester: a tap on its ◀ ▶ or a long press focuses it first, so the key goes to this row.
+    val self = androidx.compose.runtime.remember { FocusRequester() }
+    // A long press: the caller's own, else the row's key-only actions (review sheet M30), else a tap as before.
+    val tap = { if (enabled) onClick() }
+    val actions = rememberRowLongPress(label, self, tap)
+    ReportFocusedRow(focused, label, self, tap)
     Row(
         modifier = modifier
             .fillMaxWidth()
             .then(if (sideways) Modifier else Modifier.focusProperties { left = FocusRequester.Cancel; right = FocusRequester.Cancel })
+            .focusRequester(self)
             .rowSelection(focused, shape)
             // Locked rows stay a focus stop (enabled = true) but ignore the press.
-            .pressable(source, onLongClick = if (enabled) onLongClick else null, onClick = { if (enabled) onClick() })
+            .pressable(source, onLongClick = if (onLongClick != null) { if (enabled) onLongClick else null } else actions, onClick = tap)
             // TalkBack (code audit 3, M33): a locked row is read as disabled, the yellow dot as the row's state.
             .semantics { if (!enabled) disabled(); if (dot) stateDescription = "This game's own setting" }
             .padding(horizontal = JoeyTheme.spacing.rowPadH, vertical = JoeyTheme.spacing.rowPadV),
@@ -114,15 +128,95 @@ fun JoeyRow(
                 if (dot) Box(Modifier.padding(start = 8.dp).size(6.dp).background(c.gold, androidx.compose.foundation.shape.CircleShape))
             }
             if (detail != null) Text(detail, style = JoeyTheme.type.small,
-                color = if (!enabled) labelColor else if (detailWarn) rowValueColor(c, focused) else rowTextColor(c, focused, c.textDim),
+                // A greyed row's reason reads in textDim (review sheet M34); only its label is faint.
+                color = if (!enabled) rowTextColor(c, focused, c.textDim) else if (detailWarn) rowValueColor(c, focused) else rowTextColor(c, focused, c.textDim),
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         if (value != null) {
-            Text(value, style = JoeyTheme.type.rowValue,
-                color = if (!enabled) labelColor else rowValueColor(c, focused),
+            val valueColor = if (!enabled) rowTextColor(c, focused, c.textDim) else rowValueColor(c, focused)
+            val stepped = SteppedValue.parse(value)
+            if (stepped == null) Text(value, style = JoeyTheme.type.rowValue, color = valueColor,
                 modifier = Modifier.widthIn(max = 220.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // A value that steps with Left / Right: ◀ and ▶ are buttons of their own (review sheet M29); a greyed row
+            // can't step, so it shows the value alone.
+            else if (!enabled) Text(stepped, style = JoeyTheme.type.rowValue, color = valueColor,
+                modifier = Modifier.widthIn(max = 220.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                StepButton(-1, focused, self)
+                Text(stepped, style = JoeyTheme.type.rowValue, color = valueColor,
+                    modifier = Modifier.widthIn(max = 180.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                StepButton(1, focused, self)
+            }
         }
         trailing?.invoke(this, focused)
+    }
+}
+
+/** A value written "◀ x ▶" (the rows Left / Right change): x, or null for any other value. */
+internal object SteppedValue {
+    fun parse(value: String): String? {
+        val t = value.trim()
+        if (t.length < 3 || !t.startsWith("◀") || !t.endsWith("▶")) return null
+        return t.substring(1, t.length - 1).trim().takeIf { it.isNotEmpty() }
+    }
+}
+
+/**
+ * A ◀ or ▶ in a value (review sheet M29, approved 2026-11-11): a small chip that steps the row as Left / Right would.
+ * A tap is one step; held, it repeats (after 400 ms, then every 90 ms). It focuses its row first, then sends the row
+ * the key, so every row keeps its one Left / Right handler. Touch only: the D-pad changes the value as before.
+ */
+@Composable
+private fun StepButton(step: Int, rowFocused: Boolean, row: FocusRequester) {
+    val c = JoeyTheme.colors
+    val view = androidx.compose.ui.platform.LocalView.current
+    val inputMode = androidx.compose.ui.platform.LocalInputModeManager.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val code = if (step < 0) android.view.KeyEvent.KEYCODE_DPAD_LEFT else android.view.KeyEvent.KEYCODE_DPAD_RIGHT
+    fun send() {
+        val now = android.os.SystemClock.uptimeMillis()
+        view.dispatchKeyEvent(android.view.KeyEvent(now, now, android.view.KeyEvent.ACTION_DOWN, code, 0))
+        view.dispatchKeyEvent(android.view.KeyEvent(now, now, android.view.KeyEvent.ACTION_UP, code, 0))
+    }
+    suspend fun focusRow() {
+        inputMode.requestInputMode(androidx.compose.ui.input.InputMode.Keyboard)
+        row.requestFocus()
+        androidx.compose.runtime.withFrameNanos { } // the row has focus before its key arrives
+    }
+    val glyph = if (step < 0) "◀" else "▶"
+    Box(
+        Modifier
+            // The touch area is a little wider than the chip.
+            .padding(horizontal = 2.dp)
+            .semantics {
+                contentDescription = if (step < 0) "Less" else "More"
+                role = androidx.compose.ui.semantics.Role.Button
+                onClick { scope.launch { focusRow(); send() }; true }
+            }
+            .pointerInput(code) {
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    down.consume()
+                    val repeat = scope.launch {
+                        focusRow(); send()
+                        kotlinx.coroutines.delay(400)
+                        while (true) { send(); kotlinx.coroutines.delay(90) }
+                    }
+                    // Held until it lifts (or leaves); the row's own press never sees it.
+                    while (true) {
+                        val ev = awaitPointerEvent()
+                        ev.changes.forEach { it.consume() }
+                        if (ev.changes.none { it.pressed }) break
+                    }
+                    repeat.cancel()
+                }
+            }
+            .size(width = 24.dp, height = 22.dp)
+            .background(if (rowFocused && !c.isDark) c.navy.copy(alpha = 0.12f) else if (c.isDark) c.border else c.chip,
+                RoundedCornerShape(5.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(glyph, style = JoeyTheme.type.small, color = rowValueColor(c, rowFocused), maxLines = 1)
     }
 }
 
@@ -265,12 +359,17 @@ fun IconRow(
     val c = JoeyTheme.colors
     val (source, focused) = rememberFocusState()
     if (onFocused != null) androidx.compose.runtime.LaunchedEffect(focused) { onFocused(focused) }
+    // A long press: the row's key-only actions, as on [JoeyRow] (review sheet M30).
+    val self = androidx.compose.runtime.remember { FocusRequester() }
+    val actions = rememberRowLongPress(title, self, onClick)
+    ReportFocusedRow(focused, title, self, onClick)
     Row(
         modifier = modifier
             .fillMaxWidth()
             .then(if (sideways) Modifier else Modifier.focusProperties { left = FocusRequester.Cancel; right = FocusRequester.Cancel })
+            .focusRequester(self)
             .rowSelection(focused, RoundedCornerShape(JoeyTheme.spacing.rowCorner))
-            .pressable(source, onClick = onClick)
+            .pressable(source, onLongClick = actions, onClick = onClick)
             .padding(horizontal = JoeyTheme.spacing.rowPadH, vertical = JoeyTheme.spacing.rowPadV),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),

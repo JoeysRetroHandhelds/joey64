@@ -119,7 +119,7 @@ fun ShowPopup(model: LibraryModel, onDismiss: () -> Unit) {
 @Composable
 private fun CollectionOptionsPopup(col: GameCollection, model: LibraryModel, onDismiss: () -> Unit) {
     var renaming by remember { mutableStateOf(false) }
-    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Back")), width = 340.dp) {
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 340.dp) {
         Column {
             PopupTitle(col.name)
             JoeyOption("Rename", modifier = Modifier.initialFocus()) { renaming = true }
@@ -179,7 +179,7 @@ fun NamePopup(title: String, initial: String, note: String?, renaming: Long?, mo
             else if (onSave(n)) onDismiss()
         }
     }
-    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Type"), Hint("B", "Back")), width = 460.dp, atTop = true) {
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Type"), Hint("B", "Close")), width = 460.dp, atTop = true) {
         Column {
             PopupTitle(title)
             ControllerTextField(name, { name = it; taken = null }, "Name", Modifier.initialFocus().padding(horizontal = 4.dp),

@@ -62,6 +62,20 @@ fun JoeyPage(
     val inputMode = LocalInputModeManager.current
     LaunchedEffect(Unit) { inputMode.requestInputMode(InputMode.Keyboard) }
 
+    // A long press on a row: its key-only actions, run as the page's own buttons run them (review sheet M30).
+    val latestHints by rememberUpdatedState(hints)
+    val rowActions = rememberRowActionsHost({ latestHints }) { key ->
+        when (key) {
+            "Start" -> currentOnControl(Control.Options)
+            "X" -> currentOnControl(Control.Extra)
+            "Y" -> currentOnControl(Control.Search)
+        }
+    }
+    DisposableEffect(rowActions) {
+        RowActions.push(rowActions)
+        onDispose { RowActions.pop(rowActions) }
+    }
+
     val landing = remember { FocusLanding() }
     Column(
         modifier = Modifier
@@ -76,7 +90,7 @@ fun JoeyPage(
                 .focusProperties { onExit = { cancelFocusChange() } }
                 .focusGroup(),
         ) {
-            CompositionLocalProvider(LocalFocusLanding provides landing) { content() }
+            CompositionLocalProvider(LocalFocusLanding provides landing, LocalRowActions provides rowActions) { content() }
         }
         HintRow(hints)
     }

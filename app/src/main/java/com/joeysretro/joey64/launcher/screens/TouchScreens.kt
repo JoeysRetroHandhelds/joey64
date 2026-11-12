@@ -169,7 +169,7 @@ internal fun touchPageHints(focused: String, game: Boolean, backLabel: String): 
     return when (focused) {
         "tChipGame", "tChipEdit" -> listOf(Hint("A", "Select"), Hint("B", backLabel))
         TouchSettings.ROW_OPACITY, TouchSettings.ROW_SENS, TouchSettings.ROW_DEAD, TouchSettings.ROW_FULL ->
-            listOf(Hint("◀▶", "Adjust"), y, Hint("Start", "Reset page"), Hint("B", backLabel))
+            listOf(Hint("◀▶", "Change"), y, Hint("Start", "Reset page"), Hint("B", backLabel))
         "tResetLayouts" -> listOf(Hint("A", "Select"), Hint("Start", "Reset page"), Hint("B", backLabel))
         TouchSettings.ROW_LANDSCAPE, TouchSettings.ROW_PORTRAIT -> listOf(Hint("A", "Edit"), y, Hint("Start", "Reset page"), Hint("B", backLabel))
         "Tap", "Macros" -> listOfNotNull(Hint("A", "Change"), if (game) Hint("Y", "Use All games") else null, Hint("Start", "Reset page"), Hint("B", backLabel))
@@ -388,7 +388,7 @@ private fun SheetSlider(label: String, value: Int, min: Int, max: Int, step: Int
 /** Add a control (screen 4). */
 @Composable
 private fun AddControlPopup(onDismiss: () -> Unit, onPick: (TouchKind) -> Unit) {
-    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Add"), Hint("B", "Back")), width = 470.dp) {
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Add"), Hint("B", "Close")), width = 470.dp) {
         Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
             PopupTitle("Add a control", "Added controls appear in the middle, ready to drag.")
             JoeyRow("D-pad", Modifier.initialFocus(), detail = "For the few games that use it") { onPick(TouchKind.DPad) }
@@ -404,7 +404,7 @@ private fun AddControlPopup(onDismiss: () -> Unit, onPick: (TouchKind) -> Unit) 
 /** Macro button (screen 5): Player 1's macros, then Make a macro (Controls › Macros). */
 @Composable
 private fun MacroButtonPopup(macros: List<Macro>, onDismiss: () -> Unit, onMake: () -> Unit, onPick: (Macro) -> Unit) {
-    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Back")), width = 470.dp) {
+    JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 470.dp) {
         Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
             PopupTitle("Macro button", "Pick one of Player 1's macros. Its button shows the macro's name.")
             if (macros.isEmpty()) PopupNote("Player 1 has no macros yet.")

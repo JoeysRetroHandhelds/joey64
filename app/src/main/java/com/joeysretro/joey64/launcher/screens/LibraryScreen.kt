@@ -436,8 +436,9 @@ internal fun quitAgo(at: Long, now: Long): String {
 
 /**
  * After a game closed without quitting (approved problem screens, 2026-11-05): carry on from the
- * recovery state, or drop it. [onAnswer] true = Continue, false = Not now (the state is deleted),
- * null = B: only closed, the state stays, and the popup comes back when the launcher is in front again.
+ * recovery state, or drop it. [onAnswer] true = Continue, false = Delete it (the state is deleted),
+ * null = B Later: only closed, the state stays, and the popup comes back when the launcher is in front again.
+ * (Review sheet p2 L5, 2026-11-11: "Not now" deleted the state, which the words didn't say; B said nothing.)
  */
 @Composable
 private fun RecoveryPopup(offer: LibraryModel.RecoveryOffer, onAnswer: (Boolean?) -> Unit) {
@@ -446,7 +447,7 @@ private fun RecoveryPopup(offer: LibraryModel.RecoveryOffer, onAnswer: (Boolean?
         1 -> "1 minute"
         else -> "$m minutes"
     }
-    JoeyDialog(onDismiss = { onAnswer(null) }, hints = listOf(Hint("A", "Select")), width = 440.dp) {
+    JoeyDialog(onDismiss = { onAnswer(null) }, hints = listOf(Hint("A", "Select"), Hint("B", "Later")), width = 440.dp) {
         Column {
             PopupTitle("Joey64 closed while you were playing")
             PromptText(androidx.compose.ui.text.buildAnnotatedString {
@@ -456,7 +457,7 @@ private fun RecoveryPopup(offer: LibraryModel.RecoveryOffer, onAnswer: (Boolean?
                 append(" has a recovery state from $ago before it closed. Carry on from there?")
             })
             JoeyOption("Continue", modifier = Modifier.initialFocus()) { onAnswer(true) }
-            JoeyOption("Not now") { onAnswer(false) }
+            JoeyOption("Delete it") { onAnswer(false) }
         }
     }
 }

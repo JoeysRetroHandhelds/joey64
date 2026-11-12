@@ -9,6 +9,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -330,6 +332,12 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                                 place == RailPlace.Netplay -> com.joeysretro.joey64.launcher.screens.NetplayScreen(model, onHints = { settingsHints = it }) { backFromPage() }
                                 else -> LibraryScreen(model, updateAsking = updates.prompt.collectAsStateWithLifecycle().value != null) { place = RailPlace.Search }
                             }
+                        }
+                        // "<game> is back in the library" (approved D7 2026-11-11, screen 4): at the bottom for 3 s.
+                        model.libraryNote.collectAsStateWithLifecycle().value?.let { note ->
+                            LaunchedEffect(note) { kotlinx.coroutines.delay(3_000L); model.libraryNoteSeen() }
+                            com.joeysretro.joey64.launcher.components.JoeyToast(com.joeysretro.joey64.R.drawable.ic_circle_check, "Library", note, "",
+                                Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(bottom = 12.dp))
                         }
                     }
                     if (home) UpdatedToast(updates, Modifier.align(Alignment.TopEnd))

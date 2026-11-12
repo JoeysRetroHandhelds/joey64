@@ -300,8 +300,13 @@ Joey's answers to the morning report (2026-11-12, asked one by one):
   Already swaps: the pause menu, Controls (one popup at a time), Settings tabs, Saves, Screenshots, Profiles,
   Macros, Picture, Game settings, Game Boy folders, a game's options (Play closes them first).
   Joey 2026-11-12: "Yes, all ten". Built as swaps (commit below), B coming back to the row it was opened from; 8 also
-  covers the popups that say why a join ended (Couldn't reach the room and the like). Unit tests pass; not yet
-  checked on the Thor (it dropped off adb), and 5 (Change box art) and 9 (hosting a room) won't be pressed there.
+  covers the popups that say why a join ended (Couldn't reach the room and the like) (4dadaad).
+  Thor 2026-11-12 (f2d build): 1-3 with a Test collection made and deleted (options and Rename each take Show's
+  place, back on Test; after Delete on All games), 2 and 4 (name entry alone, B back on New collection…), 7 (back on
+  Join by code), 8 with SHOW net-unreach over the Netplay card (the card steps aside, OK brings it back), 10 with
+  SHOW lost-folder over the Netplay card (the note waited, then came up when the card closed), 6 with a made-up Video
+  file for Duke (Keep them back on Duke, Remove back on All games; file and folder removed). Not pressed there: 5
+  (Change box art) and 9 (hosting a room); Joining… needs a real room.
 - [x] F3 A clean quit clears only its own game's recovery state (b3a5d04: `files/recovery/games/<save name>/`; Thor 2026-11-12: the old OoT state moved in unchanged, b099ac2d / f4823052, the popup still offers it; compat_53 got its own after 2 min and quitting it removed only that one; OoT's Saves page still lists Recovery).
 - [x] F4 Send reports' line with only the day known: "Last sent today" / "Last sent Nov 11", not "Nothing sent yet" (627c875, `ReportPrefs.sentDayLabel`, ReportsTest; Thor 2026-11-12: sent_day today with no sent_at, Send now reads "Last sent today").
 - [x] F5 With focus on a tab row or the top bar the panel shows that tab's or place's own help, as Controls' tab row does (`LocalPanelHelp`; Thor 2026-11-12: Settings' tab row follows the focused tab, the bar shows Settings / Controls help, Down brings the tab's and then the row's help back; Game settings' Video / Emulation tabs).

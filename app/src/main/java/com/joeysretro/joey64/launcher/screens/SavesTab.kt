@@ -60,13 +60,13 @@ import kotlinx.coroutines.withContext
  * Settings › Saves (approved Saves mockup, 2026-11-07: scratchpad build_saves.py), the same for every
  * game. Left: Save on quit, Continue on Play, Quit saves to keep; Back up saves (save RAM copies in
  * `backups/`). Right: Back up Joey64 and Restore a backup (a .zip, [AppBackup]), Import from RetroArch
- * (the first-run pages again, [onImport]), Data folder ([DataFolders]); Advanced: Recovery state.
+ * (the first-run pages again, [onImport]), Import from M64Plus FZ ([onFzImport], approved mockup 2026-11-13), Data folder ([DataFolders]); Advanced: Recovery state.
  * A row that's working shows how far it is as its value, then what came of it.
  */
 @Composable
 fun SavesTab(onHints: (List<Hint>) -> Unit, onImport: () -> Unit, modifier: Modifier = Modifier, startRow: String = "quit",
              /** A row is working (a backup, restore or move): Settings holds Start: Reset tab meanwhile. */
-             onBusy: (Boolean) -> Unit = {}) {
+             onBusy: (Boolean) -> Unit = {}, onFzImport: () -> Unit = {}) {
     val context = LocalContext.current
     val landing = LocalFocusLanding.current
     val scope = rememberCoroutineScope()
@@ -144,6 +144,7 @@ fun SavesTab(onHints: (List<Hint>) -> Unit, onImport: () -> Unit, modifier: Modi
         "rec" -> pick(SavesOptions.RECOVERY_MINUTES, o.recoveryMinutes, { recoveryLabel(it) }, { null }) { set(o.copy(recoveryMinutes = it)) }
         "bk" -> com.joeysretro.joey64.launcher.components.PanelInfo(title, text,
             lines = listOf("When" to o.backups.label, "Copies to keep" to "${o.backupsKeep}"))
+        "fzimport" -> com.joeysretro.joey64.launcher.components.PanelInfo(title, text, lines = fzLastImport(context))
         else -> com.joeysretro.joey64.launcher.components.PanelInfo(title, text)
     }
 
@@ -164,6 +165,7 @@ fun SavesTab(onHints: (List<Hint>) -> Unit, onImport: () -> Unit, modifier: Modi
             row("backup", "Back up Joey64", "›") { popup = "backup" }
             row("restore", "Restore a backup", "›") { openZip.launch(arrayOf("application/zip", "application/octet-stream")) }
             row("import", "Import from RetroArch", "›") { onImport() }
+            row("fzimport", "Import from M64Plus FZ", "›") { onFzImport() }
             row("folder", "Data folder", folderLabel(context, folderTree) + "  ›") { popup = "folder" }
             SectionLabel("Advanced")
             row("rec", "Recovery state", recoveryLabel(o.recoveryMinutes) + "  ›") { if (!panel.enter()) popup = "rec" }
@@ -250,8 +252,17 @@ private fun describe(row: String, o: SavesOptions): Pair<String, String> = when 
     "backup" -> "Back up Joey64" to "One .zip of your saves, save states, screenshots and settings, in a folder you pick. ROMs and box art aren't in it."
     "restore" -> "Restore a backup" to "Brings back a Joey64 backup. Files with the same name are replaced; the rest stay."
     "import" -> "Import from RetroArch" to "Copies RetroArch's N64 saves and save states into Joey64. RetroArch's own files aren't changed."
+    "fzimport" -> "Import from M64Plus FZ" to "Copies M64Plus FZ's N64 saves and save states into Joey64, from its game data folder or an exported copy. M64Plus FZ's own files aren't changed."
     "folder" -> "Data folder" to "Where saves, save states, screenshots, cheats, save backups and settings live."
     else -> "Recovery state" to "Saved every few minutes while you play, and offered if Joey64 closes by itself. Off: no crash question."
+}
+
+/** The FZ import panel's lines (approved mockup 2026-11-13 screen 7): when the last one was and what it copied; none before one. */
+private fun fzLastImport(context: android.content.Context): List<Pair<String, String>> {
+    val last = com.joeysretro.joey64.launcher.FzImportModel.lastImport(context) ?: return emptyList()
+    val when_ = com.joeysretro.joey64.launcher.library.ImportText.date(last.at, System.currentTimeMillis(), java.time.ZoneId.systemDefault(),
+        android.text.format.DateFormat.is24HourFormat(context), false)
+    return listOf("Last import" to when_, "Copied" to com.joeysretro.joey64.launcher.library.ImportText.counts(last.saves, last.states).ifEmpty { "Nothing" })
 }
 
 /** Back up saves (mockup screen 6): On start, Daily, Off, then Copies to keep. */

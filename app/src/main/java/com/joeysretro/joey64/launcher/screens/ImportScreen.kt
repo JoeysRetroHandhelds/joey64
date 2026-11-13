@@ -60,9 +60,14 @@ import java.time.ZoneId
  *
  * [firstRun]: the first screen's "You can do this later in Settings › Saves." (the mockup said Settings ›
  * Library; Import from RetroArch is in Saves). Not when it was opened from there.
+ *
+ * [onFz] (first run only, approved FZ import mockup 2026-11-13 screen 1): the first page offers both emulators, "Copy your
+ * saves from another emulator?" with From RetroArch (the folder picker, as Choose RetroArch folder did), From M64Plus FZ
+ * and Skip; Done adds Also from M64Plus FZ.
  */
 @Composable
-fun ImportScreen(model: ImportModel, dataFolder: String?, debugOnly: Boolean = false, firstRun: Boolean = false, onDone: () -> Unit) {
+fun ImportScreen(model: ImportModel, dataFolder: String?, debugOnly: Boolean = false, firstRun: Boolean = false, onFz: (() -> Unit)? = null,
+                 onDone: () -> Unit) {
     val step by model.step.collectAsStateWithLifecycle()
     val landing = LocalFocusLanding.current
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -81,7 +86,16 @@ fun ImportScreen(model: ImportModel, dataFolder: String?, debugOnly: Boolean = f
 
     SetupPage {
         when (val s = step) {
-            ImportStep.Offer -> {
+            ImportStep.Offer -> if (onFz != null) {
+                SetupHeading("Copy your saves from another emulator?")
+                SetupBody("Joey64 can copy your N64 saves and save states from RetroArch or M64Plus FZ, so you carry on where you left off.")
+                ButtonRow(Modifier.padding(top = SetupButtonsTop)) {
+                    JoeyButton("From RetroArch", primary = true, modifier = Modifier.initialFocus(), onClick = choose)
+                    JoeyButton("From M64Plus FZ", primary = false, onClick = onFz)
+                    JoeyButton("Skip", primary = false, onClick = onDone)
+                }
+                if (firstRun) SetupSmall("You can do this later in Settings › Saves.")
+            } else {
                 SetupHeading("Copy your saves from RetroArch?")
                 SetupBody("Joey64 can copy your N64 saves and save states from RetroArch, so your games carry on where you left off. RetroArch's own files aren't changed.")
                 ButtonRow(Modifier.padding(top = SetupButtonsTop)) {
@@ -134,6 +148,7 @@ fun ImportScreen(model: ImportModel, dataFolder: String?, debugOnly: Boolean = f
                 })
                 ButtonRow(Modifier.padding(top = SetupButtonsTop)) {
                     JoeyButton("Continue", primary = true, modifier = Modifier.initialFocus(), onClick = onDone)
+                    if (onFz != null) JoeyButton("Also from M64Plus FZ", primary = false, onClick = onFz)
                 }
             }
         }

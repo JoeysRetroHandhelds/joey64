@@ -87,6 +87,7 @@ class LauncherActivity : ComponentActivity() {
     private val keys = KeyNormaliser(tv = { isTv }) { super.dispatchKeyEvent(it) }
     private val model: LibraryModel by viewModels()
     private val importModel: ImportModel by viewModels()
+    private val fzModel: FzImportModel by viewModels()
     private val updates: UpdateModel by viewModels()
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean = keys.dispatch(event)
@@ -184,12 +185,12 @@ class LauncherActivity : ComponentActivity() {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             hide(WindowInsetsCompat.Type.systemBars())
         }
-        setContent { LauncherApp(model, importModel, updates) }
+        setContent { LauncherApp(model, importModel, fzModel, updates) }
     }
 }
 
 @Composable
-private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: UpdateModel) {
+private fun LauncherApp(model: LibraryModel, importModel: ImportModel, fzModel: FzImportModel, updates: UpdateModel) {
     val context = LocalContext.current
     val store = remember { SettingsStore(context) }
     val settings by store.settings.collectAsState(initial = lastSettings)
@@ -226,6 +227,10 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             var onRail by remember { mutableStateOf(false) }
             // Settings › Saves › Import from RetroArch: the first-run import pages again, then back to that tab.
             var importAgain by remember { mutableStateOf(false) }
+            // Settings › Saves › Import from M64Plus FZ (approved mockup 2026-11-13 screen 7), and the first run's FZ pages.
+            var fzAgain by remember { mutableStateOf(false) }
+            var fzFirst by remember { mutableStateOf(false) }
+            var importRow by remember { mutableStateOf("import") }
             var settingsTab by remember { mutableStateOf(com.joeysretro.joey64.launcher.screens.SettingsTab.entries.first()) }
             val cheatsFor by model.cheatsFor.collectAsStateWithLifecycle()
             val gameSettingsFor by model.gameSettingsFor.collectAsStateWithLifecycle()
@@ -269,7 +274,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                     if (!barLife.currentState.isAtLeast(Lifecycle.State.RESUMED)) return@h false
                     val step = when (ctl) { com.joeysretro.joey64.launcher.controls.Control.TabPrev -> -1
                         com.joeysretro.joey64.launcher.controls.Control.TabNext -> 1; else -> 0 }
-                    if (step == 0 || !home || importAgain) false else {
+                    if (step == 0 || !home || importAgain || fzAgain) false else {
                         val list = barNow
                         val i = list.indexOf(place).takeIf { it >= 0 } ?: 0
                         val to = list[(i + step + list.size) % list.size]
@@ -308,7 +313,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             if (home) UpdateChecks(updates)
             // The places along the top, or a bar along the bottom in portrait.
             // B on the Library's grid: its tab on the bar, the grid back at the top; B on the tab leaves Joey64.
-            val libraryOpen = home && place == RailPlace.Library && !importAgain && cheatsFor == null && achievementsFor == null &&
+            val libraryOpen = home && place == RailPlace.Library && !importAgain && !fzAgain && cheatsFor == null && achievementsFor == null &&
                 gameSettingsFor == null && savesFor == null && screenshotsFor == null
             androidx.activity.compose.BackHandler(enabled = libraryOpen) { if (onRail) (context as? android.app.Activity)?.finish() else { model.libraryToTop(); bar.focus(RailPlace.Library) } }
             com.joeysretro.joey64.launcher.components.RailLayout(Modifier.weight(1f).fillMaxWidth(), rail = { bottom ->
@@ -353,9 +358,16 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                                 }
                                 // Then where saves go (screens 3-4), then Import from RetroArch, offered once; Skip or Continue finishes first run.
                                 !s.setupDone && !s.dataAsked -> com.joeysretro.joey64.launcher.screens.DataFolderStep { scope.launch { store.setDataAsked() } }
-                                !s.setupDone && !s.importAsked -> ImportScreen(importModel, s.dataFolder, firstRun = true) { scope.launch { store.setImportAsked() } }
+                                // One page offers RetroArch and M64Plus FZ (approved FZ import mockup 2026-11-13); each Done offers the other.
+                                !s.setupDone && !s.importAsked && fzFirst -> com.joeysretro.joey64.launcher.screens.FzImportScreen(fzModel, s.dataFolder, firstRun = true,
+                                    onBack = { fzFirst = false }, onRetroArch = { importModel.restart(); fzFirst = false }) { scope.launch { store.setImportAsked() } }
+                                !s.setupDone && !s.importAsked -> ImportScreen(importModel, s.dataFolder, firstRun = true, onFz = { fzModel.restart(); fzFirst = true }) { scope.launch { store.setImportAsked() } }
                                 // Last, Sign in to RetroAchievements (approved D3 2026-11-11, rasetup1_mock.png); signed in already, it goes straight on.
                                 !s.setupDone -> com.joeysretro.joey64.launcher.screens.RaSetupStep { scope.launch { store.setSetupDone() } }
+                                fzAgain -> {
+                                    androidx.activity.compose.BackHandler { fzAgain = false }
+                                    com.joeysretro.joey64.launcher.screens.FzImportScreen(fzModel, s.dataFolder, firstRun = false, onBack = { fzAgain = false }) { fzAgain = false }
+                                }
                                 importAgain -> {
                                     androidx.activity.compose.BackHandler { importAgain = false }
                                     ImportScreen(importModel, s.dataFolder) { importAgain = false }
@@ -380,8 +392,9 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                                 }
                                 place == RailPlace.Achievements -> com.joeysretro.joey64.launcher.screens.AchievementsScreen(onHints = { settingsHints = it }) { backFromPage() }
                                 place == RailPlace.Settings -> androidx.compose.runtime.CompositionLocalProvider(com.joeysretro.joey64.launcher.components.LocalTabsTakePageKeys provides true) { SettingsScreen(updates, model, onHints = { settingsHints = it }, startTab = settingsTab,
-                                    startRow = if (settingsTab == com.joeysretro.joey64.launcher.screens.SettingsTab.Saves) "import" else null,
-                                    onImport = { importModel.restart(); settingsTab = com.joeysretro.joey64.launcher.screens.SettingsTab.Saves; importAgain = true }) {
+                                    startRow = if (settingsTab == com.joeysretro.joey64.launcher.screens.SettingsTab.Saves) importRow else null,
+                                    onImport = { importModel.restart(); settingsTab = com.joeysretro.joey64.launcher.screens.SettingsTab.Saves; importRow = "import"; importAgain = true },
+                                    onFzImport = { fzModel.restart(); settingsTab = com.joeysretro.joey64.launcher.screens.SettingsTab.Saves; importRow = "fzimport"; fzAgain = true }) {
                                     backFromPage()
                                     if (place != RailPlace.Settings) settingsTab = com.joeysretro.joey64.launcher.screens.SettingsTab.entries.first()
                                 } }
@@ -419,7 +432,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             val setupShown by model.debugSetup.collectAsStateWithLifecycle()
             HintRow(when {
                 !home || setupShown != null -> listOf(Hint("A", "Select"))
-                importAgain -> listOf(Hint("A", "Select"), Hint("B", "Back"))
+                importAgain || fzAgain -> listOf(Hint("A", "Select"), Hint("B", "Back"))
                 onRail -> listOf(Hint("A", "Open"))
                 // The held page keeps its hints too, until the options draw their own.
                 onPage || heldPage != null -> settingsHints
@@ -427,7 +440,7 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                 libraryChip -> listOf(Hint("A", "Change"), Hint("Y", "Search"))
                 searchChip -> listOf(Hint("A", "Search"))
                 else -> listOf(Hint("A", "Play"), Hint("Start", "Options"), Hint("Y", "Search"))
-            }, end = tileEnd.takeIf { home && setupShown == null && !importAgain && !onRail && !onPage && heldPage == null })
+            }, end = tileEnd.takeIf { home && setupShown == null && !importAgain && !fzAgain && !onRail && !onPage && heldPage == null })
             if (home) updates.prompt.collectAsStateWithLifecycle().value?.let { UpdatePopup(it, updates) }
             com.joeysretro.joey64.launcher.screens.NeedsControllerPopup(model)
             // Netplay: a game's options › Netplay, and the room screens wherever a room was opened or joined.

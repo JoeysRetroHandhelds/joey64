@@ -102,7 +102,7 @@ internal const val CHIP_HELP = "These settings are for every game. Pick a game t
  * own settings), opening the same popups as Controls'.
  */
 @Composable
-fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher.LibraryModel, onHints: (List<Hint>) -> Unit, onImport: () -> Unit = {}, startTab: SettingsTab = SettingsTab.entries.first(), startRow: String? = null, onClose: () -> Unit) {
+fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher.LibraryModel, onHints: (List<Hint>) -> Unit, onImport: () -> Unit = {}, onFzImport: () -> Unit = {}, startTab: SettingsTab = SettingsTab.entries.first(), startRow: String? = null, onClose: () -> Unit) {
     BackHandler(onBack = onClose)
     val landing = LocalFocusLanding.current
     val c = JoeyTheme.colors
@@ -186,7 +186,7 @@ fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher
                 SettingsTab.Audio -> AudioTab(target, hints, { tabControl = it }, Modifier.weight(1f))
                 SettingsTab.OnScreen -> OnScreenTab(hints, { tabControl = it }, Modifier.weight(1f))
                 SettingsTab.Saves -> SavesTab({ h -> onHints(if (tab in RESETTABLE && !savesBusy) withResetHint(h) else h) }, onImport, Modifier.weight(1f),
-                    startRow ?: "quit", onBusy = { savesBusy = it })
+                    startRow ?: "quit", onBusy = { savesBusy = it }, onFzImport = onFzImport)
                 SettingsTab.Library -> LibraryTab(library, onHints, Modifier.weight(1f))
                 SettingsTab.RetroAchievements -> RaTab(onHints, Modifier.weight(1f))
                 SettingsTab.About -> AboutTab(updates, { onHints(it) }, Modifier.weight(1f))

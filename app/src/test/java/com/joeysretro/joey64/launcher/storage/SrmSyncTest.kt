@@ -95,6 +95,39 @@ class SrmSyncTest {
         assertEquals(at2, f.lastModified())
     }
 
+    /** Code audit 4, B-H1: a game started while the folder couldn't be read; its blank save never goes over the real one. */
+    @Test fun neverPulledWorkingCopyDoesNotReplaceTheFolderCopy() {
+        val space = DirSpace(tmp.newFolder("picked"))
+        val work = tmp.newFolder("work")
+        val st = MapStamps()
+        val real = byteArrayOf(1, 2, 3, 4)
+        File(space.root, "saves").mkdirs(); File(space.root, "saves/Game.srm").writeBytes(real)
+        val blank = File(work, "Game.srm").apply { writeBytes(byteArrayOf(0, 0, 0, 0)) }
+        SrmSync.pushFile(space, work, "Game.srm", st)
+        assertArrayEquals(real, File(space.root, "saves/Game.srm").readBytes())
+        val kept = File(space.root, "backups").listFiles { f -> f.name.startsWith("Game ") && f.name.endsWith(".srm") }.orEmpty()
+        assertEquals(1, kept.size)
+        assertArrayEquals(byteArrayOf(0, 0, 0, 0), kept[0].readBytes())
+        // Pushed again unchanged: no second copy.
+        SrmSync.pushFile(space, work, "Game.srm", st)
+        assertEquals(1, File(space.root, "backups").listFiles { f -> f.name.endsWith(".srm") }.orEmpty().size)
+        // The next start brings the real save back, and then it's in step.
+        SrmSync.pullFile(space, work, "Game.srm", st)
+        assertArrayEquals(real, blank.readBytes())
+        assertTrue(st.get("Game") > 0)
+    }
+
+    @Test fun neverPulledButSameBytesIsJustInStep() {
+        val space = DirSpace(tmp.newFolder("picked"))
+        val work = tmp.newFolder("work")
+        val st = MapStamps()
+        File(space.root, "saves").mkdirs(); File(space.root, "saves/Game.srm").writeBytes(byteArrayOf(5, 6))
+        File(work, "Game.srm").writeBytes(byteArrayOf(5, 6))
+        SrmSync.pushFile(space, work, "Game.srm", st)
+        assertEquals(File(work, "Game.srm").lastModified(), st.get("Game"))
+        assertFalse(File(space.root, "backups").exists())
+    }
+
     @Test fun saveRamKeepsItsOldKey() {
         val space = DirSpace(tmp.newFolder("picked"))
         val work = tmp.newFolder("work")

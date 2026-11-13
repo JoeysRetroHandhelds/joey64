@@ -107,4 +107,24 @@ class StateRequestsTest {
         assertEquals(Result.Later(now + 61_440_000), StateUpload.resultOf(500, null, 11, now))
         assertEquals(Result.Drop(), StateUpload.resultOf(503, null, 12, now))
     }
+
+    /** Code audit 4, C-M2: "have enough" holds only while the wanted list has the same entry for the game. */
+    @Test fun enoughFollowsTheWantedEntry() {
+        val w = StateRequests.parseWanted(wantedJson)
+        val a = w.getValue(md5a)
+        val kept = setOf("$md5a|${StateRequests.entryOf(a)}")
+        assertEquals(setOf(md5a), StateRequests.enoughFor(kept, w))
+        // A new need for the same game: asked again.
+        val changed = w + (md5a to a.copy(need = "The second level"))
+        assertEquals(emptySet<String>(), StateRequests.enoughFor(kept, changed))
+        // Off the list: nothing held.
+        assertEquals(emptySet<String>(), StateRequests.enoughFor(kept, w - md5a))
+    }
+
+    /** Code audit 4, C-M3: past the cap the oldest go, never the Yes just queued. */
+    @Test fun outboxCapDropsTheOldest() {
+        val newestFirst = listOf("f", "e", "d", "c", "b", "a")
+        assertEquals(listOf("a"), StateUpload.pastCap(newestFirst))
+        assertEquals(emptyList<String>(), StateUpload.pastCap(newestFirst.take(5)))
+    }
 }

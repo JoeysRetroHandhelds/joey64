@@ -169,12 +169,17 @@ object LogFiles {
         exits.firstOrNull()?.let { JLog.i(TAG, "previous exit: ${describe(it)}") }
         for (x in fresh) {
             val name = "$session-exit-${stamp.format(Date(x.timestamp))}"
-            File(dir, "$name.txt").writeText(describe(x) + "\n")
-            val trace = try { x.traceInputStream } catch (e: Exception) { null }
-            if (trace != null) {
-                val ext = if (x.reason == ApplicationExitInfo.REASON_CRASH_NATIVE) "tombstone.pb" else "trace"
-                trace.use { copy(it, File(dir, "$name.$ext")) }
-            }
+            // A full disk mustn't crash every start: an exit that can't be written is logged and skipped, and
+            // LAST_EXIT is still saved below (code audit 4, A-M2).
+            val trace = try {
+                File(dir, "$name.txt").writeText(describe(x) + "\n")
+                val t = try { x.traceInputStream } catch (e: Exception) { null }
+                if (t != null) {
+                    val ext = if (x.reason == ApplicationExitInfo.REASON_CRASH_NATIVE) "tombstone.pb" else "trace"
+                    t.use { copy(it, File(dir, "$name.$ext")) }
+                }
+                t
+            } catch (e: Exception) { JLog.e(TAG, "previous exit not saved: $e"); null }
             if (x.reason in listOf(ApplicationExitInfo.REASON_CRASH, ApplicationExitInfo.REASON_CRASH_NATIVE,
                     ApplicationExitInfo.REASON_ANR, ApplicationExitInfo.REASON_LOW_MEMORY, ApplicationExitInfo.REASON_INITIALIZATION_FAILURE))
                 JLog.w(TAG, "previous run ended badly: ${describe(x)}" + if (trace != null) " (trace saved)" else "")

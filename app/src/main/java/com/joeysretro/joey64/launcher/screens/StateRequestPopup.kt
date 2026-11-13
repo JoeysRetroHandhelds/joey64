@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -59,7 +60,9 @@ internal fun StateRequestPopup(ask: StateRequests.Ask, model: LibraryModel, onAn
     ) {
         Column {
             PopupTitle("Can you send us a save state?", "For $title, the game you just played")
-            Row(Modifier.padding(horizontal = 10.dp).padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            // The answers give way first (they scroll as focus moves), so the lines under them keep their room on a short screen.
+            Row(Modifier.weight(1f, fill = false).padding(horizontal = 10.dp).padding(bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 Column(Modifier.weight(if (narrow) 1f else 0.42f).verticalScroll(rememberScrollState())) {
                     for ((a, icon, label, detail) in ROWS) {
                         JoeyRow(label, Modifier.initialFocus(a == Answer.Yes).onFocusChanged { if (it.hasFocus) focused = a },
@@ -75,9 +78,13 @@ internal fun StateRequestPopup(ask: StateRequests.Ask, model: LibraryModel, onAn
                 }
                 if (!narrow) Column(Modifier.weight(0.58f).padding(top = 4.dp)) { Panel(focused, ask, title, cover) }
             }
-            // Narrow (one column): the focused answer's line under the list, as the description line.
-            if (narrow) Text(panelText(focused, ask, title), style = JoeyTheme.type.small, color = c.textDim,
-                modifier = Modifier.padding(horizontal = 18.dp).padding(bottom = 8.dp), minLines = 3, maxLines = 3)
+            // Narrow (one column): the focused answer's line under the list, and on Yes what's sent, as the wide panel
+            // has it; it scrolls instead of being cut at 3 lines (code audit 4, E1-M5).
+            if (narrow) Column(Modifier.padding(horizontal = 18.dp).padding(bottom = 8.dp).heightIn(max = 132.dp)
+                .verticalScroll(rememberScrollState())) {
+                Text(panelText(focused, ask, title), style = JoeyTheme.type.small, color = c.textDim)
+                if (focused == Answer.Yes) SentLines(ask)
+            }
         }
     }
 }
@@ -115,6 +122,15 @@ private fun panelText(a: Answer, ask: StateRequests.Ask, title: String) = when (
         "Settings › About › Ask for save states."
 }
 
+/** WHAT'S SENT and its three lines: the wide panel's, and under the list on a narrow screen. */
+@Composable
+private fun SentLines(ask: StateRequests.Ask) {
+    val c = JoeyTheme.colors
+    com.joeysretro.joey64.launcher.components.SectionLabel("WHAT'S SENT", Modifier.padding(top = 6.dp))
+    for (line in listOf(fromLine(ask), "Your in-game save for this game", "The Joey64 version. No name, account or device details"))
+        Text("•  $line", style = JoeyTheme.type.small, color = c.textSecondary, modifier = Modifier.padding(start = 4.dp, top = 2.dp))
+}
+
 @Composable
 private fun Panel(a: Answer, ask: StateRequests.Ask, title: String, cover: androidx.compose.ui.graphics.ImageBitmap?) {
     val c = JoeyTheme.colors
@@ -128,9 +144,7 @@ private fun Panel(a: Answer, ask: StateRequests.Ask, title: String, cover: andro
                 Text(whyLine(ask), style = JoeyTheme.type.small, color = c.textDim, modifier = Modifier.padding(top = 2.dp))
             }
         }
-        com.joeysretro.joey64.launcher.components.SectionLabel("WHAT'S SENT", Modifier.padding(top = 6.dp))
-        for (line in listOf(fromLine(ask), "Your in-game save for this game", "The Joey64 version. No name, account or device details"))
-            Text("•  $line", style = JoeyTheme.type.small, color = c.textSecondary, modifier = Modifier.padding(start = 4.dp, top = 2.dp))
+        SentLines(ask)
     } else {
         Text(ROWS.first { it.answer == a }.label, style = JoeyTheme.type.rowBold, color = c.text)
         Text(panelText(a, ask, title), style = JoeyTheme.type.small, color = c.textSecondary, modifier = Modifier.padding(top = 4.dp))

@@ -47,13 +47,20 @@ object StateUpload {
             File(part, "item.json").writeText(JSONObject().put("md5", ask.wanted.md5).put("kind", ask.wanted.kind.name.lowercase())
                 .put("app", AppUpdates.installedVersion(ctx)).put("tries", 0).put("next", 0L).toString())
             if (!part.renameTo(item)) throw IOException("can't keep ${item.name}")
-            // The oldest go past MAX_WAITING.
-            waiting(ctx).dropLast(MAX_WAITING).forEach { it.deleteRecursively() }
+            // The oldest go past MAX_WAITING ([waiting] is newest first: `dropLast` deleted the newest, the Yes just
+            // queued among them; code audit 4, C-M3).
+            for (old in pastCap(waiting(ctx))) { old.deleteRecursively(); StateRequests.dropped(ctx, md5Of(old)) }
             true
         } catch (e: IOException) {
             JLog.w(TAG, "state request: not queued ($e)"); part.deleteRecursively(); false
         }
     }
+
+    /** Of [newestFirst], the ones past [MAX_WAITING]: the oldest. */
+    internal fun <T> pastCap(newestFirst: List<T>): List<T> = newestFirst.drop(MAX_WAITING)
+
+    /** An item's md5 from its folder name ("<time>-<md5>"). */
+    private fun md5Of(item: File) = item.name.substringAfter('-')
 
     /** The outbox's items, newest first. */
     private fun waiting(ctx: Context) = outbox(ctx).listFiles { f -> f.isDirectory && !f.name.endsWith(".part") }.orEmpty().sortedByDescending { it.name }
@@ -87,16 +94,21 @@ object StateUpload {
         var sent = 0
         try {
             for (item in waiting(ctx).reversed()) {
-                val meta = try { JSONObject(File(item, "item.json").readText()) } catch (e: Exception) { item.deleteRecursively(); continue }
+                val meta = try { JSONObject(File(item, "item.json").readText()) } catch (e: Exception) {
+                    item.deleteRecursively(); StateRequests.dropped(ctx, md5Of(item)); continue
+                }
                 val now = System.currentTimeMillis()
                 if (meta.optLong("next") > now) continue
                 val tries = meta.optInt("tries")
                 val (code, retryAfter, body) = post(ctx, item, meta)
                 when (val r = resultOf(code, retryAfter, tries, now, body)) {
-                    Result.Sent -> { item.deleteRecursively(); sent++; JLog.i(TAG, "state request: sent ${meta.optString("md5")}") }
+                    Result.Sent -> {
+                        item.deleteRecursively(); sent++; StateRequests.accepted(ctx, meta.optString("md5"))
+                        JLog.i(TAG, "state request: sent ${meta.optString("md5")}")
+                    }
                     is Result.Drop -> {
                         item.deleteRecursively()
-                        if (r.done) StateRequests.done(ctx, meta.optString("md5"))
+                        if (r.done) StateRequests.enough(ctx, meta.optString("md5")) else StateRequests.dropped(ctx, meta.optString("md5"))
                         JLog.w(TAG, "state request: ${meta.optString("md5")} dropped (HTTP $code, try ${tries + 1})")
                     }
                     is Result.Later -> {

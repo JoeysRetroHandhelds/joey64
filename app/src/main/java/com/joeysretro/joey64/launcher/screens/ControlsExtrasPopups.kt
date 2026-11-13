@@ -102,7 +102,7 @@ internal fun TapToHoldPopup(player: Int, latch: Set<N64Button>, onSet: (Set<N64B
 internal fun TurboPopup(player: Int, turbo: Set<N64Button>, speed: Int, latch: Set<N64Button>,
                         onSet: (Set<N64Button>, Int) -> Unit, onDismiss: () -> Unit) {
     // null: the Speed row.
-    var focused by remember { mutableStateOf<N64Button?>(TURBO_BUTTONS.firstOrNull { it in turbo && it !in latch } ?: TURBO_BUTTONS.first { it !in latch }) }
+    var focused by remember { mutableStateOf<N64Button?>(TURBO_BUTTONS.firstOrNull { it in turbo && it !in latch } ?: TURBO_BUTTONS.firstOrNull { it !in latch }) }
     JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Tick"), Hint("◀▶", "Change"), Hint("B", "Close")), width = 560.dp) {
         Column {
             PopupTitle("Player ${player + 1} turbo",
@@ -123,7 +123,8 @@ internal fun TurboPopup(player: Int, turbo: Set<N64Button>, speed: Int, latch: S
                 val i = (TURBO_SPEEDS.indexOf(speed).takeIf { it >= 0 } ?: TURBO_SPEEDS.indexOf(com.joeysretro.joey64.controls.DEFAULT_TURBO_SPEED)) + by
                 onSet(turbo, TURBO_SPEEDS[i.coerceIn(0, TURBO_SPEEDS.lastIndex)])
             }
-            JoeyRow("Speed", Modifier.sideways(onStep = step), detail = "How many presses a second",
+            // Every button on Tap to hold: nothing above can take the focus, so the popup starts here (code audit 4, D-L2).
+            JoeyRow("Speed", Modifier.initialFocus(focused == null).sideways(onStep = step), detail = "How many presses a second",
                 value = "◀ $speed a second ▶", sideways = true,
                 onFocused = { if (it) focused = null }) { }
             Spacer(Modifier.height(6.dp))

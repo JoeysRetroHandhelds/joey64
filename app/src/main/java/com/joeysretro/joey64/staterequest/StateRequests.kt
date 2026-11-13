@@ -128,10 +128,22 @@ object StateRequests {
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences("state_requests", Context.MODE_PRIVATE)
 
-    fun prefsOf(ctx: Context): Prefs {
+    fun prefsOf(ctx: Context, wanted: Map<String, Wanted>): Prefs {
         val p = prefs(ctx)
-        return Prefs(p.getBoolean("never", false), p.getStringSet("skipped", emptySet()).orEmpty(), p.getStringSet("sent", emptySet()).orEmpty())
+        val done = p.getStringSet("sent", emptySet()).orEmpty() + p.getStringSet("queued", emptySet()).orEmpty() +
+            enoughFor(p.getStringSet("enough", emptySet()).orEmpty(), wanted)
+        return Prefs(p.getBoolean("never", false), p.getStringSet("skipped", emptySet()).orEmpty(), done)
     }
+
+    /**
+     * What the wanted list says about a game, so a server's "have enough" holds only while the list says the same: a
+     * changed entry (a new need, kind or why) asks again (code audit 4, C-M2).
+     */
+    fun entryOf(w: Wanted) = "${w.kind}|${w.need}|${w.why}"
+
+    /** The md5s in [enough] ("md5|entry", from [enough]) whose wanted entry is still the same. */
+    fun enoughFor(enough: Set<String>, wanted: Map<String, Wanted>): Set<String> =
+        enough.mapNotNull { e -> val md5 = e.substringBefore('|'); wanted[md5]?.takeIf { e == "$md5|${entryOf(it)}" }?.md5 }.toSet()
 
     /** [md5]'s ring from the session just ended, if the host wrote one. */
     fun ringOf(ctx: Context, md5: String): Ring? {
@@ -142,10 +154,49 @@ object StateRequests {
     /** The host's ring for [md5] (its stateRingDir). */
     fun ringDir(ctx: Context, md5: String) = File(File(File(ctx.filesDir, "states"), "ring"), md5.lowercase())
 
-    /** The server has enough of [md5] (410) or doesn't want it (404): don't ask about it again. */
-    fun done(ctx: Context, md5: String) {
+    /**
+     * The server has enough of [md5] (410) or doesn't want it (404 "not wanted"): not asked about again while the kept
+     * wanted list has the same entry for it. A changed entry, or the game leaving the list and coming back, asks again
+     * (code audit 4, C-M2: this used to be for good).
+     */
+    fun enough(ctx: Context, md5: String) {
+        val m = md5.lowercase()
+        val w = keptWanted(ctx)[m]
         val p = prefs(ctx)
-        p.edit().putStringSet("sent", p.getStringSet("sent", emptySet()).orEmpty() + md5.lowercase()).apply()
+        val kept = p.getStringSet("enough", emptySet()).orEmpty().filterNot { it.substringBefore('|') == m }.toSet()
+        p.edit().putStringSet("enough", if (w != null) kept + "$m|${entryOf(w)}" else kept)
+            .putStringSet("queued", p.getStringSet("queued", emptySet()).orEmpty() - m).apply()
+    }
+
+    /** The server took [md5]'s state (2xx): not asked about again from this install. */
+    fun accepted(ctx: Context, md5: String) {
+        val m = md5.lowercase()
+        val p = prefs(ctx)
+        p.edit().putStringSet("sent", p.getStringSet("sent", emptySet()).orEmpty() + m)
+            .putStringSet("queued", p.getStringSet("queued", emptySet()).orEmpty() - m).apply()
+    }
+
+    /** [md5]'s upload was dropped without the server taking it (400, 413, too many tries, the outbox cap): it may be asked again. */
+    fun dropped(ctx: Context, md5: String) {
+        val p = prefs(ctx)
+        p.edit().putStringSet("queued", p.getStringSet("queued", emptySet()).orEmpty() - md5.lowercase()).apply()
+    }
+
+    /** The wanted list as kept on the device, with no network read. */
+    private fun keptWanted(ctx: Context): Map<String, Wanted> {
+        val f = File(dir(ctx), WANTED_FILE)
+        return try { if (f.exists()) parseWanted(f.readText()) else emptyMap() } catch (e: IOException) { emptyMap() }
+    }
+
+    /**
+     * Deletes the host's rings that no ask will use: games off the kept list or covered by an answer, so ~84 MB doesn't
+     * stay for each wanted game played (code audit 4, C-M1). The game just played keeps its ring until it's answered.
+     */
+    fun sweep(ctx: Context) {
+        val root = File(File(ctx.filesDir, "states"), "ring")
+        for (d in root.listFiles { f -> f.isDirectory }.orEmpty()) {
+            if (!ringFor(ctx, d.name) && d.deleteRecursively()) JLog.i(TAG, "state ring for ${d.name} deleted (nothing to ask)")
+        }
     }
 
     /** After a session of [md5]: something to ask about, or null. Reads the network for the wanted list (call off the main thread). */
@@ -158,8 +209,10 @@ object StateRequests {
         var ring = ringOf(ctx, md5)
         var waited = 0
         while (ring != null && ring.quitAt <= 0 && waited < 5000) { Thread.sleep(250); waited += 250; ring = ringOf(ctx, md5) }
-        val ask = decide(md5, wanted, prefsOf(ctx), ring)
+        val ask = decide(md5, wanted, prefsOf(ctx, wanted), ring)
         JLog.i(TAG, "state request for $md5: ${if (ask == null) "nothing to ask" else "ask (${ask.wanted.kind}, ${ask.state.path})"}")
+        // Nothing to ask: its ring is no use (code audit 4, C-M1).
+        if (ask == null) ringDir(ctx, md5).deleteRecursively()
         return ask
     }
 
@@ -171,12 +224,15 @@ object StateRequests {
         val p = prefs(ctx)
         fun add(key: String) = p.edit().putStringSet(key, p.getStringSet(key, emptySet()).orEmpty() + ask.wanted.md5).apply()
         when (answer) {
-            Answer.Yes -> { if (StateUpload.queue(ctx, ask, saveName)) add("sent") }
+            // Not "sent" until the server takes it (StateUpload marks it), so a drop can ask again (code audit 4, C-M2).
+            Answer.Yes -> { if (StateUpload.queue(ctx, ask, saveName)) add("queued") }
             Answer.No -> Unit
             Answer.NotThisGame -> add("skipped")
             Answer.Never -> p.edit().putBoolean("never", true).apply()
         }
         JLog.i(TAG, "state request for ${ask.wanted.md5}: $answer")
+        // Answered: the ring is no use any more; a Yes has its state in the outbox (code audit 4, C-M1).
+        if (ringDir(ctx, ask.wanted.md5).deleteRecursively()) JLog.i(TAG, "state ring for ${ask.wanted.md5} deleted")
     }
 
     /** Settings › About › Ask for save states (approved mockup 2026-11-12, screen 4): Off is Don't ask again's answer. */
@@ -194,7 +250,7 @@ object StateRequests {
         val f = File(dir(ctx), WANTED_FILE)
         val wanted = try { if (f.exists()) parseWanted(f.readText()) else return false } catch (e: IOException) { return false }
         val w = wanted[md5.lowercase()] ?: return false
-        val p = prefsOf(ctx)
+        val p = prefsOf(ctx, wanted)
         return !p.never && w.md5 !in p.skipped && w.md5 !in p.sent
     }
 
@@ -211,6 +267,13 @@ object StateRequests {
                 val part = File(f.parentFile, f.name + ".part")
                 part.writeText(text)
                 if (!part.renameTo(f)) { part.delete(); throw IOException("can't keep ${f.name}") }
+                val now = try { parseWanted(text) } catch (e: Exception) { null }
+                if (now != null) {
+                    val p = prefs(ctx)
+                    val enough = p.getStringSet("enough", emptySet()).orEmpty()
+                    val still = enough.filter { it.substringBefore('|') in now }.toSet()
+                    if (still.size != enough.size) p.edit().putStringSet("enough", still).apply()
+                }
             } catch (e: FileNotFoundException) {
                 // No list published yet: nothing is wanted. Kept as empty so it isn't asked for every session.
                 f.parentFile?.mkdirs(); f.writeText("")

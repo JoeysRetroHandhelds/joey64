@@ -20,6 +20,8 @@ enum class DataKind(val dir: String, val hiddenFromGallery: Boolean = false) {
 
     companion object {
         const val NO_MEDIA = ".nomedia"
+        /** The host's state ring, under states/: never moved with the player's data. */
+        val RING = listOf("states", "ring")
     }
 }
 
@@ -84,6 +86,9 @@ object DataMover {
                 val path = dir + e.name
                 val shown = path.joinToString("/")
                 when {
+                    // The host's state ring (states/ring/<md5>, ~84 MB each) is Joey64's own scratch, never the player's:
+                    // it stays in files/ and doesn't move (code audit 4, C-M4).
+                    e.isDir && path == DataKind.RING -> Unit
                     e.isDir -> {
                         walk(path)
                         if (from.list(path).isEmpty()) from.delete(path)

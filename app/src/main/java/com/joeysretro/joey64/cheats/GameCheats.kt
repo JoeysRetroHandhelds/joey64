@@ -48,6 +48,9 @@ data class CheatChoices(val on: Map<String, CheatOn> = emptyMap(), val own: List
             }
             val own = o.optJSONArray("own")?.let { a ->
                 (0 until a.length()).map { i -> a.getJSONObject(i).let { OwnCode(it.getString("name"), it.getJSONArray("codes").strings(), it.optBoolean("on")) } }
+                    // One per name: the Cheats page keys its rows by name, and two alike (a file edited by hand) crashed it
+                    // (code audit 4, E1-L3). The Add screen already refuses a name in use.
+                    .distinctBy { it.name }
             } ?: emptyList()
             return CheatChoices(on, own)
         }

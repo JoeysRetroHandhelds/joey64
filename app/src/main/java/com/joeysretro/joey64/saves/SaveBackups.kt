@@ -68,12 +68,14 @@ object SaveBackups {
      * page's Restore a backup lists them; a Transfer Pak copy ("<save name>.gb.sav") is kept the same way, unlisted.
      * Nothing older is removed. True when it's kept (or its newest backup is the same), false when it couldn't be.
      */
-    fun keepAside(space: FileSpace, file: String, now: Long = System.currentTimeMillis()): Boolean = try {
+    fun keepAside(space: FileSpace, file: String, now: Long = System.currentTimeMillis(), from: java.io.File? = null): Boolean = try {
         val ending = SAVE_ENDINGS.first { file.endsWith(it) }
         val saveName = file.removeSuffix(ending)
+        // [from]: a working copy in files/saves kept in [space]'s backups instead of the folder's own copy (code audit 4, B-H1).
+        val read: () -> InputStream? = if (from != null) ({ from.takeIf { it.isFile }?.inputStream() }) else ({ space.openRead(listOf(DataKind.Saves.dir, file)) })
         when (ending) {
-            ".srm", ".gb.sav" -> backUpPlain(space, saveName, file, ending, BackupWhen.OnStart, Int.MAX_VALUE, now)
-            else -> backUpDisk(space, saveName, file, BackupWhen.OnStart, Int.MAX_VALUE, now)
+            ".srm", ".gb.sav" -> backUpPlain(space, saveName, file, ending, BackupWhen.OnStart, Int.MAX_VALUE, now, read)
+            else -> backUpDisk(space, saveName, file, BackupWhen.OnStart, Int.MAX_VALUE, now, read)
         }
         true
     } catch (e: Exception) {
@@ -81,8 +83,9 @@ object SaveBackups {
     }
 
     /** [file] ("<save name>.srm", or a Transfer Pak copy) copied as it is to "<save name> <stamp>[ext]". Throws when it can't be. */
-    private fun backUpPlain(space: FileSpace, saveName: String, file: String, ext: String, mode: BackupWhen, keep: Int, now: Long): String? {
-        val bytes = space.openRead(listOf(DataKind.Saves.dir, file))?.use { it.readBytes() } ?: return null
+    private fun backUpPlain(space: FileSpace, saveName: String, file: String, ext: String, mode: BackupWhen, keep: Int, now: Long,
+                            read: () -> InputStream? = { space.openRead(listOf(DataKind.Saves.dir, file)) }): String? {
+        val bytes = read()?.use { it.readBytes() } ?: return null
         val mine = BackupRules.backupsOf(saveName, backupNames(space), ext)
         val newest = mine.lastOrNull()
         val same = newest != null && space.openRead(listOf(DataKind.Backups.dir, newest))?.use { it.readBytes() }?.contentEquals(bytes) == true
@@ -91,9 +94,9 @@ object SaveBackups {
     }
 
     /** [file] is "<save name>.ndd.disk_save" (or .d64): zipped into "<save name> <stamp>.ndd.disk_save.zip". Throws when it can't be. */
-    private fun backUpDisk(space: FileSpace, saveName: String, file: String, mode: BackupWhen, keep: Int, now: Long): String? {
-        val path = listOf(DataKind.Saves.dir, file)
-        val sum = space.openRead(path)?.use { DiskZip.sum(it) } ?: return null
+    private fun backUpDisk(space: FileSpace, saveName: String, file: String, mode: BackupWhen, keep: Int, now: Long,
+                           read: () -> InputStream? = { space.openRead(listOf(DataKind.Saves.dir, file)) }): String? {
+        val sum = read()?.use { DiskZip.sum(it) } ?: return null
         val ext = file.removePrefix(saveName) + ".zip"
         val mine = BackupRules.backupsOf(saveName, backupNames(space), ext)
         val newest = mine.lastOrNull()
@@ -101,7 +104,7 @@ object SaveBackups {
         if (newest != null && (same || !BackupRules.due(mode, BackupRules.stampOf(saveName, newest, ext), now))) return null
         val t0 = System.nanoTime()
         val name = put(space, saveName, mine, keep, now, ext) { out ->
-            space.openRead(path)?.use { DiskZip.write(it, out, file, sum, now) } ?: throw IOException("$file went away")
+            read()?.use { DiskZip.write(it, out, file, sum, now) } ?: throw IOException("$file went away")
         }
         JLog.i(TAG, "backed up $file as $name (${sum.second} bytes, ${(System.nanoTime() - t0) / 1_000_000} ms)")
         return name

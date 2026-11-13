@@ -67,8 +67,9 @@ private fun cropText(n: Int?): Pair<String, String> = when (n) {
     null -> "Exact" to "Any amount from 0 to 32 lines of 240, in steps of 2, for a game that needs something in between."
     0 -> "Off" to "The whole picture, as the game draws it."
     else -> {
-        val ch = VideoChoices.crop.first { it.value == n.toString() }
-        ch.label to when (n) {
+        // An Exact amount (2, 6, 10 ... 32) has no named choice: it reads as Exact (code audit 4, D-H1: `first` crashed).
+        val label = VideoChoices.crop.firstOrNull { it.value == n.toString() }?.label ?: "Exact"
+        label to when (n) {
             4 -> "4 lines of 240 off each edge, for a thin border."
             8 -> "8 lines of 240 off each edge, the black border most games draw. A HUD at the very edge can lose a few pixels."
             else -> "$n lines of 240 off each edge, for a wider border. A HUD at the very edge can lose a few pixels."

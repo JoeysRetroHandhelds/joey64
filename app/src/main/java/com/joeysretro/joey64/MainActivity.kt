@@ -118,6 +118,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         super.onCreate(savedInstanceState)
         LogFiles.start(this, intent)
         if (gameLoaded && hasRom(intent)) { switching = true; afterLauncherSaved { if (!isDestroyed) switchGame() }; return }
+        // A start with no ROM while a game is up (another app starting this exported screen bare): the setup below
+        // would reload the core under the running game and end it with no quit save (code audit 4, A-H1, Thor). This
+        // instance closes at once, so the game's own instance comes back to the front, untouched.
+        if (owner != null) { JLog.w(TAG, "a start with no ROM while a game runs: ignored"); finish(); return }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // Dev check (2026-11-05 recheck): whether this device offers sustained performance mode (checked before only on the Flip and Portal)
         JLog.w(TAG, "sustained performance mode supported: " +
@@ -869,6 +873,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
      */
     private fun askRestart(): Boolean {
         val st = states ?: return false
+        // In a netplay room a restart would leave the room: no question, the rows apply at the next start
+        // (code audit 4, E2-M1).
+        if (android.system.Os.getenv("N64_NETPLAY") != null || android.system.Os.getenv("N64_NETPLAY_SERVE") != null) return false
         val pending = pendingAtStart(st.saveName)
         if (pending.isEmpty() || pending.all { (id, _, value) -> restartAsked[id] == value }) return false
         for ((id, _, value) in pending) restartAsked[id] = value

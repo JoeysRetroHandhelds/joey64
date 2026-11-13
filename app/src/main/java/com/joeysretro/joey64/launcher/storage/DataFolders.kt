@@ -102,6 +102,28 @@ object SrmSync {
     /** The folder changed: nothing is in step with the new one yet. */
     fun forget(context: Context) { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().commit() }
 
+    /** Whether the folder's copy of [name] has exactly [f]'s bytes. */
+    private fun sameBytes(space: FileSpace, name: String, f: File): Boolean {
+        val theirs = space.openRead(listOf(DataKind.Saves.dir, name)) ?: return false
+        return theirs.use { a -> f.inputStream().use { b ->
+            val x = ByteArray(1 shl 16); val y = ByteArray(1 shl 16)
+            var same = true
+            while (same) {
+                val n = fill(a, x); val m = fill(b, y)
+                same = n == m && (0 until n).all { x[it] == y[it] }
+                if (n == 0) break
+            }
+            same
+        } }
+    }
+
+    /** Reads until [buf] is full or the stream ends; how many bytes. */
+    private fun fill(input: java.io.InputStream, buf: ByteArray): Int {
+        var n = 0
+        while (n < buf.size) { val r = input.read(buf, n, buf.size - n); if (r < 0) break; n += r }
+        return n
+    }
+
     /** The folder's copy of [name] as its listing gives it (size, time), or null when it has none or no time. */
     private fun folderStamp(space: FileSpace, name: String): Pair<Long, Long>? =
         space.list(listOf(DataKind.Saves.dir)).firstOrNull { it.name == name && !it.isDir }?.takeIf { it.modified > 0 }?.let { it.size to it.modified }
@@ -130,13 +152,19 @@ object SrmSync {
                 }
             }
             val input = space.openRead(listOf(DataKind.Saves.dir, name))
-            if (input == null) { if (f.isFile) pushFile(space, work, name, st); return }
+            if (input == null) {
+                // No copy, or the folder can't be read now: told apart in the log; pushFile never writes over a copy
+                // this device didn't pull (code audit 4, B-H1).
+                if (space is TreeSpace && !space.readable()) JLog.w(TAG, "$name: the data folder can't be read now; the game starts without its copy")
+                if (f.isFile) pushFile(space, work, name, st); return
+            }
             work.mkdirs()
             val part = File(work, "$name.part")
             // Streamed: a disk save is a whole 64DD disk (up to 64 MB).
             val size = input.use { i -> part.outputStream().use { i.copyTo(it, 1 shl 16) } }
             if (!part.renameTo(f)) { f.delete(); if (!part.renameTo(f)) throw IOException("can't put $name in place") }
             st.put(key(name), f.lastModified())
+            st.put("${key(name)}|held", -1L)
             noteFolder(space, name, st)
             JLog.i(TAG, "$name: pulled $size bytes from the data folder")
         } catch (e: Exception) {
@@ -151,6 +179,23 @@ object SrmSync {
         val at = f.lastModified()
         if (st.get(key(name)) == at) return
         val size = f.length()
+        // Never in step with the folder, and the folder has its own copy: the game started while the folder couldn't
+        // be read, so this working copy began blank or old. It never goes over the folder's copy: when they differ it's
+        // kept in the folder's backups (Restore a backup lists it), and the next start pulls the folder's copy back
+        // (code audit 4, B-H1).
+        if (st.get(key(name)) < 0 && folderStamp(space, name) != null) {
+            try {
+                if (sameBytes(space, name, f)) { st.put(key(name), at); noteFolder(space, name, st); return }
+                if (st.get("${key(name)}|held") == at) return
+                if (com.joeysretro.joey64.saves.SaveBackups.keepAside(space, name, from = f)) {
+                    st.put("${key(name)}|held", at)
+                    JLog.w(TAG, "$name: never pulled from the data folder (it couldn't be read at the start); kept aside, the folder's copy left as it was")
+                }
+            } catch (e: Exception) {
+                JLog.e(TAG, "$name: can't compare with the data folder's copy: $e")
+            }
+            return
+        }
         try {
             // Checked and renamed into place: a push cut off leaves the folder's last whole copy, which another
             // device would otherwise pull over its own save. A disk save the core wrote to while it was read is a torn

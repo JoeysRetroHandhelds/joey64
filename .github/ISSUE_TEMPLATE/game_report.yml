@@ -1,0 +1,48 @@
+name: Game doesn't run right
+description: A game that won't start, stops, runs slow or draws wrong.
+labels: ["game"]
+body:
+  - type: input
+    id: game
+    attributes:
+      label: Game
+      description: The game's name and region, e.g. "Conker's Bad Fur Day (Europe)". A ROM hack, translation or prototype too.
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      description: The handheld or phone, e.g. "AYN Thor".
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Joey64 version
+      description: Settings › About shows it, e.g. 0.2.0.
+    validations:
+      required: true
+  - type: dropdown
+    id: what
+    attributes:
+      label: What goes wrong
+      options:
+        - Doesn't start (black screen, or back to the library)
+        - Stops or closes while playing
+        - Runs slow or stutters
+        - Picture is wrong (missing, flickering, wrong colours)
+        - Sound is wrong
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: Where in the game it happens, and anything you changed in the game's settings (renderer, resolution, cheats). Screenshots help.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Settings › About › Share logs makes a zip of the last sessions' logs. Drag the zip in here.

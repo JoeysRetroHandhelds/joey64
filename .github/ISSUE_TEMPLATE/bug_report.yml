@@ -1,0 +1,45 @@
+name: Bug report
+description: Something in Joey64 doesn't work as it should (a crash, a black screen, a wrong picture, sound, controls, the library, settings).
+labels: ["bug"]
+body:
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      description: The handheld or phone, e.g. "AYN Odin 2 Portal" or "Retroid Pocket Flip".
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Joey64 version
+      description: Settings › About shows it, e.g. 0.2.0.
+    validations:
+      required: true
+  - type: input
+    id: game
+    attributes:
+      label: Game
+      description: The game and its region, if it happens in a game (e.g. "Mario Kart 64 (USA)"). Leave empty if it doesn't.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead. Screenshots help.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: >-
+        Settings › About › Share logs makes a zip of the last sessions' logs: your settings and how the games ran.
+        Drag the zip in here.
+  - type: dropdown
+    id: again
+    attributes:
+      label: Does it happen again?
+      options:
+        - Every time
+        - Sometimes
+        - Only once so far

@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Game compatibility list
+    url: https://github.com/JoeysRetroHandhelds/joey64-data/tree/main/compat
+    about: How each game runs so far; check here before reporting a game.

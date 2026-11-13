@@ -214,6 +214,7 @@ struct Room {
     // N64_NETPLAY_V1=1: the new one alone.
     static constexpr uint32_t kRepeat = 3;
     bool v1 = false;
+    bool startPinged = false; // startDelayFromPing ran (once a room: a place taken again later keeps the delay then)
     void put(int p, uint32_t slot, Input in) {
         inputs[p][slot] = in;
         missing.erase((uint64_t)p << 32 | slot);
@@ -435,6 +436,39 @@ struct Room {
         for (auto& c : clients) if (c.regId == reg[player].id && !c.drop) return &c;
         return nullptr;
     }
+    // Ping before start (2026-11-13): once every place is taken, before any game has its registration (so before any
+    // input), the adaptive delay starts from the round trips the room's TCP connections have measured (TCP_INFO), not
+    // at 2: player P's input reaches game G about half P's round trip plus half G's after it was sent; the start is
+    // that in whole frames (a little under what jitter needs: the adaptive rules take it from there). A Thor room with a joiner on the internet (92 ms) climbed 2 -> 6 over
+    // the first minute, stuttering; on Wi-Fi (a few ms) it stays 2. N64_NETPLAY_SIM's lateness counts on the round
+    // trip of each game it's applied to (not the host's own game over loopback).
+    void startDelayFromPing() {
+        if (!adaptive || v1) return;
+        float rtt[4] = {}; bool have[4] = {};
+        std::string said;
+        for (int p = 0; p < 4; p++) {
+            const Client* c = clientOf(p);
+            if (!c) continue;
+            struct tcp_info ti{}; socklen_t tl = sizeof ti;
+            float ms = 0;
+            if (!c->local && getsockopt(c->fd, IPPROTO_TCP, TCP_INFO, &ti, &tl) == 0) ms = ti.tcpi_rtt / 1000.0f;
+            if (!c->local) ms += (float)simDelay + simJitter / 2.0f;
+            rtt[p] = ms; have[p] = true;
+            char b[32]; snprintf(b, sizeof b, "%splayer %d %.0f ms", said.empty() ? "" : ", ", p + 1, ms); said += b;
+        }
+        float need = 0;
+        for (int a = 0; a < 4; a++) for (int g = 0; g < 4; g++)
+            if (a != g && have[a] && have[g]) need = std::max(need, rtt[a] / 2 + rtt[g] / 2);
+        const int d = std::clamp((int)std::ceil(need / (1000.0f / 60.0f)), kMinDelay, 8);
+        NLOGI("netplay server: input delay starts at %d (round trips %s)", d, said.c_str());
+        if (d <= delay) return;
+        for (int p = 0; p < 4; p++) {
+            if (!reg[p].id) continue;
+            for (uint32_t k = 0; k < (uint32_t)d; k++) if (!inputs[p].count(k)) inputs[p][k] = {0, reg[p].plugin};
+            base[p] = d;
+        }
+        delay = d;
+    }
     bool fromPlayer(const sockaddr_storage& from, int player) const {
         const Client* c = clientOf(player);
         return c && sameHost(c->addr, from);
@@ -524,6 +558,7 @@ struct Room {
                 // the first `delay` events of each player are blank, which is what gives the input delay
                 for (uint32_t k = 0; k < (uint32_t)delay; k++) inputs[p][k] = {0, b[2]};
                 base[p] = delay; plan[p].clear(); promised[p] = 0; started[p] = false;
+                if (registered() == players && !startPinged) { startPinged = true; startDelayFromPing(); }
             }
             // A key isn't logged (session logs can be shared); a keyed room's ids are the keys.
             if (keyed) NLOGI("netplay server: player %d register: %s", p + 1, ok ? "ok" : keyOk ? "taken" : "not this place's key");

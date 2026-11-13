@@ -15,3 +15,5 @@ App side (this branch). Host side: audit4/host (H1, M1), merged after.
 | E1-M5 | Narrow screens: What's sent shows under the list on Yes; the answers give way (they scroll with focus) so the lines under them keep their room | Thor at 512x384 (debug size): Yes shows all of What's sent, each answer's line in full, Down reaches Don't ask again; the wide popup unchanged |
 | A-M2 | A full disk at start: an exit file that can't be written is logged, LAST_EXIT still saved | by reading |
 | E2-M1 | In a netplay room no "Restart to use the new settings?"; the rows apply at the next start | by reading |
+| host H1 | A netplay joiner never writes its save RAM during a room (the core fills it with player 1's save) (a5c515b) | peer: Odin 2 Portal hosting, Odin 3 Portal joining, MK64: the joiner's .srm unchanged through play and the pause write |
+| host M1 | POST /v1/state unpacks the first RZIP chunk and takes only a RASTATE/M64+SAVE state of that md5, else 400 "not a state of this game" (5c7bdea) | 52/52 server tests; deployed with Joey's go (e288ceef): junk and another game's state 400, the real ring state 204 |

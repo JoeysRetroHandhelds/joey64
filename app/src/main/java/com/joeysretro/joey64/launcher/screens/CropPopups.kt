@@ -148,7 +148,7 @@ internal fun CropPopup(current: Int, who: String, onDismiss: () -> Unit, onPick:
     val shown = focus ?: current
     JoeyDialog(onDismiss = onDismiss, hints = HINTS, width = 640.dp) {
         Column {
-            PopupTitle("Crop edges", who)
+            PopupTitle("Crop edges", com.joeysretro.joey64.launcher.components.gameName(who))
             // What's left of the card, so the description line shows on a short screen too (as Shader's popup).
             Row(Modifier.weight(1f, fill = false), verticalAlignment = Alignment.Top) {
                 Column(Modifier.weight(1f).heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {

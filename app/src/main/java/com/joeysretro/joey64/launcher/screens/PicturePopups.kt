@@ -475,7 +475,7 @@ private fun ShaderPopup(ctx: PictureCtx, rows: MutableMap<PicPage, String>, onPa
             }
         }) {
         Column {
-            PopupTitle("Shader", ctx.who)
+            PopupTitle("Shader", com.joeysretro.joey64.launcher.components.gameName(ctx.who))
             // What's left of the card, so the description line shows on a short screen too (it was cut off on the Thor).
             Row(Modifier.weight(1f, fill = false), verticalAlignment = Alignment.Top) {
                 Column(Modifier.weight(1f).heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
@@ -530,7 +530,7 @@ private fun AdjustPopup(def: ShaderDef, ctx: PictureCtx, onDone: () -> Unit) {
             if (code == KeyEvent.KEYCODE_BUTTON_Y) def.params.getOrNull(row)?.let { setParam(ctx, def.id, row, it.default) }
         }) {
         Column {
-            PopupTitle(def.label, "${ctx.who} · Adjust")
+            PopupTitle(def.label, "${com.joeysretro.joey64.launcher.components.gameName(ctx.who)} · Adjust")
             Row(verticalAlignment = Alignment.Top) {
                 Column(Modifier.weight(1f)) {
                     for ((k, p) in def.params.withIndex()) {
@@ -607,7 +607,7 @@ private fun AdvancedShaderPopup(ctx: PictureCtx, rows: MutableMap<PicPage, Strin
             }
         }) {
         Column {
-            PopupTitle("Shader, advanced", ctx.who)
+            PopupTitle("Shader, advanced", com.joeysretro.joey64.launcher.components.gameName(ctx.who))
             SectionLabel("Stack, drawn in this order")
             for ((i, id) in stack.withIndex()) {
                 JoeyRow("${i + 1} · ${Shaders.of(id)?.label ?: id}", Modifier.initialFocus(i == landRow), value = "›", sideways = true,
@@ -635,7 +635,7 @@ private fun AdvancedSlangPopup(ctx: PictureCtx, onDone: () -> Unit) {
     var row by remember { mutableIntStateOf(0) }
     JoeyDialog(onDismiss = onDone, width = 520.dp, hints = listOf(Hint("B", "Close"))) {
         Column {
-            PopupTitle("Shader, advanced", ctx.who)
+            PopupTitle("Shader, advanced", com.joeysretro.joey64.launcher.components.gameName(ctx.who))
             SectionLabel("Stack, drawn in this order")
             JoeyRow("1 · ${Slang.name(ctx.setup.slang ?: "")}", Modifier.initialFocus(), detail = "Off with a RetroArch preset", enabled = false,
                 onFocused = { if (it) row = 0 })
@@ -724,7 +724,7 @@ private fun SidesPopup(ctx: PictureCtx, rows: MutableMap<PicPage, String>, onPag
     var focused by remember { mutableStateOf(back ?: v[VideoKey.Sides]) }
     JoeyDialog(onDismiss = { onPage(null) }, hints = listOf(Hint("A", "Pick"), Hint("B", "Close")), width = 760.dp) {
         Column {
-            PopupTitle("Sides of the picture", if (Picture.noSides(v, ctx.widescreenOn)) "${ctx.who} · None at this shape: Widescreen or Stretch fills the screen" else ctx.who)
+            PopupTitle("Sides of the picture", if (Picture.noSides(v, ctx.widescreenOn)) "${com.joeysretro.joey64.launcher.components.gameName(ctx.who)} · None at this shape: Widescreen or Stretch fills the screen" else com.joeysretro.joey64.launcher.components.gameName(ctx.who))
             Row(verticalAlignment = Alignment.Top) {
                 Column(Modifier.weight(1f)) {
                     for (ch in Picture.SIDES) {
@@ -923,7 +923,7 @@ private fun OverlayPopup(ctx: PictureCtx, onDone: () -> Unit) {
     val opacity = v.int(VideoKey.OverlayOpacity)
     JoeyDialog(onDismiss = onDone, hints = listOf(Hint("A", "Pick"), Hint("◀▶", "Change"), Hint("B", "Close")), width = 720.dp) {
         Column {
-            PopupTitle("Overlay", ctx.who)
+            PopupTitle("Overlay", com.joeysretro.joey64.launcher.components.gameName(ctx.who))
             Row(verticalAlignment = Alignment.Top) {
                 Column(Modifier.weight(1f)) {
                     JoeyRow("Off", Modifier.initialFocus(!on), trailing = if (!on) { _ -> PickerTick() } else null,

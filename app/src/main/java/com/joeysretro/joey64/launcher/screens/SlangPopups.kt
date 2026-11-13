@@ -167,7 +167,7 @@ internal fun SlangPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
             }
         }) {
         Column {
-            PopupTitle("RetroArch presets", ctx.who)
+            PopupTitle("RetroArch presets", com.joeysretro.joey64.launcher.components.gameName(ctx.who))
             folder?.let {
                 Text("Folder: ${it.name}", style = JoeyTheme.type.note, color = JoeyTheme.colors.textDim,
                     modifier = Modifier.padding(horizontal = JoeyTheme.spacing.rowPadH).padding(bottom = 4.dp))
@@ -251,7 +251,7 @@ internal fun SlangAdjustPopup(ctx: PictureCtx, value: String, onDone: () -> Unit
             }
         }) {
         Column {
-            PopupTitle(Slang.name(value), "${ctx.who} · Adjust" + (params?.let { " · ${it.size} settings" } ?: ""))
+            PopupTitle(Slang.name(value), "${com.joeysretro.joey64.launcher.components.gameName(ctx.who)} · Adjust" + (params?.let { " · ${it.size} settings" } ?: ""))
             Row(Modifier.weight(1f, fill = false), verticalAlignment = Alignment.Top) {
                 Column(Modifier.weight(1f)) {
                     when {

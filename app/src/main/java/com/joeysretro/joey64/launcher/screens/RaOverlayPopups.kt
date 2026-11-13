@@ -194,7 +194,7 @@ internal fun RaOverlayPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
     val otherLabel = Picture.SIDES_OTHER.firstOrNull { it.value == ctx.v[VideoKey.SidesRaOther] }?.label ?: "None"
     if (otherOpen) {
         val opts = Picture.SIDES_OTHER
-        ChoicePopup("Games without one", ctx.who, opts.map { Choice(it.label, it.detail, it.value == ctx.v[VideoKey.SidesRaOther]) },
+        ChoicePopup("Games without one", com.joeysretro.joey64.launcher.components.gameName(ctx.who), opts.map { Choice(it.label, it.detail, it.value == ctx.v[VideoKey.SidesRaOther]) },
             { otherOpen = false }) { i -> ctx.set(VideoKey.SidesRaOther, opts[i].value); otherOpen = false }
         return
     }
@@ -213,7 +213,7 @@ internal fun RaOverlayPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
             }
         }) {
         Column {
-            PopupTitle("RetroArch overlays", ctx.who)
+            PopupTitle("RetroArch overlays", com.joeysretro.joey64.launcher.components.gameName(ctx.who))
             folder?.let {
                 Text("Folder: ${it.name}", style = JoeyTheme.type.note, color = JoeyTheme.colors.textDim,
                     modifier = Modifier.padding(horizontal = JoeyTheme.spacing.rowPadH).padding(bottom = 4.dp))

@@ -1,7 +1,7 @@
 # The core bundled in app/src/main/jniLibs (written by devtools/bundle-core.sh; the .so itself is not committed)
 repo: JoeysRetroHandhelds/joey64-core
 branch: rel3
-commit: cd9f4a0650134b4b7d639d61073bde71decf14f2 2026-11-12 08:40:13 -0600 Transfer Pak: each port its own Game Boy game and save (N64_TPAK_ROM_<n> / N64_TPAK_RAM_<n>, 
+commit: 3769e13134c5d7c20527b487bbdaa707f127c922 2026-11-12 23:41:34 -0600 parallel-RDP: report the game's own border (VI H_START/V_START, the guard band, lines as deco
 uncommitted: none
-built: 2026-11-12 08:40
-md5: ddbd5fa379e3c28289063a99587d7f9b
+built: 2026-11-12 23:32
+md5: 5795005bfe9b3d8b791d47fc798588b2

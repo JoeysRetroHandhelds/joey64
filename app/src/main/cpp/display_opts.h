@@ -51,16 +51,39 @@ struct Opts {
 
 inline Opts& opts() { static Opts o; return o; }
 
-// Crop edges: how many of a w x h picture's pixels go off each side (cx) and off the top and the bottom (cy).
-// Nothing when it would leave less than half the picture.
-inline bool cropOf(int w, int h, int& cx, int& cy) {
+// The game's own border (Joey 2026-11-12: "fix the crop across all games without removing pixels"): the black a
+// game leaves around its picture by drawing in only part of the N64's screen (its VI H_START/V_START; Banjo-Kazooie),
+// from the core's joey64_vi_trim after each picture: left, top, right, bottom in ten thousandths of the picture.
+// All 0 on GLideN64, on a core without it, or with the dev switch N64_VI_TRIM=0.
+inline std::atomic<int>* viTrim() { static std::atomic<int> t[4] = {}; return t; }
+
+// What goes off a w x h picture: the game's border, then Crop edges (lines of the N64's 240 off every edge, the same
+// share of the width and the height). Nothing when it would leave less than half the picture either way.
+struct Cut { int l = 0, t = 0, r = 0, b = 0; };
+inline bool cutOf(int w, int h, Cut& c) {
+    c = {};
+    if (w <= 0 || h <= 0) return false;
+    std::atomic<int>* v = viTrim();
+    // To the nearest pixel: the core's ten thousandths round down (13 of 240 lines comes as 541, 12.98 lines).
+    c.l = (int)std::lround(w * (v[0] / 10000.0)); c.r = (int)std::lround(w * (v[2] / 10000.0));
+    c.t = (int)std::lround(h * (v[1] / 10000.0)); c.b = (int)std::lround(h * (v[3] / 10000.0));
     int n = opts().crop;
-    cx = cy = 0;
-    if (n <= 0 || w <= 0 || h <= 0) return false;
-    cx = (int)std::lround(w * n / 240.0);
-    cy = (int)std::lround(h * n / 240.0);
-    if (cx * 4 >= w || cy * 4 >= h) { cx = cy = 0; return false; }
-    return cx > 0 || cy > 0;
+    if (n > 0) {
+        int kw = w - c.l - c.r, kh = h - c.t - c.b;
+        int cx = (int)std::lround(kw * n / 240.0), cy = (int)std::lround(kh * n / 240.0);
+        c.l += cx; c.r += cx; c.t += cy; c.b += cy;
+    }
+    if ((c.l + c.r) * 2 >= w || (c.t + c.b) * 2 >= h) { c = {}; return false; }
+    return c.l || c.r || c.t || c.b;
+}
+
+// The kept part's shape next to the whole picture's, for fit(): the game's border goes, so a 4:3 picture whose
+// border is wider than it is tall is shown a little narrower than 4:3 (Crop edges keeps the shape on its own).
+inline double cutShape(int w, int h, const Cut& c) {
+    std::atomic<int>* v = viTrim();
+    double kw = 1.0 - (v[0] + v[2]) / 10000.0, kh = 1.0 - (v[1] + v[3]) / 10000.0;
+    if (w <= 0 || h <= 0 || (c.l + c.r) * 2 >= w || kw <= 0.5 || kh <= 0.5) return 1.0;
+    return kw / kh;
 }
 
 // The sides and overlay images (RGBA8, top row first), handed over from the UI thread; gen counts
@@ -125,18 +148,20 @@ inline bool envAspect(int& w, int& h) {
 // Where an imgW x imgH picture goes in a winW x winH window: centred at the chosen shape, or the
 // whole window for stretch. Integer scaling makes the height a whole multiple of the image's
 // (the width follows the shape), unless even 1x doesn't fit (then it scales down as usual).
-inline void fit(int winW, int winH, int imgW, int imgH, int& x, int& y, int& w, int& h) {
+// shape: the kept part's shape next to the whole picture's (cutShape), 1 when nothing or only Crop edges went.
+inline void fit(int winW, int winH, int imgW, int imgH, int& x, int& y, int& w, int& h, double shape = 1.0) {
     const Opts& o = opts();
     int aw = o.aspW, ah = o.aspH;
     int ew, eh;
     if (envAspect(ew, eh)) { aw = ew; ah = eh; }
+    const double ratio = aw > 0 && ah > 0 ? (double)aw / ah * shape : 0.0; // width over height
     // Beside a panel: the picture at its shape in the space left of it (Place the game and portrait's top don't apply).
     int panel = std::max(0, std::min(800, (int)o.panelRight));
     int availW = winW - (int)((long long)winW * panel / 1000);
     // Place the game (your own sides image, or a RetroArch overlay's hole): there, at the picture's shape.
     if (panel == 0 && (o.sides == 3 || o.sides == 4) && o.placeW > 0 && aw > 0 && ah > 0) {
         w = std::max(16, (int)((long long)winW * o.placeW / 1000));
-        h = (int)((long long)w * ah / aw);
+        h = (int)std::lround(w / ratio);
         x = (int)((long long)winW * o.placeX / 1000);
         y = (int)((long long)winH * o.placeY / 1000);
         return;
@@ -145,11 +170,11 @@ inline void fit(int winW, int winH, int imgW, int imgH, int& x, int& y, int& w, 
         w = availW; h = winH;
         if (o.integer && imgH > 0 && winH >= imgH) h = winH / imgH * imgH;
     } else {
-        h = winH; w = (int)((long long)winH * aw / ah);
-        if (w > availW) { w = availW; h = (int)((long long)availW * ah / aw); }
+        h = winH; w = (int)std::lround(winH * ratio);
+        if (w > availW) { w = availW; h = (int)std::lround(availW / ratio); }
         if (o.integer && imgH > 0) {
             int k = h / imgH;
-            if (k >= 1) { h = imgH * k; w = (int)((long long)h * aw / ah); }
+            if (k >= 1) { h = imgH * k; w = (int)std::lround(h * ratio); }
         }
     }
     x = (availW - w) / 2; y = (winH - h) / 2;

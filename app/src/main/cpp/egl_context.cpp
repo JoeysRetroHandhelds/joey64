@@ -93,21 +93,26 @@ void EglContext::present(int srcW, int srcH, bool bottomLeftOrigin) {
 
     // Crop edges (Settings › Video): the kept part becomes the picture for everything below, the core's own
     // framebuffer swapped back in when this returns. Paused, showAgain draws it again with a new amount at once.
-    int cx = 0, cy = 0;
-    bool crop = fbo_ && srcW <= fboW_ && srcH <= fboH_ && Display::cropOf(srcW, srcH, cx, cy) &&
-                ensureCrop(srcW - 2 * cx, srcH - 2 * cy);
+    // The game's own border goes the same way (Display::cutOf).
+    Display::Cut c;
+    int keptW = 0, keptH = 0;
+    bool crop = fbo_ && srcW <= fboW_ && srcH <= fboH_ && Display::cutOf(srcW, srcH, c) &&
+                ensureCrop(keptW = srcW - c.l - c.r, keptH = srcH - c.t - c.b);
+    double shape = crop ? Display::cutShape(srcW, srcH, c) : 1.0;
     if (crop) {
+        // GL rows go up: a picture whose first row is at the top has its top at the high end.
+        int y0 = bottomLeftOrigin ? c.b : c.t;
         glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo_);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, cropFbo_);
-        glBlitFramebuffer(cx, cy, srcW - cx, srcH - cy, 0, 0, srcW - 2 * cx, srcH - 2 * cy, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-        srcW -= 2 * cx; srcH -= 2 * cy;
+        glBlitFramebuffer(c.l, y0, c.l + keptW, y0 + keptH, 0, 0, keptW, keptH, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        srcW = keptW; srcH = keptH;
         swapCrop();
     }
     struct Back { EglContext* e; bool on; ~Back() { if (on) e->swapCrop(); } } back{this, crop};
 
     // Settings › Video: the shape and integer scaling (display_opts.h), as the Vulkan path.
     int x, y, dstW, dstH;
-    Display::fit(winW, winH, srcW, srcH, x, y, dstW, dstH);
+    Display::fit(winW, winH, srcW, srcH, x, y, dstW, dstH, shape);
 
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     glClearColor(0, 0, 0, 1);

@@ -684,10 +684,12 @@ void VkContext::present(bool newImage) {
         // Crop edges (Settings › Video): the kept part of the picture is copied into cropImage_ first, and from
         // there on it is the picture (pic, picView, cropW x cropH), so the shape, shaders, sides and colour all
         // see the cropped one. Paused, showAgain draws it again with a new amount at once.
-        int32_t cx = 0, cy = 0;
-        bool crop = Display::cropOf((int)imageW_, (int)imageH_, cx, cy) && image_.image_view &&
-                    ensureCropImage(imageW_ - 2 * cx, imageH_ - 2 * cy, image_.create_info.format);
-        uint32_t cropW = crop ? imageW_ - 2 * cx : imageW_, cropH = crop ? imageH_ - 2 * cy : imageH_;
+        // The game's own border goes the same way (Display::cutOf).
+        Display::Cut cut0;
+        bool crop = Display::cutOf((int)imageW_, (int)imageH_, cut0) && image_.image_view &&
+                    ensureCropImage(imageW_ - cut0.l - cut0.r, imageH_ - cut0.t - cut0.b, image_.create_info.format);
+        uint32_t cropW = crop ? imageW_ - cut0.l - cut0.r : imageW_, cropH = crop ? imageH_ - cut0.t - cut0.b : imageH_;
+        double shape = crop ? Display::cutShape((int)imageW_, (int)imageH_, cut0) : 1.0;
         VkImage pic = crop ? cropImage_ : src;
         VkImageView picView = crop ? cropView_ : image_.image_view;
         VkFormat picFormat = image_.create_info.format;
@@ -695,7 +697,7 @@ void VkContext::present(bool newImage) {
         // (display_opts.h). Dev switch N64_ASPECT=W:H still wins.
         int32_t winW = (int32_t)dstExtent.width, winH = (int32_t)dstExtent.height;
         int32_t x, y, dstW, dstH;
-        Display::fit(winW, winH, (int)cropW, (int)cropH, x, y, dstW, dstH);
+        Display::fit(winW, winH, (int)cropW, (int)cropH, x, y, dstW, dstH, shape);
         // Colour or sharpening changed: the compute pass (vk_post.cpp) samples the picture into an
         // image at the shown size, which is copied in; else the plain blit (no extra cost).
         // Your own RetroArch preset (libra.h): Colour first at the game's size (no Sharpening), then the
@@ -735,8 +737,8 @@ void VkContext::present(bool newImage) {
                          0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
             VkImageBlit cut{};
             cut.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, range.baseMipLevel, range.baseArrayLayer, 1};
-            cut.srcOffsets[0] = {cx, cy, 0};
-            cut.srcOffsets[1] = {(int32_t)imageW_ - cx, (int32_t)imageH_ - cy, 1};
+            cut.srcOffsets[0] = {cut0.l, cut0.t, 0};
+            cut.srcOffsets[1] = {cut0.l + (int32_t)cropW, cut0.t + (int32_t)cropH, 1};
             cut.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
             cut.dstOffsets[1] = {(int32_t)cropW, (int32_t)cropH, 1};
             vkCmdBlitImage(cmd, src, srcLayout, cropImage_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &cut, VK_FILTER_NEAREST);

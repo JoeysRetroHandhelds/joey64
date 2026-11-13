@@ -215,6 +215,15 @@ struct Core {
 
 std::string g_systemDir, g_saveDir;
 std::string g_ddCart; // a 64DD disk's cartridge (NativeBridge.setDdCart), "" = the disk alone
+// The game's own border (display_opts.h viTrim), from the core after each new picture; null: a core without it.
+static void (*g_viTrim)(int*) = nullptr;
+static void readViTrim() {
+    static const bool off = getenv("N64_VI_TRIM") && *getenv("N64_VI_TRIM") == '0';
+    int t[4] = {0, 0, 0, 0};
+    if (g_viTrim && !off) g_viTrim(t);
+    std::atomic<int>* v = Display::viTrim();
+    for (int i = 0; i < 4; ++i) if (v[i].load() != t[i]) v[i].store(t[i]);
+}
 bool g_coreInited = false; // retro_init ran and retro_deinit hasn't (loadCore, the emulation thread's end)
 std::string g_tpakRom, g_tpakSave; // the Transfer Pak subsystem's Game Boy game and save: the first player's that has one, "" = none
 std::string g_tpakRoms[4], g_tpakSaves[4]; // each port's (NativeBridge.setTransferPak), "" = none
@@ -727,6 +736,7 @@ void video_refresh(const void* data, unsigned w, unsigned h, size_t) {
         data = RETRO_HW_FRAME_BUFFER_VALID; // the hidden frame's new picture, not on screen yet
     g_raPrevShown = g_raReplay && data != nullptr;
     g_raFresh = false;
+    if (data) readViTrim();
     if (g_vulkan) {
         if (!data) ++g_statDupes;
         else { g_lastW = w; g_lastH = h; ++g_statPresents; noteDrawn(); }
@@ -1871,6 +1881,8 @@ JNIEXPORT jboolean JNICALL JNI(loadCore)(JNIEnv* env, jobject, jstring path, jst
         && sym(core.reset, "retro_reset");
     if (!ok) return JNI_FALSE;
     core.load_game_special = reinterpret_cast<decltype(core.load_game_special)>(dlsym(core.handle, "retro_load_game_special"));
+    g_viTrim = reinterpret_cast<void (*)(int*)>(dlsym(core.handle, "joey64_vi_trim"));
+    { std::atomic<int>* v = Display::viTrim(); for (int i = 0; i < 4; ++i) v[i] = 0; }
 
     core.set_environment(environment);
     core.set_video_refresh(video_refresh);

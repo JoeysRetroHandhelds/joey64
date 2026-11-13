@@ -41,7 +41,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.focusable
 import com.joeysretro.joey64.launcher.components.tabScroll
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.focusProperties
@@ -627,16 +626,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             onDismiss = close, onPick = { save, title -> target = save; targetTitle = title; close() },
             onPickGame = { popup = Popup.PickGame }, onRemoved = { save -> edit { editor.removeGame(save) } })
         Popup.PickGame -> PickGamePopup("Its controls start as a copy of All games.", { popup = Popup.Games }) { save, title -> target = save; targetTitle = title; close() }
-        Popup.Diagram -> if (stickless) {
-            // This device drawn with the N64 names on its buttons; holding Hold for C buttons shows the C names (screens 5-6).
-            var held by remember { mutableStateOf(false) }
-            val hk = setup.cHold?.code
-            JoeyDialog(onDismiss = close, hints = listOfNotNull(hk?.let { Hint(InputNames.key(it, null), if (held) "Let go" else "Show held") }, Hint("B", "Close")),
-                width = 500.dp, onPadButton = { if (it == hk) held = true }, onPadUp = { if (it == hk) held = false }) {
-                // A focus stop (nothing in the drawing takes focus), or the card gets no keys and holding shows nothing.
-                androidx.compose.foundation.layout.Box(Modifier.focusable()) { HandheldDiagram(player, deviceName(setup.device), setup, editor.hotkeys.button, held) }
-            }
-        } else JoeyDialog(onDismiss = close, hints = listOf(Hint("B", "Close")), width = 760.dp) {
+        Popup.Diagram -> JoeyDialog(onDismiss = close, hints = listOf(Hint("B", "Close")), width = 760.dp) {
             ControllerDiagram(player, deviceName(setup.device), setup, face)
         }
         Popup.CHold -> ChoicePopup("Hold for C buttons", "Hold it, then the face buttons press the C buttons.", holdChoices(setup), close) { i ->

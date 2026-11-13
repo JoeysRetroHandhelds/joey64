@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -120,6 +121,9 @@ private fun GameSettingsContent(game: GameRef, inGame: Boolean, sink: ControlsSi
     var view by remember { mutableStateOf(startView) }
     var popup by remember { mutableStateOf<GsPopup?>(null) }
     var version by remember { mutableIntStateOf(0) }
+    // "Copied to <game>" at the bottom for 3 s (Joey 2026-11-12, like the library's notes).
+    var copied by remember { mutableStateOf<String?>(null) }
+    copied?.let { LaunchedEffect(it) { kotlinx.coroutines.delay(3_000L); copied = null } }
     // The page's row with focus, kept so B from a part lands back on it: "Video", "Audio", "Controls", "reset", "copy", "ch<i>".
     var focused by remember { mutableStateOf(GamePart.Video.name) }
     val inner = remember(view) { ControlsSink() }
@@ -156,6 +160,7 @@ private fun GameSettingsContent(game: GameRef, inGame: Boolean, sink: ControlsSi
         }
     }
 
+    Box(Modifier.fillMaxSize()) {
     when (val v = view) {
         GsView.Page -> {
             val summary = remember(version) { model.summary(game.saveName) }
@@ -167,12 +172,18 @@ private fun GameSettingsContent(game: GameRef, inGame: Boolean, sink: ControlsSi
                     })
                 },
                 onReset = { popup = GsPopup.Reset }, onCopy = { popup = GsPopup.Copy })
-            GamePopupsFor(game, summary, model, popup, onPopup = { popup = it }, onChanged = { version++ })
+            GamePopupsFor(game, summary, model, popup, onPopup = { popup = it }, onChanged = { version++ }, onCopied = { copied = it })
         }
         is GsView.Tabs -> GameTabs(game, v, onHints, { tabControl = it }, onPicturePanel, { tabsFocused = it }) { show(GsView.Tabs(it, null)) }
         is GsView.Controls -> Column(Modifier.fillMaxSize()) {
             GameControlsPage(game.saveName, game.title, v.player, inner, onHints)
         }
+    }
+    copied?.let { title ->
+        com.joeysretro.joey64.launcher.components.JoeyToast(com.joeysretro.joey64.R.drawable.ic_circle_check, "Game settings",
+            "Copied to ${com.joeysretro.joey64.launcher.components.gameName(title)}", "",
+            Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(bottom = 12.dp))
+    }
     }
 }
 
@@ -286,11 +297,11 @@ private fun GamePage(game: GameRef, summary: GameSummary, inGame: Boolean, focus
 /** Reset's question, Copy's parts, the game picker and Replace's question (mockup screens 5-7). */
 @Composable
 private fun GamePopupsFor(game: GameRef, summary: GameSummary, model: GameSettingsModel, popup: GsPopup?,
-                          onPopup: (GsPopup?) -> Unit, onChanged: () -> Unit) {
+                          onPopup: (GsPopup?) -> Unit, onChanged: () -> Unit, onCopied: (String) -> Unit) {
     val own = remember(summary) { GamePart.entries.filter { summary.count(it) > 0 }.toSet() }
     var picked by remember(summary) { mutableStateOf(own) }
     fun rows(n: Int) = if (n == 1) "1 row" else "$n rows"
-    fun copyTo(to: String) { model.copy(game.saveName, to, picked); onPopup(null); onChanged() }
+    fun copyTo(to: String, title: String) { model.copy(game.saveName, to, picked); onPopup(null); onChanged(); onCopied(title) }
     when (popup) {
         null -> {}
         GsPopup.Reset -> JoeyDialog(onDismiss = { onPopup(null) }, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 470.dp) {
@@ -318,11 +329,11 @@ private fun GamePopupsFor(game: GameRef, summary: GameSummary, model: GameSettin
             }
         }
         GsPopup.PickGame -> PickGamePopup("Gets ${shortTitle(com.joeysretro.joey64.launcher.components.gameName(game.title))}'s ${picked.sortedBy { it.ordinal }.joinToString(" and ") { it.label }}.",
-            onDismiss = { onPopup(GsPopup.Copy) }, exclude = game.title) { save, title ->
+            onDismiss = { onPopup(GsPopup.Copy) }, excludeSave = game.saveName, excludeTitle = game.title) { save, title ->
             when {
                 save == game.saveName -> onPopup(GsPopup.Copy)
                 model.parts(save).any { it in picked } -> onPopup(GsPopup.Replace(save, title))
-                else -> copyTo(save)
+                else -> copyTo(save, title)
             }
         }
         is GsPopup.Replace -> {
@@ -337,7 +348,7 @@ private fun GamePopupsFor(game: GameRef, summary: GameSummary, model: GameSettin
                         "${com.joeysretro.joey64.launcher.components.gameName(popup.title)} has $counts $rowWord of its own. They're replaced by ${com.joeysretro.joey64.launcher.components.gameName(game.title)}'s." +
                             if (rest.isEmpty()) "" else " Its ${rest.joinToString(" and ") { it.label }} ${if (rest.size == 1) "is" else "are"} copied as well.")
                     // Cancel focused: Replace overwrites another game's own settings (code audit 3, p2 L4), as Reset and Delete focus Keep.
-                    JoeyOption("Replace and copy") { copyTo(popup.to) }
+                    JoeyOption("Replace and copy") { copyTo(popup.to, popup.title) }
                     JoeyOption("Cancel", Modifier.initialFocus()) { onPopup(null) }
                 }
             }

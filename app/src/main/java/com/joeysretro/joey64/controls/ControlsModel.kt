@@ -327,9 +327,18 @@ data class Hotkeys(
     fun actionFor(keyCode: Int, alone: Boolean): HotkeyAction? =
         HotkeyAction.entries.firstOrNull { isAlone(it) == alone && keys[it] == keyCode }
 
-    /** [a] gets [code]; a hotkey that had the same press (same button, same need for the hotkey button) goes to Not set. */
+    /**
+     * [a] gets [code]; a hotkey that had the same press (same button, same need for the hotkey button) goes to Not set.
+     * The hotkey button's own key is refused (it read "L3 + L3", which can't be pressed; Joey 2026-11-12).
+     */
     fun withKey(a: HotkeyAction, code: Int?): Hotkeys =
-        copy(keys = keys.mapValues { (b, v) -> if (b == a) code else if (code != null && v == code && isAlone(b) == isAlone(a)) null else v })
+        if (code != null && code == button) this else copy(keys = keys.mapValues { (b, v) -> if (b == a) code else if (code != null && v == code && isAlone(b) == isAlone(a)) null else v })
+
+    /**
+     * [code] becomes the hotkey button; a hotkey on that key goes to Not set (Joey 2026-11-12: "if gameshark is l3 and
+     * they set hotkey as l3, gameshark should unset and hotkey should become l3").
+     */
+    fun withButton(code: Int): Hotkeys = copy(button = code, keys = keys.mapValues { (_, v) -> if (v == code) null else v })
 
     /** [a] pressed on its own, or with the hotkey button; a hotkey that then has the same press goes to Not set. */
     fun withAlone(a: HotkeyAction, on: Boolean): Hotkeys {
@@ -403,8 +412,12 @@ data class Hotkeys(
             // A file from before an action existed gets its default, unless the user already gave that button to another.
             if (k != null) for (a in HotkeyAction.entries) if (!k.has(a.name) && a.default != null &&
                 picked.any { (b, v) -> b != a && (b in alone) == (a in alone) && v == a.default }) picked = picked + (a to null)
+            val button = o.optInt("button", d.button)
+            // Saved before the hotkey button cleared its own key: that action couldn't be pressed ("L3 + L3"), so it's
+            // Not set, as picking the button now leaves it (Joey 2026-11-12).
+            picked = picked.mapValues { (_, v) -> if (v == button) null else v }
             return Hotkeys(
-                button = o.optInt("button", d.button),
+                button = button,
                 keys = picked,
                 ffMode = FastForwardMode.entries.firstOrNull { it.name == o.optString("ffMode") } ?: d.ffMode,
                 ffSpeed = o.optInt("ffSpeed", d.ffSpeed).takeIf { it in FF_SPEEDS } ?: d.ffSpeed,

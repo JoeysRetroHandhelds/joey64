@@ -279,10 +279,10 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
             onReset = { set(COLOUR_ROW_KEYS.associateWith { it.default }) })
         is VPopup.Picture -> PicturePopups(p.page, picCtx) { next -> popup = next?.let { VPopup.Picture(it) } }
         VPopup.Sharpen -> SharpenPopup(v, onDismiss = { popup = null }, onSet = { k, s -> set(k, s) })
-        is VPopup.Advanced -> AdvancedPopup(context, v, p.row, onDismiss = { popup = null },
+        is VPopup.Advanced -> AdvancedPopup(context, v, p.row, { dot(it) }, onDismiss = { popup = null },
             onOpen = { k, row -> popup = VPopup.Choice(k, VPopup.Advanced(row)) },
             onFilters = { popup = VPopup.Filters("look") })
-        is VPopup.Filters -> FiltersPopup(v, p.row, onDismiss = { popup = VPopup.Advanced("filters") },
+        is VPopup.Filters -> FiltersPopup(v, p.row, { dot(it) }, onDismiss = { popup = VPopup.Advanced("filters") },
             onLook = { popup = VPopup.Look },
             onChoice = { k, row -> popup = VPopup.Choice(k, VPopup.Filters(row)) },
             onToggle = { k -> set(k, if (k == VideoKey.Deinterlace) (if (v[k] == "bob") "weave" else "bob") else if (v.on(k)) "off" else "on") })
@@ -600,7 +600,7 @@ private fun lastPick(context: Context, what: String): String? = context.getShare
 
 /** Renderer, driver, pacing (mockup 5): two columns; each row opens its choices; N64 video filters opens its own popup. */
 @Composable
-private fun AdvancedPopup(context: Context, v: VideoSettings, startRow: String, onDismiss: () -> Unit,
+private fun AdvancedPopup(context: Context, v: VideoSettings, startRow: String, own: (VideoKey) -> Boolean, onDismiss: () -> Unit,
                           onOpen: (VideoKey, String) -> Unit, onFilters: () -> Unit) {
     var row by remember { mutableStateOf(startRow) }
     fun auto(k: VideoKey, pick: String?) = if (v[k] == "auto" && pick != null) "Auto · $pick" else VideoChoices.label(k, v[k])
@@ -611,16 +611,16 @@ private fun AdvancedPopup(context: Context, v: VideoSettings, startRow: String, 
         Column {
             PopupTitle("Renderer, driver, pacing", "Auto is right for most people. Renderer, GPU driver and frame pacing apply when the game next starts.")
             TwoColumns(Modifier.weight(1f, fill = false), gap = 18.dp, left = {
-                JoeyRow("Renderer", Modifier.initialFocus(startRow == "renderer"), value = auto(VideoKey.Renderer, renderer), sideways = true,
+                JoeyRow("Renderer", Modifier.initialFocus(startRow == "renderer"), value = auto(VideoKey.Renderer, renderer), sideways = true, dot = own(VideoKey.Renderer),
                     onFocused = { if (it) row = "renderer" }) { onOpen(VideoKey.Renderer, "renderer") }
-                JoeyRow("GPU driver", Modifier.initialFocus(startRow == "driver"), value = auto(VideoKey.Driver, driver), sideways = true,
+                JoeyRow("GPU driver", Modifier.initialFocus(startRow == "driver"), value = auto(VideoKey.Driver, driver), sideways = true, dot = own(VideoKey.Driver),
                     onFocused = { if (it) row = "driver" }) { onOpen(VideoKey.Driver, "driver") }
-                JoeyRow("Frame pacing", Modifier.initialFocus(startRow == "pacing"), value = VideoChoices.label(VideoKey.Pacing, v[VideoKey.Pacing]), sideways = true,
+                JoeyRow("Frame pacing", Modifier.initialFocus(startRow == "pacing"), value = VideoChoices.label(VideoKey.Pacing, v[VideoKey.Pacing]), sideways = true, dot = own(VideoKey.Pacing),
                     experimental = VideoChoices.of(VideoKey.Pacing).any { it.value == v[VideoKey.Pacing] && it.experimental },
                     onFocused = { if (it) row = "pacing" }) { onOpen(VideoKey.Pacing, "pacing") }
             }) {
                 JoeyRow("N64 video filters", Modifier.initialFocus(startRow == "filters"), value = "$look  ›", sideways = true,
-                    onFocused = { if (it) row = "filters" }) { onFilters() }
+                    dot = FILTER_KEYS.any(own), onFocused = { if (it) row = "filters" }) { onFilters() }
             }
             Spacer(Modifier.height(6.dp))
             when (row) {
@@ -633,9 +633,12 @@ private fun AdvancedPopup(context: Context, v: VideoSettings, startRow: String, 
     }
 }
 
+/** The rows inside N64 video filters: a dot on its row when the game has any of them (code audit 2026-11-07 note). */
+private val FILTER_KEYS = VideoKey.LOOK_KEYS + listOf(VideoKey.Deinterlace, VideoKey.Supersample, VideoKey.NativeTexLod, VideoKey.NativeTexRect)
+
 /** N64 video filters (mockup 6): the Look preset, then each filter; upscale-only rows are dim at Native (1x). */
 @Composable
-private fun FiltersPopup(v: VideoSettings, startRow: String, onDismiss: () -> Unit, onLook: () -> Unit,
+private fun FiltersPopup(v: VideoSettings, startRow: String, own: (VideoKey) -> Boolean, onDismiss: () -> Unit, onLook: () -> Unit,
                          onChoice: (VideoKey, String) -> Unit, onToggle: (VideoKey) -> Unit) {
     var row by remember { mutableStateOf(startRow) }
     val native = v.int(VideoKey.Resolution) == 1
@@ -643,14 +646,14 @@ private fun FiltersPopup(v: VideoSettings, startRow: String, onDismiss: () -> Un
     @Composable
     fun toggle(id: String, label: String, k: VideoKey) {
         val dim = native && k in VideoKey.UPSCALE_ONLY
-        JoeyRow(label, Modifier.initialFocus(startRow == id), value = VideoChoices.label(k, v[k]), enabled = !dim, sideways = true,
+        JoeyRow(label, Modifier.initialFocus(startRow == id), value = VideoChoices.label(k, v[k]), enabled = !dim, sideways = true, dot = own(k),
             onFocused = { if (it) row = id }) { if (k == VideoKey.Supersample) onChoice(k, id) else onToggle(k) }
     }
     JoeyDialog(onDismiss = onDismiss, width = 680.dp, hints = listOf(Hint("A", "Change"), Hint("B", "Back"))) {
         Column {
             PopupTitle("N64 video filters")
             TwoColumns(Modifier.weight(1f, fill = false), gap = 18.dp, left = {
-                JoeyRow("Look", Modifier.initialFocus(startRow == "look"), value = look, sideways = true, onFocused = { if (it) row = "look" }) { onLook() }
+                JoeyRow("Look", Modifier.initialFocus(startRow == "look"), value = look, sideways = true, dot = VideoKey.LOOK_KEYS.any(own), onFocused = { if (it) row = "look" }) { onLook() }
                 toggle("aa", "Edge smoothing (VI AA)", VideoKey.ViAa)
                 toggle("bil", "Soft scaling (VI bilinear)", VideoKey.ViBilinear)
                 toggle("dith", "Dither smoothing", VideoKey.DitherFilter)

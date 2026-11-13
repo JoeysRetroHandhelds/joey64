@@ -123,9 +123,13 @@ fun GamesForPopup(
     }
 }
 
-/** Pick a game: the library; its settings start as All games' (on the first change). [exclude]: a game's title left out (Copy's own game). */
+/**
+ * Pick a game: the library; its settings start as All games' (on the first change). [excludeSave]: the save name of
+ * a game left out (Copy's own game). Only the games with [excludeTitle] are looked up for it: another copy with the
+ * same title and its own save name (another ROM under that name) stays in the list.
+ */
 @Composable
-fun PickGamePopup(subtitle: String, onDismiss: () -> Unit, exclude: String? = null, onPick: (String, String) -> Unit) {
+fun PickGamePopup(subtitle: String, onDismiss: () -> Unit, excludeSave: String? = null, excludeTitle: String? = null, onPick: (String, String) -> Unit) {
     val context = LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var games by remember { mutableStateOf<List<LibraryGame>?>(null) }
@@ -134,7 +138,16 @@ fun PickGamePopup(subtitle: String, onDismiss: () -> Unit, exclude: String? = nu
     var cantRead by remember { mutableStateOf<String?>(null) }
     var looking by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        games = withContext(Dispatchers.IO) { try { LibraryDb.get(context).libraryGames().filter { it.title != exclude } } catch (e: Exception) { JLog.e(TAG, "library: $e"); emptyList() } }
+        games = withContext(Dispatchers.IO) {
+            try {
+                val db = LibraryDb.get(context)
+                val all = db.libraryGames()
+                if (excludeSave == null) all else {
+                    val launcher = GameLauncher(context, db)
+                    all.filter { it.title != excludeTitle || runCatching { launcher.saveNameFor(it) }.getOrNull() != excludeSave }
+                }
+            } catch (e: Exception) { JLog.e(TAG, "library: $e"); emptyList() }
+        }
     }
     JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 470.dp) {
         Column {

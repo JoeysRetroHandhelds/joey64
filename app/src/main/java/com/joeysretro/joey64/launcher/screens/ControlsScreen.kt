@@ -504,7 +504,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             if (input != null || keyCode != null) edit {
                 when (val t = p.target) {
                     is Target.Button -> editor.set(player, setup.with(t.b, input))
-                    Target.HotkeyButton -> keyCode?.let { editor.setHotkeys(editor.hotkeys.copy(button = it)) }
+                    Target.HotkeyButton -> keyCode?.let { editor.setHotkeys(editor.hotkeys.withButton(it)) }
                     is Target.Hotkey -> keyCode?.let { editor.setHotkeys(editor.hotkeys.withKey(t.action, it)) }
                 }
             }
@@ -789,7 +789,7 @@ private fun clearHotkey(editor: ControlsEditor, row: String) {
 }
 
 private fun resetHotkey(editor: ControlsEditor, row: String) {
-    if (row == "hkButton") { editor.setHotkeys(editor.hotkeys.copy(button = KeyEvent.KEYCODE_BUTTON_SELECT)); return }
+    if (row == "hkButton") { editor.setHotkeys(editor.hotkeys.withButton(KeyEvent.KEYCODE_BUTTON_SELECT)); return }
     val a = HotkeyAction.entries.firstOrNull { "hk" + it.name == row } ?: return
     val d = Hotkeys()
     // The default button and on-its-own; a hotkey that had that press goes to Not set.
@@ -1230,6 +1230,7 @@ private fun OnePressPopup(name: String, onResult: (Int?) -> Unit) {
 private fun RemapPopup(target: Target, setup: PlayerSetup, editor: ControlsEditor, face: AutoMap.FaceCodes?, onResult: (PadInput?, Int?) -> Unit) {
     var done by remember { mutableStateOf(false) }
     fun finish(input: PadInput?, code: Int?) { if (!done) { done = true; onResult(input, code) } }
+    var refused by remember { mutableStateOf(false) }
     val h = editor.hotkeys
     val (title, line, note) = when (target) {
         is Target.Button -> {
@@ -1251,12 +1252,14 @@ private fun RemapPopup(target: Target, setup: PlayerSetup, editor: ControlsEdito
     }
     JoeyDialog(onDismiss = { finish(null, null) }, hints = listOf(Hint("", "Any button you press is used, even B")), dismissible = false, width = 380.dp) {
         CaptureInput(active = !done, keysOnly = target !is Target.Button) { input, _ ->
-            finish(input, (input as? PadInput.Key)?.code)
+            val code = (input as? PadInput.Key)?.code
+            // A hotkey on the hotkey button's own key can't be pressed ("L3 + L3"): that press isn't taken.
+            if (target is Target.Hotkey && code != null && code == h.button) refused = true else finish(input, code)
         }
         Column(Modifier.padding(horizontal = 8.dp)) {
             PressBody(title, line, note)
             Box(Modifier.padding(horizontal = 10.dp)) { TimeBar { finish(null, null) } }
-            PopupNote(note)
+            PopupNote(if (refused) "${hotkeyKey(h.button)} is the hotkey button. Press another button." else note)
         }
     }
 }

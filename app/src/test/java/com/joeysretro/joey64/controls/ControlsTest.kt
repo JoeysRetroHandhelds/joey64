@@ -82,7 +82,7 @@ class ControlsTest {
         store.removeGame("Mario Kart 64 (USA)")
         assertTrue(store.gamesWithOwn().isEmpty())
 
-        val h = Hotkeys().copy(button = KeyEvent.KEYCODE_BUTTON_THUMBL, keys = Hotkeys().keys + (HotkeyAction.Quit to null))
+        val h = Hotkeys().withButton(KeyEvent.KEYCODE_BUTTON_THUMBL).withKey(HotkeyAction.Quit, null)
         store.saveHotkeys(h)
         assertEquals(h, store.hotkeys())
         assertNull(store.hotkeys().actionFor(KeyEvent.KEYCODE_BUTTON_B, alone = false))
@@ -123,6 +123,21 @@ class ControlsTest {
         assertEquals(HotkeyAction.PauseMenu, pm.actionFor(KeyEvent.KEYCODE_BACK, alone = false))
         assertNull(pm.actionFor(KeyEvent.KEYCODE_BACK, alone = true))
         assertEquals(pm, Hotkeys.fromJson(pm.toJson()))
+    }
+
+    /** Joey 2026-11-12: the newest pick wins; a hotkey never sits on the hotkey button's own key ("L3 + L3"). */
+    @Test fun theHotkeyButtonAndAHotkeyNeverShareAKey() {
+        val l3 = KeyEvent.KEYCODE_BUTTON_THUMBL
+        val gs = Hotkeys().withKey(HotkeyAction.GameShark, l3)
+        assertEquals(l3, gs.keys[HotkeyAction.GameShark])
+        val b = gs.withButton(l3)
+        assertEquals(l3, b.button)
+        assertEquals(null, b.keys[HotkeyAction.GameShark])
+        // The other way round: the button's key is refused for a hotkey.
+        assertEquals(b, b.withKey(HotkeyAction.Save, l3))
+        // A file saved with the clash loads with that hotkey Not set.
+        val clash = Hotkeys.fromJson(gs.toJson().put("button", l3))
+        assertEquals(null, clash.keys[HotkeyAction.GameShark])
     }
 
     @Test fun pickingATakenButtonTakesItFromTheOtherHotkey() {

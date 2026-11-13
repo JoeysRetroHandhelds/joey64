@@ -126,9 +126,31 @@ private fun CropRows(current: Int, short: Boolean, onFocus: (Int?) -> Unit, onPi
         onFocused = { if (it) onFocus(null) })
 }
 
-/** On top what the game draws, a dashed box round what stays; below what's on the screen. */
+/**
+ * Banjo-Kazooie's border in the crop stock picture (assets/previews/crop.png): left, top, right, bottom in ten
+ * thousandths, as the core reports it for that spot (Odin 2 Portal 2026-11-12: VI H 140..725, V 61..488).
+ */
+private val STOCK_CROP_TRIM = intArrayOf(625, 541, 468, 583)
+
+/**
+ * The border the previews take off with Trim the game's border on, as fractions (left, top, right, bottom): over the
+ * paused game what the core reports, else the stock picture's; with the trim off, none (as `Display::cutOf`).
+ */
+private fun trimFractions(on: Boolean): FloatArray {
+    if (!on) return FloatArray(4)
+    val t = if (com.joeysretro.joey64.MainActivity.gameRunning) try { com.joeysretro.joey64.NativeBridge.viTrim() } catch (e: Throwable) { null }
+        else STOCK_CROP_TRIM
+    if (t == null || t.size < 4) return FloatArray(4)
+    val f = FloatArray(4) { t[it] / 10000f }
+    return if (f[0] + f[2] >= 0.5f || f[1] + f[3] >= 0.5f) FloatArray(4) else f
+}
+
+/**
+ * On top what the game draws, a dashed box round what stays (the border [trim] takes off, as fractions, then [lines]
+ * of the rest); below what's on the screen, at the kept part's own shape.
+ */
 @Composable
-private fun CropPreviews(img: ImageBitmap?, lines: Int, width: Dp, modifier: Modifier = Modifier) {
+private fun CropPreviews(img: ImageBitmap?, lines: Int, trim: FloatArray, width: Dp, modifier: Modifier = Modifier) {
     val c = JoeyTheme.colors
     val shape = RoundedCornerShape(6.dp)
     @Composable
@@ -137,21 +159,30 @@ private fun CropPreviews(img: ImageBitmap?, lines: Int, width: Dp, modifier: Mod
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(Modifier.width(width).aspectRatio(4f / 3f).clip(shape).background(c.page)) {
             if (img != null) Image(img, contentDescription = "What the game draws", contentScale = ContentScale.FillBounds, modifier = Modifier.fillMaxSize())
-            if (lines > 0) Canvas(Modifier.fillMaxSize()) {
-                val fx = size.width * lines / 240f
-                val fy = size.height * lines / 240f
+            if (lines > 0 || trim.any { it > 0f }) Canvas(Modifier.fillMaxSize()) {
+                val kx = size.width * trim[0]; val ky = size.height * trim[1]
+                val kw = size.width * (1f - trim[0] - trim[2]); val kh = size.height * (1f - trim[1] - trim[3])
+                val fx = kw * lines / 240f
+                val fy = kh * lines / 240f
                 val w = 2.dp.toPx()
-                drawRect(c.gold, topLeft = Offset(fx, fy), size = Size(size.width - 2 * fx, size.height - 2 * fy),
+                drawRect(c.gold, topLeft = Offset(kx + fx, ky + fy), size = Size(kw - 2 * fx, kh - 2 * fy),
                     style = Stroke(width = w, pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx()))))
             }
             Box(Modifier.align(Alignment.BottomStart)) { label("The game draws") }
         }
         Box(Modifier.width(width).aspectRatio(4f / 3f).clip(shape).background(c.page)) {
             if (img != null) Canvas(Modifier.fillMaxSize()) {
-                val cx = Math.round(img.width * lines / 240f)
-                val cy = Math.round(img.height * lines / 240f)
-                drawImage(img, srcOffset = IntOffset(cx, cy), srcSize = IntSize(img.width - 2 * cx, img.height - 2 * cy),
-                    dstSize = IntSize(size.width.toInt(), size.height.toInt()))
+                val l = Math.round(img.width * trim[0]); val t = Math.round(img.height * trim[1])
+                val kw = img.width - l - Math.round(img.width * trim[2]); val kh = img.height - t - Math.round(img.height * trim[3])
+                val cx = Math.round(kw * lines / 240f)
+                val cy = Math.round(kh * lines / 240f)
+                // The kept part at its true shape (cutShape): a border wider than it is tall leaves it a little narrower than 4:3.
+                val shape = (1f - trim[0] - trim[2]) / (1f - trim[1] - trim[3])
+                var dw = size.width; var dh = size.height
+                if (shape > 1f) dh = size.height / shape else dw = size.width * shape
+                drawImage(img, srcOffset = IntOffset(l + cx, t + cy), srcSize = IntSize(kw - 2 * cx, kh - 2 * cy),
+                    dstOffset = IntOffset(((size.width - dw) / 2).toInt(), ((size.height - dh) / 2).toInt()),
+                    dstSize = IntSize(dw.toInt(), dh.toInt()))
             }
             Box(Modifier.align(Alignment.BottomStart)) { label("On your screen") }
         }
@@ -162,7 +193,7 @@ private fun CropPreviews(img: ImageBitmap?, lines: Int, width: Dp, modifier: Mod
 @Composable
 internal fun CropPopup(current: Int, who: String, trim: Boolean, onTrim: (Boolean) -> Unit, onDismiss: () -> Unit, onPick: (Int) -> Unit) {
     val context = LocalContext.current
-    val source by producePictureSource(context)
+    val source by producePictureSource(context, "crop")
     val img = remember(source) { source?.bitmap() }
     // The focused choice's amount, or null on Exact (which shows the amount in use).
     var focus by remember { mutableStateOf<Int?>(current) }
@@ -176,7 +207,8 @@ internal fun CropPopup(current: Int, who: String, trim: Boolean, onTrim: (Boolea
                     TrimRow(trim, short = false, focusFirst = false, onFocus = { focus = TRIM_FOCUS }, onSet = onTrim)
                     CropRows(current, short = false, onFocus = { focus = it }, onPick = onPick)
                 }
-                CropPreviews(img, shown, 190.dp, Modifier.padding(start = 12.dp, end = 8.dp))
+                val cut = remember(trim, source) { trimFractions(trim) }
+                CropPreviews(img, shown, cut, 190.dp, Modifier.padding(start = 12.dp, end = 8.dp))
             }
             Spacer(Modifier.height(6.dp))
             val (t, text) = if (focus == TRIM_FOCUS) TRIM_TEXT else cropText(focus)

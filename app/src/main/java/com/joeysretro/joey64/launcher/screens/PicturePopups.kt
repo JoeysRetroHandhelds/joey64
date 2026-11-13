@@ -192,11 +192,22 @@ internal fun PicturePopups(page: PicPage, ctx: PictureCtx, onPage: (PicPage?) ->
 // ---- the preview ----
 
 /**
+ * A window's own stock picture (assets/previews/<name>.png): a game we captured ourselves, a different game in each
+ * window (Joey 2026-11-12: "we have to take our own and use them", "Don't use the same game for each window").
+ * crop Banjo-Kazooie (its border shows), shader Ocarina of Time, adjust Majora's Mask, sides Mario Kart 64, place
+ * Donkey Kong 64, overlay Paper Mario, retroarch Super Mario 64, slang Pokemon Snap, slangadjust Perfect Dark,
+ * colour Yoshi's Story, touch Super Smash Bros. Null when it can't be read.
+ */
+internal fun stockPicture(context: Context, name: String): Bitmap? = try {
+    context.assets.open("previews/$name.png").use { BitmapFactory.decodeStream(it) }
+} catch (e: Exception) { com.joeysretro.joey64.JLog.e("Joey64Video", "stock picture $name: $e"); null }
+
+/**
  * At the N64's size (320 x 240): in game, the frame being played (Thor 2026-11-08: the newest screenshot
- * there was another game's); else the newest screenshot, or the built-in picture.
+ * there was another game's); else the window's [stock] picture ([stockPicture]), or the drawn one.
  */
 @Composable
-internal fun producePictureSource(context: Context) = produceState<LookPreview.Img?>(null) {
+internal fun producePictureSource(context: Context, stock: String) = produceState<LookPreview.Img?>(null) {
     value = withContext(Dispatchers.IO) {
         val img = (if (com.joeysretro.joey64.MainActivity.gameRunning) try {
             com.joeysretro.joey64.NativeBridge.captureFrame(1000)?.let { cap ->
@@ -206,13 +217,7 @@ internal fun producePictureSource(context: Context) = produceState<LookPreview.I
                 Bitmap.createScaledBitmap(bmp, 320, 240, true)
             }
         } catch (e: Exception) { null } else null)
-        ?: try {
-            val space = com.joeysretro.joey64.launcher.storage.DataFolders.current(context).space
-            val dir = com.joeysretro.joey64.launcher.storage.DataKind.Screenshots.dir
-            space.list(listOf(dir)).filter { !it.isDir && it.name.endsWith(".png") }.maxByOrNull { it.modified }
-                ?.let { f -> space.openRead(listOf(dir, f.name))?.use { BitmapFactory.decodeStream(it) } }
-                ?.let { Bitmap.createScaledBitmap(it, 320, 240, false) }
-        } catch (e: Exception) { null }
+        ?: stockPicture(context, stock)?.let { if (it.width == 320 && it.height == 240) it else Bitmap.createScaledBitmap(it, 320, 240, true) }
         if (img == null) LookPreview.builtIn() else {
             val px = IntArray(320 * 240); img.getPixels(px, 0, 320, 0, 0, 320, 240); LookPreview.Img(px, 320, 240)
         }
@@ -320,10 +325,12 @@ private fun rememberPlaceOpener(raValue: String?, open: (PicPage) -> Unit): () -
 /** The live preview: 4:3 (or 16:9 with the picture in its middle for the sides), drawn by [LookPreview] off the main thread. */
 @Composable
 internal fun PicturePreview(spec: PreviewSpec, store: PictureStore, label: String?, width: Dp, modifier: Modifier = Modifier,
+                            /** The window's stock picture ([stockPicture]). */
+                            stock: String,
                             /** A RetroArch preset (spec.setup.slang) that librashader couldn't load: it, the message. */
                             onSlangError: ((String, String) -> Unit)? = null, onSlangLoaded: ((String) -> Unit)? = null) {
     val context = LocalContext.current
-    val source by producePictureSource(context)
+    val source by producePictureSource(context, stock)
     var shown by remember { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(source, spec) {
         var src = source ?: return@LaunchedEffect
@@ -498,7 +505,7 @@ private fun ShaderPopup(ctx: PictureCtx, rows: MutableMap<PicPage, String>, onPa
                 }
                 Spacer(Modifier.width(12.dp))
                 PicturePreview(PreviewSpec(setupOf(f, ctx)), ctx.store, if (f == ShEntry.Own && !ownOn) null else setupOf(f, ctx).label, 300.dp,
-                    Modifier.padding(top = 4.dp))
+                    Modifier.padding(top = 4.dp), stock = "shader")
             }
             Spacer(Modifier.height(6.dp))
             DescriptionLine(entryLabel(f, ctx.v), entryText(f, ctx))
@@ -541,7 +548,7 @@ private fun AdjustPopup(def: ShaderDef, ctx: PictureCtx, onDone: () -> Unit) {
                     }
                 }
                 Spacer(Modifier.width(12.dp))
-                PicturePreview(PreviewSpec(setup), ctx.store, def.label, 300.dp, Modifier.padding(top = 4.dp))
+                PicturePreview(PreviewSpec(setup), ctx.store, def.label, 300.dp, Modifier.padding(top = 4.dp), stock = "adjust")
             }
             Spacer(Modifier.height(6.dp))
             def.params.getOrNull(row)?.let { DescriptionLine(it.label, paramText(def, row)) }
@@ -752,7 +759,7 @@ private fun SidesPopup(ctx: PictureCtx, rows: MutableMap<PicPage, String>, onPag
                 val raShown = if (focused == "retroarch" || (focused == "place" && v[VideoKey.Sides] == "retroarch")) raPlace else null
                 val mode = if (raShown != null) 4 else if (focused == "place") 3 else if (focused == "retroarch") 0 else sidesMode(focused)
                 PicturePreview(PreviewSpec(ctx.setup, sides = mode, sidesImage = image, wide = true, ra = raShown), ctx.store,
-                    raShown?.let { com.joeysretro.joey64.video.RaOverlay.name(it) }, 320.dp, Modifier.padding(top = 4.dp))
+                    raShown?.let { com.joeysretro.joey64.video.RaOverlay.name(it) }, 320.dp, Modifier.padding(top = 4.dp), stock = "sides")
             }
             Spacer(Modifier.height(6.dp))
             when (focused) {
@@ -783,7 +790,7 @@ private fun PlacePopup(ctx: PictureCtx, ra: RaPlace?, onDone: () -> Unit) {
     val bg by produceState<ImageBitmap?>(null, image) {
         value = withContext(Dispatchers.IO) { BitmapFactory.decodeFile((raImage ?: File(ctx.store.imagesDir, image)).path)?.asImageBitmap() }
     }
-    val source by producePictureSource(context)
+    val source by producePictureSource(context, "place")
     val game = remember(source) { source?.bitmap() }
     var size by remember { mutableStateOf(androidx.compose.ui.unit.IntSize(1920, 1080)) }
     val start = if (ra != null) ra.saved else Picture.place(ctx.v)
@@ -936,7 +943,7 @@ private fun OverlayPopup(ctx: PictureCtx, onDone: () -> Unit) {
                 }
                 Spacer(Modifier.width(12.dp))
                 PicturePreview(PreviewSpec(ctx.setup, overlay = if (row == "off") null else image, opacity = opacity), ctx.store,
-                    if (image != null && row != "off") "$image at $opacity%" else null, 300.dp, Modifier.padding(top = 4.dp))
+                    if (image != null && row != "off") "$image at $opacity%" else null, 300.dp, Modifier.padding(top = 4.dp), stock = "overlay")
             }
             Spacer(Modifier.height(6.dp))
             when (row) {

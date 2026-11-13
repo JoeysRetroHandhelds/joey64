@@ -207,7 +207,7 @@ internal fun SlangPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
                     slangParams = if (fv == current) Slang.paramsOf(ctx.v[VideoKey.SlangParams]) else emptyMap()))
                     else PreviewSpec(ShaderSetup(emptyList()))
                 PicturePreview(spec, ctx.store, if (fv != null && err != null) "Shown with None" else fv?.let { Slang.name(it) }, 300.dp,
-                    Modifier.padding(top = 4.dp), onSlangError = { v, e -> previewErr = v to e; store.fail(v, e); version++ },
+                    Modifier.padding(top = 4.dp), stock = "slang", onSlangError = { v, e -> previewErr = v to e; store.fail(v, e); version++ },
                     onSlangLoaded = { v -> if (v in failures) { store.loaded(v); version++ } })
             }
             if (err != null) {
@@ -281,7 +281,7 @@ internal fun SlangAdjustPopup(ctx: PictureCtx, value: String, onDone: () -> Unit
                 }
                 Spacer(Modifier.width(12.dp))
                 PicturePreview(PreviewSpec(ShaderSetup(emptyList(), slang = value, slangParams = changed)), ctx.store, Slang.name(value), 300.dp,
-                    Modifier.padding(top = 4.dp))
+                    Modifier.padding(top = 4.dp), stock = "slangadjust")
             }
             Spacer(Modifier.height(6.dp))
             params?.getOrNull(row)?.let { p ->

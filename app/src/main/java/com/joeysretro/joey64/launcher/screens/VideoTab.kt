@@ -513,20 +513,10 @@ private fun ColourPopup(context: Context, v: VideoSettings, onDismiss: () -> Uni
 private fun title2(k: VideoKey) = when (k) { VideoKey.Brightness -> "Brightness"; VideoKey.Contrast -> "Contrast"; VideoKey.Saturation -> "Saturation"
     VideoKey.ColourBlind -> "Colour-blind help"; else -> "Gamma" }
 
-/** The newest screenshot (files/screenshots), small; null when there's none. */
+/** Colour's own stock picture (Yoshi's Story, [stockPicture]), small; null when it can't be read. */
 @Composable
 private fun produceSource(context: Context) = androidx.compose.runtime.produceState<Bitmap?>(null) {
-    value = withContext(Dispatchers.IO) {
-        // In the data folder in use (Settings › Saves › Data folder).
-        val space = com.joeysretro.joey64.launcher.storage.DataFolders.current(context).space
-        val dir = com.joeysretro.joey64.launcher.storage.DataKind.Screenshots.dir
-        val f = space.list(listOf(dir)).filter { !it.isDir && it.name.endsWith(".png") }.maxByOrNull { it.modified }
-            ?: return@withContext null
-        try {
-            val o = BitmapFactory.Options().apply { inSampleSize = 2 }
-            space.openRead(listOf(dir, f.name))?.use { BitmapFactory.decodeStream(it, null, o) }?.let { Bitmap.createScaledBitmap(it, 240, 180, true) }
-        } catch (e: Exception) { null }
-    }
+    value = withContext(Dispatchers.IO) { stockPicture(context, "colour")?.let { Bitmap.createScaledBitmap(it, 240, 180, true) } }
 }
 
 /** The same sums as the present pass (vk_context colour step), so the preview shows what the game will. */

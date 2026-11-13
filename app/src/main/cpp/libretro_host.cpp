@@ -1949,6 +1949,17 @@ JNIEXPORT void JNICALL JNI(setTrim)(JNIEnv*, jobject, jboolean on) {
     Display::opts().trim = on == JNI_TRUE;
 }
 
+// The game's own border as the core last reported it (left, top, right, bottom in ten thousandths; all 0 for none),
+// for the Crop edges preview over the paused game.
+JNIEXPORT jintArray JNICALL JNI(viTrim)(JNIEnv* env, jobject) {
+    jint t[4];
+    std::atomic<int>* v = Display::viTrim();
+    for (int i = 0; i < 4; ++i) t[i] = v[i].load();
+    jintArray a = env->NewIntArray(4);
+    if (a) env->SetIntArrayRegion(a, 0, 4, t);
+    return a;
+}
+
 // A panel down the right over the paused game: per mille of the window's width it covers, 0 none (display_opts.h fit).
 JNIEXPORT void JNICALL JNI(setPanelRight)(JNIEnv*, jobject, jint perMille) {
     Display::opts().panelRight = std::max(0, std::min(800, (int)perMille));

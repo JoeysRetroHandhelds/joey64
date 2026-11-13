@@ -236,7 +236,7 @@ internal fun TouchEditor(
     var makingMacro by remember { mutableStateOf(false) }
     val draw = remember { TouchDraw(context) }
     // In game the paused frame (the Controls page is under this window, not the game); in the launcher the newest screenshot.
-    val shot by produceState<ImageBitmap?>(null) { value = withContext(Dispatchers.IO) { if (inGame) pausedFrame() else newestScreenshot(context) } }
+    val shot by produceState<ImageBitmap?>(null) { value = withContext(Dispatchers.IO) { if (inGame) pausedFrame() else stockShot(context) } }
     val done by rememberUpdatedState { onDone(list) }
 
     JoeyDialog(onDismiss = { done() }, hints = emptyList(), bare = true) {
@@ -457,11 +457,5 @@ private fun pausedFrame(): ImageBitmap? = try {
     }
 } catch (e: Exception) { null }
 
-/** The newest screenshot, for the editor's game picture in the launcher (null: none). */
-private fun newestScreenshot(context: android.content.Context): ImageBitmap? = try {
-    val space = com.joeysretro.joey64.launcher.storage.DataFolders.current(context).space
-    val dir = com.joeysretro.joey64.launcher.storage.DataKind.Screenshots.dir
-    space.list(listOf(dir)).filter { !it.isDir && it.name.endsWith(".png") }.maxByOrNull { it.modified }
-        ?.let { f -> space.openRead(listOf(dir, f.name))?.use { BitmapFactory.decodeStream(it) } }
-        ?.let { b -> (if (b.width > 1280) Bitmap.createScaledBitmap(b, 1280, b.height * 1280 / b.width, true) else b).asImageBitmap() }
-} catch (e: Exception) { null }
+/** The editor's game picture in the launcher: its own stock picture (Super Smash Bros., [stockPicture]; null: none). */
+private fun stockShot(context: android.content.Context): ImageBitmap? = stockPicture(context, "touch")?.asImageBitmap()

@@ -3239,7 +3239,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // Approved problem screens (2026-11-08), checks without pulling a controller or filling the disk:
         // adb shell am broadcast -a com.joeysretro.joey64.PROBLEM --es what disconnect [--ei player 1] [--es name "8BitDo Pro 2"]
         //   (the player's controller went), back (it came back), nospace | nospace-shot | nospace-save (a full disk: 1 MB free),
-        //   net-paused | net-outofstep | net-left [--es name Sam] (the netplay cards, no room needed).
+        //   net-paused | net-outofstep | net-left [--es name Sam] (the netplay cards, no room needed), screenshot (the hotkey's).
         debugProblem = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, i: Intent) {
                 JLog.i(TAG, "debug PROBLEM: ${i.getStringExtra("what")}")
@@ -3253,6 +3253,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
                         padGone(-99)
                     }
                     "back" -> if (waitingPlayer >= 0) playerBack(waitingPlayer, null) else (onBuiltIn + leftOut).firstOrNull()?.let { playerBack(it, null) }
+                    // The screenshot hotkey without the chord (taking the stock preview pictures, 2026-11-12).
+                    "screenshot" -> hotkeyScreenshot()
                     "nospace" -> noSpace(com.joeysretro.joey64.saves.NoSpace.What.State, 4 * mb, slotName(currentSlot()), devFree = mb)
                     "nospace-shot" -> noSpace(com.joeysretro.joey64.saves.NoSpace.What.Screenshot, 900 * 1024L, devFree = mb / 2)
                     "nospace-save" -> noSpace(com.joeysretro.joey64.saves.NoSpace.What.GameSave, 290 * 1024L, devFree = 100 * 1024L)

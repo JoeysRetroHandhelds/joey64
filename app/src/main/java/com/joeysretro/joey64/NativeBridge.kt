@@ -65,6 +65,9 @@ object NativeBridge {
     /** Crop edges › Trim the game's border: on cuts off the black a game leaves around its own picture; the next present shows it. */
     external fun setTrim(on: Boolean)
 
+    /** The game's own border as the core last reported it: left, top, right, bottom in ten thousandths (all 0: none). */
+    external fun viTrim(): IntArray?
+
     /** Settings › Video › Colour: brightness, contrast, saturation in percent (-50..50), gamma in tenths (5..20). Any time. */
     external fun setColour(brightness: Int, contrast: Int, saturation: Int, gamma: Int)
 

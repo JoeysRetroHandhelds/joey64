@@ -250,7 +250,7 @@ internal fun RaOverlayPopup(ctx: PictureCtx, onPage: (PicPage?) -> Unit) {
                 }
                 Spacer(Modifier.width(12.dp))
                 PicturePreview(PreviewSpec(ctx.setup, sides = if (previewValue != null) 4 else 0, ra = previewValue, wide = true), ctx.store,
-                    previewValue?.let { RaOverlay.name(it) }, 320.dp, Modifier.padding(top = 4.dp))
+                    previewValue?.let { RaOverlay.name(it) }, 320.dp, Modifier.padding(top = 4.dp), stock = "retroarch")
             }
             Spacer(Modifier.height(6.dp))
             when {

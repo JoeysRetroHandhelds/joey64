@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <deque>
 #include <map>
@@ -84,7 +85,9 @@ struct Client {
     sockaddr_storage addr{};          // where from: its game's UDP must come from the same address (M21)
     bool drop = false;                // closed at the end of this pass
 };
-struct Peer { sockaddr_storage addr; socklen_t len; };
+// asked[p]: the newest slot of player p's this peer's game asked for: it has every input before it (GGPO and Slippi
+// resend every input the other side hasn't confirmed; this is the room's confirm)
+struct Peer { sockaddr_storage addr; socklen_t len; uint32_t asked[4] = {}; bool hasAsked[4] = {}; };
 
 std::atomic<bool> g_running{false};
 // The host is closing the room (Joey 2026-11-12: say "the host closed the room"): the room marks the host's own player as
@@ -164,11 +167,31 @@ struct Room {
         return sched[p].empty() ? delay : sched[p].front().second;
     }
     // A player's input into a slot: everyone gets it at once (the "gratuitous" reply), so nobody waits for a request round trip
+    // (2026-11-12) with every input before it that peer's game hasn't asked past yet (as GGPO and Slippi send every
+    // input not yet confirmed), up to a packet; a peer that hasn't asked yet gets the kRepeat before it. So a lost
+    // packet doesn't leave a game waiting a request round trip: the cores skip counts they already have.
+    // N64_NETPLAY_V1=1: the new one alone.
+    static constexpr uint32_t kRepeat = 3;
+    bool v1 = false;
     void put(int p, uint32_t slot, Input in) {
         inputs[p][slot] = in;
         missing.erase((uint64_t)p << 32 | slot);
         arrived(p, slot);
-        for (auto& peer : peers) sendInputs(peer.addr, peer.len, UDP_RECEIVE_KEY_INFO_GRATUITOUS, p, slot, 0);
+        for (auto& peer : peers) {
+            uint32_t from = slot;
+            if (!v1) {
+                const uint32_t back = !peer.hasAsked[p] ? kRepeat
+                    : slot - peer.asked[p] < 0x80000000u ? std::min<uint32_t>(slot - peer.asked[p], kMaxPerPacket - 1) : 0;
+                for (uint32_t i = 0; i < back && inputs[p].count(from - 1); i++) from--;
+            }
+            sendInputs(peer.addr, peer.len, UDP_RECEIVE_KEY_INFO_GRATUITOUS, p, from, 0);
+        }
+    }
+    void peerAsked(const sockaddr_storage& a, socklen_t len, int p, uint32_t count) {
+        for (auto& peer : peers) if (peer.len == len && memcmp(&peer.addr, &a, len) == 0) {
+            if (!peer.hasAsked[p] || count - peer.asked[p] < 0x80000000u) { peer.asked[p] = count; peer.hasAsked[p] = true; }
+            return;
+        }
     }
     bool active(int i) const { return reg[i].id && !disconnected[i]; }
     void changeDelay(int to, const char* why) {
@@ -176,11 +199,13 @@ struct Room {
         for (int i = 0; i < 4; i++) {
             if (!active(i) || !started[i]) continue;
             if (to > delay) {
+                // each frame added fills one more slot with a copy of the last input
+                const int add = to - delay;
                 int off = offsetOf(i, hi[i]); uint32_t slot = hi[i] + (uint32_t)off;
                 auto it = inputs[i].find(slot);
                 Input copy = it != inputs[i].end() ? it->second : Input{0, reg[i].plugin};
-                if (!inputs[i].count(slot + 1)) put(i, slot + 1, copy);
-                sched[i].push_back({hi[i] + 1, off + 1});
+                for (int a = 1; a <= add; a++) if (!inputs[i].count(slot + a)) put(i, slot + a, copy);
+                sched[i].push_back({hi[i] + 1, off + add});
             } else pendingLower[i] = 60;
             while (sched[i].size() > 8) sched[i].erase(sched[i].begin());
         }
@@ -214,12 +239,20 @@ struct Room {
         double frac = (double)waited / n;
         NLOGI("netplay server: delay %d: %.0f%% of %zu inputs late, 95%% by %.0f ms or less", delay, frac * 100, n, p95);
         char why[64];
+        // (2026-11-12) Up by as many frames as the 95th lateness needs (up to 3 at once): one a window took a minute
+        // of waits to climb 2 -> 6 against a joiner on the internet (Thor, 2026-11-12). Down only with a frame and
+        // 8 ms to spare: at 20 ms (a frame and 3 ms) the lower delay came late again at once (6 -> 5 -> 6).
+        // N64_NETPLAY_V1=1: one frame up a window, down at 20 ms.
+        const float frameMs = 1000.0f / 60.0f;
+        const float lowerAt = v1 ? -20.0f : -(frameMs + 8.0f);
         if (frac >= 0.10 && delay < kMaxDelay) {
-            snprintf(why, sizeof why, "%.0f%% of inputs late", frac * 100);
+            int add = v1 ? 1 : std::clamp((int)std::ceil(std::max(p95, 0.0f) / frameMs), 1, 3);
+            add = std::min(add, kMaxDelay - delay);
+            snprintf(why, sizeof why, "%.0f%% of inputs late, 95%% by %.0f ms", frac * 100, p95);
             if (now - lastLowerAt < seconds(60)) calmNeed = std::min(calmNeed * 2, 120);
-            changeDelay(delay + 1, why);
+            changeDelay(delay + add, why);
             holdUntil = now + seconds(2); calmSince = now;
-        } else if (frac >= 0.03 || p95 > -20) calmSince = now;
+        } else if (frac >= 0.03 || p95 > lowerAt) calmSince = now;
         else if (now - calmSince >= seconds(calmNeed) && delay > kMinDelay) {
             snprintf(why, sizeof why, "calm for %d s", calmNeed);
             changeDelay(delay - 1, why);
@@ -258,7 +291,10 @@ struct Room {
     std::deque<Late> late;
     uint32_t simDropped = 0, simSent = 0;
     void udpSend(const uint8_t* d, size_t n, const sockaddr_storage& to, socklen_t len) {
-        if (!simDelay && !simJitter && !simLoss) { sendto(udp, d, n, 0, (const sockaddr*)&to, len); return; }
+        // the host's own game (loopback) isn't on the internet: the sim leaves it alone (2026-11-12, it waited on its own inputs)
+        const bool loop = (to.ss_family == AF_INET && ntohl(((const sockaddr_in&)to).sin_addr.s_addr) == INADDR_LOOPBACK) ||
+                          (to.ss_family == AF_INET6 && IN6_IS_ADDR_LOOPBACK(&((const sockaddr_in6&)to).sin6_addr));
+        if ((!simDelay && !simJitter && !simLoss) || loop) { sendto(udp, d, n, 0, (const sockaddr*)&to, len); return; }
         ++simSent;
         if (simLoss && (int)(simRng() % 100) < simLoss) { ++simDropped; return; }
         int ms = simDelay + (simJitter ? (int)(simRng() % (uint32_t)(simJitter + 1)) : 0);
@@ -565,6 +601,7 @@ struct Room {
             if (me < 0 || !fromPlayer(from, me)) return;
             if (!disconnected[p] && started[p] && count - hi[p] < 0x80000000u && count - hi[p] > 600) return;
             addPeer(from, len);
+            peerAsked(from, len, p, count);
             lastAsked[p][id] = count;
             heard(me); ns[me].requests++;
             uint32_t lead = count;
@@ -771,6 +808,8 @@ bool start(int port, int players, int delay) {
         }
         NLOGI("netplay server: %s", room->keyed ? "joiners register with their keys" : "no keys");
     }
+    if (const char* v = getenv("N64_NETPLAY_V1")) room->v1 = *v == '1';
+    if (room->v1) NLOGI("netplay server: the 2026-11-10 rules (no repeated inputs, one frame up a window)");
     if (const char* s = getenv("N64_NETPLAY_SIM")) {
         sscanf(s, "%d%*[^0-9]%d%*[^0-9]%d", &room->simDelay, &room->simJitter, &room->simLoss);
         room->simLoss = std::clamp(room->simLoss, 0, 90);

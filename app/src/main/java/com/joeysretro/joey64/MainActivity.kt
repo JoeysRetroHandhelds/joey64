@@ -3153,6 +3153,21 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         setRumbling(0)
         stickCals.values.forEach { it.save(stickPrefs) }
     }
+    /**
+     * Gone to the background (home, another app, the screen off): Android may end the process there without a word,
+     * so the recovery state is written now (Settings › Saves › Recovery state's rules, as [recoveryTick]) and a picked
+     * data folder gets the save RAM: coming back to Joey64 after that offers to carry on from here, not from the last
+     * timed recovery state minutes before (queue "Never lose progress when Android kills the app", 2026-11-13).
+     */
+    override fun onStop() {
+        super.onStop()
+        if (!mine || isFinishing || quitting || !started) return
+        val st = states ?: return
+        if (recoveryEveryMs > 0 && !startLoadFailed) stateHandler.post {
+            if (st.saveRecovery()) JLog.i(TAG, "recovery state: written on going to the background")
+        }
+        stateHandler.post { com.joeysretro.joey64.launcher.storage.SrmSync.push(this, st.saveName) }
+    }
     override fun onResume() {
         super.onResume()
         if (!mine) return

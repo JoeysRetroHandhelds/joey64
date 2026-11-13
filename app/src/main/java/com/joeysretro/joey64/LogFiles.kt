@@ -103,6 +103,9 @@ object LogFiles {
     private fun catchUncaught(app: Context) {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { t, e ->
+            // The game's save RAM first (Joey 2026-11-13, crash flush): it's written every ~2 s, so a save made just
+            // before the crash would go with the process.
+            try { NativeBridge.crashFlush() } catch (x: Throwable) {}
             JLog.e(TAG, "uncaught exception on thread ${t.name}:\n${Log.getStackTraceString(e)}")
             // Send reports on: the stack goes with the next report (the exit record has none for a Java crash).
             com.joeysretro.joey64.reports.ReportSender.keepJavaCrash(app, "thread ${t.name}\n" + Log.getStackTraceString(e))

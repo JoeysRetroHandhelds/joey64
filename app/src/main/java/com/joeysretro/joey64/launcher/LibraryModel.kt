@@ -485,6 +485,9 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
             val app = getApplication<Application>()
             if (com.joeysretro.joey64.MainActivity.gameRunning) return@launch
             val r = GameStates.Recovery.find(app) ?: run { _recovery.value = null; return@launch }
+            // A recovery state means the game didn't end cleanly (a crash, or Android ending it): a save RAM the crash
+            // flush wrote is newer than a picked data folder's copy, so it goes there now, not at the game's next start.
+            try { com.joeysretro.joey64.launcher.storage.SrmSync.pushAll(app) } catch (e: Exception) { JLog.e(TAG, "recovery: can't push the saves: $e") }
             val game = db.gameWithFile(r.saveName, GameStates::saveNameOf)
             if (game == null) {
                 // A game a frontend started, or one no longer in the ROM folders: the launcher can't start it.

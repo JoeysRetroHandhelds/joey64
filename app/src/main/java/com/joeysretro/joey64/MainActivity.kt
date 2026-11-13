@@ -3273,6 +3273,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
                     "nospace" -> noSpace(com.joeysretro.joey64.saves.NoSpace.What.State, 4 * mb, slotName(currentSlot()), devFree = mb)
                     "nospace-shot" -> noSpace(com.joeysretro.joey64.saves.NoSpace.What.Screenshot, 900 * 1024L, devFree = mb / 2)
                     "nospace-save" -> noSpace(com.joeysretro.joey64.saves.NoSpace.What.GameSave, 290 * 1024L, devFree = 100 * 1024L)
+                    // The crash flush's Java path: an uncaught exception on the main thread (the log shows the flush).
+                    "crash-java" -> throw RuntimeException("PROBLEM crash-java (debug)")
                     // The netplay cards without a room (F2 step 2 checks): another player's menu is open, the games are
                     // out of step, a player left. Their room-only buttons (Leave) quit to the library as in a room.
                     "net-paused" -> overlay?.screen = com.joeysretro.joey64.launcher.ingame.PauseScreen.NetPaused(2, i.getStringExtra("name") ?: "Sam")

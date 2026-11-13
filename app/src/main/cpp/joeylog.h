@@ -9,3 +9,6 @@
 void joeyLogOpen(const char* path);   // appends; nullptr closes
 void joeyLog(int prio, const char* tag, const char* fmt, ...) __attribute__((format(printf, 3, 4)));
 void joeyLogV(int prio, const char* tag, const char* fmt, va_list ap);
+// For a fatal signal handler: one finished line (ending in \n) straight to the session file and logcat, no lock, no
+// allocation, no stdio (async-signal-safe as far as write() and __android_log_write go).
+void joeyLogRaw(const char* line);

@@ -16,6 +16,12 @@ object NativeBridge {
     external fun loadCore(corePath: String, systemDir: String, saveDir: String): Boolean
 
     /**
+     * An uncaught Java exception is about to end the process: write the game's save RAM if it changed since the last
+     * write (the host's crash flush; a fatal native signal does the same itself). Nothing when no game is loaded.
+     */
+    external fun crashFlush()
+
+    /**
      * Load a ROM. Must be called after setSurface so the HW context exists. saveName: the ROM's file
      * name without extension, as RetroArch names saves; empty = name the save by the ROM's hash.
      */

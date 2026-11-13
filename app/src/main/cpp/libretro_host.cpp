@@ -30,6 +30,8 @@
 #include <sched.h>
 #include <sys/resource.h>
 #include <dirent.h>
+#include <csignal>
+#include <fcntl.h>
 #include <GLES3/gl3.h>
 #include <mutex>
 #include <string>
@@ -1054,6 +1056,86 @@ void flushSave() {
     LOGI("save: wrote %zu bytes", size);
 }
 
+// ---- crash flush --------------------------------------------------------------
+// The core runs in the app's process, so a native crash ends the app. Save RAM is written every ~2 s, so a game's
+// own save made just before a crash could be lost: a fatal signal (and an uncaught Java exception, through
+// NativeBridge.crashFlush) writes it first, then hands the signal on so Android still writes its tombstone and the
+// launcher still sees the native crash (Joey 2026-11-13, option B). Only async-signal-safe calls: the paths are
+// made when the game loads, the save RAM's place and size are kept then, the file goes out with open/write/fsync/
+// rename. Written over the .srm like any save (the per-start save backups hold the one before). The handlers go in
+// at loadCore, before the core's: parallel-RDP's smart sync installs its own SIGSEGV handler at its first game and
+// hands faults that aren't its own to the one before it (ours), so its page faults never reach this.
+static char g_crashSrm[1024], g_crashTmp[1032];
+static uint8_t* g_crashMem = nullptr;
+static size_t g_crashSize = 0;
+static std::atomic<bool> g_crashArmed{false};
+static std::atomic_flag g_crashOnce = ATOMIC_FLAG_INIT;
+static const int kCrashSignals[] = {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT, SIGTRAP};
+static struct sigaction g_crashOld[NSIG];
+
+static void crashLine(const char* a, long n, const char* b) {
+    char buf[160]; size_t o = 0;
+    auto put = [&](const char* s) { while (*s && o < sizeof buf - 2) buf[o++] = *s++; };
+    put(a);
+    if (n >= 0) { char d[24]; int k = 0; do { d[k++] = char('0' + n % 10); n /= 10; } while (n && k < 23); while (k) { if (o < sizeof buf - 2) buf[o++] = d[--k]; } }
+    put(b); buf[o++] = '\n'; buf[o] = 0;
+    joeyLogRaw(buf);
+}
+
+// Writes the save RAM if it changed since the last write. Safe in a signal handler; once per process.
+static void crashWriteSave(int sig) {
+    if (!g_crashArmed.load(std::memory_order_acquire) || g_crashOnce.test_and_set()) return;
+    crashLine("crash flush: signal ", sig, sig ? "" : " (an uncaught Java exception)");
+    uint8_t* mem = g_crashMem; size_t size = g_crashSize;
+    if (!mem || !size || !g_crashSrm[0]) return;
+    if (g_npRoomSave.load()) { crashLine("crash flush: the room's save is in use, this device's own is left as it was", -1, ""); return; }
+    if (g_lastSave.size() == size && !memcmp(g_lastSave.data(), mem, size)) { crashLine("crash flush: save RAM unchanged since the last write", -1, ""); return; }
+    int fd = open(g_crashTmp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    if (fd < 0) { crashLine("crash flush: cannot open the save", -1, ""); return; }
+    const uint8_t* p = mem; size_t left = size; bool ok = true;
+    while (left > 0) { ssize_t w = write(fd, p, left); if (w <= 0) { ok = false; break; } p += w; left -= (size_t)w; }
+    ok = fsync(fd) == 0 && ok;
+    close(fd);
+    if (!ok || rename(g_crashTmp, g_crashSrm) != 0) { unlink(g_crashTmp); crashLine("crash flush: save write failed", -1, ""); return; }
+    crashLine("crash flush: save RAM written, ", (long)size, " bytes");
+}
+
+static void crashHandler(int sig, siginfo_t* info, void* uc) {
+    crashWriteSave(sig);
+    const struct sigaction& o = g_crashOld[sig];
+    if (o.sa_flags & SA_SIGINFO) { if (o.sa_sigaction) { o.sa_sigaction(sig, info, uc); return; } }
+    else if (o.sa_handler != SIG_DFL && o.sa_handler != SIG_IGN) { o.sa_handler(sig); return; }
+    // Nothing before ours: the default action. Returning re-runs the faulting instruction (or abort() raises again).
+    signal(sig, SIG_DFL);
+    if (sig == SIGABRT || (info && info->si_code <= 0)) raise(sig); // sent, not a fault: re-running wouldn't bring it back
+}
+
+static void crashInstall() {
+    static bool done = false;
+    if (done) return;
+    done = true;
+    for (int sig : kCrashSignals) {
+        struct sigaction sa = {};
+        sa.sa_sigaction = crashHandler;
+        sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
+        sigemptyset(&sa.sa_mask);
+        if (sigaction(sig, &sa, &g_crashOld[sig]) != 0) LOGE("crash flush: no handler for signal %d", sig);
+    }
+    LOGI("crash flush: handlers in");
+}
+
+// After loadSave: what a crash would write, and where.
+static void crashArm() {
+    g_crashArmed.store(false);
+    g_crashMem = static_cast<uint8_t*>(core.get_memory_data(RETRO_MEMORY_SAVE_RAM));
+    g_crashSize = core.get_memory_size(RETRO_MEMORY_SAVE_RAM);
+    if (!g_crashMem || !g_crashSize || g_savePath.empty() || g_savePath.size() + 5 >= sizeof g_crashSrm) return;
+    snprintf(g_crashSrm, sizeof g_crashSrm, "%s", g_savePath.c_str());
+    snprintf(g_crashTmp, sizeof g_crashTmp, "%s.crash", g_savePath.c_str());
+    g_crashArmed.store(true, std::memory_order_release);
+}
+
+
 // ---- save states --------------------------------------------------------------
 // The core's state (retro_serialize: the M64+SAVE data) is taken and put back on the emulation
 // thread between frames, the only place the core can do it. The UI side (StateFiles.kt) wraps it in
@@ -1291,6 +1373,11 @@ void runLoop() {
     PerfHint perfHint;
     // EXPERIMENT (rewind_test.h): N64_REWIND_TEST=<frames between snapshots>.
     const int rewindEvery = getenv("N64_REWIND_TEST") ? atoi(getenv("N64_REWIND_TEST")) : 0;
+    // Dev: N64_CRASH_TEST=<frames> crashes the game that many frames in, to check the crash flush: the kept copy of
+    // the last write is changed first, so the flush writes the save RAM (the same bytes as the .srm), then a SIGSEGV.
+    // Never set by the app. (The Java path: the debug PROBLEM broadcast's crash-java.)
+    const char* crashTestEnv = getenv("N64_CRASH_TEST");
+    const long crashTestAt = crashTestEnv ? atol(crashTestEnv) : 0;
     RewindTest rewindTest;
     {
         const char* ring = getenv("N64_STATE_RING");
@@ -1777,6 +1864,12 @@ void runLoop() {
             }
         }
         if (++framesSinceSaveCheck >= 120) { framesSinceSaveCheck = 0; flushSave(); }
+        if (crashTestAt > 0 && (long)g_framesRun == crashTestAt) {
+            LOGE("N64_CRASH_TEST: crashing at frame %ld", crashTestAt);
+            if (!g_lastSave.empty()) g_lastSave.back() ^= 0xff;
+            volatile int* bad = nullptr;
+            *bad = 1;
+        }
         if (rewindEvery > 0 && g_framesRun > 60)
             rewindTest.frame(rewindEvery, [] { return core.serialize_size(); }, [](void* d, size_t n) { return core.serialize(d, n); });
         if (useHint) {
@@ -1791,6 +1884,7 @@ void runLoop() {
     serveStateRequest(false, true);   // a request that came too late fails now, not at its timeout
     g_stateRing.finish();             // meta.json says this session's play time before the launcher reads it
     flushSave();
+    g_crashArmed = false; // the core's save RAM goes with unload_game
     Cheevos::gameUnloaded();
     if (g_hw.context_destroy) g_hw.context_destroy();
     core.unload_game();
@@ -1848,6 +1942,8 @@ std::string romSummary(const std::vector<uint8_t>& rom) {
 }
 
 extern "C" {
+JNIEXPORT void JNICALL JNI(crashFlush)(JNIEnv*, jobject) { crashWriteSave(0); }
+
 
 JNIEXPORT jboolean JNICALL JNI(loadCore)(JNIEnv* env, jobject, jstring path, jstring sys, jstring save) {
     const char* p = env->GetStringUTFChars(path, nullptr);
@@ -1893,6 +1989,7 @@ JNIEXPORT jboolean JNICALL JNI(loadCore)(JNIEnv* env, jobject, jstring path, jst
     // A game screen whose start failed before the game ran (no ROM, loadGame refused) never reached the emulation
     // thread's deinit: the core was still up, and the next screen's init failed (CoreStartup err=2, Thor 2026-11-08).
     if (g_coreInited) { LOGI("core: still up from a start that failed, shutting it down first"); core.deinit(); }
+    crashInstall();
     core.init();
     g_coreInited = true;
     return JNI_TRUE;
@@ -2290,6 +2387,7 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
         g_saveFallbackPath = g_saveDir + hashName;
     }
     loadSave();
+    crashArm();
     Cheevos::gameLoaded(buf.data(), buf.size(), static_cast<uint8_t*>(core.get_memory_data(RETRO_MEMORY_SYSTEM_RAM)),
                         core.get_memory_size(RETRO_MEMORY_SYSTEM_RAM));
     core.get_system_av_info(&g_av);

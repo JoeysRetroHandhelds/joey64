@@ -10,6 +10,7 @@
 namespace {
 std::mutex g_mutex;
 FILE* g_file = nullptr;
+int g_fd = -1; // g_file's descriptor, for joeyLogRaw
 
 // Read on every line, not cached: the first lines (LogFiles' header) are logged before MainActivity sets the
 // intent's --es env, and a cached answer kept N64_LOG_ERR off for the whole run (Duo bench lost its stats, 2026-11-06)
@@ -73,8 +74,17 @@ void maskAddresses(const char* in, char* out, size_t cap) {
 
 void joeyLogOpen(const char* path) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    if (g_file) { fclose(g_file); g_file = nullptr; }
+    if (g_file) { g_fd = -1; fclose(g_file); g_file = nullptr; }
     if (path) g_file = fopen(path, "a");
+    if (g_file) g_fd = fileno(g_file);
+}
+
+void joeyLogRaw(const char* line) {
+    __android_log_write(ANDROID_LOG_ERROR, "joey64host", line);
+    int fd = g_fd;
+    if (fd < 0) return;
+    size_t n = strlen(line);
+    while (n > 0) { ssize_t w = write(fd, line, n); if (w <= 0) break; line += w; n -= (size_t)w; }
 }
 
 void joeyLogV(int prio, const char* tag, const char* fmt, va_list ap) {

@@ -3006,6 +3006,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (inGame) hotkeys.actionFor(code, alone = true)?.let { action -> hotkeyEdge(action, event, down); return true }
         // A macro's button wins over the player's use of it.
         if (inGame && p >= 0 && macroKey(p, code, event, withHotkey = false)) return true
+        // In game, a pad button no player uses goes nowhere: handed to super, Android's fallback turns an unhandled
+        // BUTTON_B into BACK, the pause menu (Xbox-layout pads: Auto map leaves B and Y unused; tester's Mini V2,
+        // 2026-11-12). BACK itself isn't a gamepad button, so the menu still opens on Back.
+        if (inGame && KeyEvent.isGamepadButton(code) && (p < 0 || !players[p].uses(code))) return true
         if (p < 0 || !players[p].uses(code)) return super.dispatchKeyEvent(event)
         if (inputLat && event.action == KeyEvent.ACTION_DOWN) noteInputLat(event.eventTime, true, 0)
         when (event.action) {

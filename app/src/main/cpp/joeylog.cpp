@@ -29,6 +29,43 @@ char prioChar(int prio) {
         default: return '?';
     }
 }
+bool isDigit(char c) { return c >= '0' && c <= '9'; }
+
+bool notPublic(const int b[4]) {
+    return b[0] == 0 || b[0] == 10 || b[0] == 127 || (b[0] == 172 && b[1] >= 16 && b[1] <= 31) ||
+           (b[0] == 192 && b[1] == 168) || (b[0] == 169 && b[1] == 254) || (b[0] == 100 && b[1] >= 64 && b[1] <= 127);
+}
+
+// [in] with every public IPv4 address as "<public address>", into [out] (Kotlin's LogMask.addresses, same rules):
+// Share logs sends the session logs, and the router's outside address (upnp.cpp) or a room's host address (the
+// core's "Netplay: connected to") would go with them. Addresses on this Wi-Fi or the carrier's network stay.
+void maskAddresses(const char* in, char* out, size_t cap) {
+    size_t o = 0;
+    for (size_t i = 0; in[i] && o + 1 < cap;) {
+        bool start = isDigit(in[i]) && !(i > 0 && isDigit(in[i - 1])) && !(i > 1 && in[i - 1] == '.' && isDigit(in[i - 2]));
+        if (start) {
+            int b[4]; size_t j = i; bool ok = true;
+            for (int k = 0; k < 4 && ok; ++k) {
+                int n = 0, d = 0;
+                while (isDigit(in[j]) && d < 4) { n = n * 10 + (in[j] - '0'); ++j; ++d; }
+                if (d == 0 || d > 3 || n > 255) ok = false;
+                b[k] = n;
+                if (ok && k < 3) { if (in[j] == '.') ++j; else ok = false; }
+            }
+            if (ok && !isDigit(in[j]) && !(in[j] == '.' && isDigit(in[j + 1])) && !notPublic(b)) {
+                static const char kMask[] = "<public address>";
+                for (const char* m = kMask; *m && o + 1 < cap; ++m) out[o++] = *m;
+                i = j;
+                continue;
+            }
+            // Not a public address: copy the whole run of digits so its tail isn't read as a new start.
+            while (isDigit(in[i]) && o + 1 < cap) out[o++] = in[i++];
+            continue;
+        }
+        out[o++] = in[i++];
+    }
+    out[o] = 0;
+}
 } // namespace
 
 void joeyLogOpen(const char* path) {
@@ -38,11 +75,13 @@ void joeyLogOpen(const char* path) {
 }
 
 void joeyLogV(int prio, const char* tag, const char* fmt, va_list ap) {
-    char msg[2048];
+    char raw[2048];
     va_list copy;
     va_copy(copy, ap);
-    vsnprintf(msg, sizeof msg, fmt, copy);
+    vsnprintf(raw, sizeof raw, fmt, copy);
     va_end(copy);
+    char msg[2048 + 64];
+    maskAddresses(raw, msg, sizeof msg);
     __android_log_write(prio < ANDROID_LOG_WARN && raiseInfo() ? ANDROID_LOG_ERROR : prio, tag, msg);
     std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_file) return;

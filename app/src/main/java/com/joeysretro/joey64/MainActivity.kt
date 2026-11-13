@@ -711,6 +711,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     /** The widescreen and 60 fps codes this game started with (Settings › Video), from [prepareGame]. */
     private var extrasOn = com.joeysretro.joey64.video.ExtrasOn.NONE
+    /** This play's header game code ("CZLE"), read at start; null before or for a disk alone. */
+    private var gameCode: String? = null
 
     /**
      * On [gameIo]: [rom]'s widescreen and 60 fps versions from its kept cheat lists (the scan downloads them; nothing is
@@ -1135,7 +1137,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         val v = video
         val (aw, ah) = com.joeysretro.joey64.video.VideoApply.aspect(v, extrasOn.shape)
         NativeBridge.setDisplay(aw, ah, v.on(com.joeysretro.joey64.video.VideoKey.Integer), v.on(com.joeysretro.joey64.video.VideoKey.Bfi))
-        NativeBridge.setCrop(v.int(com.joeysretro.joey64.video.VideoKey.Crop))
+        NativeBridge.setCrop(com.joeysretro.joey64.video.GameCrop.of(gameCode, v)) // a game's default when Crop edges isn't set (OoT)
         NativeBridge.setColour(v.int(com.joeysretro.joey64.video.VideoKey.Brightness), v.int(com.joeysretro.joey64.video.VideoKey.Contrast), v.int(com.joeysretro.joey64.video.VideoKey.Saturation), v.int(com.joeysretro.joey64.video.VideoKey.Gamma))
         NativeBridge.setSharpen(when (v[com.joeysretro.joey64.video.VideoKey.Sharpen]) { "cas" -> 1; "fsr" -> 2; else -> 0 }, v.int(com.joeysretro.joey64.video.VideoKey.SharpenStrength))
     }
@@ -1293,7 +1295,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     /** What [prepareGame] got ready off the main thread: the ROM, its save name, a 64DD disk's cartridge, Settings › Saves. */
     private class Prepared(val rom: String, val saveName: String, val ddCart: String?, val savesOpts: com.joeysretro.joey64.saves.SavesOptions,
-                           val extras: com.joeysretro.joey64.video.ExtrasOn, val tpak: Pair<String, String>? = null, val md5: String? = null,
+                           val extras: com.joeysretro.joey64.video.ExtrasOn, val tpak: List<Pair<String, String>>? = null, val md5: String? = null,
                            val cheats: List<String> = emptyList())
     /** [prepareGame] stopped because a 64DD disk's cartridge didn't unpack. */
     @Volatile private var cartFailed = false
@@ -1356,25 +1358,30 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     /**
-     * Transfer Pak (approved paks mockup 2026-11-08, scratchpad build_paks2.py): the first player whose pak is the
-     * Transfer Pak, with a Game Boy game picked, gives the play its Game Boy game (copied, unzipped, to cache/tpak/) and
-     * save (Joey64's own copy, saves/<save name>.gb.sav, synced with the data folder like the save RAM; GameBoyFiles.saveCopy). The core takes one Game Boy
-     * game per play, so other players with a Transfer Pak get the same one (README work order (44)). Null: none.
+     * Transfer Pak (approved paks mockup 2026-11-08, scratchpad build_paks2.py): each player whose pak is the Transfer
+     * Pak, with a Game Boy game picked, plays their own Game Boy game (copied, unzipped, to cache/tpak/p<n>/) and save
+     * (Joey64's own copy, saves/<save name>.gb.sav for player 1, <save name>.p<n>.gb.sav for 2-4, synced with the data
+     * folder like the save RAM; GameBoyFiles.saveCopy). Four pairs by port, ("", "") for none (README work order (44),
+     * core tpak-ports). Null: no player has one.
      */
-    private fun transferPak(saveName: String): Pair<String, String>? {
+    private fun transferPak(saveName: String): List<Pair<String, String>>? {
         if (saveName.isEmpty()) return null
         val set = try { controlsStore.forGame(saveName) } catch (e: Exception) { return null }
-        val p = set.players.firstOrNull { it.device != DeviceChoice.None && it.pak == Pak.Transfer && it.gbGame != null } ?: return null
-        val game = p.gbGame!!
-        val rom = com.joeysretro.joey64.controls.GameBoyFiles.copyGame(this, game.uri, game.name, File(cacheDir, "tpak")) ?: return null
-        val ram = com.joeysretro.joey64.controls.GameBoyFiles.saveCopy(this, saveName, p.gbSave?.uri) ?: run {
-            // Not with another save in its place (code audit 3, M8): the Transfer Pak is empty this play, and says so.
-            val what = p.gbSave?.name ?: "The Game Boy save"
-            runOnUiThread { pop("tpak", InGamePopup.Kind.Problem, "Transfer Pak", "$what didn't load", "The Transfer Pak is empty this time") }
-            return null
+        val paks = set.players.mapIndexed { i, p ->
+            val game = p.gbGame
+            if (p.device == DeviceChoice.None || p.pak != Pak.Transfer || game == null) return@mapIndexed "" to ""
+            val rom = com.joeysretro.joey64.controls.GameBoyFiles.copyGame(this, game.uri, game.name, File(cacheDir, "tpak/p${i + 1}").apply { mkdirs() })
+                ?: return@mapIndexed "" to ""
+            val ram = com.joeysretro.joey64.controls.GameBoyFiles.saveCopy(this, saveName, p.gbSave?.uri, i + 1) ?: run {
+                // Not with another save in its place (code audit 3, M8): this player's Transfer Pak is empty this play, and says so.
+                val what = p.gbSave?.name ?: "The Game Boy save"
+                runOnUiThread { pop("tpak", InGamePopup.Kind.Problem, "Transfer Pak", "$what didn't load", "Player ${i + 1}'s Transfer Pak is empty this time") }
+                return@mapIndexed "" to ""
+            }
+            JLog.i(TAG, "Transfer Pak, player ${i + 1}: ${com.joeysretro.joey64.controls.GameBoyFiles.describe(game.name, p.gbSave?.name)}, playing ${ram.name}")
+            rom.absolutePath to ram.absolutePath
         }
-        JLog.i(TAG, "Transfer Pak: ${com.joeysretro.joey64.controls.GameBoyFiles.describe(game.name, p.gbSave?.name)}, playing ${ram.name}")
-        return rom.absolutePath to ram.absolutePath
+        return paks.takeIf { l -> l.any { it.first.isNotEmpty() } }
     }
 
     /** On the main thread, with a surface: the rest of the start. */
@@ -1387,7 +1394,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         gameMd5 = p.md5
         startRom = rom; startSave = saveName
         NativeBridge.setDdCart(ddCart ?: "")
-        NativeBridge.setTransferPak(p.tpak?.first ?: "", p.tpak?.second ?: "")
+        NativeBridge.setTransferPak(Array(4) { p.tpak?.get(it)?.first ?: "" }, Array(4) { p.tpak?.get(it)?.second ?: "" })
         applyControls(rom, saveName)
         extrasOn = p.extras // before applyCheats, which hands the core their codes
         applyCheats(if (RomFiles.isDiskName(rom)) ddCart ?: "" else rom, saveName, p.cheats)
@@ -1395,6 +1402,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         savesOpts = p.savesOpts
         // Settings › Emulation: Overclock, CPU core, Expansion Pak (never Off for a game that needs it). --es opts wins.
         val code = romGameCode(if (RomFiles.isDiskName(rom)) ddCart ?: "" else rom)
+        gameCode = code
+        com.joeysretro.joey64.video.GameCrop.lines(code, video)?.let { JLog.i(TAG, "crop edges: this game's default, $it lines"); applyVideoDisplay() }
         val eApply = com.joeysretro.joey64.emulation.EmuApply.of(emuAtStart, com.joeysretro.joey64.emulation.ExpansionPak.needed(code))
         val devOpts = devString("opts").orEmpty()
         for ((k, v) in eApply.coreOptions) if (!devOpts.contains("$k=")) NativeBridge.setOption(k, v)

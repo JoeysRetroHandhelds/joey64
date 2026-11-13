@@ -216,7 +216,8 @@ struct Core {
 std::string g_systemDir, g_saveDir;
 std::string g_ddCart; // a 64DD disk's cartridge (NativeBridge.setDdCart), "" = the disk alone
 bool g_coreInited = false; // retro_init ran and retro_deinit hasn't (loadCore, the emulation thread's end)
-std::string g_tpakRom, g_tpakSave; // the Transfer Pak's Game Boy game and save (NativeBridge.setTransferPak), "" = none
+std::string g_tpakRom, g_tpakSave; // the Transfer Pak subsystem's Game Boy game and save: the first player's that has one, "" = none
+std::string g_tpakRoms[4], g_tpakSaves[4]; // each port's (NativeBridge.setTransferPak), "" = none
 
 // A 64DD disk image by its extension (MainActivity unpacks disks under their own name for this).
 static bool isDiskPath(const char* p) {
@@ -573,6 +574,10 @@ void log_cb(enum retro_log_level level, const char* fmt, ...) {
         vsnprintf(line, sizeof line, fmt, cp);
         va_end(cp);
         if (strstr(line, "Failed to load DD IPL ROM")) g_ddIplMissing = true;
+        // The game jumped where no code can be (Featherlight v1.1, the 64DD modem cart; README Full-run fixes (b)/(e)):
+        // the core (bogus-stop) carries on with an exception instead of closing the app, and the game stops here
+        // (coreShutDown 1: the library's "won't start" Problem screen).
+        if (strstr(line, "Compile at bogus memory address") && !g_coreShutDown.exchange(true)) LOGE("the game jumped to a bogus address: it stops");
         if (strstr(line, "Netplay: lost connection")) g_netplayLost = true;
         int jf;
         if (sscanf(line, "Netplay: can't join (%d)", &jf) == 1 && jf >= 4 && jf <= 6) g_netplayJoinFailed = jf;
@@ -2078,9 +2083,28 @@ JNIEXPORT void JNICALL JNI(setDdCart)(JNIEnv* env, jobject, jstring path) {
     env->ReleaseStringUTFChars(path, s);
 }
 
-JNIEXPORT void JNICALL JNI(setTransferPak)(JNIEnv* env, jobject, jstring rom, jstring save) {
-    const char* r = env->GetStringUTFChars(rom, nullptr); g_tpakRom = r; env->ReleaseStringUTFChars(rom, r);
-    const char* s = env->GetStringUTFChars(save, nullptr); g_tpakSave = s; env->ReleaseStringUTFChars(save, s);
+// Each port's Game Boy game and save (four of each, "" = none). The core's subsystem takes one pair for the play (the
+// first port's that has one); the core (tpak-ports) reads each port's own from N64_TPAK_ROM_<n> / N64_TPAK_RAM_<n>, set
+// (empty for a port without one) whenever any port has one, so players 2-4 don't get player 1's game (README (44)).
+JNIEXPORT void JNICALL JNI(setTransferPak)(JNIEnv* env, jobject, jobjectArray roms, jobjectArray saves) {
+    g_tpakRom.clear(); g_tpakSave.clear();
+    for (int i = 0; i < 4; i++) {
+        auto get = [&](jobjectArray a) {
+            std::string v;
+            if (a && i < env->GetArrayLength(a)) {
+                auto js = (jstring)env->GetObjectArrayElement(a, i);
+                if (js) { const char* c = env->GetStringUTFChars(js, nullptr); v = c; env->ReleaseStringUTFChars(js, c); env->DeleteLocalRef(js); }
+            }
+            return v;
+        };
+        g_tpakRoms[i] = get(roms); g_tpakSaves[i] = get(saves);
+        if (g_tpakRom.empty() && !g_tpakRoms[i].empty()) { g_tpakRom = g_tpakRoms[i]; g_tpakSave = g_tpakSaves[i]; }
+    }
+    for (int i = 0; i < 4; i++) {
+        std::string r = "N64_TPAK_ROM_" + std::to_string(i + 1), s = "N64_TPAK_RAM_" + std::to_string(i + 1);
+        if (g_tpakRom.empty()) { unsetenv(r.c_str()); unsetenv(s.c_str()); }
+        else { setenv(r.c_str(), g_tpakRoms[i].c_str(), 1); setenv(s.c_str(), g_tpakSaves[i].c_str(), 1); }
+    }
 }
 
 JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstring saveName) {
@@ -2190,7 +2214,8 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
         // reads the cartridge from its path itself; ports whose pak option is "transfer" get the Game Boy game.
         retro_game_info tp[3] = { { g_tpakSave.c_str(), nullptr, 0, nullptr }, { g_tpakRom.c_str(), nullptr, 0, nullptr },
                                   { p, nullptr, 0, nullptr } };
-        LOGI("Transfer Pak: Game Boy game %s, save %s", g_tpakRom.c_str(), g_tpakSave.c_str());
+        for (int i = 0; i < 4; i++)
+            if (!g_tpakRoms[i].empty()) LOGI("Transfer Pak, port %d: Game Boy game %s, save %s", i + 1, g_tpakRoms[i].c_str(), g_tpakSaves[i].c_str());
         ok = core.load_game_special(2 /* RETRO_GAME_TYPE_TRANSFERPAK */, tp, 3);
     } else {
         ok = !buf.empty() && core.load_game(&info);

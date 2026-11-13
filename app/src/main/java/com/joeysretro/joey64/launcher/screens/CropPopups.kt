@@ -176,7 +176,11 @@ internal fun CropPanel(saveName: String, onDone: () -> Unit) {
     val all = remember(version) { store.all() }
     val own = remember(version) { store.game(saveName) ?: emptyMap() }
     val v = if (allGames) VideoSettings.resolve(all, null) else VideoSettings.resolve(all, own)
-    val current = v.int(VideoKey.Crop)
+    // This game's default (GameCrop: Ocarina of Time) while neither All games nor the game sets Crop edges.
+    val gameCode by androidx.compose.runtime.produceState<String?>(null, saveName) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.joeysretro.joey64.video.GameCrop.codeFor(context, saveName) }
+    }
+    val current = if (allGames) v.int(VideoKey.Crop) else com.joeysretro.joey64.video.GameCrop.of(gameCode, v)
     fun show(n: Int) {
         try { com.joeysretro.joey64.NativeBridge.setCrop(n); com.joeysretro.joey64.NativeBridge.showAgain() } catch (e: LinkageError) {}
     }
@@ -187,7 +191,7 @@ internal fun CropPanel(saveName: String, onDone: () -> Unit) {
         show(n)
     }
     // What the game plays with: its own amount, or All games'.
-    DisposableEffect(Unit) { onDispose { show(store.forGame(saveName).int(VideoKey.Crop)) } }
+    DisposableEffect(Unit) { onDispose { show(com.joeysretro.joey64.video.GameCrop.of(gameCode, store.forGame(saveName))) } }
     JoeyDialog(onDismiss = onDone, sidePanel = true, width = 300.dp, hints = HINTS) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             PopupTitle("Crop edges", "Game settings › Video")

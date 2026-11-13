@@ -135,6 +135,10 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
             } catch (e: Exception) { com.joeysretro.joey64.JLog.e("Joey64Video", "can't look up $target's versions: $e"); GameExtras.NONE }
         }
     }
+    // The game's header code: Crop edges shows a game's own default (GameCrop: Ocarina of Time).
+    val gameCode by androidx.compose.runtime.produceState<String?>(null, target) {
+        value = target?.let { t -> withContext(Dispatchers.IO) { com.joeysretro.joey64.video.GameCrop.codeFor(context, t) } }
+    }
     // The cheat index (91 KB) is read off the main thread: only the popup shows it (code audit 3, p2 L8).
     val counts by androidx.compose.runtime.produceState<Pair<Int, Int>?>(null, target) {
         value = if (target == null) withContext(Dispatchers.IO) { com.joeysretro.joey64.cheats.CheatLists(context).extrasCounts() } else null
@@ -220,7 +224,7 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
                     dot = dot(k), onFocused = { if (it) focused = id }) { if (!panel.enter()) popup = VPopup.Choice(k, row = id) }
             row("res", "Resolution", VideoKey.Resolution)
             row("asp", "Aspect ratio", VideoKey.Aspect)
-            JoeyRow("Crop edges", Modifier.initialFocus(startRow == "crop"), value = VideoChoices.label(VideoKey.Crop, v[VideoKey.Crop]), sideways = true,
+            JoeyRow("Crop edges", Modifier.initialFocus(startRow == "crop"), value = com.joeysretro.joey64.video.GameCrop.label(gameCode, v), sideways = true,
                 dot = dot(VideoKey.Crop), onFocused = { if (it) focused = "crop" }) {
                 if (onPicturePanel != null) onPicturePanel("crop") else popup = VPopup.Crop
             }
@@ -270,7 +274,7 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
         null -> {}
         is VPopup.Choice -> ChoicePopup(p.key, v[p.key], sub = p.row?.let { describe(it, v).second },
             onDismiss = { popup = p.back }) { set(p.key, it); popup = p.back }
-        VPopup.Crop -> CropPopup(v.int(VideoKey.Crop), target ?: "All games", onDismiss = { popup = null }) { set(VideoKey.Crop, it.toString()) }
+        VPopup.Crop -> CropPopup(com.joeysretro.joey64.video.GameCrop.of(gameCode, v), target ?: "All games", onDismiss = { popup = null }) { set(VideoKey.Crop, it.toString()) }
         VPopup.Colour -> ColourPopup(context, v, onDismiss = { popup = null }, onSet = { k, n -> set(k, n) },
             onReset = { set(COLOUR_ROW_KEYS.associateWith { it.default }) })
         is VPopup.Picture -> PicturePopups(p.page, picCtx) { next -> popup = next?.let { VPopup.Picture(it) } }

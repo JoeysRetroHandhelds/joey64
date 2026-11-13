@@ -1,6 +1,6 @@
 {
   "about": "Joey64 per-game database: what each game needs, what is wrong with it and where, and what was fixed. Seed for the M3 profile DB. Rules: gamedb/README.md. Update this file in the same commit as any change to a game's status (new problem found, fixed, regressed, setting added or dropped).",
-  "updated": "2026-11-11",
+  "updated": "2026-11-12",
   "games": [
     {
       "id": "NPF", "title": "Pokemon Snap",
@@ -112,6 +112,9 @@
     },
     {
       "id": "CZL", "crc": "EC7011B77616D72B", "title": "Ocarina of Time",
+      "settings": [
+        {"what": "Crop edges Normal (8 lines) by default, while neither All games nor the game sets Crop edges", "where": "video/GameCrop.kt (codes CZL and NZL: every region, revision and hack), MainActivity applyVideoDisplay", "why": "the game draws a teal ']' with a dark box into its own top-left border in dungeons, where a TV hid it (README Full-run fixes (f)(1)); Thin leaves a sliver. Joey 2026-11-12: \"Yes, OoT only\"; oot5-duo: default 8 lines, All games Off still wins"}
+      ],
       "issues": [
         {"status": "open", "devices": "all", "what": "pause-screen freezes (M6 core fixes list)", "evidence": "README core emulation fixes item"}
       ],
@@ -144,11 +147,13 @@
     {
       "id": "NMW", "title": "Mario Party 2",
       "fixed": [
+        {"devices": "all", "what": "the Japanese Wii Virtual Console copy hung before its first frame (no VI line, 300 s; upstream mupen64plus-next too): VC kept the cartridge header CRC over changed code, so the boot code's checksum never matched", "fix": "core rel2 c994aa7 (vc-hook, bundled 2026-11-12) boots with the computed checksum; vc3-flip and vc4-duo, compat 82/82 on all four run devices"},
         {"devices": "Duo (Adreno 722)", "what": "text boxes showed lines (old text strokes) with the bundled Turnip Gen8 V38", "fix": "faux123 Turnip v1.2.5 made the Duo's driver, 2026-11-04"}
       ]
     },
     {
       "id": "NM8", "title": "Mario Tennis",
+      "fixed": [{"devices": "all", "what": "each (USA, Europe, Mario Tennis 64 Japan) Wii Virtual Console copy hung before its first frame (no VI line, 300 s; upstream mupen64plus-next too): VC kept the cartridge header CRC over changed code, so the boot code's checksum never matched", "fix": "core rel2 c994aa7 (vc-hook, bundled 2026-11-12) boots with the computed checksum; vc3-flip and vc4-duo, compat 82/82 on all four run devices"}],
       "notes": ["Flip: one dip window at match start, 51.7-56.3 fps on today's build (flip-dip22); the present thread does not help"]
     },
     {
@@ -222,7 +227,7 @@
     },
     {
       "id": "NOB", "title": "Ogre Battle 64",
-      "fixed": [{"devices": "Portal", "what": "mixed two backgrounds (async build of 2026-11-03)", "fix": "current build, portal-prdp"}]
+      "fixed": [{"devices": "all", "what": "the USA, Europe (Rev 1) Wii Virtual Console copy hung before its first frame (no VI line, 300 s; upstream mupen64plus-next too): VC kept the cartridge header CRC over changed code, so the boot code's checksum never matched", "fix": "core rel2 c994aa7 (vc-hook, bundled 2026-11-12) boots with the computed checksum; vc3-flip and vc4-duo, compat 82/82 on all four run devices"}, {"devices": "Portal", "what": "mixed two backgrounds (async build of 2026-11-03)", "fix": "current build, portal-prdp"}]
     },
     {
       "id": "NGE", "title": "GoldenEye 007",
@@ -317,6 +322,12 @@
       ]
     },
     {
+      "disk": "Mario Artist - Paint Studio (Japan) (Beta) (1999-02-11)", "title": "Mario Artist: Paint Studio beta (64DD)",
+      "issues": [
+        {"status": "parked", "devices": "Duo", "what": "with IPL_DEV (Tool IPL beta, md5 aad37b) it boots (CIC 8401) and draws one frame, then nothing; with IPL_JPN the missing-BIOS path closes it, as it should", "evidence": "README Full-run fixes (g)(2), ddall-duo and dddev-duo 2026-11-12; no report of this beta found"}
+      ]
+    },
+    {
       "disk": "Kyojin no Doshin (Japan)", "title": "Kyojin no Doshin (64DD)",
       "settings": [
         {"what": "CountPerOp=1 (counter factor 1), retail and store demo disks", "where": "core mupen64plus.ini (both copies), by disk md5", "why": "at 2 the game crashes loading after Start; Project64's database gives the Doshin cartridge conversions Counter Factor 1"}
@@ -338,6 +349,12 @@
     },
     {
       "disk": "Nihon Pro Golf Tour 64 (Japan) [b]", "title": "Nihon Pro Golf Tour 64 (64DD)",
+      "settings": [
+        {"what": "CountPerOp=1 (counter factor 1)", "where": "core mupen64plus.ini (both copies), by disk md5 9F797A9C (core rel2 247364e)", "why": "at the default it stopped drawing after Start in 1 of 2 runs on the Duo; Project64's database gives its cartridge conversion Counter Factor 1"}
+      ],
+      "fixed": [
+        {"what": "stopped drawing about 30 s in, after Start A A, in some runs (Duo, app-main-rel2; ddall-duo, ddgolf-duo 2026-11-12)", "fix": "CountPerOp 1, core rel2 247364e; ddgolf2-duo: 3 of 3 runs drew to the end"}
+      ],
       "notes": [
         "Flip: boots to its menu, 61 emu fps; flip-dd1 / flip-dd2 (2026-11-07, app dd + core dd e33750, IPL_JPN = Japan v1.2)",
         "With the VI fix: 58-60 fps, underruns 0-55 per 5 s (was 15 fps in play with ~770); Flip flip-dd11/flip-dd16 (2026-11-07, core dd 0ac9d17 = VI event removed by type + Doshin CountPerOp 1)",
@@ -408,6 +425,21 @@
     {
       "disk": "Randnet Disk (Japan) [b]", "title": "Randnet Disk (64DD)",
       "notes": ["Thor (2026-11-07, app 9263f30 + core dd ddf3103, before the VI event fix in core dd 7a8c4ba, IPL_JPN = Japan v1.2, 30-60 s from the start): \"press start\" title (asks to plug in the modem), 61 emu fps; Rev 1 [b] the same"]
+    },
+    {
+      "crc": "6EE8AAA61517C148", "title": "Featherlight v1.1 (N64brew Game Jam 2021 homebrew; its header has no game code)",
+      "issues": [
+        {"status": "open", "devices": "all", "what": "jumps to a bogus address 16 s in (\"Compile at bogus memory address: 9e20d357\"); the game ends there", "evidence": "README Full-run fixes (b): fx1-flip 2026-11-12; not looked at why it jumps there"}
+      ],
+      "fixed": [
+        {"what": "the recompiler's exit(1) on that jump closed the whole app", "fix": "core rel2 ab1304b (unmapped-page exception) + main 8bf1958 (the host stops the game on that line); Flip bg1-flip / bgui-flip 2026-11-12: the game screen closes, the app stays up, the library gets the won't-start report"}
+      ]
+    },
+    {
+      "id": "CMD", "crc": "0000000000000000", "title": "Nintendo 64 Modem (Japan) (Add-on) (the 64DD Randnet modem cartridge, not a game)",
+      "fixed": [
+        {"what": "\"Compile at bogus memory address: 80800000\" then the recompiler's exit(1) closed the whole app 16-17 s in", "fix": "core rel2 ab1304b + main 8bf1958; Flip bg1-flip 2026-11-12: the game screen closes, the app stays up"}
+      ]
     }
   ]
 }

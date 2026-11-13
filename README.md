@@ -1,8 +1,9 @@
 # Joey64
 
-A Nintendo 64 emulator for Android handhelds. It runs the mupen64plus-next libretro core inside its own
-controller-first app: a box-art library, settings for every game, and an in-game menu, all made to be used
-with a gamepad (touch and TV remotes work too).
+A Nintendo 64 emulator for Android handhelds. It runs its own N64 core,
+[joey64-core](https://github.com/JoeysRetroHandhelds/joey64-core) (a fork of Mupen64Plus-Next, changed for handhelds),
+inside its own controller-first app: a box-art library, settings for every game, and an in-game menu, all made to
+be used with a gamepad (touch and TV remotes work too).
 
 **AI disclosure:** AI was used for the entire app. The code (the app and our core changes) is written with
 Anthropic's Claude through Claude Code, which also runs most of the device testing. I decide what goes in,

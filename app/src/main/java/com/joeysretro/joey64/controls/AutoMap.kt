@@ -28,6 +28,29 @@ object AutoMap {
         return PlayerSetup(device, b)
     }
 
+    /** The button Hold for C buttons gets by default. */
+    const val C_HOLD = KeyEvent.KEYCODE_BUTTON_R2
+
+    /** The four face buttons as the C buttons, each where an N64 pad has it: top C-up, bottom C-down, left, right. */
+    fun faceC(face: FaceCodes): Map<N64Button, PadInput> {
+        val n = face == FaceCodes.NINTENDO_LABELS
+        return mapOf(
+            N64Button.CUp to PadInput.Key(if (n) KeyEvent.KEYCODE_BUTTON_X else KeyEvent.KEYCODE_BUTTON_Y),
+            N64Button.CDown to PadInput.Key(if (n) KeyEvent.KEYCODE_BUTTON_B else KeyEvent.KEYCODE_BUTTON_A),
+            N64Button.CLeft to PadInput.Key(if (n) KeyEvent.KEYCODE_BUTTON_Y else KeyEvent.KEYCODE_BUTTON_X),
+            N64Button.CRight to PadInput.Key(if (n) KeyEvent.KEYCODE_BUTTON_A else KeyEvent.KEYCODE_BUTTON_B),
+        )
+    }
+
+    /**
+     * A built-in pad with no sticks (approved stickless mockup 2026-11-13, the KONKR Pocket Block): buttons by position,
+     * the D-pad moves the stick, and R2 held turns the face buttons into the C buttons ([faceC]).
+     */
+    fun stickless(device: DeviceChoice, face: FaceCodes): PlayerSetup {
+        val base = byPosition(device, face)
+        return base.copy(buttons = base.buttons + faceC(face), stick = StickSource.DPad, cHold = PadInput.Key(C_HOLD))
+    }
+
     /** One known layout: N64 button to what the pad sends. */
     class Layout(val name: String, val buttons: Map<N64Button, PadInput>)
 

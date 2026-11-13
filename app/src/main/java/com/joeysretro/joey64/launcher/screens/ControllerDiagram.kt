@@ -23,9 +23,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import android.view.KeyEvent
 import com.joeysretro.joey64.controls.AutoMap
 import com.joeysretro.joey64.controls.InputNames
 import com.joeysretro.joey64.controls.N64Button
+import com.joeysretro.joey64.controls.PadInput
 import com.joeysretro.joey64.controls.PlayerSetup
 import com.joeysretro.joey64.controls.StickSource
 import com.joeysretro.joey64.launcher.components.PopupTitle
@@ -134,4 +136,103 @@ private fun Cross(x: Dp, y: Dp) {
     val arm = 22.dp; val len = 66.dp
     Box(Modifier.offset(x - len / 2, y - arm / 2).width(len).height(arm).background(c.border, RoundedCornerShape(4.dp)))
     Box(Modifier.offset(x - arm / 2, y - len / 2).width(arm).height(len).background(c.border, RoundedCornerShape(4.dp)))
+}
+
+/**
+ * View controller on a device with no sticks (approved stickless mockup 2026-11-13, screens 5-6): the device itself, drawn
+ * plainly (shoulders, D-pad, screen, face buttons, Select and Start), each button with the N64 button it presses above it.
+ * [held]: Hold for C buttons is held, so the face buttons show their C buttons in gold.
+ */
+@Composable
+fun HandheldDiagram(player: Int, name: String, setup: PlayerSetup, hotkeyButton: Int, held: Boolean) {
+    val c = JoeyTheme.colors
+    val hold = setup.cHold?.code
+    fun pressed(code: Int, cOnly: Boolean): String? {
+        if (code == hold) return "Hold for C"
+        val bs = N64Button.entries.filter { (setup.buttons[it] as? PadInput.Key)?.code == code && ((it in N64Button.C) == cOnly) }
+        if (bs.isEmpty()) return null
+        return bs.joinToString(" / ") { if (it in N64Button.C) "C-" + it.label.lowercase() else it.label }
+    }
+    fun label(code: Int): String? = if (held && hold != null && pressed(code, true) != null) pressed(code, true) else pressed(code, false)
+    Column {
+        PopupTitle("Player ${player + 1} · $name", if (hold != null) "The N64 button on each button. Hold ${InputNames.key(hold, null)} to see the C buttons"
+            else "The N64 button on each button")
+        Box(Modifier.width(480.dp).height(290.dp)) {
+            // The body and its screen.
+            Box(Modifier.offset(20.dp, 56.dp).width(428.dp).height(220.dp).background(c.chip, RoundedCornerShape(30.dp))
+                .border(1.dp, c.border, RoundedCornerShape(30.dp)))
+            Box(Modifier.offset(130.dp, 76.dp).width(208.dp).height(130.dp).background(c.page, RoundedCornerShape(6.dp))
+                .border(1.dp, c.border, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
+                Text("Screen", style = JoeyTheme.type.small, color = c.textDim)
+            }
+            // Shoulders, with their N64 button above.
+            for ((x, key, text) in listOf(Triple(50.dp, KeyEvent.KEYCODE_BUTTON_L2, "L2"), Triple(112.dp, KeyEvent.KEYCODE_BUTTON_L1, "L1"),
+                    Triple(356.dp, KeyEvent.KEYCODE_BUTTON_R1, "R1"), Triple(418.dp, KeyEvent.KEYCODE_BUTTON_R2, "R2"))) {
+                val on = held && key == hold
+                Box(Modifier.offset(x - 29.dp, 30.dp).width(58.dp).height(20.dp)
+                    .background(if (on) c.gold else c.page, RoundedCornerShape(8.dp)).border(1.dp, c.border, RoundedCornerShape(8.dp)),
+                    contentAlignment = Alignment.Center) { Text(text, style = JoeyTheme.type.small, color = if (on) c.onButtonPrimary else c.textDim) }
+                label(key)?.let { Mark(it, x, 6.dp, if (key == hold) c.gold else c.text) }
+            }
+            // The D-pad.
+            Cross(75.dp, 140.dp)
+            Mark(if (setup.stick.usesDPad) "Stick (full tilt)" else "D-pad", 75.dp, 186.dp, c.text, 120.dp)
+            // The face buttons: top, left, right, bottom.
+            val fx = 380.dp; val fy = 140.dp
+            val face = PadDevicesFace.of(setup)
+            for ((dx, dy, code) in listOf(Triple(0.dp, (-32).dp, face.top), Triple((-32).dp, 0.dp, face.left), Triple(32.dp, 0.dp, face.right),
+                    Triple(0.dp, 32.dp, face.bottom))) {
+                val x = fx + dx; val y = fy + dy
+                Box(Modifier.offset(x - 15.dp, y - 15.dp).size(30.dp).background(c.page, CircleShape).border(1.dp, c.border, CircleShape),
+                    contentAlignment = Alignment.Center) { Text(InputNames.key(code, null), style = JoeyTheme.type.small, color = c.textDim) }
+                val t = label(code) ?: continue
+                val col = if (held && hold != null) c.gold else c.text
+                when {
+                    dy < 0.dp -> Mark(t, x, y - 36.dp, col)
+                    dy > 0.dp -> Mark(t, x, y + 17.dp, col)
+                    dx < 0.dp -> Side(t, x - 19.dp, y - 9.dp, col, end = true)
+                    else -> Side(t, x + 19.dp, y - 9.dp, col, end = false)
+                }
+            }
+            if (!held && hold != null) {
+                val idle = listOf(face.top, face.left, face.right, face.bottom).filter { pressed(it, false) == null }
+                if (idle.isNotEmpty()) Mark(idle.joinToString(" and ") { InputNames.key(it, null) } + ": nothing alone", fx, fy + 74.dp, c.textDim, 150.dp)
+            }
+            // Select and Start under the screen.
+            for ((x, key) in listOf(205.dp to KeyEvent.KEYCODE_BUTTON_SELECT, 263.dp to KeyEvent.KEYCODE_BUTTON_START)) {
+                Box(Modifier.offset(x - 17.dp, 222.dp).width(34.dp).height(13.dp).background(c.page, RoundedCornerShape(6.dp))
+                    .border(1.dp, c.border, RoundedCornerShape(6.dp)))
+                val t = if (key == hotkeyButton) "Hotkeys" else (label(key) ?: InputNames.key(key, null))
+                Mark(t, x, 240.dp, if (key == hotkeyButton) c.textDim else c.text, 70.dp)
+            }
+        }
+    }
+}
+
+/** The four face buttons' key codes by where they sit (Xbox layout codes, as the stickless map uses). */
+private class PadDevicesFace(val top: Int, val left: Int, val right: Int, val bottom: Int) {
+    companion object {
+        /** By the stickless map's own C buttons when it has them, else by position. */
+        fun of(setup: PlayerSetup): PadDevicesFace {
+            fun k(b: N64Button) = (setup.buttons[b] as? PadInput.Key)?.code
+            val t = k(N64Button.CUp); val l = k(N64Button.CLeft); val r = k(N64Button.CRight); val d = k(N64Button.CDown)
+            return if (setup.cHold != null && t != null && l != null && r != null && d != null) PadDevicesFace(t, l, r, d)
+            else PadDevicesFace(KeyEvent.KEYCODE_BUTTON_Y, KeyEvent.KEYCODE_BUTTON_X, KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BUTTON_A)
+        }
+    }
+}
+
+/** A short label centred on [x], its top at [y]. */
+@Composable
+private fun Mark(text: String, x: Dp, y: Dp, color: Color, width: Dp = 96.dp) = Centered(x, y, width) {
+    Text(text, style = JoeyTheme.type.small, color = color, textAlign = TextAlign.Center, maxLines = 1)
+}
+
+/** A label beside a button: ending at [x] ([end]) or starting there. */
+@Composable
+private fun Side(text: String, x: Dp, y: Dp, color: Color, end: Boolean) {
+    val w = 80.dp
+    Box(Modifier.offset(if (end) x - w else x, y).width(w), contentAlignment = if (end) Alignment.TopEnd else Alignment.TopStart) {
+        Text(text, style = JoeyTheme.type.small, color = color, maxLines = 1)
+    }
 }

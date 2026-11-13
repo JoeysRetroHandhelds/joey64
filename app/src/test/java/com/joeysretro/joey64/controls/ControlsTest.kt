@@ -342,4 +342,52 @@ class ControlsTest {
         assertNotNull(InputNames.group(ControlsSet.defaults().players[0], N64Button.C))
         assertNull(InputNames.group(ControlsSet.defaults().players[0].with(N64Button.CUp, PadInput.Key(KeyEvent.KEYCODE_BUTTON_Y)), N64Button.C))
     }
+
+    // Approved stickless mockup 2026-11-13 (KONKR Pocket Block).
+    private fun bit(b: N64Button) = 1 shl b.retroBit
+
+    @Test fun sticklessMapPutsTheStickOnTheDPadAndCOnR2PlusTheFaceButtons() {
+        val p = AutoMap.stickless(DeviceChoice.BuiltIn, AutoMap.FaceCodes.POSITION)
+        assertEquals(StickSource.DPad, p.stick)
+        assertEquals(PadInput.Key(KeyEvent.KEYCODE_BUTTON_R2), p.cHold)
+        assertEquals(PadInput.Key(KeyEvent.KEYCODE_BUTTON_Y), p.buttons[N64Button.CUp])
+        assertEquals(PadInput.Key(KeyEvent.KEYCODE_BUTTON_A), p.buttons[N64Button.CDown])
+        assertEquals(PadInput.Key(KeyEvent.KEYCODE_BUTTON_X), p.buttons[N64Button.CLeft])
+        assertEquals(PadInput.Key(KeyEvent.KEYCODE_BUTTON_B), p.buttons[N64Button.CRight])
+        assertEquals(PadInput.Key(KeyEvent.KEYCODE_BUTTON_A), p.buttons[N64Button.A])
+        assertEquals(PadInput.Key(KeyEvent.KEYCODE_BUTTON_X), p.buttons[N64Button.B])
+        val n = AutoMap.stickless(DeviceChoice.BuiltIn, AutoMap.FaceCodes.NINTENDO_LABELS)
+        assertEquals(PadInput.Key(KeyEvent.KEYCODE_BUTTON_X), n.buttons[N64Button.CUp])
+        assertEquals(PadInput.Key(KeyEvent.KEYCODE_BUTTON_B), n.buttons[N64Button.CDown])
+    }
+
+    @Test fun holdForCTurnsTheFaceButtonsIntoCAndOnlyThen() {
+        val i = PlayerInput(AutoMap.stickless(DeviceChoice.BuiltIn, AutoMap.FaceCodes.POSITION))
+        i.key(KeyEvent.KEYCODE_BUTTON_A, true)
+        assertEquals(bit(N64Button.A), i.buttons())
+        i.key(KeyEvent.KEYCODE_BUTTON_R2, true)
+        assertEquals(bit(N64Button.CDown), i.buttons())
+        i.key(KeyEvent.KEYCODE_BUTTON_Y, true)
+        assertEquals(bit(N64Button.CDown) or bit(N64Button.CUp), i.buttons())
+        i.key(KeyEvent.KEYCODE_BUTTON_R2, false)
+        // Y alone presses nothing; A is A again.
+        assertEquals(bit(N64Button.A), i.buttons())
+        assertTrue(i.uses(KeyEvent.KEYCODE_BUTTON_R2))
+        // The D-pad moves the stick while R2 is held.
+        i.key(KeyEvent.KEYCODE_BUTTON_R2, true); i.key(KeyEvent.KEYCODE_DPAD_RIGHT, true)
+        assertEquals(1f to 0f, i.stick())
+        assertEquals(0, i.buttons() and bit(N64Button.DRight))
+    }
+
+    @Test fun holdForCIsSavedAndRead() {
+        val p = AutoMap.stickless(DeviceChoice.BuiltIn, AutoMap.FaceCodes.POSITION)
+        val back = PlayerSetup.fromJson(JSONObject(p.toJson().toString()), ControlsSet.defaults().players[0])
+        assertEquals(p, back)
+        val none = PlayerSetup.fromJson(JSONObject(p.copy(cHold = null).toJson().toString()), p)
+        assertNull(none.cHold)
+        // A file from before has no cHold: the fallback's stays.
+        val old = JSONObject(p.toJson().toString()).apply { remove("cHold") }
+        assertEquals(p.cHold, PlayerSetup.fromJson(old, p).cHold)
+        assertEquals(setOf("CHold"), p.differences(p.copy(cHold = null)))
+    }
 }

@@ -13,13 +13,15 @@ import kotlin.math.sqrt
  */
 class PlayerInput(setup: PlayerSetup) {
     var setup: PlayerSetup = setup
-        set(v) { field = v; keyBits = keyBitsFor(v); latchMask = maskOf(v.latch); latchedOn = latchedOn and latchMask }
+        set(v) { field = v; keyBits = keyBitsFor(v); cKeys = cKeysFor(v); latchMask = maskOf(v.latch); latchedOn = latchedOn and latchMask }
 
     private val held = HashSet<Int>()
     private val axes = FloatArray(4) // X, Y, Z, RZ
     private var hatKeys = 0          // bits: up, down, left, right
     private var triggerKeys = 0      // bits: L2, R2
     private var keyBits = keyBitsFor(setup)
+    // Hold for C buttons: the keys the C buttons use, which press nothing else while the hold key is down.
+    private var cKeys = cKeysFor(setup)
     // Tap to hold: a ticked button's press toggles it, so it stays held until the next press.
     private var latchMask = maskOf(setup.latch)
     private var latchedOn = 0
@@ -37,9 +39,12 @@ class PlayerInput(setup: PlayerSetup) {
         return m
     }
 
-    /** Whether this player uses [keyCode] for an N64 button (or, with the stick on the D-pad, for the stick). */
+    private fun cKeysFor(s: PlayerSetup): Set<Int> =
+        if (s.cHold == null) emptySet() else N64Button.C.mapNotNull { (s.buttons[it] as? PadInput.Key)?.code }.toSet()
+
+    /** Whether this player uses [keyCode] for an N64 button (or, with the stick on the D-pad, for the stick; or to hold for the C buttons). */
     fun uses(keyCode: Int): Boolean = keyCode in keyBits ||
-        (setup.stick.usesDPad && keyCode in DPAD_CODES)
+        (setup.stick.usesDPad && keyCode in DPAD_CODES) || keyCode == setup.cHold?.code
 
     fun key(keyCode: Int, down: Boolean) { if (down) held.add(keyCode) else held.remove(keyCode) }
 
@@ -95,9 +100,15 @@ class PlayerInput(setup: PlayerSetup) {
     private fun rawButtons(): Int {
         var mask = touchBits
         val dpadOnStick = setup.stick.usesDPad
+        // Hold for C buttons (approved stickless mockup 2026-11-13): the C buttons press only while it's held, and their
+        // keys press nothing else then.
+        val hold = setup.cHold
+        val holding = hold != null && isHeld(hold.code)
         for ((b, input) in setup.buttons) {
+            if (hold != null && b in N64Button.C && !holding) continue
             val on = when (input) {
-                is PadInput.Key -> isHeld(input.code) && !(dpadOnStick && input.code in DPAD_CODES)
+                is PadInput.Key -> isHeld(input.code) && !(dpadOnStick && input.code in DPAD_CODES) &&
+                    !(holding && b !in N64Button.C && input.code in cKeys)
                 is PadInput.Axis -> axisValue(input.axis).let { if (input.positive) it > 0.5f else it < -0.5f }
                 null -> false
             }

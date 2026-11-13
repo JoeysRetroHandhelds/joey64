@@ -196,7 +196,7 @@ data class Profile(
             buttons = profile.setup.buttons, stick = profile.setup.stick, deadZone = profile.setup.deadZone,
             feel = profile.setup.feel, latch = profile.setup.latch, macros = profile.setup.macros,
             turbo = profile.setup.turbo, turboSpeed = profile.setup.turboSpeed,
-            rumbleOn = profile.setup.rumbleOn, rumbleStrength = profile.setup.rumbleStrength,
+            rumbleOn = profile.setup.rumbleOn, rumbleStrength = profile.setup.rumbleStrength, cHold = profile.setup.cHold,
         )
     }
 }

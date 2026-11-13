@@ -120,6 +120,11 @@ data class PlayerSetup(
     /** Rumble on and Rumble strength (approved paks mockup 2026-11-08): where it shakes, 10-100%. */
     val rumbleOn: RumbleOn = RumbleOn.Controller,
     val rumbleStrength: Int = 100,
+    /**
+     * Hold for C buttons (approved stickless mockup 2026-11-13): while this key is held the C buttons' keys press the C
+     * buttons and not their own; when it isn't, the C buttons don't press. Null: each C button is its own input.
+     */
+    val cHold: PadInput.Key? = null,
     /** The Transfer Pak's Game Boy game and save (a game's own only); a null save starts a new one. */
     val gbGame: com.joeysretro.joey64.controls.GameBoyFiles.Found? = null,
     val gbSave: com.joeysretro.joey64.controls.GameBoyFiles.Found? = null,
@@ -138,6 +143,7 @@ data class PlayerSetup(
         if (latch != other.latch) add("Tap")
         if (macros != other.macros) add("Macros")
         if (turbo != other.turbo || turboSpeed != other.turboSpeed) add("Turbo")
+        if (cHold != other.cHold) add("CHold")
     }
 
     fun toJson(): JSONObject = JSONObject().apply {
@@ -157,6 +163,7 @@ data class PlayerSetup(
         put("turboSpeed", turboSpeed)
         put("rumbleOn", rumbleOn.name)
         put("rumbleStrength", rumbleStrength)
+        put("cHold", cHold?.encode() ?: "")
         gbGame?.let { put("gbGame", JSONObject().put("uri", it.uri).put("name", it.name)) }
         gbSave?.let { put("gbSave", JSONObject().put("uri", it.uri).put("name", it.name)) }
     }
@@ -201,6 +208,7 @@ data class PlayerSetup(
                 turboSpeed = o.optInt("turboSpeed", fallback.turboSpeed).takeIf { it in TURBO_SPEEDS } ?: fallback.turboSpeed,
                 rumbleOn = RumbleOn.entries.firstOrNull { it.name == o.optString("rumbleOn") } ?: fallback.rumbleOn,
                 rumbleStrength = o.optInt("rumbleStrength", fallback.rumbleStrength).takeIf { it in RUMBLE_STRENGTHS } ?: fallback.rumbleStrength,
+                cHold = if (o.has("cHold")) PadInput.decode(o.optString("cHold")) as? PadInput.Key else fallback.cHold,
                 gbGame = if (o.has("gbGame")) found(o.optJSONObject("gbGame")) else fallback.gbGame,
                 gbSave = if (o.has("gbSave")) found(o.optJSONObject("gbSave")) else fallback.gbSave,
             )

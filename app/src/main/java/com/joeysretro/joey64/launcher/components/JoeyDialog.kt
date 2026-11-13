@@ -110,6 +110,8 @@ fun JoeyDialog(
     interceptBack: (() -> Boolean)? = null,
     /** Any other pad button (L1/R1, ...), offered on its down edge; both edges are swallowed. */
     onPadButton: ((keyCode: Int) -> Unit)? = null,
+    /** A pad button's release (View controller's held view, while Hold for C buttons is held). */
+    onPadUp: ((keyCode: Int) -> Unit)? = null,
     /** The card's width; most popups are a fixed width, a picker with a preview is wider. */
     width: Dp = 360.dp,
     /**
@@ -140,7 +142,7 @@ fun JoeyDialog(
     wrap: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    val spec = PopupSpec(onDismiss, hints, dismissible, tapOutsideCloses, onOptions, interceptBack, onPadButton, width,
+    val spec = PopupSpec(onDismiss, hints, dismissible, tapOutsideCloses, onOptions, interceptBack, onPadButton, onPadUp, width,
         fullScreen, atTop, riseWithKeyboard, sidePanel, hintEnd, bare, wrap,
         JoeyTheme.colors, JoeyTheme.type, JoeyTheme.spacing, content)
     val entry = remember { PopupEntry(spec) }
@@ -190,7 +192,7 @@ val LocalPopupHost = androidx.compose.runtime.staticCompositionLocalOf<PopupHost
 /** Everything a [JoeyDialog] call was given, and the theme where it was called (its content is drawn in the host). */
 internal class PopupSpec(
     val onDismiss: () -> Unit, val hints: List<Hint>, val dismissible: Boolean, val tapOutsideCloses: Boolean,
-    val onOptions: (() -> Unit)?, val interceptBack: (() -> Boolean)?, val onPadButton: ((Int) -> Unit)?,
+    val onOptions: (() -> Unit)?, val interceptBack: (() -> Boolean)?, val onPadButton: ((Int) -> Unit)?, val onPadUp: ((Int) -> Unit)?,
     val width: Dp, val fullScreen: Boolean, val atTop: Boolean, val riseWithKeyboard: Boolean, val sidePanel: Boolean,
     val hintEnd: String?, val bare: Boolean, val wrap: Boolean,
     val colors: com.joeysretro.joey64.launcher.theme.JoeyColors, val type: com.joeysretro.joey64.launcher.theme.JoeyType,
@@ -463,6 +465,7 @@ private fun PopupCard(entry: PopupEntry, active: Boolean) {
                         else -> {
                             val pad = KeyEvent.isGamepadButton(native.keyCode)
                             if (pad && native.action == KeyEvent.ACTION_DOWN && native.repeatCount == 0) p.onPadButton?.invoke(native.keyCode)
+                            if (pad && native.action == KeyEvent.ACTION_UP) p.onPadUp?.invoke(native.keyCode)
                             pad
                         }
                     }

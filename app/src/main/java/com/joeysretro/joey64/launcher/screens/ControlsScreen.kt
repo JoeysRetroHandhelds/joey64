@@ -41,6 +41,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.focusable
 import com.joeysretro.joey64.launcher.components.tabScroll
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.focusProperties
@@ -183,6 +184,8 @@ private sealed interface Popup {
     data object Games : Popup
     data object PickGame : Popup
     data object Diagram : Popup
+    /** Hold for C buttons' choices (approved stickless mockup 2026-11-13, screen 4). */
+    data object CHold : Popup
     /** Start: Reset tab for the player on screen (approved mockup B, 2026-11-07). */
     data object ResetPlayer : Popup
     /** Controls extras (approved mockup 2026-11-08): Tap to hold, Macros, Profiles. */
@@ -204,6 +207,8 @@ private sealed interface Target {
     data class Button(val b: N64Button) : Target
     data object HotkeyButton : Target
     data class Hotkey(val action: HotkeyAction) : Target
+    /** Hold for C buttons' Press a button… */
+    data object CHold : Target
 }
 
 private const val DPAD = "DPad"
@@ -218,6 +223,9 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
     val c = JoeyTheme.colors
     val s = JoeyTheme.spacing
     val store = remember { ControlsStore(context) }
+    remember(store) {
+        if (store.hasAll()) PadDevices.fixStickless(store.all())?.let { store.saveAll(it); JLog.i(TAG, "controls: this device has no sticks, moved to the stickless setup") }
+    }
     LaunchedEffect(Unit) { if (!store.hasAll()) store.saveAll(PadDevices.firstSet(com.joeysretro.joey64.launcher.layout.Tv.isTv(context))) }
     var target by remember { mutableStateOf(game) }
     var targetTitle by remember { mutableStateOf(gameTitle) }
@@ -262,6 +270,8 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
     val setup = shown.players[player]
     val dev = remember(setup.device, pads) { PadDevices.deviceFor(setup.device) }
     val face = remember(dev) { faceFor(dev) }
+    // No sticks on this device's own pad (approved stickless mockup 2026-11-13).
+    val stickless = remember(dev) { PadDevices.noSticks(dev) }
     val off = setup.device == DeviceChoice.None
     val changed = editor.changed(player)
 
@@ -388,9 +398,12 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             // One list with the panel beside it (approved 2026-11-11): the focused row's help, and the choices of
             // Stick, Pak and Rumble on.
             val panel = com.joeysretro.joey64.launcher.components.rememberListPanel()
-            val (ctlTitle, ctlHelp) = controlsRowHelp(focused, setup, face, off)
+            val (ctlTitle, ctlHelp) = controlsRowHelp(focused, setup, face, off, stickless)
             val ctlInfo = when {
                 off -> com.joeysretro.joey64.launcher.components.PanelInfo(ctlTitle, ctlHelp)
+                focused == "CHold" -> com.joeysretro.joey64.launcher.components.PanelInfo(ctlTitle, ctlHelp,
+                    holdChoices(setup).map { com.joeysretro.joey64.launcher.components.PanelChoice(it.label, it.detail, it.on) }) { i ->
+                    if (i == HOLD_PRESS) popup = Popup.Remap(Target.CHold) else edit { editor.set(player, withHold(setup, HOLD_KEYS[i], face)) } }
                 focused == "Stick" -> StickSource.entries.let { all -> com.joeysretro.joey64.launcher.components.PanelInfo(ctlTitle, ctlHelp,
                     all.map { com.joeysretro.joey64.launcher.components.PanelChoice(it.label, it.detail, it == setup.stick) }) { i ->
                     edit { editor.set(player, setup.copy(stick = all[i])) } } }
@@ -411,18 +424,30 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             }
             com.joeysretro.joey64.launcher.components.ListPanel(panel, ctlInfo, ctlHints, onHints, Modifier.weight(1f)) {
                 SectionLabel("Controller")
-                JoeyRow("Controller", Modifier.initialFocus(focused == "Controller"), value = deviceName(setup.device) + "  ›", sideways = true,
+                JoeyRow("Controller", Modifier.initialFocus(focused == "Controller"), value = deviceName(setup.device) + (if (stickless) " · no sticks" else "") + "  ›", sideways = true,
                     onFocused = { if (it) focused = "Controller" }) { popup = Popup.Controller }
                 SectionLabel("Buttons")
                 for (b in N64Button.BUTTONS) BindingRow(b, b.label, setup, face, off, b.name in changed, { focused = it }) { popup = Popup.Remap(Target.Button(b)) }
                 SectionLabel("D-pad and C buttons")
                 for ((key, label, dirs) in listOf(Triple(DPAD, "D-pad", N64Button.DPAD), Triple(CGROUP, "C buttons", N64Button.C))) {
-                    val expanded = key in open
-                    val value = InputNames.group(setup, dirs) ?: "Split"
-                    JoeyRow(label, value = value + if (expanded) "  ∨" else "  ›", enabled = !off, sideways = true,
-                        dot = dirs.any { it.name in changed },
-                        onFocused = { if (it) focused = key }) { open = if (expanded) open - key else open + key }
-                    if (expanded) for (b in dirs) BindingRow(b, arrow(b) + " " + b.label, setup, face, off, b.name in changed, { focused = it }, indent = true) {
+                    // The D-pad moves the stick: its row is greyed (approved stickless mockup 2026-11-13, screen 2).
+                    val dpadIsStick = key == DPAD && setup.stick.usesDPad
+                    val expanded = key in open && !dpadIsStick
+                    val hold = setup.cHold?.takeIf { key == CGROUP }
+                    val value = when {
+                        dpadIsStick -> "Moves the stick"
+                        hold != null && expanded -> "Hold " + InputNames.key(hold.code, null)
+                        hold != null -> holdSummary(setup)
+                        else -> InputNames.group(setup, dirs) ?: "Split"
+                    }
+                    JoeyRow(label, value = value + if (expanded) "  ∨" else "  ›", enabled = !off && !dpadIsStick, sideways = true,
+                        dot = dirs.any { it.name in changed } || (key == CGROUP && "CHold" in changed),
+                        onFocused = { if (it) focused = key }) { if (!dpadIsStick) open = if (expanded) open - key else open + key }
+                    if (expanded && key == CGROUP) JoeyRow("Hold for C buttons", Modifier.padding(start = 16.dp),
+                        value = (setup.cHold?.let { InputNames.key(it.code, null) } ?: "None") + "  ›", enabled = !off, sideways = true,
+                        dot = "CHold" in changed, onFocused = { if (it) focused = "CHold" }) { if (!panel.enter()) popup = Popup.CHold }
+                    if (expanded) for (b in dirs) BindingRow(b, arrow(b) + " " + b.label, setup, face, off, b.name in changed, { focused = it }, indent = true,
+                        prefix = hold?.let { InputNames.key(it.code, null) + " + " } ?: "") {
                         popup = Popup.Remap(Target.Button(b))
                     }
                 }
@@ -433,16 +458,16 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
                 JoeyRow("Dead zone", Modifier.onPreviewKeyEvent { e ->
                     val n = e.nativeKeyEvent
                     val step = when (n.keyCode) { KeyEvent.KEYCODE_DPAD_LEFT -> -1; KeyEvent.KEYCODE_DPAD_RIGHT -> 1; else -> 0 }
-                    if (step == 0 || off) return@onPreviewKeyEvent false
+                    if (step == 0 || off || stickless) return@onPreviewKeyEvent false
                     if (n.action == KeyEvent.ACTION_DOWN) {
                         val i = (DEAD_ZONES.indexOfFirst { it >= setup.deadZone }.takeIf { it >= 0 } ?: DEAD_ZONES.lastIndex) + step
                         edit { editor.set(player, setup.copy(deadZone = DEAD_ZONES[i.coerceIn(0, DEAD_ZONES.lastIndex)])) }
                     }
                     true
-                }, value = "◀ ${setup.deadZone}% ▶", enabled = !off, sideways = true,
+                }, value = if (stickless) "No stick" else "◀ ${setup.deadZone}% ▶", enabled = !off && !stickless, sideways = true,
                     dot = "DeadZone" in changed,
                     onFocused = { if (it) focused = "DeadZone" })
-                JoeyRow("Stick feel", value = stickFeelValue(setup.feel) + "  ›", enabled = !off, sideways = true,
+                JoeyRow("Stick feel", value = if (stickless) "No stick" else stickFeelValue(setup.feel) + "  ›", enabled = !off && !stickless, sideways = true,
                     dot = changed.any { it.startsWith("Feel.") },
                     onFocused = { if (it) focused = "StickFeel" }) { popup = Popup.StickFeel() }
                 SectionLabel("Pak")
@@ -510,6 +535,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
                     is Target.Button -> editor.set(player, setup.with(t.b, input))
                     Target.HotkeyButton -> keyCode?.let { editor.setHotkeys(editor.hotkeys.withButton(it)) }
                     is Target.Hotkey -> keyCode?.let { editor.setHotkeys(editor.hotkeys.withKey(t.action, it)) }
+                    Target.CHold -> keyCode?.let { editor.set(player, withHold(setup, it, face)) }
                 }
             }
             popup = p.back
@@ -601,8 +627,20 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             onDismiss = close, onPick = { save, title -> target = save; targetTitle = title; close() },
             onPickGame = { popup = Popup.PickGame }, onRemoved = { save -> edit { editor.removeGame(save) } })
         Popup.PickGame -> PickGamePopup("Its controls start as a copy of All games.", { popup = Popup.Games }) { save, title -> target = save; targetTitle = title; close() }
-        Popup.Diagram -> JoeyDialog(onDismiss = close, hints = listOf(Hint("B", "Close")), width = 760.dp) {
+        Popup.Diagram -> if (stickless) {
+            // This device drawn with the N64 names on its buttons; holding Hold for C buttons shows the C names (screens 5-6).
+            var held by remember { mutableStateOf(false) }
+            val hk = setup.cHold?.code
+            JoeyDialog(onDismiss = close, hints = listOfNotNull(hk?.let { Hint(InputNames.key(it, null), if (held) "Let go" else "Show held") }, Hint("B", "Close")),
+                width = 500.dp, onPadButton = { if (it == hk) held = true }, onPadUp = { if (it == hk) held = false }) {
+                // A focus stop (nothing in the drawing takes focus), or the card gets no keys and holding shows nothing.
+                androidx.compose.foundation.layout.Box(Modifier.focusable()) { HandheldDiagram(player, deviceName(setup.device), setup, editor.hotkeys.button, held) }
+            }
+        } else JoeyDialog(onDismiss = close, hints = listOf(Hint("B", "Close")), width = 760.dp) {
             ControllerDiagram(player, deviceName(setup.device), setup, face)
+        }
+        Popup.CHold -> ChoicePopup("Hold for C buttons", "Hold it, then the face buttons press the C buttons.", holdChoices(setup), close) { i ->
+            if (i == HOLD_PRESS) popup = Popup.Remap(Target.CHold) else { edit { editor.set(player, withHold(setup, HOLD_KEYS[i], face)) }; close() }
         }
         Popup.Tap -> TapToHoldPopup(player, setup.latch, { l -> edit { editor.set(player, setup.copy(latch = l)) } }, close)
         Popup.Turbo -> TurboPopup(player, setup.turbo, setup.turboSpeed, setup.latch,
@@ -683,18 +721,24 @@ private val EXTRA_ROWS = setOf("Tap", "Turbo", "Macros")
 private fun macrosValue(n: Int) = when (n) { 0 -> "None"; 1 -> "1 macro"; else -> "$n macros" }
 
 /** The player page's panel title and help for the focused row (approved list + panel, 2026-11-11). */
-private fun controlsRowHelp(row: String, setup: PlayerSetup, face: AutoMap.FaceCodes?, off: Boolean): Pair<String, String> {
+private fun controlsRowHelp(row: String, setup: PlayerSetup, face: AutoMap.FaceCodes?, off: Boolean, stickless: Boolean = false): Pair<String, String> {
     if (off) return "No controller" to "This player has no controller. Pick one in Controller to set their buttons."
     N64Button.entries.firstOrNull { it.name == row }?.let { b ->
         return b.label to "What presses the N64's ${b.label}: ${InputNames.of(setup.buttons[b], face)}. A changes it, X clears it."
     }
+    val hold = setup.cHold?.let { InputNames.key(it.code, null) }
     return when (row) {
-        "Controller" -> "Controller" to "Which controller this player uses: the built-in controls, a pad, or None."
-        DPAD -> "D-pad" to "The N64 D-pad's four directions. A shows them one by one."
-        CGROUP -> "C buttons" to "The N64's four C buttons. A shows them one by one."
+        "Controller" -> "Controller" to (if (stickless && setup.device == DeviceChoice.BuiltIn)
+            "Built in. This device has no sticks, so the D-pad moves the N64 stick" + (hold?.let { " and $it held gives the C buttons." } ?: ".")
+            else "Which controller this player uses: the built-in controls, a pad, or None.")
+        DPAD -> "D-pad" to (if (setup.stick.usesDPad) "The D-pad moves the N64 stick (Stick), so it doesn't press the N64 D-pad."
+            else "The N64 D-pad's four directions. A shows them one by one.")
+        CGROUP -> "C buttons" to (if (hold != null) "Hold $hold, then the four face buttons are the C buttons, each in its own place. A opens them."
+            else "The N64's four C buttons. A shows them one by one.")
+        "CHold" -> "Hold for C buttons" to "While this button is held, the buttons below press the C buttons instead of their own. None: each C button has a button of its own."
         "Stick" -> "Stick" to "What moves the N64 stick."
-        "DeadZone" -> "Dead zone" to "How far the stick moves before the game sees it. Raise it if the game moves on its own."
-        "StickFeel" -> "Stick feel" to "Range, response curve, octagon gate, invert and more. A opens them, with a live preview."
+        "DeadZone" -> "Dead zone" to (if (stickless) "This device has no stick." else "How far the stick moves before the game sees it. Raise it if the game moves on its own.")
+        "StickFeel" -> "Stick feel" to (if (stickless) "This device has no stick." else "Range, response curve, octagon gate, invert and more. A opens them, with a live preview.")
         "Pak" -> "Pak" to "What's in the back of the controller: Auto picks the Rumble Pak for games that use it, else the Controller Pak."
         "RumbleOn" -> "Rumble on" to "Where the Rumble Pak's shaking goes."
         "RumbleStrength" -> "Rumble strength" to "How hard it shakes. Some motors only have full strength."
@@ -713,8 +757,8 @@ private fun controlsRowHelp(row: String, setup: PlayerSetup, face: AutoMap.FaceC
 
 @Composable
 private fun BindingRow(b: N64Button, label: String, setup: PlayerSetup, face: AutoMap.FaceCodes?, off: Boolean, changed: Boolean,
-                      onFocused: (String) -> Unit, indent: Boolean = false, onClick: () -> Unit) {
-    JoeyRow(label, Modifier.padding(start = if (indent) 16.dp else 0.dp), value = InputNames.of(setup.buttons[b], face),
+                      onFocused: (String) -> Unit, indent: Boolean = false, prefix: String = "", onClick: () -> Unit) {
+    JoeyRow(label, Modifier.padding(start = if (indent) 16.dp else 0.dp), value = prefix + InputNames.of(setup.buttons[b], face),
         enabled = !off, sideways = true, dot = changed,
         onFocused = { if (it) onFocused(b.name) }, onClick = onClick)
 }
@@ -735,6 +779,53 @@ private fun deviceName(d: DeviceChoice) = when (d) {
     DeviceChoice.BuiltIn -> "Built-in controls"
     DeviceChoice.None -> "None"
     is DeviceChoice.Pad -> d.name
+}
+
+/** C buttons' value with Hold for C buttons: "Hold R2 + A B X Y" (the C buttons' keys, by name). */
+private fun holdSummary(setup: PlayerSetup): String {
+    val hold = setup.cHold ?: return ""
+    val keys = N64Button.C.map { setup.buttons[it] }
+    val names = if (keys.all { it is PadInput.Key }) keys.map { InputNames.key((it as PadInput.Key).code, null) }.sorted().joinToString(" ") else null
+    return "Hold " + InputNames.key(hold.code, null) + (names?.let { " + $it" } ?: "")
+}
+
+/** Hold for C buttons' choices, in order: R2, L2, Press a button…, None (approved stickless mockup 2026-11-13, screen 4). */
+private val HOLD_KEYS = listOf(KeyEvent.KEYCODE_BUTTON_R2, KeyEvent.KEYCODE_BUTTON_L2, null, null)
+private const val HOLD_PRESS = 2
+
+private fun holdChoices(setup: PlayerSetup): List<Choice> {
+    val now = setup.cHold?.code
+    fun detail(code: Int): String {
+        val takers = N64Button.entries.filter { it !in N64Button.C && (setup.buttons[it] as? PadInput.Key)?.code == code }
+        if (takers.isEmpty() || code == now) return "Not used by anything else" + if (code == AutoMap.C_HOLD) " (recommended)" else ""
+        val who = takers.joinToString(" and ") { it.label }
+        return if (now != null) "$who moves to ${InputNames.key(now, null)}" else "Takes it from $who"
+    }
+    return listOf(
+        Choice("R2", detail(KeyEvent.KEYCODE_BUTTON_R2), now == KeyEvent.KEYCODE_BUTTON_R2),
+        Choice("L2", detail(KeyEvent.KEYCODE_BUTTON_L2), now == KeyEvent.KEYCODE_BUTTON_L2),
+        Choice("Press a button…", "Any button on the controller", now != null && now != KeyEvent.KEYCODE_BUTTON_R2 && now != KeyEvent.KEYCODE_BUTTON_L2),
+        Choice("None", "C buttons get buttons of their own", now == null),
+    )
+}
+
+/**
+ * [setup] with Hold for C buttons on [code] (null: None). A button that had [code] moves to the old hold button (the
+ * choice's line says so); turning it on puts the C buttons on the face buttons; None clears the C buttons that share a
+ * key with another button.
+ */
+private fun withHold(setup: PlayerSetup, code: Int?, face: AutoMap.FaceCodes?): PlayerSetup {
+    var s = setup
+    val old = s.cHold
+    if (code == old?.code) return s
+    if (code != null) {
+        for (b in N64Button.entries) if (b !in N64Button.C && (s.buttons[b] as? PadInput.Key)?.code == code) s = s.with(b, old)
+        if (old == null) s = s.copy(buttons = s.buttons + AutoMap.faceC(face ?: AutoMap.FaceCodes.POSITION))
+    } else {
+        val others = s.buttons.filterKeys { it !in N64Button.C }.values.toSet()
+        for (b in N64Button.C) if (s.buttons[b] in others) s = s.with(b, null)
+    }
+    return s.copy(cHold = code?.let { PadInput.Key(it) })
 }
 
 private fun pakValue(p: Pak, auto: Pak?, setup: PlayerSetup? = null) = when {
@@ -772,7 +863,8 @@ private fun clearRow(editor: ControlsEditor, p: Int, row: String) {
     if (s.device == DeviceChoice.None) return
     when (row) {
         DPAD -> editor.set(p, N64Button.DPAD.fold(s) { a, b -> a.with(b, null) })
-        CGROUP -> editor.set(p, N64Button.C.fold(s) { a, b -> a.with(b, null) })
+        CGROUP -> editor.set(p, N64Button.C.fold(s) { a, b -> a.with(b, null) }.copy(cHold = null))
+        "CHold" -> editor.set(p, withHold(s, null, null))
         else -> N64Button.entries.firstOrNull { it.name == row }?.let { editor.set(p, s.with(it, null)) }
     }
 }
@@ -1246,6 +1338,8 @@ private fun RemapPopup(target: Target, setup: PlayerSetup, editor: ControlsEdito
             val now = setup.buttons[target.b]
             Triple(name, "Press a button", if (now == null) "Stays not set if you don't press anything" else "Keeps ${InputNames.of(now, face)} if you don't press anything")
         }
+        Target.CHold -> Triple("Hold for C buttons", "Press the button to hold for the C buttons",
+            setup.cHold?.let { "Keeps ${InputNames.key(it.code, null)} if you don't press anything" } ?: "Stays None if you don't press anything")
         Target.HotkeyButton -> Triple("Hotkey button", "Press the button to hold for hotkeys",
             "Keeps ${hotkeyKey(h.button)} if you don't press anything. The game won't see the button you pick, so choose one it doesn't need.")
         is Target.Hotkey -> {

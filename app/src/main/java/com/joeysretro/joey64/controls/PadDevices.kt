@@ -1,6 +1,7 @@
 package com.joeysretro.joey64.controls
 
 import android.view.InputDevice
+import android.view.KeyEvent
 import android.view.MotionEvent
 import com.joeysretro.joey64.Controllers
 
@@ -25,6 +26,32 @@ object PadDevices {
     fun isBuiltIn(d: InputDevice): Boolean = !d.isExternal || (d.vendorId shl 16 or d.productId) in BUILT_IN_IDS
 
     fun builtIn(): InputDevice? = pads().firstOrNull { isBuiltIn(it) }
+
+    /**
+     * A built-in pad with no stick buttons (no L3 / R3) has no sticks (approved stickless mockup 2026-11-13). The axes it
+     * reports can't tell: the KONKR Pocket Block's "AYANEO Controller" reports two sticks that never move.
+     */
+    fun noSticks(d: InputDevice?): Boolean = d != null && isBuiltIn(d) &&
+        d.hasKeys(KeyEvent.KEYCODE_BUTTON_THUMBL, KeyEvent.KEYCODE_BUTTON_THUMBR).none { it }
+
+    /**
+     * [set] with each player on this device's own pad moved to the stickless setup when that pad has no sticks and the
+     * player still has the stick-pad defaults (left stick, C on the right stick, no Hold for C), or null when none is.
+     * For sets made before stickless pads were known (2026-11-13).
+     */
+    fun fixStickless(set: ControlsSet): ControlsSet? {
+        val d = builtIn() ?: return null
+        if (!noSticks(d)) return null
+        val s = AutoMap.stickless(DeviceChoice.BuiltIn, face(d))
+        var out = set
+        for (i in 0..3) {
+            val p = set.players[i]
+            if (p.device != DeviceChoice.BuiltIn || p.cHold != null || p.stick != StickSource.LeftStick) continue
+            if (!N64Button.C.all { p.buttons[it] == PadInput.RIGHT_STICK[it] }) continue
+            out = out.with(i, p.copy(stick = s.stick, cHold = s.cHold, buttons = p.buttons + N64Button.C.associateWith { s.buttons[it] }))
+        }
+        return out.takeIf { it != set }
+    }
 
     fun face(d: InputDevice?): AutoMap.FaceCodes =
         if (Controllers.profile(d).faceCodes == Controllers.FaceCodes.NINTENDO_LABELS) AutoMap.FaceCodes.NINTENDO_LABELS
@@ -52,6 +79,11 @@ object PadDevices {
      */
     fun autoSetup(d: InputDevice?, choice: DeviceChoice, keep: PlayerSetup? = null): PlayerSetup {
         val face = face(d)
+        if (noSticks(d)) {
+            // No sticks: the D-pad is the stick whatever [keep] had.
+            val s = AutoMap.stickless(choice, face)
+            return if (keep == null) s else s.copy(deadZone = keep.deadZone, pak = keep.pak, feel = keep.feel)
+        }
         val s = d?.let { layouts(it).firstOrNull() }?.let { AutoMap.fromLayout(choice, it, face) } ?: AutoMap.byPosition(choice, face)
         return if (keep == null) s else s.copy(stick = keep.stick, deadZone = keep.deadZone, pak = keep.pak, feel = keep.feel)
     }

@@ -85,6 +85,7 @@ class ControlsEditor(
             "Tap" -> cur.copy(latch = base.latch)
             "Macros" -> cur.copy(macros = base.macros)
             "Turbo" -> cur.copy(turbo = base.turbo, turboSpeed = base.turboSpeed)
+            "CHold" -> cur.copy(cHold = base.cHold)
             // The page's Stick feel row: all of it; a row inside its popup: that one.
             "StickFeel" -> cur.copy(feel = base.feel)
             in StickFeel.ROWS -> cur.copy(feel = cur.feel.withRow(row, base.feel))
@@ -98,13 +99,15 @@ class ControlsEditor(
         val base = baseFor(player)
         var s = shown.players[player]
         for (b in group) s = s.with(b, base.buttons[b])
+        if (group == N64Button.C) s = s.copy(cHold = base.cHold)
         set(player, s)
     }
 
     /** Puts every row of [player]'s buttons on what Auto map gives (the Auto map button), stick/dead zone/pak kept. */
     fun autoMap(player: Int, mapped: PlayerSetup) {
         val cur = shown.players[player]
-        set(player, cur.copy(buttons = mapped.buttons))
+        // A stickless pad's map has the stick on the D-pad and Hold for C buttons (approved stickless mockup 2026-11-13).
+        set(player, cur.copy(buttons = mapped.buttons, cHold = mapped.cHold, stick = if (mapped.cHold != null) mapped.stick else cur.stick))
     }
 
     /**

@@ -1588,6 +1588,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         }
         // "Play will always ... Change it in Settings › Saves." (approved E4 screens 5-6), once, as the game opens.
         launcherString(EXTRA_PLAY_NOTE)?.let { pop("playnote", InGamePopup.Kind.PlayNote, "Continue on Play", it, "Change it in Settings › Saves.") }
+        noSticksNote()
         // No touchscreen (a TV): no touch controls (Android TV mockup 2026-11-09, screen 7).
         if (com.joeysretro.joey64.launcher.layout.Tv.hasTouch(this)) touch = com.joeysretro.joey64.touch.TouchLayer(this, touchHost)
         applyTouch(fresh = true)
@@ -2322,6 +2323,26 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     // Every state pop-up (slot, saved, loaded, empty) has the key "state": the newest takes the place
     // of the one showing, so "Slot 3 saved" doesn't wait behind "Slot 3, Empty".
+    /**
+     * The first game on a device with no sticks (approved stickless mockup 2026-11-13, screen 7): what the D-pad and the
+     * hold button do, top left for 8 s, once on this device, when player 1 plays on the stickless setup.
+     */
+    private fun noSticksNote() {
+        val p = controls.players[0]
+        val hold = p.cHold ?: return
+        if (p.device != DeviceChoice.BuiltIn || !p.stick.usesDPad || !PadDevices.noSticks(PadDevices.builtIn())) return
+        val prefs = getSharedPreferences("device", MODE_PRIVATE)
+        if (prefs.getBoolean("nosticks_note", false)) return
+        prefs.edit().putBoolean("nosticks_note", true).apply()
+        val h = com.joeysretro.joey64.controls.InputNames.key(hold.code, null)
+        val keys = com.joeysretro.joey64.controls.N64Button.C.mapNotNull { (p.buttons[it] as? com.joeysretro.joey64.controls.PadInput.Key)?.code }
+            .map { com.joeysretro.joey64.controls.InputNames.key(it, null) }.sorted().joinToString(" ")
+        // The shared pop-up's lines: the title in gold, then the approved words (the name line is one line long).
+        val pp = InGamePopup("nosticks", InGamePopup.Kind.NoSticks, "*No sticks on this device*", "The D-pad moves.",
+            "Hold $h and press $keys for the C buttons. Controls › Player 1 to change it.", stayMs = 8_000)
+        overlay?.show(pp) ?: earlyPops.add(pp)
+    }
+
     private fun pop(key: String, kind: InGamePopup.Kind, label: String, name: String, line: String, bar: Float? = null) {
         if (destroyed) return
         // Settings › On screen › Pop-ups (problems always show).
@@ -2732,6 +2753,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     /** Reads the controls for [saveName] and sets the core's ports, paks and input options. Before loadGame. */
     private fun applyControls(rom: String, saveName: String) {
         if (!controlsStore.hasAll()) controlsStore.saveAll(PadDevices.firstSet(com.joeysretro.joey64.launcher.layout.Tv.isTv(this)))
+        // A set made before stickless pads were known: moved to the stickless setup once (approved mockup 2026-11-13).
+        else PadDevices.fixStickless(controlsStore.all())?.let { controlsStore.saveAll(it); JLog.i(TAG, "controls: this device has no sticks, moved to the stickless setup") }
         controls = controlsStore.forGame(saveName.ifEmpty { null })
         hotkeys = controlsStore.hotkeys()
         applyRewind()

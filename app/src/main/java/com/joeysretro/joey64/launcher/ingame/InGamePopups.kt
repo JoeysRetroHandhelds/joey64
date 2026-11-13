@@ -70,7 +70,9 @@ data class InGamePopup(
         /** Netplay (approved mockup 2026-11-10): waiting for a slow player (screen 3), a hotkey that waits until you leave (screen 6). */
         NetWait, NetBlocked,
         /** Play's popup set Continue on Play (approved E4 2026-11-11, screens 5-6). */
-        PlayNote }
+        PlayNote,
+        /** The first game on a device with no sticks (approved stickless mockup 2026-11-13, screen 7). */
+        NoSticks }
 }
 
 /**
@@ -148,6 +150,7 @@ fun InGamePopupCard(p: InGamePopup) {
         InGamePopup.Kind.NetWait -> R.drawable.ic_hourglass
         InGamePopup.Kind.NetBlocked -> R.drawable.ic_x
         InGamePopup.Kind.PlayNote -> R.drawable.ic_history
+        InGamePopup.Kind.NoSticks -> R.drawable.ic_rail_controls
     }
     JoeyToast(icon, p.label, p.name, p.line, iconTint = when (p.kind) {
         InGamePopup.Kind.Problem, InGamePopup.Kind.ChallengeFailed -> JoeyTheme.colors.error

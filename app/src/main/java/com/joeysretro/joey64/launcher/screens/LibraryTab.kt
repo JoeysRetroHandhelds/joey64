@@ -134,7 +134,7 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
         landing?.arm()
         uri ?: return@rememberBiosPicker
         biosLooking = true
-        scope.launch {
+        tabWork.launch {
             val found = withContext(Dispatchers.IO) {
                 try { BiosImport.importFolder(context, uri) } catch (e: Exception) { JLog.e(TAG, "64DD BIOS: $e"); emptyList() }
             }
@@ -149,8 +149,8 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
         uri ?: return@rememberLauncherForActivityResult
         if (uri.toString() in s.romFolders) { addStatus = "Already in the list"; return@rememberLauncherForActivityResult }
         addStatus = "Looking…"
-        scope.launch {
-            val look = try { library.look(uri) } catch (e: Exception) { JLog.e(TAG, "can't look in $uri: $e"); null }
+        tabWork.launch {
+            val look = try { library.look(uri) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { JLog.e(TAG, "can't look in $uri: $e"); null }
             addStatus = when {
                 look == null -> "Couldn't read it"
                 look.roms == 0 -> "No N64 games in ${look.folders.lastOrNull() ?: look.place}"
@@ -203,7 +203,8 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
             row("size", "Cover size", s.coverSize.label + "  ›") { if (!panel.enter()) popup = LibPopup.Size }
             row("names", "Names", s.names.label + "  ›") { if (!panel.enter()) popup = LibPopup.Names }
             row("style", "Name style", s.nameStyle.label + "  ›", enabled = s.names != NamesMode.Off) { if (!panel.enter()) popup = LibPopup.Style }
-            row("tidy", "Tidy names", if (s.tidyNames) "On" else "Off", enabled = s.names != NamesMode.Off) { set { setTidyNames(!s.tidyNames) } }
+            // Not greyed with Names Off (code audit 4, E1-M2): it also names games in popups, page headers and Search.
+            row("tidy", "Tidy names", if (s.tidyNames) "On" else "Off") { set { setTidyNames(!s.tidyNames) } }
             SectionLabel("Games")
             row("folders", "ROM folders", (if (folders.size == 1) "1 folder" else "${folders.size} folders") + "  ›") { popup = LibPopup.Folders }
             row("look", "Look for new games", s.lookFor.label + "  ›") { if (!panel.enter()) popup = LibPopup.Look }
@@ -383,6 +384,13 @@ private fun describe(key: String): Pair<String, String> = when (key) {
 }
 
 private const val TAG = "Joey64LibraryTab"
+
+/**
+ * Add a folder's read and the 64DD BIOS import run here, not in the tab's scope (code audit 4, E1-M1: leaving the tab
+ * while "Looking…" cancelled the read, and the catch-all took the cancellation for a failure, so nothing was added and
+ * nothing said). The tab shows the outcome when it's still open.
+ */
+private val tabWork = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.Main.immediate)
 
 /** The folder's own name, and where it is ("SD Card › ROMs"). */
 private fun folderName(context: android.content.Context, tree: String): Pair<String, String?> = try {

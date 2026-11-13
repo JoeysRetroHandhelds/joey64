@@ -58,7 +58,9 @@ internal fun StartFailedPopup(model: LibraryModel) {
                 @Composable
                 fun Row(label: String, value: String, code: Boolean = false) =
                     InfoRow(label, value, labelColor = c.textDim, valueColor = c.text,
-                        valueStyle = if (code) JoeyTheme.type.code else JoeyTheme.type.row)
+                        valueStyle = if (code) JoeyTheme.type.code else JoeyTheme.type.row,
+                        // The reason and a long file name wrap rather than cut (code audit 4, E1-M4).
+                        valueLines = if (code) 1 else 3)
                 Row("File", f.file)
                 val folder = (listOfNotNull(f.place) + f.folders).joinToString(" › ")
                 if (folder.isNotEmpty()) Row("Folder", folder)

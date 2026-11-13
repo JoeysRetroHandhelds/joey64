@@ -36,6 +36,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusRequester
@@ -246,7 +249,12 @@ private fun RoomCard(model: LibraryModel, game: LibraryGame?, md5: String, gameT
     val cover by rememberCover(if (game != null) model.cover(game) else roomCovers[md5.lowercase()])
     Column(Modifier.width(150.dp)) {
         Box(modifier.fillMaxWidth().aspectRatio(1.45f).coverSelection(focused).background(c.chip, RoundedCornerShape(4.dp))
-            .clip(RoundedCornerShape(4.dp)).pressable(source, onClick = onClick), contentAlignment = Alignment.Center) {
+            .clip(RoundedCornerShape(4.dp)).pressable(source, onClick = onClick)
+            // TalkBack reads the card as the room it joins (code audit 4, E2-M3).
+            .semantics {
+                contentDescription = listOfNotNull(title, shortGame(gameTitle), line, ping?.takeIf { game != null }?.let { "$it ms" }).joinToString(", ")
+                if (game == null) stateDescription = "You don't have this game"
+            }, contentAlignment = Alignment.Center) {
             val pic = cover
             if (pic != null) androidx.compose.foundation.Image(pic, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
                 colorFilter = if (game == null) ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }) else null,
@@ -414,9 +422,12 @@ private fun PickTile(model: LibraryModel, game: LibraryGame, modifier: Modifier,
     val c = JoeyTheme.colors
     val (source, focused) = rememberFocusState()
     val cover by rememberCover(model.cover(game))
+    val spoken = shortGame(com.joeysretro.joey64.launcher.components.gameName(game.title))
     Column(modifier) {
         Box(Modifier.fillMaxWidth().aspectRatio(1.45f).coverSelection(focused).background(c.chip, RoundedCornerShape(4.dp))
-            .clip(RoundedCornerShape(4.dp)).pressable(source, onClick = onClick), contentAlignment = Alignment.Center) {
+            .clip(RoundedCornerShape(4.dp)).pressable(source, onClick = onClick)
+            .semantics { contentDescription = spoken }, // TalkBack names the game (code audit 4, E2-M3)
+            contentAlignment = Alignment.Center) {
             val pic = cover
             if (pic != null) androidx.compose.foundation.Image(pic, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             else Text(shortGame(com.joeysretro.joey64.launcher.components.gameName(game.title)), style = JoeyTheme.type.small, color = c.textSecondary, modifier = Modifier.padding(6.dp))

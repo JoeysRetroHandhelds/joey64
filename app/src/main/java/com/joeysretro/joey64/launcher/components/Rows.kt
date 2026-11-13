@@ -262,6 +262,8 @@ fun InfoRow(
     /** Details: grey labels with plain values, as the approved Details popup draws them. */
     labelColor: androidx.compose.ui.graphics.Color? = null,
     valueStyle: androidx.compose.ui.text.TextStyle? = null,
+    /** More than 1: a long value wraps onto up to that many lines, the label at the top (code audit 4, E1-M4). */
+    valueLines: Int = 1,
     onTap: (() -> Unit)? = null,
 ) {
     val c = JoeyTheme.colors
@@ -271,7 +273,7 @@ fun InfoRow(
     Layout(
         content = {
             Text(label, style = JoeyTheme.type.row, color = labelColor ?: c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(value, style = valueStyle ?: JoeyTheme.type.rowValue, color = valueColor ?: c.value, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            Text(value, style = valueStyle ?: JoeyTheme.type.rowValue, color = valueColor ?: c.value, maxLines = valueLines, overflow = TextOverflow.Ellipsis,
                 textAlign = androidx.compose.ui.text.style.TextAlign.End)
         },
         modifier = modifier
@@ -290,7 +292,7 @@ fun InfoRow(
         val vp = v.measure(Constraints.fixedWidth(avail - labelW))
         val h = maxOf(lp.height, vp.height).coerceIn(constraints.minHeight, constraints.maxHeight)
         layout(w, h) {
-            lp.placeRelative(0, (h - lp.height) / 2)
+            lp.placeRelative(0, if (valueLines > 1 && vp.height > lp.height) 0 else (h - lp.height) / 2)
             vp.placeRelative(labelW + gap, (h - vp.height) / 2)
         }
     }

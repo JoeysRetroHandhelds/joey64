@@ -1209,10 +1209,15 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
     /** Start the game (the host): this device's game starts hosting the room's server; the others follow once it's open. */
     fun netplayStartHosted(start: (Intent) -> Unit) {
         val game = netplayGame ?: return
-        val hs = com.joeysretro.joey64.netplay.PlayTogether.startGame() ?: return
-        _netplayFor.value = null
         viewModelScope.launch {
-            val intent = withContext(Dispatchers.IO) { launcher.intentFor(game) } ?: run { JLog.w(TAG, "no readable file for ${game.title}"); return@launch }
+            // The file first, before the joiners are told (code audit 4, E2-M2: the room closed, nothing was said and the
+            // joiners waited 30 s): one that can't be read keeps the room open under "<game> won't start".
+            val intent = withContext(Dispatchers.IO) { launcher.intentFor(game) } ?: run {
+                JLog.w(TAG, "no readable file for ${game.title}: the room stays open")
+                netStartFailed(game); return@launch
+            }
+            val hs = com.joeysretro.joey64.netplay.PlayTogether.startGame() ?: return@launch
+            _netplayFor.value = null
             intent.putExtra(com.joeysretro.joey64.MainActivity.EXTRA_NETPLAY_HOST, hs.serve)
                 .putExtra(com.joeysretro.joey64.MainActivity.EXTRA_NETPLAY_JOIN, hs.join)
                 .putExtra(com.joeysretro.joey64.MainActivity.EXTRA_NETPLAY_NAME, hs.name)
@@ -1222,13 +1227,26 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
         }
     }
 
+    /** "<game> won't start" (approved problem screens 1-2) for a netplay start whose file couldn't be read. */
+    private suspend fun netStartFailed(game: LibraryGame) {
+        val f = withContext(Dispatchers.IO) {
+            startFailedOf(game, GameStartFailed.Failed(GameStartFailed.Need.Rom, Intent(), GameStartFailed.Why.Unreadable))
+        }
+        _startFailed.value = f
+    }
+
     /** The host said go (the joiner): this device's game joins the room. */
     fun netplayGo(go: com.joeysretro.joey64.netplay.PlayTogether.Go, start: (Intent) -> Unit) {
         com.joeysretro.joey64.netplay.PlayTogether.goTaken()
-        val game = gameByMd5(go.md5) ?: return
+        val game = gameByMd5(go.md5) ?: run { JLog.w(TAG, "netplay go: no game with that MD5 in the library"); return }
         _netplayFor.value = null
         viewModelScope.launch {
-            val intent = withContext(Dispatchers.IO) { launcher.intentFor(game) } ?: run { JLog.w(TAG, "no readable file for ${game.title}"); return@launch }
+            // Said, not dropped (code audit 4, E2-M2). The host's game still waits for this player: the room has no
+            // "not coming" message yet.
+            val intent = withContext(Dispatchers.IO) { launcher.intentFor(game) } ?: run {
+                JLog.w(TAG, "no readable file for ${game.title}: not joining")
+                netStartFailed(game); return@launch
+            }
             intent.putExtra(com.joeysretro.joey64.MainActivity.EXTRA_NETPLAY_JOIN, go.join)
                 .putExtra(com.joeysretro.joey64.MainActivity.EXTRA_NETPLAY_NAME, go.name)
             go.key?.let { intent.putExtra(com.joeysretro.joey64.MainActivity.EXTRA_NETPLAY_KEY, it) }

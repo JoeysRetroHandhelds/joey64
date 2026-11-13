@@ -316,6 +316,11 @@ data class Hotkeys(
 ) {
     fun isAlone(a: HotkeyAction) = a in alone
 
+    /** Settings › Emulation's Speed rows back to their defaults, the keys kept (Reset Emulation; code audit 4, E1-M3). */
+    fun withSpeedDefaults(): Hotkeys = Hotkeys().let { d ->
+        copy(ffSpeed = d.ffSpeed, ffMode = d.ffMode, slowSpeed = d.slowSpeed, slowMode = d.slowMode, rewindOn = d.rewindOn, rewindSeconds = d.rewindSeconds)
+    }
+
     /** Adaptive needs a button with pressure (an analog trigger); on any other it works like Hold. */
     val ffAdaptive: Boolean get() = ffMode == FastForwardMode.Adaptive && hasPressure(keys[HotkeyAction.FastForward])
 

@@ -248,7 +248,11 @@ fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher
                         scope.launch { store.setTheme(d.theme); store.setPopupTheme(d.popupTheme) }
                     }
                     SettingsTab.Video -> videoStore.saveAll(emptyMap())
-                    SettingsTab.Emulation -> emuStore.saveAll(emptyMap())
+                    SettingsTab.Emulation -> {
+                        emuStore.saveAll(emptyMap())
+                        // Its Speed rows live in hotkeys.json: "every row" means them too (code audit 4, E1-M3).
+                        com.joeysretro.joey64.controls.ControlsStore(context).let { it.saveHotkeys(it.hotkeys().withSpeedDefaults()) }
+                    }
                     SettingsTab.Audio -> audioStore.saveAll(emptyMap())
                     SettingsTab.OnScreen -> {
                         com.joeysretro.joey64.onscreen.OnScreenStore(context).save(com.joeysretro.joey64.onscreen.OnScreen())

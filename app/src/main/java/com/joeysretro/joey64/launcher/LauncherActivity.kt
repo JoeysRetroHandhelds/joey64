@@ -431,6 +431,8 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
             // Netplay: a game's options › Netplay, and the room screens wherever a room was opened or joined.
             if (home) com.joeysretro.joey64.launcher.screens.NetplayGamePopup(model)
             if (home) com.joeysretro.joey64.launcher.screens.NetplayRoomPopups(model)
+            // A netplay start that couldn't read its file says so on the Netplay page too (the library and Search draw their own).
+            if (home && place != RailPlace.Library && place != RailPlace.Search) com.joeysretro.joey64.launcher.screens.StartFailedPopup(model)
         }
         } } }
     }

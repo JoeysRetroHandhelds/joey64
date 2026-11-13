@@ -46,6 +46,7 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
@@ -344,6 +345,8 @@ private fun PopupCard(entry: PopupEntry, active: Boolean) {
     val isActive by rememberUpdatedState(active)
     val landing = remember { FocusLanding() }
     val body = remember { FocusRequester() }
+    // Whether focus is somewhere in this card now (read by the open step below, not drawn).
+    val bodyHasFocus = remember { BooleanArray(1) }
     // A long press on a row: its key-only actions, run as this popup's own keys run them (review sheet M30).
     val latest by rememberUpdatedState(sp)
     val rowActions = rememberRowActionsHost({ latest.hints }) { key ->
@@ -392,6 +395,7 @@ private fun PopupCard(entry: PopupEntry, active: Boolean) {
                 .then(if (bare) Modifier else Modifier.pointerInput(Unit) { detectTapGestures { } })
                 .then(if (fullScreen || sidePanel || bare) Modifier else Modifier.padding(horizontal = 10.dp, vertical = 12.dp))
                 .focusRequester(body)
+                .onFocusChanged { bodyHasFocus[0] = it.hasFocus }
                 // Compose turns a Back key it sees into a focus move out of the group
                 // (FocusDirection.Exit). In a popup that must be answered nothing closes,
                 // so focus fell out of the card and the D-pad was dead (found on the Thor:
@@ -483,7 +487,10 @@ private fun PopupCard(entry: PopupEntry, active: Boolean) {
     var wasBelow by remember { androidx.compose.runtime.mutableStateOf(false) }
     LaunchedEffect(windowFocused, active) {
         if (!active) { wasBelow = true; return@LaunchedEffect }
-        if (windowFocused && landing.pending) body.requestFocus(FocusDirection.Enter)
+        // Not when focus is already in the card (Joey 2026-11-13, Your room: B, then Cancel on Close the room?): the
+        // marked row had landed and LandAgain armed the landing again, so this sent focus in from the top, Player 1
+        // lit for two frames, then the second landing took it back to Who can join. The marked row's own request lands it.
+        if (windowFocused && landing.pending && !bodyHasFocus[0]) body.requestFocus(FocusDirection.Enter)
         else if (windowFocused && wasBelow) { wasBelow = false; body.requestFocus(FocusDirection.Enter) }
     }
 }

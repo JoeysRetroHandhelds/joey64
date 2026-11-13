@@ -636,7 +636,6 @@ private fun PlayerRow(n: Int, p: PlayTogether.Player?, line: String?, modifier: 
 private fun YourRoom(model: LibraryModel, s: PlayTogether.Hosting) {
     val context = LocalContext.current
     val c = JoeyTheme.colors
-    var focusedSlot by remember { mutableIntStateOf(0) }
     // Focus follows the player X moved (Joey 2026-11-10), so X again moves the same player on.
     val slotFocus = remember { List(5) { androidx.compose.ui.focus.FocusRequester() } }
     var followTo by remember { mutableIntStateOf(0) }
@@ -663,6 +662,9 @@ private fun YourRoom(model: LibraryModel, s: PlayTogether.Hosting) {
     }
     fun land(row: String) = Modifier.initialFocus(if (landOn != null) landOn == row else row == "start")
     fun seen(row: String): (Boolean) -> Unit = { if (it) roomRow = row }
+    // The player row focus is on, from the same row the landing uses: a second tracker cleared by the old card's rows
+    // after the new card's row took focus, so the hints lost "X Move a player" for a frame (Joey 2026-11-13).
+    val focusedSlot = if (roomRow.startsWith("p")) roomRow.drop(1).toIntOrNull() ?: 0 else 0
     JoeyDialog(onDismiss = { askClose = true }, width = 640.dp,
         hints = if (focusedSlot in 1..s.game.places) listOf(Hint("A", "Select"), Hint("X", "Move a player"), Hint("B", "Close the room"))
             else listOf(Hint("A", "Select"), Hint("B", "Close the room")),
@@ -693,7 +695,7 @@ private fun YourRoom(model: LibraryModel, s: PlayTogether.Hosting) {
                         p.you -> "You · ${p.device}"
                         else -> p.device + if (p.thisWifi) " · this Wi-Fi" else ""
                     }
-                    key(n) { PlayerRow(n, p, line, Modifier.focusRequester(slotFocus[n]).then(land("p$n"))) { if (it) { focusedSlot = n; roomRow = "p$n" } else if (focusedSlot == n) focusedSlot = 0 } }
+                    key(n) { PlayerRow(n, p, line, Modifier.focusRequester(slotFocus[n]).then(land("p$n"))) { if (it) roomRow = "p$n" } }
                 }
             }, right = {
                 com.joeysretro.joey64.launcher.components.SectionLabel("Room")
@@ -702,8 +704,8 @@ private fun YourRoom(model: LibraryModel, s: PlayTogether.Hosting) {
                 }
                 val canList = s.reach == PlayTogether.Reach.Anywhere
                 when {
-                    s.reach == PlayTogether.Reach.Looking -> JoeyRow("Who can join", detail = "Waiting for the router…", value = if (s.public) "Public" else "Private", enabled = false, sideways = true)
-                    !canList -> JoeyRow("Who can join", detail = "Only this Wi-Fi: Netplay can't list it", value = "This Wi-Fi", enabled = false, sideways = true)
+                    s.reach == PlayTogether.Reach.Looking -> JoeyRow("Who can join", land("who"), detail = "Waiting for the router…", value = if (s.public) "Public" else "Private", enabled = false, sideways = true, onFocused = seen("who"))
+                    !canList -> JoeyRow("Who can join", land("who"), detail = "Only this Wi-Fi: Netplay can't list it", value = "This Wi-Fi", enabled = false, sideways = true, onFocused = seen("who"))
                     else -> JoeyRow("Who can join", land("who"), detail = if (s.public) "Anyone can join from Netplay" else "Listed as private: players need the code",
                         value = if (s.public) "Public" else "Private", sideways = true, onFocused = seen("who")) { PlayTogether.setPublic(!s.public) }
                 }

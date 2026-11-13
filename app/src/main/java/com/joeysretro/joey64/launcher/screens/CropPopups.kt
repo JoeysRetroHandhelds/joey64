@@ -191,8 +191,20 @@ internal fun CropPanel(saveName: String, onDone: () -> Unit) {
         version++
         show(n)
     }
-    // What the game plays with: its own amount, or All games'.
+    // What the game plays with: its own amount, or All games'. Declared before the panel's effect,
+    // which Compose disposes first, so the picture is full size again when this one shows it.
     DisposableEffect(Unit) { onDispose { show(com.joeysretro.joey64.video.GameCrop.of(gameCode, store.forGame(saveName))) } }
+    // The whole picture in the space left of the panel while it's up (Joey 2026-11-12: "Yes, shrink it"), so every
+    // edge the crop takes off shows; full size again when it closes.
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val window = (context as? android.app.Activity)?.window?.decorView
+    DisposableEffect(window) {
+        val wide = window?.width ?: 0
+        val panelPx = with(density) { 300.dp.toPx() }
+        if (wide > 0) try { com.joeysretro.joey64.NativeBridge.setPanelRight((panelPx * 1000 / wide).toInt().coerceIn(0, 800)) } catch (e: LinkageError) {}
+        show(current)
+        onDispose { try { com.joeysretro.joey64.NativeBridge.setPanelRight(0) } catch (e: LinkageError) {} }
+    }
     JoeyDialog(onDismiss = onDone, sidePanel = true, width = 300.dp, hints = HINTS) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             PopupTitle("Crop edges", "Game settings › Video")

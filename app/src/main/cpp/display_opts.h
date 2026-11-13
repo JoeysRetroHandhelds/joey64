@@ -32,6 +32,9 @@ struct Opts {
     std::atomic<int> scale{0}, sides{0}, colourBlind{0}, overlay{0};
     std::atomic<int> placeX{0}, placeY{0}, placeW{0};
     std::atomic<int> portraitTop{-1};
+    // A panel down the right over the paused game (the in-game Crop edges panel, Joey 2026-11-12: "Yes, shrink it"):
+    // per mille of the window's width it covers; the whole picture fits the space left of it (0 = none).
+    std::atomic<int> panelRight{0};
     // Crop edges (approved mockup 2026-11-09): lines of the N64's 240 cut off every edge, the same share of the
     // width and the height, so the picture keeps its shape (0 = off).
     std::atomic<int> crop{0};     // touch controls in portrait: the picture's top, per mille of the height (-1: centred)
@@ -127,8 +130,11 @@ inline void fit(int winW, int winH, int imgW, int imgH, int& x, int& y, int& w, 
     int aw = o.aspW, ah = o.aspH;
     int ew, eh;
     if (envAspect(ew, eh)) { aw = ew; ah = eh; }
+    // Beside a panel: the picture at its shape in the space left of it (Place the game and portrait's top don't apply).
+    int panel = std::max(0, std::min(800, (int)o.panelRight));
+    int availW = winW - (int)((long long)winW * panel / 1000);
     // Place the game (your own sides image, or a RetroArch overlay's hole): there, at the picture's shape.
-    if ((o.sides == 3 || o.sides == 4) && o.placeW > 0 && aw > 0 && ah > 0) {
+    if (panel == 0 && (o.sides == 3 || o.sides == 4) && o.placeW > 0 && aw > 0 && ah > 0) {
         w = std::max(16, (int)((long long)winW * o.placeW / 1000));
         h = (int)((long long)w * ah / aw);
         x = (int)((long long)winW * o.placeX / 1000);
@@ -136,17 +142,18 @@ inline void fit(int winW, int winH, int imgW, int imgH, int& x, int& y, int& w, 
         return;
     }
     if (aw <= 0 || ah <= 0) {
-        w = winW; h = winH;
+        w = availW; h = winH;
         if (o.integer && imgH > 0 && winH >= imgH) h = winH / imgH * imgH;
     } else {
         h = winH; w = (int)((long long)winH * aw / ah);
-        if (w > winW) { w = winW; h = (int)((long long)winW * ah / aw); }
+        if (w > availW) { w = availW; h = (int)((long long)availW * ah / aw); }
         if (o.integer && imgH > 0) {
             int k = h / imgH;
             if (k >= 1) { h = imgH * k; w = (int)((long long)h * aw / ah); }
         }
     }
-    x = (winW - w) / 2; y = (winH - h) / 2;
+    x = (availW - w) / 2; y = (winH - h) / 2;
+    if (panel > 0) return;
     // Touch controls in portrait (approved mockup 2026-11-09, screen 6): the game on top, the controls below.
     int top = o.portraitTop;
     if (top >= 0 && winH > winW) y = std::min(y, (int)((long long)winH * top / 1000));

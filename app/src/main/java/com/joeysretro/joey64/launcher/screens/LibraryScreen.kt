@@ -356,6 +356,25 @@ fun GamesGrid(list: List<LibraryGame>, model: LibraryModel, onSearch: () -> Unit
         if (keepPlace) LaunchedEffect(gridState) {
             snapshotFlow { gridState.firstVisibleItemIndex to gridState.firstVisibleItemScrollOffset }.collect { model.libraryScroll = it }
         }
+        // The top row grew in place (its tiles' grey copy line came in with a reload, as box art finished in the 1,231-game
+        // test): scrolled down by as much, so what was out of view above stays out of view and the rows below don't move;
+        // a row cut off under the filter row was seen once. A row whole at the top (no offset) grows downward as before.
+        LaunchedEffect(gridState) {
+            var last: Triple<Int, Int, Int>? = null
+            snapshotFlow {
+                Triple(gridState.firstVisibleItemIndex, gridState.firstVisibleItemScrollOffset,
+                    // The row's height: its tallest tile (a tile without a copy line keeps its own height).
+                    gridState.layoutInfo.visibleItemsInfo.let { v -> v.firstOrNull()?.row?.let { r -> v.filter { it.row == r }.maxOf { it.size.height } } } ?: 0)
+            }.collect { now ->
+                val was = last
+                last = now
+                if (was != null && was.first == now.first && was.second == now.second && was.second > 0 &&
+                    now.third > was.third && !gridState.isScrollInProgress) {
+                    gridState.scrollBy((now.third - was.third).toFloat())
+                    last = Triple(gridState.firstVisibleItemIndex, gridState.firstVisibleItemScrollOffset, now.third)
+                }
+            }
+        }
         // B on the grid: back to the top as focus goes to the Library's tab on the bar (approved Back order).
         val toTop by model.toTop.collectAsStateWithLifecycle()
         LaunchedEffect(toTop) { if (toTop > 0) gridState.scrollToItem(0) }

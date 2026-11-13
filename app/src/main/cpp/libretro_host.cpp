@@ -1932,6 +1932,11 @@ JNIEXPORT void JNICALL JNI(setCrop)(JNIEnv*, jobject, jint lines) {
     Display::opts().crop = std::max(0, std::min(64, (int)lines));
 }
 
+// A panel down the right over the paused game: per mille of the window's width it covers, 0 none (display_opts.h fit).
+JNIEXPORT void JNICALL JNI(setPanelRight)(JNIEnv*, jobject, jint perMille) {
+    Display::opts().panelRight = std::max(0, std::min(800, (int)perMille));
+}
+
 // Touch controls in portrait: the picture's top in per mille of the window's height, -1 centred.
 JNIEXPORT void JNICALL JNI(setPortraitTop)(JNIEnv*, jobject, jint perMille) {
     Display::opts().portraitTop = perMille;

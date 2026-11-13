@@ -130,7 +130,13 @@ object NativeBridge {
     external fun pause(paused: Boolean)
     /** Frame advance: while paused, the game runs one more frame (without sound) and stays paused. */
     external fun stepFrame()
-    external fun stop()
+    /**
+     * Stops the game. False when the core was stuck in a frame and didn't stop within 3 s (Thor 2026-11-13): it was
+     * left behind and this process can't start a game again.
+     */
+    external fun stop(): Boolean
+    /** How long the core has been in its current frame, 0 between frames: seconds means it's stuck. */
+    external fun coreStuckMs(): Long
 
     /** Before loadGame: override a core option (M3's profile DB will call this). */
     external fun setOption(key: String, value: String)

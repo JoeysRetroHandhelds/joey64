@@ -31,14 +31,17 @@ class GameStates(
 
     private fun path(name: String) = listOf(DataKind.States.dir, name)
 
-    fun exists(slot: Int) = space.exists(path(StateSlots.fileName(saveName, slot)))
+    /** Waits for this game's quit save still being written ([writeLater]), so what's read here is the newest. */
+    private fun settled() { awaitWrites(saveName, WRITE_WAIT_MS) }
+
+    fun exists(slot: Int): Boolean { settled(); return space.exists(path(StateSlots.fileName(saveName, slot))) }
 
     // ---- Undo load state / Undo save state (approved mockup 2026-11-08, scratchpad build_undo.py) ----
     // One of each, in memory, until the game closes. Undo load: where the game was just before the last
     // load by hand. Undo save: the slot's file, picture and date just before the last save wrote over it.
 
     private class UndoLoad(val slot: Int, val mem: ByteArray, val achv: ByteArray?)
-    private class UndoSave(val slot: Int, val state: ByteArray?, val picture: ByteArray?, val savedAt: Long?)
+    internal class UndoSave(val slot: Int, val state: ByteArray?, val picture: ByteArray?, val savedAt: Long?)
     @Volatile private var undoLoad: UndoLoad? = null
     @Volatile private var undoSave: UndoSave? = null
 
@@ -81,13 +84,15 @@ class GameStates(
 
     /** Saves the game as it is now into [slot]. False if the core's state couldn't be taken or written. */
     fun save(slot: Int): Boolean {
+        settled()
         failedNeed = 0
         val shot = take(slot) ?: return false
         return write(slot, shot)
     }
 
     /** One moment of the game, taken before anything is written: the core's state, its achievements' progress, its picture. */
-    private class Shot(val data: ByteArray, val achv: ByteArray?, val png: ByteArray?, val before: UndoSave?, val tookMs: Long)
+    class Shot internal constructor(internal val data: ByteArray, internal val achv: ByteArray?, internal val png: ByteArray?,
+        internal val before: UndoSave?, internal val tookMs: Long)
 
     private fun take(slot: Int): Shot? {
         val t0 = SystemClock.elapsedRealtime()
@@ -113,8 +118,10 @@ class GameStates(
         val name = StateSlots.fileName(saveName, slot) + end
         return try {
             val file = StateFormat.wrap(shot.data, shot.achv)
+            val packMs = SystemClock.elapsedRealtime() - t1
             failedNeed = file.size.toLong() + (shot.png?.size ?: 0)
             writeWhole(name, file)
+            val stateMs = SystemClock.elapsedRealtime() - t1 - packMs
             // The picture beside it, as RetroArch names it. The old one (RetroArch's, or ours) shows the
             // moment before, so it goes even when there's no new one.
             val thumb = StateSlots.thumbnailName(saveName, slot) + end
@@ -129,7 +136,8 @@ class GameStates(
             if (shot.before != null) undoSave = shot.before
             failedNeed = 0
             JLog.i(TAG, "saved $name: ${shot.data.size} bytes, ${file.size} written, picture ${shot.png?.size ?: 0}; " +
-                "taking it ${shot.tookMs} ms, packing and writing ${SystemClock.elapsedRealtime() - t1} ms")
+                "taking it ${shot.tookMs} ms, packing and writing ${SystemClock.elapsedRealtime() - t1} ms " +
+                "(packing $packMs, the state $stateMs, the picture ${SystemClock.elapsedRealtime() - t1 - packMs - stateMs})")
             true
         } catch (e: IOException) {
             JLog.e(TAG, "can't write slot $slot" + "\n" + Log.getStackTraceString(e)); false
@@ -141,12 +149,14 @@ class GameStates(
 
     /** When [slot] was saved, or null if it's empty. */
     fun savedAt(slot: Int): Long? {
+        settled()
         val name = StateSlots.fileName(saveName, slot)
         return space.list(listOf(DataKind.States.dir)).firstOrNull { it.name == name }?.modified
     }
 
     /** Auto, then Slots 1-10, then the older quit saves there are (Auto 2 ...), read from the folder in one listing. */
     fun slotFiles(): List<SlotFile> {
+        settled()
         val entries = space.list(listOf(DataKind.States.dir)).associateBy { it.name }
         val older = (2..StateSlots.AUTO_MAX).map { StateSlots.auto(it) }.filter { StateSlots.fileName(saveName, it) in entries }
         return (listOf(StateSlots.AUTO) + (1..StateSlots.COUNT) + older).map { slot ->
@@ -166,10 +176,17 @@ class GameStates(
      * room waited or a stuck game thread cost every time): the state is taken first and written beside
      * them, and only then do they move.
      */
-    fun saveQuit(keep: Int): Boolean {
-        failedNeed = 0
+    fun saveQuit(keep: Int): Boolean { val shot = takeQuit() ?: return false; return writeQuit(shot, keep) }
+
+    /**
+     * The quit save's moment, taken now (the core's state and picture, about 0.15 s); [writeQuit] writes it, which on
+     * an SD card can take seconds (Thor 2026-11-13: 8 s), so quitting needn't wait for it ([writeLater]).
+     */
+    fun takeQuit(): Shot? { settled(); failedNeed = 0; return take(StateSlots.AUTO) }
+
+    /** Writes [takeQuit]'s [shot] as [saveQuit] does. */
+    fun writeQuit(shot: Shot, keep: Int): Boolean {
         val k = keep.coerceIn(1, StateSlots.AUTO_MAX)
-        val shot = take(StateSlots.AUTO) ?: return false
         if (k == 1 || !exists(StateSlots.AUTO)) {
             if (!write(StateSlots.AUTO, shot)) return false
             for (n in StateSlots.AUTO_MAX downTo k + 1) removeSlot(StateSlots.auto(n))
@@ -201,6 +218,7 @@ class GameStates(
 
     /** Deletes [slot]'s state and picture (the Saves page); true when it's gone. */
     fun deleteSlot(slot: Int): Boolean {
+        settled()
         removeSlot(slot)
         return !exists(slot)
     }
@@ -225,6 +243,7 @@ class GameStates(
      * (a load by hand: the hotkey or the pause menu): where the game was first is kept for Undo load state.
      */
     fun load(slot: Int, undoable: Boolean = false): Boolean {
+        settled()
         val name = StateSlots.fileName(saveName, slot)
         val bytes = readWhole(name) ?: return false.also { JLog.e(TAG, "no $name") }
         val before = if (undoable) NativeBridge.saveState(TIMEOUT_MS)?.let { UndoLoad(slot, it, NativeBridge.stateProgress()) } else null
@@ -309,6 +328,7 @@ class GameStates(
      * the recovery state's ([slot] null). Null when there's none (a recovery state from before pictures were kept).
      */
     fun startPicture(slot: Int?): ByteArray? = try {
+        if (slot != null) settled()
         if (slot == null) File(recoveryDir, RECOVERY_PICTURE).takeIf { it.exists() }?.readBytes()
         else space.openRead(path(StateSlots.thumbnailName(saveName, slot)))?.use { it.readBytes() }
     } catch (e: IOException) { null }
@@ -407,6 +427,51 @@ class GameStates(
 
     companion object {
         private const val TAG = "Joey64States"
+
+        // ---- quit saves written after quitting (Joey 2026-11-13: "why does quitting a game take so long?") ----
+        // One thread for the whole app, so they're written in order; it outlives the game screen.
+
+        /** The longest a read waits for a quit save still being written. */
+        const val WRITE_WAIT_MS = 60_000L
+        @Volatile private var writerThread: Thread? = null
+        private val writer = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread(r, "joey64-quit-save").also { writerThread = it }
+        }
+        private val pending = HashMap<String, Int>()
+        private val lock = Object()
+
+        /** Runs [job] (writing [saveName]'s quit save) on the quit-save thread; [awaitWrites] waits for it. */
+        fun writeLater(saveName: String, job: () -> Unit) {
+            synchronized(lock) { pending[saveName] = (pending[saveName] ?: 0) + 1 }
+            writer.execute {
+                try { job() } catch (e: Exception) { JLog.e(TAG, "quit save for $saveName: $e") }
+                finally {
+                    synchronized(lock) {
+                        val n = (pending[saveName] ?: 1) - 1
+                        if (n <= 0) pending.remove(saveName) else pending[saveName] = n
+                        lock.notifyAll()
+                    }
+                }
+            }
+        }
+
+        /** Waits until no quit save of [saveName] (null: of any game) is being written; false if [timeoutMs] ran out. */
+        fun awaitWrites(saveName: String?, timeoutMs: Long): Boolean {
+            if (Thread.currentThread() === writerThread) return true
+            val t0 = SystemClock.elapsedRealtime()
+            val end = t0 + timeoutMs
+            var waited = false
+            synchronized(lock) {
+                while (if (saveName == null) pending.isNotEmpty() else saveName in pending) {
+                    val left = end - SystemClock.elapsedRealtime()
+                    if (left <= 0) { JLog.e(TAG, "a quit save is still being written after $timeoutMs ms"); return false }
+                    waited = true
+                    lock.wait(left)
+                }
+            }
+            if (waited) JLog.i(TAG, "waited ${SystemClock.elapsedRealtime() - t0} ms for a quit save to be written")
+            return true
+        }
         private const val TIMEOUT_MS = 10_000
         /** A state's picture is shown at most about half the screen wide (the Play popup, Saves): 960 keeps it sharp there. */
         private const val PICTURE_MAX_WIDTH = 960

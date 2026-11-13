@@ -34,7 +34,8 @@
     {
       "id": "NCU", "title": "Cruis'n USA",
       "settings": [
-        {"what": "synchronous parallel-RDP, also in fast-forward", "where": "kSyncRdpGames", "why": "async: black screen"}
+        {"what": "synchronous parallel-RDP, also in fast-forward", "where": "kSyncRdpGames", "why": "async: black screen"},
+        {"what": "page-level smart sync (N64_RDP_SMART_PRECISE=0)", "where": "libretro_host.cpp kPageSmartGames", "why": "precise smart sync: the RSP loops forever in a race (Joey's Thor 2026-11-13, from their RetroArch state; Odin 2 Portal stuck4/stuck5: precise froze in round 1 every run, page-level and plain sync played 14 rounds)"}
       ],
       "issues": [
         {"status": "open", "what": "async with texture load snapshots (N64_RDP_TEX_SNAPSHOT=1): plays on the Duo, still black on the Flip, so it stays synchronous", "devices": "Flip", "evidence": "duo-ts-async-on / flip-ts-async-on, README item 33"},

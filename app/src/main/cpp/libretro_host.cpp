@@ -270,6 +270,27 @@ std::condition_variable g_surfaceCv;
 
 std::thread g_thread;
 std::atomic<bool> g_running{false}, g_paused{false};
+
+// A core stuck in one frame (Thor 2026-11-13, Cruis'n USA from a RetroArch state: 2 min in parallel-RSP, never back to
+// this loop) can't be stopped, so stop() waits for it only so long, then leaves it and turns its thread down.
+std::atomic<int64_t> g_runSince{0};     // steady ms when the current retro_run began, 0 outside one
+std::atomic<pid_t> g_emuTid{0};         // the emulation thread, for turning a stuck one down
+std::atomic<bool> g_coreStuck{false};   // stop() gave up on it: this process can't run a game again
+std::mutex g_threadEndMutex;
+std::condition_variable g_threadEndCv;
+bool g_threadEnded = true;              // under g_threadEndMutex
+static int64_t steadyMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+static void runCoreFrame() {
+    g_runSince = steadyMs();
+    // Dev: N64_HANG_TEST=<frames> spins in the frame after that many, as a stuck core does (the stop time limit's check).
+    static const long hangAt = getenv("N64_HANG_TEST") ? atol(getenv("N64_HANG_TEST")) : 0;
+    static long frames = 0;
+    if (hangAt > 0 && ++frames == hangAt) { LOGE("hang test: the core stops in this frame for good"); for (volatile unsigned x = 0;; x++) {} }
+    core.run();
+    g_runSince = 0;
+}
 // Frame advance (the hotkey): frames still to run while paused, one per press.
 std::atomic<int> g_stepFrames{0};
 std::mutex g_pauseMutex;
@@ -511,9 +532,7 @@ std::atomic<uint8_t> g_netplayStatus{0};
 // When player 1 (the host) last left the room, in steady-clock ms (0 = not in this game): a connection lost soon after
 // is the host closing the room, coreShutDown 8 (Joey 2026-11-12).
 std::atomic<int64_t> g_netplayHostLeftMs{0};
-static int64_t steadyMs() {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
-}
+// steadyMs() is defined with g_runSince above.
 // The player this game has waited for over 1 s (the core's "waiting for player N" / "player N is back"), 0 = none.
 std::atomic<int> g_netplayWaitingFor{0};
 std::atomic<int> g_netplayJoinFailed{0}; // the core's "Netplay: can't join (N)": 4 no room, 5 turned down, 6 another ROM
@@ -1344,6 +1363,7 @@ void setEmuThreadPriority() {
 }
 
 void runLoop() {
+    g_emuTid = gettid();
     // EXPERIMENT (Performance mode's Battery saver, 2026-11-08): N64_PIN=0 leaves the threads where the
     // scheduler puts them: no big-core pinning and no split.
     const char* pinEnv = getenv("N64_PIN");
@@ -1647,7 +1667,7 @@ void runLoop() {
                 if (!g_vk.beginFrame(showIt)) return -1;   // swapchain recreated, try again
                 auto t1 = std::chrono::steady_clock::now();
                 const int presentsBefore = g_statPresents;
-                core.run();
+                runCoreFrame();
                 auto t3 = std::chrono::steady_clock::now();
                 if (ff && ffDueOn && ffDue && g_statPresents != presentsBefore) { // a new picture went out: the slot is used
                     ffDue = false;
@@ -1675,7 +1695,7 @@ void runLoop() {
             }
             auto t0 = std::chrono::steady_clock::now();
             glBindFramebuffer(GL_FRAMEBUFFER, g_egl.fbo());
-            core.run(); // includes the swap, so the vsync wait lands here
+            runCoreFrame(); // includes the swap, so the vsync wait lands here
             double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
             g_statRunMs += ms;
             return ms;
@@ -2293,6 +2313,19 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
     else g_rdpSync = idIn(kSyncRdpGames);
     g_optionOverrides["mupen64plus-parallel-rdp-synchronous"] = g_rdpSync ? "True" : "False";
     g_optionsDirty = true;
+    // Page-level smart sync (precise off) for games whose RSP loops forever with precise smart sync: Cruis'n USA
+    // (2026-11-13: Joey's Thor froze in a race from his RetroArch state, the RSP spinning in its vector code; Odin 2
+    // Portal stuck4/stuck5: precise froze in the first round every time, page-level and plain sync played 14 rounds).
+    // Precise lets a dynarec access open a page that also holds drawn bytes without waiting, so anything reading
+    // those bytes in the next 0.5 ms sees old RDRAM. --es env N64_RDP_SMART_PRECISE wins.
+    static const char* const kPageSmartGames[] = {"NCU"};
+    static bool s_preciseSetByUs = false;
+    if (s_preciseSetByUs) { unsetenv("N64_RDP_SMART_PRECISE"); s_preciseSetByUs = false; }
+    if (idIn(kPageSmartGames) && !getenv("N64_RDP_SMART_PRECISE")) {
+        setenv("N64_RDP_SMART_PRECISE", "0", 1);
+        s_preciseSetByUs = true;
+        LOGI("smart sync: page level for this game (precise off)");
+    }
     // CPU core: the dynamic recompiler for every game (Sin and Punishment's English patch, the last game on the cached
     // interpreter, runs on it since core 19eff8c compiles code in cartridge ROM). --es opts wins.
     if (!g_optionOverrides.count("mupen64plus-cpucore"))
@@ -2415,8 +2448,20 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
 
 JNIEXPORT void JNICALL JNI(start)(JNIEnv*, jobject) {
     if (g_running) return;
+    if (g_coreStuck) { LOGE("start: the core is stuck from the last game, not started"); return; }
     g_running = true;
-    g_thread = std::thread(runLoop);
+    { std::lock_guard<std::mutex> lk(g_threadEndMutex); g_threadEnded = false; }
+    g_thread = std::thread([] {
+        runLoop();
+        { std::lock_guard<std::mutex> lk(g_threadEndMutex); g_threadEnded = true; }
+        g_threadEndCv.notify_all();
+    });
+}
+
+// How long the core has been in the frame it's running now (0: between frames). A few seconds means it's stuck.
+JNIEXPORT jlong JNICALL JNI(coreStuckMs)(JNIEnv*, jobject) {
+    const int64_t since = g_runSince;
+    return since ? (jlong)(steadyMs() - since) : 0;
 }
 
 // Paused: draws the last picture again with the display settings as they are now. Does nothing if running.
@@ -2682,8 +2727,10 @@ JNIEXPORT void JNICALL JNI(log)(JNIEnv* env, jobject, jint prio, jstring tag, js
     env->ReleaseStringUTFChars(tag, t);
 }
 
-JNIEXPORT void JNICALL JNI(stop)(JNIEnv*, jobject) {
-    if (!g_running) return;
+// False when the emulation thread didn't end within STOP_WAIT_MS (a core stuck in a frame): it's left running, turned
+// down to the lowest priority, and no game starts in this process again (the next one restarts it, switchGame).
+JNIEXPORT jboolean JNICALL JNI(stop)(JNIEnv*, jobject) {
+    if (!g_running) return g_coreStuck ? JNI_FALSE : JNI_TRUE;
     g_running = false;
     g_pauseCv.notify_all();
     // A host's core can be waiting in its own room (for players to register, up to 30 s, or for their input):
@@ -2694,9 +2741,25 @@ JNIEXPORT void JNICALL JNI(stop)(JNIEnv*, jobject) {
     if (g_netplay && core.handle)
         if (auto abortNp = reinterpret_cast<void (*)()>(dlsym(core.handle, "joey64_netplay_abort"))) abortNp();
     if (g_netplay && NetplayServer::running()) NetplayServer::stop();
-    if (g_thread.joinable()) g_thread.join();
+    if (g_thread.joinable()) {
+        // The loop checks g_running between frames; a frame takes ms, so seconds means the core never came back.
+        constexpr int STOP_WAIT_MS = 3000;
+        bool ended;
+        { std::unique_lock<std::mutex> lk(g_threadEndMutex);
+          ended = g_threadEndCv.wait_for(lk, std::chrono::milliseconds(STOP_WAIT_MS), [] { return g_threadEnded; }); }
+        if (ended) g_thread.join();
+        else {
+            const int64_t since = g_runSince;
+            LOGE("stop: the core has been in one frame for %lld ms and didn't stop in %d ms: left behind, this process "
+                 "runs no game again", since ? (long long)(steadyMs() - since) : -1LL, STOP_WAIT_MS);
+            g_coreStuck = true;
+            if (pid_t tid = g_emuTid) { setpriority(PRIO_PROCESS, tid, 19); }
+            g_thread.detach();
+        }
+    }
     { std::lock_guard<std::mutex> lk(g_stateMutex); }
     g_stateCv.notify_all();
+    return g_coreStuck ? JNI_FALSE : JNI_TRUE;
 }
 
 // The achievements' progress taken with this thread's last saveState (stateProgress hands it over).

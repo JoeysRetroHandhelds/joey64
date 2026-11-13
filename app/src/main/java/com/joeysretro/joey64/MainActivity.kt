@@ -1843,8 +1843,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         }
     }
 
-    // The GameShark cartridge's button (approved 2026-11-07): held with its hotkey (hotkey button + L3 by
-    // default) for as long as both are, or for a second from the pause menu's Cheats.
+    // The GameShark cartridge's button (approved 2026-11-07): held with its hotkey (Not set by default since
+    // 2026-11-13, was hotkey button + L3) for as long as both are, or for a second from the pause menu's Cheats.
     private var gameSharkDown = false
     private var gameSharkSince = 0L
     private val gameSharkUp = Runnable { gameSharkButton(false) }
@@ -2480,10 +2480,24 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         releaseAll()
         stateHandler.removeCallbacks(recoveryTick)
         stateHandler.post {
-            if (startLoadFailed) JLog.e(TAG, "states: the state asked for at start didn't load, so the auto slot is kept as it was")
-            else if (!savesOpts.saveOnQuit) JLog.i(TAG, "states: Save on quit is off, no quit save written")
-            else st.saveQuit(savesOpts.quitSaves)
-            st.clearRecovery()
+            val stuckMs = NativeBridge.coreStuckMs()
+            val shot = if (stuckMs > STUCK_MS) null.also {
+                    // Its state can't be taken (that waits 10 s for the next frame, which never comes) and the recovery
+                    // state from before is the last good moment: kept, so the library offers it.
+                    keepRecovery = true
+                    JLog.e(TAG, "states: the core has been in one frame for $stuckMs ms: no quit save, the recovery state is kept")
+                }
+                else if (startLoadFailed) null.also { JLog.e(TAG, "states: the state asked for at start didn't load, so the auto slot is kept as it was") }
+                else if (!savesOpts.saveOnQuit) null.also { JLog.i(TAG, "states: Save on quit is off, no quit save written") }
+                else st.takeQuit()
+            if (shot != null) {
+                // Written once the library is back (Joey 2026-11-13: "why does quitting a game take so long?": 8 s on
+                // the Thor's SD card, all of it this write; taking it is 0.15 s). The recovery state stays until the
+                // quit save is in, so a write that doesn't finish loses nothing; the next game's start waits for it.
+                keepRecovery = true
+                val keep = savesOpts.quitSaves
+                GameStates.writeLater(st.saveName) { if (st.writeQuit(shot, keep)) st.clearRecovery() }
+            } else if (stuckMs <= STUCK_MS) st.clearRecovery()
             recent?.let { RecentlyPlayed.record(this, it.copy(lastPlayed = System.currentTimeMillis())) }
             // Quit to: the library (or the frontend that started the game), or out of Joey64 altogether:
             // every screen of ours in this task closes, so Android shows the frontend or home screen.
@@ -2532,6 +2546,27 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         handler.postDelayed({ go() }, 2000)
     }
 
+    /**
+     * The core didn't stop (stuck in a frame, NativeBridge.stop): its thread would spin on a core until the process
+     * ends, heating the device and draining the battery while the library or another app is up. So the process ends
+     * once quit saves still being written are in: the library, when it's there, comes back in a fresh process
+     * (RestartActivity, as switchGame); with no library up the process just ends.
+     */
+    private fun endStuckProcess() {
+        JLog.e(TAG, "the core is stuck: this process ends once the library is saved (a fresh one shows it)")
+        val app = applicationContext
+        val main = Handler(mainLooper)
+        Thread({
+            GameStates.awaitWrites(null, GameStates.WRITE_WAIT_MS)
+            main.post {
+                if (com.joeysretro.joey64.launcher.LauncherActivity.started) afterLauncherSaved {
+                    RestartActivity.restart(app, Intent(app, com.joeysretro.joey64.launcher.LauncherActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                } else android.os.Process.killProcess(android.os.Process.myPid())
+            }
+        }, "joey64-stuck-end").start()
+    }
+
     private fun switchGame() {
         JLog.i(TAG, "new ROM while a game is loaded: restarting the process for it")
         // A game screen still open (a frontend sent a ROM mid-game): the new one replaces the task. None open (the
@@ -2545,6 +2580,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // Unpacking the new ROM (up to 64 MB, or a zip / 7z) runs on gameIo, as prepareGame does for the first game: on
         // the main thread it risked an ANR, and a missing file or a full disk crashed the app (code audit 3, H2).
         gameIo.execute {
+            // The process restarts for the new game: a quit save still being written ([quitToLibrary]) is finished first.
+            GameStates.awaitWrites(null, GameStates.WRITE_WAIT_MS)
             val got = try { resolveRom() } catch (e: Exception) { JLog.e(TAG, "can't get the new game ready: $e"); null }
             // Only once the new game is there (code audit 4, A-M1): a file that won't open keeps the closed game's
             // recovery state, so its play isn't lost with it.
@@ -3254,7 +3291,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (isFinishing && gameLoaded && trial != null && NativeBridge.framesDrawn() <= 0 &&
             (android.os.SystemClock.uptimeMillis() - trialAt < TRIAL_QUICK_QUIT_MS ||
                 android.system.Os.getenv("N64_NETPLAY") != null || android.system.Os.getenv("N64_NETPLAY_SERVE") != null)) cancelTrial()
-        if (owner === this) { NativeBridge.stop(); owner = null } else if (owner == null && !switching) NativeBridge.stop()
+        val stopped = if (owner === this) NativeBridge.stop().also { owner = null } else if (owner == null && !switching) NativeBridge.stop() else true
+        if (!stopped) endStuckProcess()
         // The save RAM and a 64DD disk save written as the core stopped, into a picked data folder: on [gameIo], after
         // any start still copying and before the next one (a disk save is 64.9 MB; code audit 2, finding 1).
         startSave?.let { save -> val app = applicationContext; gameIo.execute { com.joeysretro.joey64.launcher.storage.SrmSync.push(app, save) } }
@@ -3357,6 +3395,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     companion object {
         private const val NOTHING_TO_UNDO = "Nothing to undo"
+        /** A core in one frame this long is stuck (a frame takes ms): no quit save is taken from it. */
+        private const val STUCK_MS = 2000L
         /**
          * The instance whose surface, pause and stop calls reach the native side: the one that loaded the game. A ROM
          * handed over while the game screen is already open makes a second instance; the first one's surfaceDestroyed,

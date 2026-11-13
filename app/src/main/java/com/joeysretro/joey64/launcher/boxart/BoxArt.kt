@@ -92,7 +92,9 @@ class BoxArt(private val context: Context, private val db: LibraryDb) {
     }
 
     /** Looks up and downloads the cover of every library game not looked up yet (or found with none over a week ago). [onCover] after each new one. */
-    suspend fun fetch(maxWidth: Int = HIGH_WIDTH, onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }, onCover: () -> Unit = {}): Outcome = withContext(Dispatchers.IO) {
+    suspend fun fetch(maxWidth: Int = HIGH_WIDTH, onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+                      /** True while a lookup got no answer and waits to try again (offline, most likely); false once one answers. */
+                      onNoAnswer: (Boolean) -> Unit = {}, onCover: () -> Unit = {}): Outcome = withContext(Dispatchers.IO) {
         val t0 = SystemClock.elapsedRealtime()
         val now = System.currentTimeMillis()
         // A game found with no cover before this build was installed, that this build's fixes.tsv lists with a game,
@@ -120,10 +122,12 @@ class BoxArt(private val context: Context, private val db: LibraryDb) {
             var r = lookUp(g, table, fixes, now, maxWidth)
             for (wait in OFFLINE_RETRY_MS) {
                 if (r != Result.Offline) break
+                onNoAnswer(true)
                 JLog.w(TAG, "box art: ${g.fileName}: no answer, trying again in ${wait / 1000} s")
                 delay(wait)
                 r = lookUp(g, table, fixes, now, maxWidth)
             }
+            if (r != Result.Offline) onNoAnswer(false)
             when (r) {
                 Result.Found -> { found++; onCover() }
                 Result.None -> none++

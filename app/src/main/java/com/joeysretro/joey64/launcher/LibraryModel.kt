@@ -362,6 +362,11 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
         getApplication<Application>().getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(network)
     }
 
+    private fun hasNetwork(): Boolean = try {
+        val cm = getApplication<Application>().getSystemService(ConnectivityManager::class.java)
+        cm.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+    } catch (e: Exception) { true }
+
     /** Covers for games not looked up yet, when Download box art is on. [newGames]: this scan added games, so an offline popup is due. */
     private suspend fun fetchArt(newGames: Boolean) {
         if (art?.isActive == true) return
@@ -370,10 +375,13 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
             var got = 0
             val started = android.os.SystemClock.elapsedRealtime()
             _artPaused.value = false
+            // No network at all: said at once, not after the first lookup's timeouts; an answer clears it.
+            _artOffline.value = !hasNetwork()
             val outcome = try {
                 // One ScreenScraper request at a time (no user account): room covers wait for this run.
                 screenScraperOne.withLock { boxArt.fetch(maxWidth = if (settings.settings.first().boxArtLow) BoxArt.LOW_WIDTH else BoxArt.HIGH_WIDTH,
-                    onProgress = { done, total -> _art.value = Progress(done, total, started) }) {
+                    onProgress = { done, total -> _art.value = Progress(done, total, started) },
+                    onNoAnswer = { _artOffline.value = it }) {
                 // Covers appear as they come, a few at a time.
                 if (++got % 4 == 0) { _all.value = db.libraryGames(); com.joeysretro.joey64.launcher.boxart.CoverImages.changed() }
             } }
@@ -388,6 +396,7 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
                 _art.value = null
             }
             _artPaused.value = outcome is BoxArt.Outcome.Done && outcome.busy
+            _artOffline.value = outcome is BoxArt.Outcome.Offline
             _all.value = withContext(Dispatchers.IO) { db.libraryGames() }
             if (got > 0) com.joeysretro.joey64.launcher.boxart.CoverImages.changed()
             waitingForNetwork = outcome is BoxArt.Outcome.Offline
@@ -409,6 +418,12 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
     private val _artPaused = MutableStateFlow(false)
     /** ScreenScraper stopped answering (busy, closed or today's limit): "Box art paused" until the next run. */
     val artPaused: StateFlow<Boolean> = _artPaused
+    private val _artOffline = MutableStateFlow(false)
+    /**
+     * No answer from the internet: "Box art paused" with why, in place of a progress line stuck at "0 of 79" (Flip
+     * release pass 2026-11-12), while the run waits to try again and after it gives up, until a run gets an answer.
+     */
+    val artOffline: StateFlow<Boolean> = _artOffline
 
     /** Debug builds (SHOW boxart-reset): look every downloaded and not-found cover up again. */
     fun debugResetArt() {

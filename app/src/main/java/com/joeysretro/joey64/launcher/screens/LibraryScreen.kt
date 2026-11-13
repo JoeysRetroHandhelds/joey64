@@ -109,6 +109,7 @@ fun LibraryScreen(model: LibraryModel, updateAsking: Boolean = false, onSearch: 
     val reading by model.reading.collectAsStateWithLifecycle()
     val art by model.artProgress.collectAsStateWithLifecycle()
     val artPaused by model.artPaused.collectAsStateWithLifecycle()
+    val artOffline by model.artOffline.collectAsStateWithLifecycle()
     val view by model.view.collectAsStateWithLifecycle()
     val facts by model.facts.collectAsStateWithLifecycle()
     val landing = LocalFocusLanding.current
@@ -212,10 +213,12 @@ fun LibraryScreen(model: LibraryModel, updateAsking: Boolean = false, onSearch: 
                 modifier = Modifier.padding(start = 8.dp).initialFocus(chipBack),
                 onFocused = { searchChipFocused = it; model.searchChipFocused.value = it }) { model.searchFromChip = true; onSearch() }
             androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
-            art?.takeIf { reading == null }?.let { a ->
+            art?.takeIf { reading == null && !artOffline }?.let { a ->
                 ProgressLine(a, width = 160.dp, label = "Getting box art")
             }
-            if (artPaused && art == null && reading == null) {
+            if (artOffline && reading == null) {
+                Text("Box art paused · No internet. Joey64 will try again when it's back.", style = JoeyTheme.type.note, color = c.textDim)
+            } else if (artPaused && art == null && reading == null) {
                 Text("Box art paused · ScreenScraper is busy. Joey64 will try again later.", style = JoeyTheme.type.note, color = c.textDim)
             }
         }

@@ -197,8 +197,8 @@ object StateSlots {
 
     /** The pause menu's name for [slot]. */
     fun label(slot: Int) = when {
-        slot == AUTO -> "Auto"
-        isAuto(slot) -> "Auto ${autoNumber(slot)}"
+        slot == AUTO -> "Auto save state"
+        isAuto(slot) -> "Auto save state ${autoNumber(slot)}"
         else -> "Slot $slot"
     }
 

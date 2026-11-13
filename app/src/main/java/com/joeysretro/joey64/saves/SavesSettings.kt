@@ -9,7 +9,7 @@ import java.io.File
 enum class ContinueOnPlay(val label: String, val detail: String) {
     Never("Never", "Starts the game from the beginning"),
     Ask("Ask", "Asks each time"),
-    Always("Always", "Goes on from where you quit"),
+    Always("Always", "Goes on from the auto save state"),
 }
 
 /** Settings › Saves › Back up saves: when a game's save RAM is copied into `backups/`. */

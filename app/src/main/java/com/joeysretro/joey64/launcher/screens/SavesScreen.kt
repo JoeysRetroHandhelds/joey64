@@ -172,7 +172,7 @@ fun SavesScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onPlay: (String) ->
                 onFocused = { if (it) focused = "rs" }) { if (hasBackups) popup = SvPopup.Restore }
             JoeyRow("Delete save", Modifier.initialFocus(at == "del"), enabled = hasSave,
                 onFocused = { if (it) focused = "del" }) { if (hasSave) popup = SvPopup.DeleteSave }
-            SectionLabel("States")
+            SectionLabel("Save states")
             for (st in d.states) {
                 JoeyRow(SaveManager.stateLabel(st.slot), Modifier.initialFocus(at == "s:${st.slot}"), value = SlotDates.withTime(st.savedAt, now),
                     onFocused = { if (it) focused = "s:${st.slot}" }) { popup = SvPopup.StateOptions(st) }
@@ -217,13 +217,13 @@ fun SavesScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onPlay: (String) ->
                 !hasSave -> "$name has no save now. A puts one of its $n backups back."
                 else -> "Puts one of its $n backups back. Today's save is backed up first."
             }
-            "del" -> "Delete save" to if (hasSave) "Deletes $name's save. A backup is kept first. States aren't touched." else "$name has no save to delete."
+            "del" -> "Delete save" to if (hasSave) "Deletes $name's save. A backup is kept first. Save states aren't touched." else "$name has no save to delete."
             else -> {
                 val slot = at.removePrefix("s:").toInt()
                 SaveManager.stateLabel(slot) to when {
                     slot == SaveManager.RECOVERY -> "Saved while playing, in case Joey64 closed. A plays from here or deletes it."
                     StateSlots.isAuto(slot) -> "Saved when the game was quit. A plays from here or deletes it."
-                    else -> "A state: the game exactly as it was. A plays from here or deletes it."
+                    else -> "A save state: the game exactly as it was. A plays from here or deletes it."
                 }
             }
         }
@@ -259,7 +259,7 @@ fun SavesScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onPlay: (String) ->
         SvPopup.DeleteSave -> JoeyDialog(onDismiss = { popup = null }, hints = hints, width = 470.dp) {
             Column {
                 PopupTitle("Delete $name's save?",
-                    "Your in-game progress goes. States aren't touched. A backup is kept first, so Restore a backup can bring it back.")
+                    "Your in-game progress goes. Save states aren't touched. A backup is kept first, so Restore a backup can bring it back.")
                 JoeyOption("Keep it", Modifier.initialFocus()) { popup = null }
                 JoeyOption("Delete") { work("Couldn't delete the save", "it's still there") { d?.saves.orEmpty().map { manager.delete(it) }.all { it } } }
             }
@@ -267,7 +267,7 @@ fun SavesScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onPlay: (String) ->
         is SvPopup.StateOptions -> JoeyDialog(onDismiss = { popup = null }, hints = hints, width = 330.dp) {
             Column {
                 PopupTitle(SaveManager.stateLabel(p.state.slot))
-                JoeyRow("Play from here", Modifier.initialFocus(!p.fromDelete), detail = "Starts the game from this state") {
+                JoeyRow("Play from here", Modifier.initialFocus(!p.fromDelete), detail = "Starts the game from this save state") {
                     popup = null
                     onPlay(when (p.state.slot) {
                         SaveManager.RECOVERY -> com.joeysretro.joey64.MainActivity.STATE_RECOVERY
@@ -281,9 +281,9 @@ fun SavesScreen(g: SavesGame, onHints: (List<Hint>) -> Unit, onPlay: (String) ->
         is SvPopup.DeleteState -> JoeyDialog(onDismiss = { popup = SvPopup.StateOptions(p.state, fromDelete = true) },
             hints = listOf(Hint("A", "Select"), Hint("B", "Back")), width = 470.dp) {
             Column {
-                PopupTitle("Delete ${SaveManager.stateLabel(p.state.slot)}?", "The state and its picture go. This can't be undone.")
+                PopupTitle("Delete ${SaveManager.stateLabel(p.state.slot)}?", "The save state and its picture go. This can't be undone.")
                 JoeyOption("Keep it", Modifier.initialFocus()) { popup = SvPopup.StateOptions(p.state, fromDelete = true) }
-                JoeyOption("Delete") { work("Couldn't delete the state", "it's still there") { manager.deleteState(p.state.slot) } }
+                JoeyOption("Delete") { work("Couldn't delete the save state", "it's still there") { manager.deleteState(p.state.slot) } }
             }
         }
     }

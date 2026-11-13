@@ -155,9 +155,9 @@ fun SavesTab(onHints: (List<Hint>) -> Unit, onImport: () -> Unit, modifier: Modi
                 sideways = true, onFocused = { if (it) focused = key }) { if (!busy) open() }
         run {
             SectionLabel("When you quit and play")
-            row("quit", "Save on quit", if (o.saveOnQuit) "On" else "Off") { set(o.copy(saveOnQuit = !o.saveOnQuit)) }
+            row("quit", "Auto save state on quit", if (o.saveOnQuit) "On" else "Off") { set(o.copy(saveOnQuit = !o.saveOnQuit)) }
             row("cont", "Continue on Play", o.continueOnPlay.label + "  ›") { if (!panel.enter()) popup = "cont" }
-            row("keep", "Quit saves to keep", "${o.quitSaves}  ›") { if (!panel.enter()) popup = "keep" }
+            row("keep", "Auto save states to keep", "${o.quitSaves}  ›") { if (!panel.enter()) popup = "keep" }
             SectionLabel("Save backups")
             row("bk", "Back up saves", o.backups.label + "  ›") { popup = "bk" }
             SectionLabel("Your data")
@@ -173,8 +173,8 @@ fun SavesTab(onHints: (List<Hint>) -> Unit, onImport: () -> Unit, modifier: Modi
     val close = { popup = null }
     when (popup) {
         "cont" -> ChoiceList("Continue on Play", ContinueOnPlay.entries.map { Triple(it.label, it.detail, it == o.continueOnPlay) }, close,
-            sub = "When a game has a quit save, Play:") { set(o.copy(continueOnPlay = ContinueOnPlay.entries[it])); popup = null }
-        "keep" -> ChoiceList("Quit saves to keep", SavesOptions.QUIT_SAVES.map { Triple("$it", if (it == 1) "Each quit replaces the last" else null, it == o.quitSaves) }, close,
+            sub = "When a game has an auto save state, Play:") { set(o.copy(continueOnPlay = ContinueOnPlay.entries[it])); popup = null }
+        "keep" -> ChoiceList("Auto save states to keep", SavesOptions.QUIT_SAVES.map { Triple("$it", if (it == 1) "Each quit replaces the last" else null, it == o.quitSaves) }, close,
             sub = "Each quit keeps the ones before, newest first. Continue loads the newest.") { set(o.copy(quitSaves = SavesOptions.QUIT_SAVES[it])); popup = null }
         // Copies to keep's B or pick comes back to its row ("bkback", A8 2026-11-12; it landed on On start).
         "bk", "bkback" -> BackupsPopup(o, popup == "bkback", close, { set(o.copy(backups = it)); popup = null }) { popup = "bkkeep" }
@@ -242,15 +242,15 @@ private fun moveNote(o: DataFolderMove.Outcome): String? = when (o) {
 }
 
 private fun describe(row: String, o: SavesOptions): Pair<String, String> = when (row) {
-    "quit" -> "Save on quit" to if (o.saveOnQuit) "Quitting a game saves where you are, for Continue. Off: quitting saves nothing; the game's own saves still save."
-        else "Off: quitting saves nothing. Your last quit save is kept and Continue still loads it."
-    "cont" -> "Continue on Play" to "What Play does for a game you quit with a quit save: start from the beginning, ask, or go on from there."
-    "keep" -> "Quit saves to keep" to "More than one: Load state has Auto 2, Auto 3 ... after the slots. Continue loads the newest."
+    "quit" -> "Auto save state on quit" to if (o.saveOnQuit) "Quitting a game makes an auto save state where you are, for Continue. Off: no auto save state; the game's own in-game saves still save."
+        else "Off: quitting makes no auto save state. Your last one is kept and Continue still loads it."
+    "cont" -> "Continue on Play" to "What Play does for a game with an auto save state: start from the beginning, ask, or go on from there."
+    "keep" -> "Auto save states to keep" to "More than one: Load state has Auto save state 2, 3 ... after the slots. Continue loads the newest."
     "bk" -> "Back up saves" to "Copies of each game's in-game save in backups/, next to saves/. The newest ${o.backupsKeep} per game are kept."
-    "backup" -> "Back up Joey64" to "One .zip of your saves, states, screenshots and settings, in a folder you pick. ROMs and box art aren't in it."
+    "backup" -> "Back up Joey64" to "One .zip of your saves, save states, screenshots and settings, in a folder you pick. ROMs and box art aren't in it."
     "restore" -> "Restore a backup" to "Brings back a Joey64 backup. Files with the same name are replaced; the rest stay."
-    "import" -> "Import from RetroArch" to "Copies RetroArch's N64 saves and states into Joey64. RetroArch's own files aren't changed."
-    "folder" -> "Data folder" to "Where saves, states, screenshots, cheats, save backups and settings live."
+    "import" -> "Import from RetroArch" to "Copies RetroArch's N64 saves and save states into Joey64. RetroArch's own files aren't changed."
+    "folder" -> "Data folder" to "Where saves, save states, screenshots, cheats, save backups and settings live."
     else -> "Recovery state" to "Saved every few minutes while you play, and offered if Joey64 closes by itself. Off: no crash question."
 }
 
@@ -297,7 +297,7 @@ private fun RestorePopup(info: BackupInfo, onDismiss: () -> Unit, onPick: (Set<B
 private fun FolderPopup(own: Boolean, onDismiss: () -> Unit, onPick: (Boolean) -> Unit) {
     JoeyDialog(onDismiss = onDismiss, hints = listOf(Hint("A", "Select"), Hint("B", "Close")), width = 470.dp) {
         Column {
-            PopupTitle("Data folder", "Saves, states, screenshots, cheats, save backups and settings. Moving copies them all, then removes the old ones.")
+            PopupTitle("Data folder", "Saves, save states, screenshots, cheats, save backups and settings. Moving copies them all, then removes the old ones.")
             JoeyRow("Joey64's own", Modifier.initialFocus(own), detail = "Internal storage. Deleted if Joey64 is uninstalled",
                 trailing = if (own) { _ -> PickerTick() } else null) { onPick(false) }
             JoeyRow("Pick a folder", Modifier.initialFocus(!own), value = "›", detail = "For example on the SD card. Kept if Joey64 is uninstalled",

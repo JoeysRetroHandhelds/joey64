@@ -614,7 +614,7 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
             val to = if (slot == FRESH) com.joeysretro.joey64.saves.ContinueOnPlay.Never else com.joeysretro.joey64.saves.ContinueOnPlay.Always
             store.save(store.read().copy(continueOnPlay = to))
             JLog.i(TAG, "Continue on Play set to ${to.name} from Play's popup")
-            if (slot == FRESH) "Play will always start fresh." else "Play will always go on from where you quit."
+            if (slot == FRESH) "Play will always start fresh." else "Play will always go on from the auto save state."
         } else null
         val load = when (slot) {
             FRESH -> null
@@ -880,7 +880,7 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
 
     /** The options' Saves and Screenshots values: the game's states ("3 states") and its screenshots; null when it has no readable file. */
     data class SavesCounts(val states: Int, val screenshots: Int) {
-        val statesLabel get() = when (states) { 0 -> "No states"; 1 -> "1 state"; else -> "$states states" }
+        val statesLabel get() = when (states) { 0 -> "No save states"; 1 -> "1 save state"; else -> "$states save states" }
     }
 
     suspend fun savesCounts(game: LibraryGame): SavesCounts? = withContext(Dispatchers.IO) {
@@ -891,7 +891,7 @@ class LibraryModel(app: Application, private val saved: SavedStateHandle) : Andr
         }
     }
 
-    /** The options' Game settings value: "3 changed" or "Same as All games"; null when the game has no readable file. */
+    /** The options' Game settings value: "3 changed" or "Global"; null when the game has no readable file. */
     suspend fun gameSettingsLabel(game: LibraryGame): String? = withContext(Dispatchers.IO) {
         launcher.saveNameFor(game)?.let { com.joeysretro.joey64.launcher.gamesettings.GameSettingsModel(getApplication<Application>()).summary(it).label }
     }

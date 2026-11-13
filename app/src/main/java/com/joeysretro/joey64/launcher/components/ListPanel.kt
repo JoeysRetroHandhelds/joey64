@@ -53,6 +53,12 @@ class PanelInfo(val title: String, val help: String, val choices: List<PanelChoi
 
 /** The page's panel: [enter] moves focus into the focused row's choices (A on such a row, or ▶). */
 @Stable
+/**
+ * True on pages whose tabs take L2 / R2 (Settings, Controls, Game settings; Joey 2026-11-13: "L2 / R2 move between
+ * tabs"): their lists then leave L2 / R2 to the tabs instead of paging (A5's paging stays on other lists).
+ */
+val LocalTabsTakePageKeys = androidx.compose.runtime.staticCompositionLocalOf { false }
+
 class ListPanelState {
     internal var wide by mutableStateOf(false)
     internal var inside by mutableStateOf(false)
@@ -120,14 +126,15 @@ fun ListPanel(state: ListPanelState, info: PanelInfo, hints: List<Hint>, onHints
     val listScroll = rememberScrollState()
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val rowPx = with(androidx.compose.ui.platform.LocalDensity.current) { 40.dp.toPx() }
-    androidx.compose.runtime.DisposableEffect(state) {
+    val tabsTakePageKeys = LocalTabsTakePageKeys.current
+    androidx.compose.runtime.DisposableEffect(state, tabsTakePageKeys) {
         val pager: (com.joeysretro.joey64.launcher.controls.Control) -> Boolean = p@{ ctl ->
             val dir = when (ctl) {
                 com.joeysretro.joey64.launcher.controls.Control.PagePrev -> androidx.compose.ui.focus.FocusDirection.Up
                 com.joeysretro.joey64.launcher.controls.Control.PageNext -> androidx.compose.ui.focus.FocusDirection.Down
                 else -> return@p false
             }
-            if (!state.listFocused || state.inside) return@p false
+            if (tabsTakePageKeys || !state.listFocused || state.inside) return@p false
             val back = if (dir == androidx.compose.ui.focus.FocusDirection.Up) androidx.compose.ui.focus.FocusDirection.Down
                 else androidx.compose.ui.focus.FocusDirection.Up
             // At either end the list scrolls all the way, so the first heading shows (it stayed cut off, Thor 2026-11-12).

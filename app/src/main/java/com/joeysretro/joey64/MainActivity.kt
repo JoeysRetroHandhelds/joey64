@@ -2243,7 +2243,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             runOnUiThread {
                 if (slot != null) pop("state", InGamePopup.Kind.Undo, "Undo load state", "Back to before loading ${slotName(slot).lowercase()}", "")
                 else pop("state", InGamePopup.Kind.Undo, "Undo load state", NOTHING_TO_UNDO,
-                    if (loadedThisPlay) "Already undone" else "No state loaded since the game started")
+                    if (loadedThisPlay) "Already undone" else "No save state loaded since the game started")
             }
         }
     }
@@ -2256,7 +2256,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
                 if (u != null) pop("state", InGamePopup.Kind.Undo, "Undo save state",
                     slotName(u.slot) + (u.savedAt?.let { " is back to " + slotDate(it) } ?: " is empty again"), "")
                 else pop("state", InGamePopup.Kind.Undo, "Undo save state", NOTHING_TO_UNDO,
-                    if (savedThisPlay) "Already undone" else "No state saved since the game started")
+                    if (savedThisPlay) "Already undone" else "No save state saved since the game started")
             }
         }
     }

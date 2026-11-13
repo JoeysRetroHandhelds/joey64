@@ -67,8 +67,8 @@ import kotlin.math.pow
  * Resolution, Aspect ratio, Crop edges (approved mockup 2026-11-09, CropPopups.kt), Widescreen, 60 fps (approved version A, 2026-11-08: build_enh.py), Integer scaling,
  * Screen orientation, Fill the camera cutout. Right,
  * Look: Colour (popup with a preview), Sharpening, Shader, Sides of the picture, Overlay (approved Picture mockup
- * 2026-11-08, PicturePopups.kt), Black frame insertion; Advanced: one row that
- * opens Renderer, driver, pacing (with N64 video filters inside; Thermal fallback moved to Emulation 2026-11-08). For All games or one game
+ * 2026-11-08, PicturePopups.kt), Black frame insertion; Advanced: Renderer, GPU driver, Frame pacing (on the tab since
+ * 2026-11-13, a popup before) and N64 video filters (its popup; Thermal fallback moved to Emulation 2026-11-08). For All games or one game
  * ([target], the chip in Settings' header): a game keeps only the rows changed for it, each with
  * the yellow dot, and Y puts the focused row back to All games.
  */
@@ -87,14 +87,17 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
     val v = VideoSettings.resolve(all, own)
     val startRow = when {
         start == null -> "res"
-        start.startsWith("adv:") || start.startsWith("filters:") -> "adv"
+        // The Advanced rows are on the tab since 2026-11-13 (Joey: "we dont need a popup for renderer driver pacing").
+        start == "adv:renderer" -> "rend"
+        start == "adv:driver" -> "drv"
+        start == "adv:pacing" -> "pace"
+        start.startsWith("adv:") || start.startsWith("filters:") -> "filt"
         else -> start
     }
     var focused by remember { mutableStateOf(startRow) }
     var popup by remember { mutableStateOf<VPopup?>(when {
         start == "col" -> VPopup.Colour
         start == "shp" -> VPopup.Sharpen
-        start?.startsWith("adv:") == true -> VPopup.Advanced(start.substringAfter(':'))
         start?.startsWith("filters:") == true -> VPopup.Filters(start.substringAfter(':'))
         else -> null
     }) }
@@ -163,7 +166,8 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
         "ori" to listOf(VideoKey.Orientation), "cut" to listOf(VideoKey.Cutout), "col" to COLOUR_ROW_KEYS,
         "sh" to SHADER_KEYS, "sd" to SIDES_KEYS, "ov" to OVERLAY_KEYS,
         "ws" to listOf(VideoKey.Widescreen), "fps" to listOf(VideoKey.Fps),
-        "shp" to listOf(VideoKey.Sharpen, VideoKey.SharpenStrength), "bfi" to listOf(VideoKey.Bfi), "adv" to ADVANCED_KEYS)
+        "shp" to listOf(VideoKey.Sharpen, VideoKey.SharpenStrength), "bfi" to listOf(VideoKey.Bfi),
+        "rend" to listOf(VideoKey.Renderer), "drv" to listOf(VideoKey.Driver), "pace" to listOf(VideoKey.Pacing), "filt" to FILTER_KEYS)
 
     // The handler is set once per target; it calls this composition's Y through rememberUpdatedState.
     val onY by rememberUpdatedState { if (popup == null) { rowKeys[focused]?.let { reset(it) }; true } else false }
@@ -182,7 +186,7 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
     }
     val help = if (changed) "Changed for this game. ${allGamesNote(focused, VideoSettings.resolve(all, null), gameCode)}" else text
     val choiceKey = mapOf("res" to VideoKey.Resolution, "asp" to VideoKey.Aspect, "int" to VideoKey.Integer, "ori" to VideoKey.Orientation,
-        "cut" to VideoKey.Cutout, "bfi" to VideoKey.Bfi)[focused]
+        "cut" to VideoKey.Cutout, "bfi" to VideoKey.Bfi, "rend" to VideoKey.Renderer, "drv" to VideoKey.Driver, "pace" to VideoKey.Pacing)[focused]
     val info = when {
         choiceKey != null -> VideoChoices.of(choiceKey).let { chs ->
             com.joeysretro.joey64.launcher.components.PanelInfo(title, help,
@@ -208,9 +212,7 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
             (when (k) { VideoKey.Brightness -> "Brightness"; VideoKey.Contrast -> "Contrast"; VideoKey.Saturation -> "Saturation"; else -> "Gamma" }) to
                 VideoSettings.colourLabel(k, v.int(k)) })
         focused == "shp" -> com.joeysretro.joey64.launcher.components.PanelInfo(title, help, lines = listOf("Sharpening" to sharpenValue(v)))
-        focused == "adv" -> com.joeysretro.joey64.launcher.components.PanelInfo(title, help, lines = listOf(
-            "Renderer" to VideoChoices.label(VideoKey.Renderer, v[VideoKey.Renderer]), "Driver" to VideoChoices.label(VideoKey.Driver, v[VideoKey.Driver]),
-            "Frame pacing" to VideoChoices.label(VideoKey.Pacing, v[VideoKey.Pacing])))
+        focused == "filt" -> com.joeysretro.joey64.launcher.components.PanelInfo(title, help, lines = listOf("Look" to lookLabel(v)))
         focused == "crop" -> com.joeysretro.joey64.launcher.components.PanelInfo(title, help, lines = listOf("Trim the game's border" to VideoChoices.label(VideoKey.Trim, v[VideoKey.Trim]),
             "Crop edges" to com.joeysretro.joey64.video.GameCrop.label(gameCode, v)))
         else -> com.joeysretro.joey64.launcher.components.PanelInfo(title, help)
@@ -266,8 +268,17 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
             JoeyRow("Black frame insertion", Modifier.initialFocus(startRow == "bfi"), value = VideoChoices.label(VideoKey.Bfi, v[VideoKey.Bfi]), sideways = true, dot = dot(VideoKey.Bfi), experimental = true,
                 onFocused = { if (it) focused = "bfi" }) { if (!panel.enter()) popup = VPopup.Choice(VideoKey.Bfi, row = "bfi") }
             SectionLabel("Advanced")
-            JoeyRow("Renderer, driver, pacing", Modifier.initialFocus(startRow == "adv"), value = "›", sideways = true, dot = dot(*ADVANCED_KEYS.toTypedArray()),
-                onFocused = { if (it) focused = "adv" }) { popup = VPopup.Advanced("renderer") }
+            // On the tab, each with its choices in the panel (Joey 2026-11-13; they were a popup of their own).
+            fun auto(k: VideoKey, pick: String?) = if (v[k] == "auto" && pick != null) "Auto · $pick" else VideoChoices.label(k, v[k])
+            val renderer = when (lastPick(context, "auto_renderer")) { "parallel" -> "parallel-RDP"; "gliden64" -> "GLideN64"; else -> null }
+            val driver = when (lastPick(context, "driver")) { "turnip" -> "Turnip Gen8"; "faux123" -> "Turnip faux123"; "system" -> "System"; "custom" -> "Your own"; else -> null }
+            for ((id, k, label) in listOf(Triple("rend", VideoKey.Renderer, "Renderer"), Triple("drv", VideoKey.Driver, "GPU driver"), Triple("pace", VideoKey.Pacing, "Frame pacing"))) {
+                JoeyRow(label, Modifier.initialFocus(startRow == id), value = auto(k, if (k == VideoKey.Renderer) renderer else if (k == VideoKey.Driver) driver else null),
+                    sideways = true, dot = dot(k), experimental = VideoChoices.of(k).any { it.value == v[k] && it.experimental },
+                    onFocused = { if (it) focused = id }) { if (!panel.enter()) popup = VPopup.Choice(k, row = id) }
+            }
+            JoeyRow("N64 video filters", Modifier.initialFocus(startRow == "filt"), value = "${lookLabel(v)}  ›", sideways = true,
+                dot = dot(*FILTER_KEYS.toTypedArray()), onFocused = { if (it) focused = "filt" }) { popup = VPopup.Filters("look") }
         }
     }
 
@@ -281,10 +292,7 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
             onReset = { set(COLOUR_ROW_KEYS.associateWith { it.default }) })
         is VPopup.Picture -> PicturePopups(p.page, picCtx) { next -> popup = next?.let { VPopup.Picture(it) } }
         VPopup.Sharpen -> SharpenPopup(v, onDismiss = { popup = null }, onSet = { k, s -> set(k, s) })
-        is VPopup.Advanced -> AdvancedPopup(context, v, p.row, { dot(it) }, onDismiss = { popup = null },
-            onOpen = { k, row -> popup = VPopup.Choice(k, VPopup.Advanced(row)) },
-            onFilters = { popup = VPopup.Filters("look") })
-        is VPopup.Filters -> FiltersPopup(v, p.row, { dot(it) }, onDismiss = { popup = VPopup.Advanced("filters") },
+        is VPopup.Filters -> FiltersPopup(v, p.row, { dot(it) }, onDismiss = { popup = null },
             onLook = { popup = VPopup.Look },
             onChoice = { k, row -> popup = VPopup.Choice(k, VPopup.Filters(row)) },
             onToggle = { k -> set(k, if (k == VideoKey.Deinterlace) (if (v[k] == "bob") "weave" else "bob") else if (v.on(k)) "off" else "on") })
@@ -311,8 +319,7 @@ private val COLOUR_ROW_KEYS = COLOUR_KEYS + VideoKey.ColourBlind
 private val SHADER_KEYS = listOf(VideoKey.Shader, VideoKey.ShaderParams, VideoKey.ShaderScale, VideoKey.SlangParams)
 private val SIDES_KEYS = listOf(VideoKey.Sides, VideoKey.SidesImage, VideoKey.SidesPlace, VideoKey.SidesRa, VideoKey.SidesRaOther)
 private val OVERLAY_KEYS = listOf(VideoKey.Overlay, VideoKey.OverlayImage, VideoKey.OverlayOpacity)
-private val ADVANCED_KEYS = listOf(VideoKey.Renderer, VideoKey.Driver, VideoKey.Pacing) + VideoKey.LOOK_KEYS +
-    listOf(VideoKey.Deinterlace, VideoKey.Supersample, VideoKey.NativeTexLod, VideoKey.NativeTexRect)
+private fun lookLabel(v: VideoSettings) = VideoChoices.look.firstOrNull { it.value == v.look }?.label ?: "Custom"
 
 private sealed class VPopup {
     /** [row]: the tab row it opened from, whose description is the popup's subtitle (review sheet L9). */
@@ -320,7 +327,6 @@ private sealed class VPopup {
     object Colour : VPopup()
     object Crop : VPopup()
     object Sharpen : VPopup()
-    data class Advanced(val row: String) : VPopup()
     data class Filters(val row: String) : VPopup()
     data class Extra(val kind: ExtraKind) : VPopup()
     object Look : VPopup()
@@ -344,7 +350,10 @@ private fun describe(row: String, v: VideoSettings): Pair<String, String> = when
     "sd" -> "Sides of the picture" to "What fills the screen beside the picture: the game blurred, the Joey64 frame or your own image."
     "ov" -> "Overlay" to "An image drawn over the game and its shader, such as a screen-glass or grid PNG."
     "bfi" -> "Black frame insertion" to "Experimental. On 120 Hz screens, a black frame between pictures: less motion blur, a darker picture and a little more lag. Does nothing on 60 Hz screens."
-    else -> "Renderer, driver, pacing" to "For when something looks or runs wrong. Auto is right for most people."
+    "rend" -> "Renderer" to "parallel-RDP draws like the real N64. GLideN64 is the fallback for GPUs that can't run it. Auto picks by GPU and game. Applies when the game next starts."
+    "drv" -> "GPU driver" to "Joey64's Turnip fixes parallel-RDP on Adreno GPUs. A driver that can't run falls back to the system's. Applies when the game next starts."
+    "pace" -> "Frame pacing" to "Lowest lag shows each frame as soon as it's ready. Steady shows each one for the same time on 120 Hz screens, for a little more lag. Steady, less lag is experimental. Applies when the game next starts."
+    else -> "N64 video filters" to "The N64's own picture filters, for parallel-RDP."
 }
 
 private fun allGamesNote(row: String, all: VideoSettings, gameCode: String? = null): String = when (row) {
@@ -589,41 +598,6 @@ private fun SharpenPopup(v: VideoSettings, onDismiss: () -> Unit, onSet: (VideoK
 
 /** What Auto picked at the last game start (MainActivity writes it). */
 private fun lastPick(context: Context, what: String): String? = context.getSharedPreferences("device", Context.MODE_PRIVATE).getString(what, null)
-
-/** Renderer, driver, pacing (mockup 5): two columns; each row opens its choices; N64 video filters opens its own popup. */
-@Composable
-private fun AdvancedPopup(context: Context, v: VideoSettings, startRow: String, own: (VideoKey) -> Boolean, onDismiss: () -> Unit,
-                          onOpen: (VideoKey, String) -> Unit, onFilters: () -> Unit) {
-    var row by remember { mutableStateOf(startRow) }
-    fun auto(k: VideoKey, pick: String?) = if (v[k] == "auto" && pick != null) "Auto · $pick" else VideoChoices.label(k, v[k])
-    val renderer = when (lastPick(context, "auto_renderer")) { "parallel" -> "parallel-RDP"; "gliden64" -> "GLideN64"; else -> null }
-    val driver = when (lastPick(context, "driver")) { "turnip" -> "Turnip Gen8"; "faux123" -> "Turnip faux123"; "system" -> "System"; "custom" -> "Your own"; else -> null }
-    val look = VideoChoices.look.firstOrNull { it.value == v.look }?.label ?: "Custom"
-    JoeyDialog(onDismiss = onDismiss, width = 680.dp, hints = listOf(Hint("A", "Change"), Hint("B", "Back"))) {
-        Column {
-            PopupTitle("Renderer, driver, pacing", "Auto is right for most people. Renderer, GPU driver and frame pacing apply when the game next starts.")
-            TwoColumns(Modifier.weight(1f, fill = false), gap = 18.dp, left = {
-                JoeyRow("Renderer", Modifier.initialFocus(startRow == "renderer"), value = auto(VideoKey.Renderer, renderer), sideways = true, dot = own(VideoKey.Renderer),
-                    onFocused = { if (it) row = "renderer" }) { onOpen(VideoKey.Renderer, "renderer") }
-                JoeyRow("GPU driver", Modifier.initialFocus(startRow == "driver"), value = auto(VideoKey.Driver, driver), sideways = true, dot = own(VideoKey.Driver),
-                    onFocused = { if (it) row = "driver" }) { onOpen(VideoKey.Driver, "driver") }
-                JoeyRow("Frame pacing", Modifier.initialFocus(startRow == "pacing"), value = VideoChoices.label(VideoKey.Pacing, v[VideoKey.Pacing]), sideways = true, dot = own(VideoKey.Pacing),
-                    experimental = VideoChoices.of(VideoKey.Pacing).any { it.value == v[VideoKey.Pacing] && it.experimental },
-                    onFocused = { if (it) row = "pacing" }) { onOpen(VideoKey.Pacing, "pacing") }
-            }) {
-                JoeyRow("N64 video filters", Modifier.initialFocus(startRow == "filters"), value = "$look  ›", sideways = true,
-                    dot = FILTER_KEYS.any(own), onFocused = { if (it) row = "filters" }) { onFilters() }
-            }
-            Spacer(Modifier.height(6.dp))
-            when (row) {
-                "renderer" -> DescriptionLine("Renderer", "parallel-RDP draws like the real N64. GLideN64 is the fallback for GPUs that can't run it. Auto picks by GPU and game.")
-                "driver" -> DescriptionLine("GPU driver", "Joey64's Turnip fixes parallel-RDP on Adreno GPUs. A driver that can't run falls back to the system's.")
-                "pacing" -> DescriptionLine("Frame pacing", "Lowest lag shows each frame as soon as it's ready. Steady shows each one for the same time on 120 Hz screens, for a little more lag. Steady, less lag is experimental.")
-                else -> DescriptionLine("N64 video filters", "The N64's own picture filters, for parallel-RDP.")
-            }
-        }
-    }
-}
 
 /** The rows inside N64 video filters: a dot on its row when the game has any of them (code audit 2026-11-07 note). */
 private val FILTER_KEYS = VideoKey.LOOK_KEYS + listOf(VideoKey.Deinterlace, VideoKey.Supersample, VideoKey.NativeTexLod, VideoKey.NativeTexRect)

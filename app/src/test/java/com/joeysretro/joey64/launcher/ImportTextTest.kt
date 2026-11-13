@@ -13,9 +13,9 @@ class ImportTextTest {
     private fun at(y: Int, mo: Int, d: Int, h: Int, mi: Int) = LocalDateTime.of(y, mo, d, h, mi).atZone(zone).toInstant().toEpochMilli()
 
     @Test fun counts() {
-        assertEquals("104 saves and 119 states", ImportText.counts(104, 119))
-        assertEquals("1 save and 1 state", ImportText.counts(1, 1))
-        assertEquals("3 states", ImportText.counts(0, 3))
+        assertEquals("104 saves and 119 save states", ImportText.counts(104, 119))
+        assertEquals("1 save and 1 save state", ImportText.counts(1, 1))
+        assertEquals("3 save states", ImportText.counts(0, 3))
         assertEquals("1 save", ImportText.counts(1, 0))
         assertEquals("", ImportText.counts(0, 0))
     }
@@ -31,14 +31,14 @@ class ImportTextTest {
 
     @Test fun clashTitles() {
         assertEquals("Super Mario 64 (USA) already has a save in Joey64", ImportText.clashTitle(DataKind.Saves, "Super Mario 64 (USA).srm"))
-        assertEquals("Ocarina of Time already has a state in slot 3", ImportText.clashTitle(DataKind.States, "Ocarina of Time.state3"))
-        assertEquals("Ocarina of Time already has a state in slot 0", ImportText.clashTitle(DataKind.States, "Ocarina of Time.state"))
-        assertEquals("Ocarina of Time already has an auto state in Joey64", ImportText.clashTitle(DataKind.States, "Ocarina of Time.state.auto"))
+        assertEquals("Ocarina of Time already has a save state in slot 3", ImportText.clashTitle(DataKind.States, "Ocarina of Time.state3"))
+        assertEquals("Ocarina of Time already has a save state in slot 0", ImportText.clashTitle(DataKind.States, "Ocarina of Time.state"))
+        assertEquals("Ocarina of Time already has an auto save state in Joey64", ImportText.clashTitle(DataKind.States, "Ocarina of Time.state.auto"))
     }
 
     @Test fun clashQuestion() {
         assertEquals("Which save do you want to keep? 1 of 3 clashes.", ImportText.clashQuestion(DataKind.Saves, 1, 3))
-        assertEquals("Which state do you want to keep?", ImportText.clashQuestion(DataKind.States, 1, 1))
+        assertEquals("Which save state do you want to keep?", ImportText.clashQuestion(DataKind.States, 1, 1))
     }
 
     @Test fun dates() {

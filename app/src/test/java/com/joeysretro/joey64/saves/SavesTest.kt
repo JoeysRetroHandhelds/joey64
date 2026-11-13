@@ -58,7 +58,7 @@ class SavesTest {
         assertEquals("Mario.state.auto2", StateSlots.fileName("Mario", StateSlots.auto(2)))
         assertEquals("Mario.state.auto10", StateSlots.fileName("Mario", StateSlots.auto(10)))
         assertEquals("Mario.state9", StateSlots.fileName("Mario", 10))
-        assertEquals("Auto 3", StateSlots.label(StateSlots.auto(3)))
+        assertEquals("Auto save state 3", StateSlots.label(StateSlots.auto(3)))
         assertEquals("Slot 4", StateSlots.label(4))
         assertTrue(StateSlots.isAuto(StateSlots.auto(10)))
         assertFalse(StateSlots.isAuto(StateSlots.auto(10) + 1))

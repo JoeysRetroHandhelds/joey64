@@ -125,6 +125,26 @@ class ControlsTest {
         assertEquals(pm, Hotkeys.fromJson(pm.toJson()))
     }
 
+    /** Joey 2026-11-13: Screenshot and the GameShark button aren't mapped by default; older files lose those old defaults. */
+    @Test fun screenshotAndGameSharkAreNotSetByDefault() {
+        val y = KeyEvent.KEYCODE_BUTTON_Y
+        val l3 = KeyEvent.KEYCODE_BUTTON_THUMBL
+        assertNull(Hotkeys().keys[HotkeyAction.Screenshot])
+        assertNull(Hotkeys().keys[HotkeyAction.GameShark])
+        // A version 4 file saved every default: Y and L3 go.
+        val v4 = Hotkeys.fromJson(JSONObject("""{"version":4,"button":109,"keys":{"Screenshot":$y,"GameShark":$l3,"Stats":${KeyEvent.KEYCODE_BUTTON_X}}}"""))
+        assertNull(v4.keys[HotkeyAction.Screenshot])
+        assertNull(v4.keys[HotkeyAction.GameShark])
+        assertEquals(KeyEvent.KEYCODE_BUTTON_X, v4.keys[HotkeyAction.Stats])
+        // Another button picked for them stays, and so does a pick on its own (no hotkey button).
+        val picked = Hotkeys.fromJson(JSONObject("""{"version":4,"button":109,"keys":{"Screenshot":${KeyEvent.KEYCODE_BUTTON_R1},"GameShark":$l3},"alone":["PauseMenu","GameShark"]}"""))
+        assertEquals(KeyEvent.KEYCODE_BUTTON_R1, picked.keys[HotkeyAction.Screenshot])
+        assertEquals(l3, picked.keys[HotkeyAction.GameShark])
+        // From version 5 on, Y or L3 saved for them is the user's own pick.
+        val mine = Hotkeys().withKey(HotkeyAction.Screenshot, y).withKey(HotkeyAction.GameShark, l3)
+        assertEquals(mine, Hotkeys.fromJson(mine.toJson()))
+    }
+
     /** Joey 2026-11-12: the newest pick wins; a hotkey never sits on the hotkey button's own key ("L3 + L3"). */
     @Test fun theHotkeyButtonAndAHotkeyNeverShareAKey() {
         val l3 = KeyEvent.KEYCODE_BUTTON_THUMBL

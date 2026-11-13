@@ -100,11 +100,15 @@ fun LauncherRail(selected: RailPlace, focus: BarFocus, modifier: Modifier = Modi
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Image(painterResource(R.drawable.rail_logo), contentDescription = "Joey64", modifier = Modifier.padding(end = 12.dp).size(32.dp))
+        // The tabs' height (Joey 2026-11-13: "fix the joey64 logo not being the same size as the highlighted tab"; was 32 dp).
+        Image(painterResource(R.drawable.rail_logo), contentDescription = "Joey64", modifier = Modifier.padding(end = 12.dp).size(TOP_ITEM_HEIGHT))
         for (place in places) TopItem(place, place == selected, enabled,
             Modifier.focusRequester(requesters.getValue(place)).onFocusChanged { if (it.isFocused) onPlaceFocused(place) }) { onSelect(place) }
     }
 }
+
+/** A top bar pill's height; the J64 logo before them is the same size. */
+private val TOP_ITEM_HEIGHT = 38.dp
 
 /** A pill on the top bar: icon and name; filled yellow when it's the place you're on. */
 @Composable
@@ -116,7 +120,7 @@ private fun TopItem(place: RailPlace, on: Boolean, enabled: Boolean, modifier: M
         else Modifier.rowSelection(focused, shape)
     androidx.compose.foundation.layout.Row(
         modifier = modifier
-            .height(38.dp)
+            .height(TOP_ITEM_HEIGHT)
             .then(look)
             .focusProperties { canFocus = enabled }
             .pressable(source, onClick = onClick)

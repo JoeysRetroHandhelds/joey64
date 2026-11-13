@@ -37,7 +37,7 @@ class GameSettingsModelTest {
     @Test fun nothingOfItsOwn() {
         val s = model().summary(banjo)
         assertEquals(0, s.total)
-        assertEquals("Same as All games", s.label)
+        assertEquals("Global", s.label)
         assertTrue(model().parts(banjo).isEmpty())
     }
 

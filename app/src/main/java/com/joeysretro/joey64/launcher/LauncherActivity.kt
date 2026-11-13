@@ -361,7 +361,9 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                                     ImportScreen(importModel, s.dataFolder) { importAgain = false }
                                 }
                                 gameSettingsFor != null -> androidx.compose.runtime.key(gameSettingsFor) {
-                                    com.joeysretro.joey64.launcher.screens.GameSettingsScreen(gameSettingsFor!!, onHints = { settingsHints = it }) { backFromGamePage { model.closeGameSettings(back = true) } }
+                                    androidx.compose.runtime.CompositionLocalProvider(com.joeysretro.joey64.launcher.components.LocalTabsTakePageKeys provides true) {
+                                        com.joeysretro.joey64.launcher.screens.GameSettingsScreen(gameSettingsFor!!, onHints = { settingsHints = it }) { backFromGamePage { model.closeGameSettings(back = true) } }
+                                    }
                                 }
                                 savesFor != null -> androidx.compose.runtime.key(savesFor) {
                                     com.joeysretro.joey64.launcher.screens.SavesScreen(savesFor!!, onHints = { settingsHints = it },
@@ -377,13 +379,13 @@ private fun LauncherApp(model: LibraryModel, importModel: ImportModel, updates: 
                                     com.joeysretro.joey64.launcher.screens.GameAchievementsScreen(achievementsFor!!, onHints = { settingsHints = it }) { backFromGamePage { model.closeAchievements(back = true) } }
                                 }
                                 place == RailPlace.Achievements -> com.joeysretro.joey64.launcher.screens.AchievementsScreen(onHints = { settingsHints = it }) { backFromPage() }
-                                place == RailPlace.Settings -> SettingsScreen(updates, model, onHints = { settingsHints = it }, startTab = settingsTab,
+                                place == RailPlace.Settings -> androidx.compose.runtime.CompositionLocalProvider(com.joeysretro.joey64.launcher.components.LocalTabsTakePageKeys provides true) { SettingsScreen(updates, model, onHints = { settingsHints = it }, startTab = settingsTab,
                                     startRow = if (settingsTab == com.joeysretro.joey64.launcher.screens.SettingsTab.Saves) "import" else null,
                                     onImport = { importModel.restart(); settingsTab = com.joeysretro.joey64.launcher.screens.SettingsTab.Saves; importAgain = true }) {
                                     backFromPage()
                                     if (place != RailPlace.Settings) settingsTab = com.joeysretro.joey64.launcher.screens.SettingsTab.entries.first()
-                                }
-                                place == RailPlace.Controls -> ControlsScreen(onHints = { settingsHints = it }) { backFromPage() }
+                                } }
+                                place == RailPlace.Controls -> androidx.compose.runtime.CompositionLocalProvider(com.joeysretro.joey64.launcher.components.LocalTabsTakePageKeys provides true) { ControlsScreen(onHints = { settingsHints = it }) { backFromPage() } }
                                 // Search is part of the Library (Joey 2026-11-12, not on the bar): B goes back to what opened
                                 // it, the Search chip or the tile Y was pressed on (A8).
                                 place == RailPlace.Search -> com.joeysretro.joey64.launcher.screens.SearchScreen(model, onHints = { settingsHints = it }) {

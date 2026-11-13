@@ -314,7 +314,7 @@ fun LibraryTab(library: LibraryModel, onHints: (List<Hint>) -> Unit, modifier: M
                     val n = leaving ?: counts[tree] ?: 0
                     PopupTitle("Remove ${name.first}?", if (leaving == 0) "Its games are in another folder too, so the library stays the same."
                         else (if (n == 1) "1 game leaves" else "$n games leave") +
-                            " the library. Their saves, states, play time and collections stay, and come back if you add the folder again.")
+                            " the library. Their saves, save states, play time and collections stay, and come back if you add the folder again.")
                     JoeyRow("Keep it", Modifier.initialFocus(true)) { removing = null }
                     JoeyRow("Remove from the library") {
                         removing = null
@@ -374,7 +374,7 @@ private fun describe(key: String): Pair<String, String> = when (key) {
     "names" -> "Names" to "Whether the library shows game names: under every cover, only on games without box art, or not at all."
     "style" -> "Name style" to "Short leaves out the tags in brackets. Full keeps them, which tells apart two versions of a game."
     "tidy" -> "Tidy names" to "Puts a name's The, A or An back in front: Legend of Zelda, The shows as The Legend of Zelda. The order of the library stays the same."
-    "folders" -> "ROM folders" to "Where Joey64 finds your games. Removing one keeps their saves, states and play time."
+    "folders" -> "ROM folders" to "Where Joey64 finds your games. Removing one keeps their saves, save states and play time."
     "look" -> "Look for new games" to "When Joey64 reads the ROM folders for new, changed and removed games. A folder you add is always read."
     "now" -> "Look now" to "Reads the ROM folders for new, changed and removed games."
     "art" -> "Download box art" to "Covers from ScreenScraper, once per game. Off: no downloads; covers already here stay."

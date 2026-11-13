@@ -586,7 +586,7 @@ internal fun CarryOnPopup(ask: LibraryModel.AskContinue, model: LibraryModel, on
     val cover by com.joeysretro.joey64.launcher.boxart.rememberCover(model.cover(ask.game))
     val canAlways = focused == com.joeysretro.joey64.states.StateSlots.AUTO || focused == FRESH
     val narrow = com.joeysretro.joey64.launcher.layout.LocalScreenLayout.current.singleColumnSettings
-    fun name(slot: Int) = if (slot == com.joeysretro.joey64.states.StateSlots.AUTO) "Where you quit" else com.joeysretro.joey64.states.StateSlots.label(slot)
+    fun name(slot: Int) = if (slot == com.joeysretro.joey64.states.StateSlots.AUTO) "Auto save state" else com.joeysretro.joey64.states.StateSlots.label(slot)
     fun date(at: Long): String {
         val d = com.joeysretro.joey64.launcher.ingame.SlotDates.withTime(at, now)
         return if (now - at < 24 * 60 * 60 * 1000L) "$d · ${quitAgo(at, now)}" else d
@@ -605,8 +605,8 @@ internal fun CarryOnPopup(ask: LibraryModel.AskContinue, model: LibraryModel, on
                     for (s in ask.states) {
                         val group = when {
                             s.slot == com.joeysretro.joey64.states.StateSlots.AUTO -> ""
-                            com.joeysretro.joey64.states.StateSlots.isAuto(s.slot) -> "OLDER QUIT SAVES"
-                            else -> "SLOTS"
+                            com.joeysretro.joey64.states.StateSlots.isAuto(s.slot) -> "OLDER AUTO SAVE STATES"
+                            else -> "SAVE STATE SLOTS"
                         }
                         if (group != lastGroup && group.isNotEmpty()) com.joeysretro.joey64.launcher.components.SectionLabel(group)
                         lastGroup = group
@@ -631,7 +631,7 @@ internal fun CarryOnPopup(ask: LibraryModel.AskContinue, model: LibraryModel, on
                     }
                     val at = ask.states.firstOrNull { it.slot == focused }?.savedAt
                     Text(if (focused == FRESH) "Start fresh" else name(focused), style = JoeyTheme.type.rowBold, color = c.text, modifier = Modifier.padding(top = 8.dp))
-                    Text(if (focused == FRESH) "The game starts as if you just turned it on. Your states stay where they are." else at?.let(::date).orEmpty(),
+                    Text(if (focused == FRESH) "The game starts as if you just turned it on. Your save states stay where they are." else at?.let(::date).orEmpty(),
                         // Two lines kept for it whichever row has focus, so the popup doesn't grow on Start fresh (Thor 2026-11-12).
                         style = JoeyTheme.type.small, color = c.textDim, minLines = 2, maxLines = 2)
                 }

@@ -25,8 +25,8 @@ enum class BackupPart { Saves, Screenshots, Settings }
 
 /** Back up Joey64's popup: Everything, Saves only, Settings only. */
 enum class BackupChoice(val label: String, val detail: String, val parts: Set<BackupPart>) {
-    Everything("Everything", "Saves, states, screenshots, settings, library lists", BackupPart.entries.toSet()),
-    SavesOnly("Saves only", "In-game saves and states", setOf(BackupPart.Saves)),
+    Everything("Everything", "Saves, save states, screenshots, settings, library lists", BackupPart.entries.toSet()),
+    SavesOnly("Saves only", "In-game saves and save states", setOf(BackupPart.Saves)),
     SettingsOnly("Settings only", "Settings, favourites, collections, play time", setOf(BackupPart.Settings)),
 }
 

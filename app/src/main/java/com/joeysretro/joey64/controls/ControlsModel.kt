@@ -258,7 +258,8 @@ enum class HotkeyAction(val label: String, /** null: not set until the user pick
     SlowMotion("Slow motion", null),
     /** Held: the game goes back in time while [Hotkeys.rewindOn] records (same mockup). Hotkey button + L2, the mirror of Fast-forward. */
     Rewind("Rewind", KeyEvent.KEYCODE_BUTTON_L2),
-    Screenshot("Screenshot", KeyEvent.KEYCODE_BUTTON_Y),
+    /** Not set by default (Joey 2026-11-13: "dont auto map hotkeys for screenshot and gameshark"; was hotkey button + Y). */
+    Screenshot("Screenshot", null),
     /** Steps Settings › On screen › Stats: Off, Simple, Full, Custom (approved Stats overlay mockup, 2026-11-07). */
     Stats("Stats overlay", KeyEvent.KEYCODE_BUTTON_X),
     /** Opens the pause menu's Achievements page; B goes back to the game. */
@@ -267,8 +268,8 @@ enum class HotkeyAction(val label: String, /** null: not set until the user pick
     UndoLoad("Undo load state", null),
     UndoSave("Undo save state", null),
     Turbo("Turbo", null),
-    /** Held for as long as the buttons are (approved 2026-11-07). */
-    GameShark("GameShark button", KeyEvent.KEYCODE_BUTTON_THUMBL),
+    /** Held for as long as the buttons are (approved 2026-11-07). Not set by default (Joey 2026-11-13; was hotkey button + L3). */
+    GameShark("GameShark button", null),
     /** Not set by default (Joey 2026-11-07). */
     Reset("Reset game", null),
     /** Hotkey button + Start (Joey 2026-11-07; was + B, and Start was Reset). */
@@ -358,8 +359,10 @@ data class Hotkeys(
          * 3 (Joey 2026-11-07): fast-forward hotkey button + R2 (was R3 on its own; version 2 had none),
          * Quit + Start (was + B), Reset not set (was + Start). Files before it saved every default, so
          * those old defaults are moved; anything else the user picked stays.
+         * 5 (Joey 2026-11-13): Screenshot and the GameShark button Not set (were hotkey button + Y and + L3); a file before
+         * it that still has those old defaults gets them cleared.
          */
-        const val VERSION = 4
+        const val VERSION = 5
         val ALONE_DEFAULT: Set<HotkeyAction> = HotkeyAction.entries.filter { it.aloneByDefault }.toSet()
         val FF_SPEEDS = (125..400 step 25).toList()
         const val FF_SPEED_DEFAULT = 400
@@ -397,6 +400,14 @@ data class Hotkeys(
             else -> v
         }
 
+        /** Version 5's move: the old defaults of the two actions that are Not set now (with the hotkey button, as they were). */
+        private fun unmapped5(a: HotkeyAction, v: Int?, alone: Boolean): Int? = when {
+            alone -> v
+            a == HotkeyAction.Screenshot && v == KeyEvent.KEYCODE_BUTTON_Y -> null
+            a == HotkeyAction.GameShark && v == KeyEvent.KEYCODE_BUTTON_THUMBL -> null
+            else -> v
+        }
+
         fun fromJson(o: JSONObject): Hotkeys {
             val d = Hotkeys()
             val k = o.optJSONObject("keys")
@@ -409,6 +420,7 @@ data class Hotkeys(
                 if (k == null || !k.has(a.name)) a.default else k.optInt(a.name, -1).takeIf { it >= 0 }
             }
             var picked = if (!old || k == null) keys else keys.mapValues { (a, v) -> if (k.has(a.name)) migrated(a, v) else v }
+            if (k != null && o.optInt("version", 1) < 5) picked = picked.mapValues { (a, v) -> unmapped5(a, v, a in alone) }
             // A file from before an action existed gets its default, unless the user already gave that button to another.
             if (k != null) for (a in HotkeyAction.entries) if (!k.has(a.name) && a.default != null &&
                 picked.any { (b, v) -> b != a && (b in alone) == (a in alone) && v == a.default }) picked = picked + (a to null)

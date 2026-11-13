@@ -39,7 +39,7 @@ object NoSpace {
         }
         val n = SaveManager.sizeLabel(need)
         return when (what) {
-            What.State -> "${slot ?: "The state"} wasn't saved. Your data folder $on has $f free, and a state needs about $n. " +
+            What.State -> "${slot ?: "The save state"} wasn't saved. Your data folder $on has $f free, and a save state needs about $n. " +
                 "Free some space, or change the data folder in Settings › Saves."
             What.Screenshot -> "The screenshot wasn't saved. Your data folder $on has $f free, and a screenshot needs about $n. " +
                 "Free some space, or change the data folder in Settings › Saves."

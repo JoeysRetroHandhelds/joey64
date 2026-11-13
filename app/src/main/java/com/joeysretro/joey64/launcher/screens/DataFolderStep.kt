@@ -83,7 +83,7 @@ fun DataFolderStep(debugOnly: Boolean = false, onDone: () -> Unit) {
     SetupPage {
         val u = using
         when {
-            moving -> SetupHeading("Moving your saves, states and screenshots")
+            moving -> SetupHeading("Moving your saves, save states and screenshots")
             failed -> {
                 SetupHeading("Couldn't use that folder")
                 SetupBody("Joey64 couldn't write there. Pick another folder, or keep them in Joey64 for now.")
@@ -93,7 +93,7 @@ fun DataFolderStep(debugOnly: Boolean = false, onDone: () -> Unit) {
                 }
             }
             u == null -> {
-                SetupHeading("Where should Joey64 keep saves, states and screenshots?")
+                SetupHeading("Where should Joey64 keep saves, save states and screenshots?")
                 SetupBody("Pick a folder you can reach from a file manager or a sync app, like a Joey64 folder on internal storage or your SD card.")
                 ButtonRow(Modifier.padding(top = SetupButtonsTop)) {
                     JoeyButton("Choose folder", primary = true, modifier = Modifier.initialFocus(), onClick = choose)
@@ -102,7 +102,7 @@ fun DataFolderStep(debugOnly: Boolean = false, onDone: () -> Unit) {
                 SetupSmall("You can change this later in Settings › Saves.")
             }
             else -> {
-                SetupHeading("Saves, states and screenshots go here")
+                SetupHeading("Saves, save states and screenshots go here")
                 FolderBox(u.place, u.folders, Modifier.padding(top = 16.dp), subs = "saves · states · screenshots")
                 ButtonRow(Modifier.padding(top = SetupButtonsTop)) {
                     JoeyButton("Continue", primary = true, modifier = Modifier.initialFocus(), onClick = onDone)

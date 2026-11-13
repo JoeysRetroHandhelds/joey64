@@ -143,8 +143,9 @@ private fun GameSettingsContent(game: GameRef, inGame: Boolean, sink: ControlsSi
         when (val v = view) {
             GsView.Page -> false
             is GsView.Tabs -> when (ctl) {
-                Control.TabPrev, Control.TabNext -> {
-                    val i = TAB_PARTS.indexOf(v.part) + if (ctl == Control.TabNext) 1 else TAB_PARTS.size - 1
+                // L2 / R2 as on Settings and Controls (Joey 2026-11-13).
+                Control.TabPrev, Control.TabNext, Control.PagePrev, Control.PageNext -> {
+                    val i = TAB_PARTS.indexOf(v.part) + if (ctl == Control.TabNext || ctl == Control.PageNext) 1 else TAB_PARTS.size - 1
                     show(GsView.Tabs(TAB_PARTS[i % TAB_PARTS.size], null)); true
                 }
                 else -> tabControl?.invoke(ctl) ?: false
@@ -237,7 +238,7 @@ private fun GamePage(game: GameRef, summary: GameSummary, inGame: Boolean, focus
     val (title, text) = when {
         focused == GamePart.Video.name -> "Video" to when {
             summary.count(GamePart.Video) == 0 -> "$name follows All games' Video. Change a row there to give it its own."
-            inGame -> "$name's own Video settings. Most rows apply when you go back to the game. Resolution and the Renderer, driver, pacing rows apply when it next starts."
+            inGame -> "$name's own Video settings. Most rows apply when you go back to the game. Resolution, Renderer, GPU driver and Frame pacing apply when it next starts."
             else -> "$name's own Video settings. The rows with a dot are its own; the rest follow All games."
         }
         focused == GamePart.Emulation.name -> "Emulation" to when {
@@ -319,7 +320,7 @@ private fun GamePopupsFor(game: GameRef, summary: GameSummary, model: GameSettin
                     val has = p in own
                     JoeyRow(p.label, if (i == 0 && !fromPick) Modifier.initialFocus() else Modifier,
                         value = if (has && p in picked) "On" else "Off", enabled = has,
-                        detail = if (has) rows(summary.count(p)) else "Same as All games, nothing to copy") {
+                        detail = if (has) rows(summary.count(p)) else "Global, nothing to copy") {
                         if (has) picked = if (p in picked) picked - p else picked + p
                     }
                 }

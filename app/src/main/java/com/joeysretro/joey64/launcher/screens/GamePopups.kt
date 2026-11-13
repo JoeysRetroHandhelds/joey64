@@ -93,12 +93,16 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
     val inDetails = popup == GamePopup.Details
     // Achievements only while signed in to RetroAchievements (approved: no signed-out state).
     val signedIn = com.joeysretro.joey64.achievements.RaBridge.account.collectAsState().value != null
-    // Game settings' value (approved mockup 2026-11-07): "3 changed" or "Same as All games".
+    // Game settings' value (approved mockup 2026-11-07): "3 changed" or "Global".
     // Opened again after a page (A8), they start with the values they last had, so the row focus goes back to is there.
     val kept = model.optionsLabels?.takeIf { it.first == game.id }
-    val gameSettings by produceState(kept?.second, game.id) { value = model.gameSettingsLabel(game) }
+    // Their rows are there from the first frame, values filled in once read (Joey 2026-11-13: the card opened, then
+    // grew by three rows when these arrived, slowest with the data folder on an SD card).
+    var settingsRead by remember(game.id) { mutableStateOf(kept != null) }
+    var countsRead by remember(game.id) { mutableStateOf(kept != null) }
+    val gameSettings by produceState(kept?.second, game.id) { value = model.gameSettingsLabel(game); settingsRead = true }
     // Saves' and Screenshots' values (approved mockup 2026-11-08, screen 1): "3 states", "8".
-    val counts by produceState(kept?.third, game.id) { value = model.savesCounts(game) }
+    val counts by produceState(kept?.third, game.id) { value = model.savesCounts(game); countsRead = true }
     LaunchedEffect(game.id, gameSettings, counts) { model.optionsLabels = Triple(game.id, gameSettings, counts) }
     // A row picked in this popup (Details, Version, Add to collection) wins over the row a page was opened from.
     val back = backRow.takeIf { from == null }
@@ -158,14 +162,22 @@ fun GamePopups(game: LibraryGame, popup: GamePopup, model: LibraryModel, onPopup
                     if (model.onePlayerOnly(game)) JoeyOption("Netplay", value = "1 player only", enabled = false) {}
                     else JoeyOption("Netplay", modifier = at("netplay"), value = "›") { onPopup(null); model.openNetplay(game, fromOptions = true) }
                     JoeyOption("Details", modifier = Modifier.initialFocus(from == GamePopup.Details)) { from = GamePopup.Details; onPopup(GamePopup.Details) }
-                    gameSettings?.let { JoeyOption("Game settings", modifier = at("settings"), value = "$it  ›") {
-                        model.openGameSettings(game) { onPopup(null) }; model.openedFromOptions(game.id, "settings") } }
+                    // Left out only once read as having no readable file.
+                    if (gameSettings != null || !settingsRead) JoeyOption("Game settings", modifier = at("settings"),
+                        value = gameSettings?.let { "$it  ›" } ?: "›") {
+                        model.openGameSettings(game) { onPopup(null) }; model.openedFromOptions(game.id, "settings") }
                     com.joeysretro.joey64.launcher.components.PopupDivider()
                     JoeyOption("Cheats", modifier = at("cheats"), value = "›") { model.openCheats(game) { onPopup(null) }; model.openedFromOptions(game.id, "cheats") }
                     // no onPopup(null): see openCheats
                     if (signedIn) JoeyOption("Achievements", modifier = at("achievements"), value = "›") {
                         model.openAchievements(game); model.openedFromOptions(game.id, "achievements") }
                     // Saves always opens (on the empty save when there's none); Screenshots is grey with none.
+                    if (counts == null && !countsRead) {
+                        // Still reading: the two rows hold their places.
+                        JoeyOption("Saves", modifier = at("saves"), value = "›") {
+                            model.openSaves(game) { onPopup(null) }; model.openedFromOptions(game.id, "saves") }
+                        JoeyOption("Screenshots", value = "", enabled = false) {}
+                    }
                     counts?.let { n ->
                         JoeyOption("Saves", modifier = at("saves"), value = "${n.statesLabel}  ›") {
                             model.openSaves(game) { onPopup(null) }; model.openedFromOptions(game.id, "saves") }
@@ -213,7 +225,7 @@ private fun VersionsBody(v: com.joeysretro.joey64.launcher.library.LibraryArrang
         val detail = listOfNotNull(
             own.takeIf { it.lowercase() != name },
             copy.playSeconds.takeIf { it > 0 }?.let { "Played " + DetailsText.playTime(it).replaceFirstChar { c -> c.lowercase() } },
-            states?.takeIf { it > 0 }?.let { if (it == 1) "1 state" else "$it states" },
+            states?.takeIf { it > 0 }?.let { if (it == 1) "1 save state" else "$it save states" },
         ).joinToString(com.joeysretro.joey64.launcher.library.CopyLabels.SEPARATOR).ifEmpty { null }
         val plays = copy.id == v.plays.id
         JoeyRow(labels.getOrNull(i)?.ifEmpty { null } ?: copy.title, Modifier.initialFocus(plays), detail = detail,

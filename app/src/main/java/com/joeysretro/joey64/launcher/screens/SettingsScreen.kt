@@ -84,7 +84,7 @@ enum class SettingsTab(val label: String, /** The panel's help while the tab row
     Emulation("Emulation", "Overclock, the CPU core, the Expansion Pak and thermal fallback, for every game or one."),
     Audio("Audio", "Volume, latency and the fast-forward sound, for every game or one."),
     OnScreen("On screen", "The stats overlay and the pop-ups shown during play."),
-    Saves("Saves", "Quit saves, Continue on Play, backups, the data folder and importing from RetroArch."),
+    Saves("Saves", "Auto save states, Continue on Play, backups, the data folder and importing from RetroArch."),
     Library("Library", "How the library sorts and shows games, the ROM folders, BIOS and downloads."),
     RetroAchievements("RetroAchievements", "Your account, the unlock pop-ups and sound, and offline unlocks."),
     About("About", "This version and its updates, reports, logs, licences and credits."),
@@ -148,8 +148,9 @@ fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher
             when (ctl) {
                 // Armed here, at the press: by the time LaunchedEffect(tab) runs, the old page's focused row is gone
                 // and focus may have fallen onto the tab row, which skipped the landing (outline left on the tabs).
-                Control.TabPrev -> { if (!onTabs) landing?.arm(); tab = tabs[(tab.ordinal + tabs.size - 1) % tabs.size]; true }
-                Control.TabNext -> { if (!onTabs) landing?.arm(); tab = tabs[(tab.ordinal + 1) % tabs.size]; true }
+                // L2 / R2 too (Joey 2026-11-13): in the launcher L1 / R1 move along the top bar, so they are the tabs' keys.
+                Control.TabPrev, Control.PagePrev -> { if (!onTabs) landing?.arm(); tab = tabs[(tab.ordinal + tabs.size - 1) % tabs.size]; true }
+                Control.TabNext, Control.PageNext -> { if (!onTabs) landing?.arm(); tab = tabs[(tab.ordinal + 1) % tabs.size]; true }
                 Control.Options -> { if (tab in RESETTABLE && !(tab == SettingsTab.Saves && savesBusy)) resetAsk = true; true }
                 else -> tabControl?.invoke(ctl) ?: false
             }
@@ -237,7 +238,7 @@ fun SettingsScreen(updates: UpdateModel, library: com.joeysretro.joey64.launcher
             val note = when (tab) {
                 SettingsTab.Video, SettingsTab.Emulation, SettingsTab.Audio -> "Every row goes back to its default for All games. Games with their own ${tab.label} settings keep them."
                 SettingsTab.OnScreen -> "Every row goes back to its default. The achievement pop-ups are RetroAchievements' too, so they change there as well."
-                SettingsTab.Saves -> "Every row goes back to its default. The data folder, your saves, states and backups stay as they are."
+                SettingsTab.Saves -> "Every row goes back to its default. The data folder, your saves, save states and backups stay as they are."
                 else -> "Every row goes back to its default."
             }
             ResetTabPopup("Reset ${tab.label}?", note, "Keep my settings", "Reset to defaults", close) {

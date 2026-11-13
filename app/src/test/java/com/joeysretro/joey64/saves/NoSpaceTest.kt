@@ -14,7 +14,7 @@ class NoSpaceTest {
     }
 
     @Test fun textAsDrawn() {
-        assertEquals("Slot 3 wasn't saved. Your data folder on the SD card has 1.0 MB free, and a state needs about 4.0 MB. " +
+        assertEquals("Slot 3 wasn't saved. Your data folder on the SD card has 1.0 MB free, and a save state needs about 4.0 MB. " +
             "Free some space, or change the data folder in Settings › Saves.",
             NoSpace.text(NoSpace.What.State, "Slot 3", "SD card", 1024L * 1024, 4L * 1024 * 1024))
     }

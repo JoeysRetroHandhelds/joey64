@@ -46,14 +46,26 @@ class TreeSpace(
      * write took the file for missing and created "name (1)" beside it, which then got the save (code audit 2026-11-07).
      */
     private fun childrenOrNull(docId: String): List<Child>? {
-        synchronized(lock) { listings[docId] }?.let { return it }
+        val seen = synchronized(lock) { listings[docId]?.let { return it }; generation(docId) }
         val out = query(docId) ?: return null
-        synchronized(lock) { listings[docId] = out }
+        // Kept only when nothing in the folder changed while it was read. A listing begun before another thread
+        // created its file, and finished after, left that file out of the cache for good: its rename found nothing
+        // and its clean-up delete took it for gone, so the copy stayed a .joey64-part (Thor 2026-11-13, Import from
+        // RetroArch on 4 threads into an SD card folder: 41 of 222 files).
+        synchronized(lock) { if (generation(docId) == seen) listings[docId] = out }
         return out
     }
 
+    /** Folder document id → how many times something in it changed here; [forgetDirs] bumps [epoch] for all. */
+    private val generations = HashMap<String, Long>()
+    private var epoch = 0L
+    private fun generation(docId: String) = (generations[docId] ?: 0L) + (epoch shl 32)
+
     /** Drops the cached listing of the folder [docId], after something in it changed. */
-    private fun changed(docId: String) = synchronized(lock) { listings.remove(docId) }
+    private fun changed(docId: String) = synchronized(lock) {
+        listings.remove(docId)
+        generations[docId] = (generations[docId] ?: 0L) + 1
+    }
 
     private fun query(docId: String): List<Child>? {
         val uri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, docId)
@@ -93,6 +105,7 @@ class TreeSpace(
             dirIds.keys.removeAll { it.size >= dir.size && it.subList(0, dir.size) == dir }
             // Folder ids below it may be gone too; listings are cheap to read again.
             listings.clear()
+            epoch++
         }
     }
 
@@ -114,6 +127,14 @@ class TreeSpace(
     private fun childId(path: List<String>): Child? {
         if (path.isEmpty()) return null
         val parent = dirId(path.dropLast(1), create = false) ?: return null
+        return children(parent).firstOrNull { it.entry.name == path.last() }
+    }
+
+    /** [childId], with the folder read again once when it isn't there: for a rename or delete, which must not miss it. */
+    private fun childIdFresh(path: List<String>): Child? {
+        childId(path)?.let { return it }
+        val parent = dirId(path.dropLast(1), create = false) ?: return null
+        changed(parent)
         return children(parent).firstOrNull { it.entry.name == path.last() }
     }
 
@@ -172,7 +193,7 @@ class TreeSpace(
     }
 
     override fun rename(path: List<String>, newName: String): Boolean {
-        val child = childId(path) ?: return false
+        val child = childIdFresh(path) ?: return false
         val parent = dirId(path.dropLast(1), create = false)
         if (exists(path.dropLast(1) + newName)) return false
         return try {
@@ -187,7 +208,7 @@ class TreeSpace(
     }
 
     override fun delete(path: List<String>): Boolean {
-        val child = childId(path) ?: return true
+        val child = childIdFresh(path) ?: return true
         val parent = dirId(path.dropLast(1), create = false)
         return try {
             DocumentsContract.deleteDocument(resolver, documentUri(child.docId))

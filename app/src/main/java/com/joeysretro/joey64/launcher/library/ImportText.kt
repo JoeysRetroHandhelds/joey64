@@ -15,7 +15,7 @@ object ImportText {
     /** "104 saves and 119 states", "1 save", "3 states"; "" when both are 0. */
     fun counts(saves: Int, states: Int): String = listOfNotNull(
         if (saves > 0) plural(saves, "save") else null,
-        if (states > 0) plural(states, "state") else null,
+        if (states > 0) plural(states, "save state") else null,
     ).joinToString(" and ")
 
     private fun plural(n: Int, word: String) = if (n == 1) "1 $word" else "$n ${word}s"
@@ -32,9 +32,9 @@ object ImportText {
         if (kind == DataKind.Saves) return "$game already has a save in Joey64"
         val m = STATE.matchEntire(name)
         return when {
-            m == null -> "$game already has this state in Joey64"
-            m.groupValues[2] == ".auto" -> "$game already has an auto state in Joey64"
-            else -> "$game already has a state in slot ${m.groupValues[2].ifEmpty { "0" }}"
+            m == null -> "$game already has this save state in Joey64"
+            m.groupValues[2] == ".auto" -> "$game already has an auto save state in Joey64"
+            else -> "$game already has a save state in slot ${m.groupValues[2].ifEmpty { "0" }}"
         }
     }
 
@@ -48,7 +48,7 @@ object ImportText {
     fun useTheirs(kind: DataKind) = "Use RetroArch's ${noun(kind)}"
     fun doTheSame(others: Int) = "Do the same for the other $others"
 
-    private fun noun(kind: DataKind) = if (kind == DataKind.States) "state" else "save"
+    private fun noun(kind: DataKind) = if (kind == DataKind.States) "save state" else "save"
 
     /** "Today, 14:02", "2 Nov, 21:40", "2 Nov 2025" (another year), plus " · newer" on the newer file. */
     fun date(millis: Long, now: Long, zone: ZoneId, twentyFour: Boolean, newer: Boolean, locale: Locale = Locale.getDefault()): String {

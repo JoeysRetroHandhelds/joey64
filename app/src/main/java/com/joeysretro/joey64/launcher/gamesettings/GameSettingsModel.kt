@@ -36,11 +36,12 @@ data class GameChange(val part: GamePart, val name: String, val value: String, v
 data class GameSummary(val changes: List<GameChange>) {
     fun count(p: GamePart) = changes.count { it.part == p }
     val total get() = changes.size
-    /** The library's and pause menu's value: "3 changed", or "Same as All games". */
+    /** The library's and pause menu's value: "3 changed", or "Global". */
     val label get() = if (total == 0) SAME else "$total changed"
     fun partLabel(p: GamePart) = if (count(p) == 0) SAME else "${count(p)} changed"
 
-    companion object { const val SAME = "Same as All games" }
+    /** Joey 2026-11-13: "Global" (was "Same as All games"). */
+    companion object { const val SAME = "Global" }
 }
 
 /**

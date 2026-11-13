@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -103,7 +105,7 @@ interface PauseActions {
     fun closeGameSettings()
     /** The in-game Picture panel changed Shader, Sides or Overlay: the paused picture is drawn again with it. */
     fun pictureChanged() {}
-    /** The menu's Game settings value: "3 changed" or "Same as All games". */
+    /** The menu's Game settings value: "3 changed" or "Global". */
     val gameSettingsLabel: String get() = ""
     fun restartNow()
     fun restartLater()
@@ -247,7 +249,7 @@ fun PausePopup(screen: PauseScreen, title: String, saveSlotName: String, now: Lo
             is PauseScreen.Restart -> Column {
                 PopupTitle("Restart to use the new settings?", screen.subtitle)
                 com.joeysretro.joey64.launcher.components.JoeyRow("Restart now", Modifier.initialFocus(),
-                    detail = "Saves to the auto slot, then starts again from there") { actions.restartNow() }
+                    detail = "Keeps where you are, then starts again from there") { actions.restartNow() }
                 com.joeysretro.joey64.launcher.components.JoeyRow("Later", detail = "Keep playing as it is") { actions.restartLater() }
             }
             is PauseScreen.Controls, is PauseScreen.Cheats, is PauseScreen.Achievements, is PauseScreen.GameSettings, PauseScreen.SignIn,
@@ -270,7 +272,7 @@ private fun SlotGrid(picker: PauseScreen.Picker, now: Long, onFocus: (Int) -> Un
                     buildAnnotatedString {
                         withStyle(SpanStyle(color = c.text, fontWeight = FontWeight.Bold)) { append(sel.name) }
                         // Auto, dimmed when saving: says why (greyed items take focus, Joey 2026-11-12: "Focus them everywhere").
-                        append(" · " + if (picker.save && com.joeysretro.joey64.states.StateSlots.isAuto(sel.slot)) "Quitting saves here"
+                        append(" · " + if (picker.save && com.joeysretro.joey64.states.StateSlots.isAuto(sel.slot)) "Made when you quit"
                             else (sel.savedAt?.let { SlotDates.label(it, now) } ?: "Empty"))
                     },
                     style = JoeyTheme.type.small, color = c.textDim,
@@ -280,14 +282,19 @@ private fun SlotGrid(picker: PauseScreen.Picker, now: Long, onFocus: (Int) -> Un
         }
         Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 2.dp)) {
             // Older quit saves (Settings › Saves) make it longer than three rows of four: five to a row then.
-            for (row in picker.slots.chunked(if (picker.slots.size > 12) 5 else 4)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            // The cells share the row's width (fixed 100 dp cells overflowed the popup: the last column came out narrower,
+            // and "Auto save state 2" wrapped into its edge, Odin 2 Portal 2026-11-13).
+            val perRow = if (picker.slots.size > 12) 5 else 4
+            for (row in picker.slots.chunked(perRow)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     for (s in row) {
                         val off = picker.save && com.joeysretro.joey64.states.StateSlots.isAuto(s.slot)
-                        SlotCell(s, off, now, initial = s.slot == picker.focus, onFocused = { focused = s.slot; onFocus(s.slot) }) {
+                        SlotCell(s, off, now, initial = s.slot == picker.focus, onFocused = { focused = s.slot; onFocus(s.slot) },
+                            modifier = Modifier.weight(1f)) {
                             if (picker.save || s.savedAt != null) onPick(s.slot)
                         }
                     }
+                    repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
         }
@@ -295,14 +302,15 @@ private fun SlotGrid(picker: PauseScreen.Picker, now: Long, onFocus: (Int) -> Un
 }
 
 @Composable
-private fun SlotCell(s: SlotView, off: Boolean, now: Long, initial: Boolean, onFocused: () -> Unit, onClick: () -> Unit) {
+private fun SlotCell(s: SlotView, off: Boolean, now: Long, initial: Boolean, onFocused: () -> Unit, modifier: Modifier = Modifier,
+                     onClick: () -> Unit) {
     val c = JoeyTheme.colors
     val (source, focused) = rememberFocusState()
     LaunchedEffect(focused) { if (focused) onFocused() }
     val shape = RoundedCornerShape(6.dp)
     Box(
-        Modifier
-            .size(100.dp, 75.dp)
+        modifier
+            .widthIn(max = 100.dp).height(75.dp)
             // The outline before the dimming: a dimmed cell takes focus too and its outline shows in full.
             .coverSelection(focused, 6.dp)
             .alpha(if (off) 0.35f else 1f)
@@ -324,10 +332,14 @@ private fun SlotCell(s: SlotView, off: Boolean, now: Long, initial: Boolean, onF
             }
         } else {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(s.name, style = JoeyTheme.type.thumbLabel, color = if (focused && c.isDark) c.accent else c.text)
+                Text(s.name, style = JoeyTheme.type.thumbLabel, color = if (focused && c.isDark) c.accent else c.text,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center, maxLines = 2,
+                    modifier = Modifier.padding(horizontal = 4.dp))
                 Spacer(Modifier.size(2.dp))
                 // A state with no picture beside it (one RetroArch saved without): its date in place of "Empty".
-                Text(s.savedAt?.let { SlotDates.label(it, now) } ?: "Empty", style = JoeyTheme.type.label, color = c.textDim)
+                Text(s.savedAt?.let { SlotDates.label(it, now) } ?: "Empty", style = JoeyTheme.type.label, color = c.textDim,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center, maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 4.dp))
             }
         }
     }

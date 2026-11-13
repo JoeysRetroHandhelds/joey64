@@ -280,10 +280,13 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
     // ---- the launcher's buttons ----
     val current by rememberUpdatedState(Triple(focused, player, hotkeysOpen))
     val touchPage by rememberUpdatedState(touchOpen)
+    // A tab change from a row lands on the new tab's first row (as Settings does); from the tab row focus stays there.
+    // Without it R2 onto Hotkeys left focus on the top bar (Odin 2 Portal 2026-11-13).
+    val tabLanding = LocalFocusLanding.current
     sink.onControl = { control ->
         val (row, p, hk) = current
         if (touchPage) when (control) {
-            Control.TabPrev, Control.TabNext, Control.Extra -> true
+            Control.TabPrev, Control.TabNext, Control.PagePrev, Control.PageNext, Control.Extra -> true
             Control.Search -> {
                 when (row) {
                     "Tap", "Macros" -> if (target != null) edit { resetRow(editor, 0, row) }
@@ -295,8 +298,9 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
             Control.Options -> { popup = Popup.TouchResetPage; true }
             else -> false
         } else when (control) {
-            Control.TabPrev -> { val n = ((if (hk) HOTKEYS_TAB else p) + 4) % 5; hotkeysOpen = n == HOTKEYS_TAB; if (n != HOTKEYS_TAB) player = n; open = emptySet(); true }
-            Control.TabNext -> { val n = ((if (hk) HOTKEYS_TAB else p) + 1) % 5; hotkeysOpen = n == HOTKEYS_TAB; if (n != HOTKEYS_TAB) player = n; open = emptySet(); true }
+            // L2 / R2 too (Joey 2026-11-13): Player 1-4 and Hotkeys; in the launcher L1 / R1 move along the top bar.
+            Control.TabPrev, Control.PagePrev -> { if (row != "tabs") tabLanding?.arm(); val n = ((if (hk) HOTKEYS_TAB else p) + 4) % 5; hotkeysOpen = n == HOTKEYS_TAB; if (n != HOTKEYS_TAB) player = n; open = emptySet(); true }
+            Control.TabNext, Control.PageNext -> { if (row != "tabs") tabLanding?.arm(); val n = ((if (hk) HOTKEYS_TAB else p) + 1) % 5; hotkeysOpen = n == HOTKEYS_TAB; if (n != HOTKEYS_TAB) player = n; open = emptySet(); true }
             Control.Extra -> { edit { if (hk) clearHotkey(editor, row) else clearRow(editor, p, row) }; true }
             // Tap to hold and Macros: Y is Use All games on a game; on All games they have no default but none.
             Control.Search -> { if (!(row in EXTRA_ROWS && target == null)) edit { if (hk) resetHotkey(editor, row) else resetRow(editor, p, row) }; true }
@@ -847,7 +851,7 @@ private fun HotkeysPage(editor: ControlsEditor, version: Int, focused: String, h
             SectionLabel("Hotkey button")
             JoeyRow("Hotkey button", Modifier.initialFocus(), value = hotkeyKey(h.button) + "  ›", sideways = true,
                 onFocused = { if (it) onFocused("hkButton") }) { onChange(Target.HotkeyButton) }
-            SectionLabel("States")
+            SectionLabel("Save states")
             for (a in listOf(HotkeyAction.Save, HotkeyAction.Load, HotkeyAction.NextSlot, HotkeyAction.PrevSlot, HotkeyAction.UndoLoad, HotkeyAction.UndoSave)) row(a)
             SectionLabel("Sound")
             for (a in listOf(HotkeyAction.VolumeUp, HotkeyAction.VolumeDown, HotkeyAction.Mute)) row(a)
@@ -872,7 +876,7 @@ internal fun hotkeyValue(h: Hotkeys, a: HotkeyAction): String {
 /** The page's line for a focused hotkey (approved hotkeys mockup 2026-11-07 for Volume up and Upscale up). */
 private fun hotkeyDescription(a: HotkeyAction): String? = when (a) {
     HotkeyAction.FastForward -> "Speeds the game up. Pick its button, Toggle, Hold or Adaptive, and how fast."
-    HotkeyAction.Quit -> "Saves to the auto slot, then goes to the library or exits Joey64."
+    HotkeyAction.Quit -> "Makes an auto save state, then goes to the library or exits Joey64."
     HotkeyAction.SlowMotion -> "Slows the game down. Pick its button, Toggle or Hold, and how slow."
     HotkeyAction.Rewind -> "Hold to go back in time. Turn recording on, and pick how far back and how often a moment is kept."
     HotkeyAction.Stats -> "Steps through Off, Simple, Full and Custom. Settings › On screen sets the rest."
@@ -1106,7 +1110,7 @@ private fun QuitGamePopup(editor: ControlsEditor, version: Int, startRow: String
             if (row == "alone") TakenFromPlayer1(h, HotkeyAction.Quit, player1)
             Spacer(Modifier.height(6.dp))
             when (row) {
-                "to" -> DescriptionLine("Quit to", "Where you land after quitting. The game is saved to its auto slot either way.")
+                "to" -> DescriptionLine("Quit to", "Where you land after quitting. An auto save state is made either way.")
                 "alone" -> {}
                 else -> DescriptionLine("Button", (if (h.isAlone(HotkeyAction.Quit)) "On its own, without the hotkey button." else "Held with ${hotkeyKey(h.button)}, the hotkey button.") +
                     " The pause menu's Quit follows Quit to.")

@@ -90,20 +90,20 @@ fun ImportScreen(model: ImportModel, dataFolder: String?, debugOnly: Boolean = f
                 }
                 if (firstRun) SetupSmall("You can do this later in Settings › Saves.")
             }
-            ImportStep.Looking -> SetupHeading("Looking for saves and states")
+            ImportStep.Looking -> SetupHeading("Looking for saves and save states")
             is ImportStep.Found -> if (s.onlyKind != null && !useAnyway) {
                 // Picked RetroArch's saves or states folder, likely by mistake: the RetroArch folder has both.
                 val mine = if (s.onlyKind == DataKind.Saves) "saves" else "states"
                 val other = if (s.onlyKind == DataKind.Saves) "states" else "saves"
                 SetupHeading(if (s.folders.lastOrNull()?.lowercase() == mine) "This is RetroArch's $mine folder" else "This folder is inside RetroArch's $mine folder")
-                SetupBody("Choose the RetroArch folder instead, the one that holds both saves and states, so your $other are copied too.")
+                SetupBody("Choose the RetroArch folder instead, the one that holds both saves and save states, so your $other are copied too.")
                 FolderBox(s.place, s.folders, Modifier.padding(top = 16.dp))
                 ButtonRow(Modifier.padding(top = SetupButtonsTop)) {
                     JoeyButton("Choose RetroArch folder", primary = true, modifier = Modifier.initialFocus(), onClick = choose)
                     JoeyButton("Use this folder", primary = false) { useAnyway = true }
                 }
             } else if (s.total == 0) {
-                SetupHeading("No N64 saves or states found")
+                SetupHeading("No N64 saves or save states found")
                 FolderBox(s.place, s.folders, Modifier.padding(top = 16.dp), subs = s.subs)
                 ButtonRow(Modifier.padding(top = SetupButtonsTop)) {
                     JoeyButton("Choose another folder", primary = true, modifier = Modifier.initialFocus(), onClick = choose)
@@ -129,7 +129,7 @@ fun ImportScreen(model: ImportModel, dataFolder: String?, debugOnly: Boolean = f
                 SetupHeading(if (total == 0) "Nothing copied" else "Copied " + ImportText.counts(s.saves, s.states))
                 SetupBody(when {
                     s.failed > 0 -> "${if (s.failed == 1) "1 file" else "${s.failed} files"} couldn't be copied. RetroArch still has them."
-                    total == 0 -> "Joey64 kept its own saves and states."
+                    total == 0 -> "Joey64 kept its own saves and save states."
                     else -> "Your games continue from them in Joey64."
                 })
                 ButtonRow(Modifier.padding(top = SetupButtonsTop)) {

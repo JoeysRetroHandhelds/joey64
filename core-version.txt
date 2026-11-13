@@ -1,7 +1,7 @@
 # The core bundled in app/src/main/jniLibs (written by devtools/bundle-core.sh; the .so itself is not committed)
 repo: JoeysRetroHandhelds/joey64-core
 branch: rel3
-commit: 3769e13134c5d7c20527b487bbdaa707f127c922 2026-11-12 23:41:34 -0600 parallel-RDP: report the game's own border (VI H_START/V_START, the guard band, lines as deco
+commit: 5bc296b8e282cead5fe038d3c41fc66d687711c8 2026-11-13 00:21:04 -0600 Merge branch 'netplay' into rel3
 uncommitted: none
-built: 2026-11-12 23:32
-md5: 5795005bfe9b3d8b791d47fc798588b2
+built: 2026-11-13 00:21
+md5: 8e532d7ec100aaeca1dab7a0dbcb56a8

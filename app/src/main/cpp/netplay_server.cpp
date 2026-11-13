@@ -40,7 +40,11 @@ enum : uint8_t { UDP_SEND_KEY_INFO = 0, UDP_RECEIVE_KEY_INFO = 1, UDP_REQUEST_KE
                  UDP_PAUSE_NOTICE = 5,
                  // [8, player, n, n x (count32, keys32, plugin)]: a player's last inputs in one packet, which the
                  // core sends while it waits (2026-11-10, NP_RESEND 20: more than the largest adaptive delay)
-                 UDP_JOEY_KEY_BATCH = 8 };
+                 UDP_JOEY_KEY_BATCH = 8,
+                 // [9, player, R32, offset at R, H32, n, n x (count32, change int8)], from the room to the game playing
+                 // that player, after each of its inputs (2026-11-13): where its inputs go, so it can use its own at once
+                 // (see Room::announce)
+                 UDP_JOEY_OWN_PLAN = 9 };
 enum : uint8_t { TCP_SEND_SAVE = 1, TCP_RECEIVE_SAVE = 2, TCP_SEND_SETTINGS = 3, TCP_RECEIVE_SETTINGS = 4,
                  TCP_REGISTER_PLAYER = 5, TCP_GET_REGISTRATION = 6, TCP_DISCONNECT_NOTICE = 7,
                  // Joey64's own (2026-11-10): [0x40, ROM MD5 as 32 hex characters], answered 2 = the host's ROM,
@@ -126,14 +130,22 @@ struct Room {
     // least 20 ms early, for 15 s (twice as long each time a frame taken away had to come back within a minute,
     // up to 2 min), one is taken away.
     // A dropout makes one input very late for each game (the games stop at it), so it barely counts: more delay
-    // would not have helped. A player's input sent at its event count c goes to slot c + its delay; sched keeps from which count on each delay holds, so resends land where the
-    // first copy did. Adding a frame fills the next slot with a copy of the last input; taking one away drops one
-    // input (one that repeats the one before when there is one within 60 frames, so no short press is lost).
+    // would not have helped.
+    // Where inputs go (2026-11-13): a player's input sent at its event count c goes to slot c + its offset, which is
+    // the delay at its registration (base) plus every change planned at or before c. A change of +a at count X: count
+    // X - 1's input also fills the a slots after its own; one of -1 at X: count X's input is dropped (its slot is X - 1's).
+    // A pure function of the count, so resends and late or reordered packets land where the first copy did, and the
+    // player's own game works out the same from its own inputs: the room promises it no change before count H
+    // (promised, sent in UDP_JOEY_OWN_PLAN), so a change is planned at H or later and the game can place its own
+    // inputs below H at once instead of waiting a round trip for the room to send them back.
     bool adaptive = false;
     static constexpr int kMinDelay = 2, kMaxDelay = 12;
-    std::vector<std::pair<uint32_t, int>> sched[4]; // from client event count -> slot offset
+    static constexpr uint32_t kHorizon = 24; // frames past its newest input a game is promised no change (400 ms)
+    int base[4] = {};
+    std::vector<std::pair<uint32_t, int>> plan[4];   // (count, change), in count order
+    uint32_t promised[4] = {};                       // no change planned below this count
     uint32_t hi[4] = {}; bool started[4] = {};       // newest client event count heard per player
-    int pendingLower[4] = {};                        // inputs left before a frame is dropped anyway, 0 = none
+    static bool after(uint32_t a, uint32_t b) { return (int32_t)(a - b) > 0; } // a later than b
     using tp = std::chrono::steady_clock::time_point;
     std::map<uint64_t, tp> missing; // player << 32 | slot -> first asked before any input was there (holes, below)
     struct SlotTimes { tp arr, req[4]; bool hasArr = false; uint8_t reqMask = 0; };
@@ -162,9 +174,38 @@ struct Room {
         holdUntil = windowAt, lastLowerAt = windowAt - std::chrono::minutes(5);
     int calmNeed = 15;
     int offsetOf(int p, uint32_t c) const {
-        for (auto it = sched[p].rbegin(); it != sched[p].rend(); ++it)
-            if (c - it->first < 0x80000000u) return it->second;
-        return sched[p].empty() ? delay : sched[p].front().second;
+        int off = base[p];
+        for (auto& [at, ch] : plan[p]) if (!after(at, c)) off += ch;
+        return off;
+    }
+    int changeAt(int p, uint32_t c) const {
+        for (auto& [at, ch] : plan[p]) if (at == c) return ch;
+        return 0;
+    }
+    // A change of +a at X once count X - 1's input is in: its copies fill the a slots after its own.
+    void fillRaise(int p, uint32_t c) {
+        int a = changeAt(p, c + 1);
+        if (a <= 0) return;
+        uint32_t slot = c + (uint32_t)offsetOf(p, c);
+        auto it = inputs[p].find(slot);
+        if (it == inputs[p].end()) return;
+        Input copy = it->second;
+        for (int k = 1; k <= a; k++) if (!inputs[p].count(slot + k)) put(p, slot + k, copy);
+    }
+    // To the game playing player p (the address its inputs come from): where they go, with the promise (2026-11-13).
+    void announce(int p, const sockaddr_storage& to, socklen_t len) {
+        if (!started[p] || v1) return;
+        uint32_t h = hi[p] + kHorizon;
+        if (after(h, promised[p])) promised[p] = h;
+        const uint32_t r = hi[p] - 60;
+        uint8_t out[128]; size_t k = 0;
+        out[k++] = UDP_JOEY_OWN_PLAN; out[k++] = (uint8_t)p;
+        w32(out + k, r); k += 4; out[k++] = (uint8_t)offsetOf(p, r);
+        w32(out + k, promised[p]); k += 4;
+        size_t nAt = k++; uint8_t n = 0;
+        for (auto& [at, ch] : plan[p]) if (after(at, r) && n < 12) { w32(out + k, at); out[k + 4] = (uint8_t)(int8_t)ch; k += 5; n++; }
+        out[nAt] = n;
+        udpSend(out, k, to, len);
     }
     // A player's input into a slot: everyone gets it at once (the "gratuitous" reply), so nobody waits for a request round trip
     // (2026-11-12) with every input before it that peer's game hasn't asked past yet (as GGPO and Slippi send every
@@ -194,21 +235,21 @@ struct Room {
         }
     }
     bool active(int i) const { return reg[i].id && !disconnected[i]; }
+    // Each started player's change goes at its next count, or at the count it was promised none before.
     void changeDelay(int to, const char* why) {
-        NLOGI("netplay server: input delay %d -> %d (%s)", delay, to, why);
+        if (to < delay - 1) to = delay - 1; // down one frame at a time
+        std::string at;
         for (int i = 0; i < 4; i++) {
             if (!active(i) || !started[i]) continue;
-            if (to > delay) {
-                // each frame added fills one more slot with a copy of the last input
-                const int add = to - delay;
-                int off = offsetOf(i, hi[i]); uint32_t slot = hi[i] + (uint32_t)off;
-                auto it = inputs[i].find(slot);
-                Input copy = it != inputs[i].end() ? it->second : Input{0, reg[i].plugin};
-                for (int a = 1; a <= add; a++) if (!inputs[i].count(slot + a)) put(i, slot + a, copy);
-                sched[i].push_back({hi[i] + 1, off + add});
-            } else pendingLower[i] = 60;
-            while (sched[i].size() > 8) sched[i].erase(sched[i].begin());
+            uint32_t x = hi[i] + 1;
+            if (after(promised[i], x)) x = promised[i];
+            plan[i].push_back({x, to - delay});
+            fillRaise(i, x - 1);
+            // the oldest change folds into the base once no count before it can come any more
+            while (plan[i].size() > 8 && after(hi[i] - 600, plan[i].front().first)) { base[i] += plan[i].front().second; plan[i].erase(plan[i].begin()); }
+            char b[32]; snprintf(b, sizeof b, "%splayer %d at %u", at.empty() ? "" : ", ", i + 1, x); at += b;
         }
+        NLOGI("netplay server: input delay %d -> %d (%s; %s)", delay, to, why, at.c_str());
         delay = to;
     }
     void adapt() {
@@ -222,7 +263,8 @@ struct Room {
             if (quiet) { calmSince = now; holdUntil = now + seconds(3); }
             return;
         }
-        for (int i = 0; i < 4; i++) if (pendingLower[i] && active(i)) return; // a frame is still being taken away
+        // a change still ahead of a player's inputs: wait until it's reached
+        for (int i = 0; i < 4; i++) if (active(i) && started[i] && !plan[i].empty() && after(plan[i].back().first, hi[i])) return;
         if (now - windowAt < seconds(4)) return;
         windowAt = now;
         // forget slot times older than 3 s
@@ -481,7 +523,7 @@ struct Room {
                 g_regMask = m;
                 // the first `delay` events of each player are blank, which is what gives the input delay
                 for (uint32_t k = 0; k < (uint32_t)delay; k++) inputs[p][k] = {0, b[2]};
-                sched[p] = {{0u, delay}}; started[p] = false; pendingLower[p] = 0;
+                base[p] = delay; plan[p].clear(); promised[p] = 0; started[p] = false;
             }
             // A key isn't logged (session logs can be shared); a keyed room's ids are the keys.
             if (keyed) NLOGI("netplay server: player %d register: %s", p + 1, ok ? "ok" : keyOk ? "taken" : "not this place's key");
@@ -559,21 +601,14 @@ struct Room {
     // A player's input sent at its event count cc (UDP_SEND_KEY_INFO or a batch)
     void gotInput(int p, uint32_t cc, uint32_t keys, uint8_t plugin) {
         heard(p);
-        if (pendingLower[p] && started[p] && cc == hi[p] + 1) {
-            // taking a frame away: this input goes where the one before went, so it is dropped
-            auto prev = inputs[p].find(hi[p] + (uint32_t)offsetOf(p, hi[p]));
-            bool same = prev != inputs[p].end() && prev->second.keys == keys;
-            if (same || --pendingLower[p] <= 0) {
-                sched[p].push_back({cc, offsetOf(p, cc) - 1});
-                pendingLower[p] = 0;
-                NLOGI("netplay server: player %d input %u dropped for the lower delay%s", p + 1, cc, same ? "" : " (not a repeat)");
-            }
-        }
-        if (!started[p] || (cc != hi[p] && cc - hi[p] < 0x80000000u)) { hi[p] = cc; started[p] = true; }
+        if (!started[p] || after(cc, hi[p])) { hi[p] = cc; started[p] = true; }
         uint32_t count = cc + (uint32_t)offsetOf(p, cc);
         if (inputs[p].count(count)) { ns[p].copies++; return; }
+        // a frame taken away at this count: its slot is the one before's, so this input is dropped
+        if (changeAt(p, cc) < 0) { ns[p].copies++; return; }
         ns[p].inputs++;
         put(p, count, {keys, plugin});
+        fillRaise(p, cc);
         // keep the last ~10 s
         while (!inputs[p].empty() && inputs[p].begin()->first + 600 < count) inputs[p].erase(inputs[p].begin());
     }
@@ -584,12 +619,14 @@ struct Room {
             if (n < 3 || d[1] >= 4 || !fromPlayer(from, d[1])) return;
             addPeer(from, len);
             for (int i = 0, k = 3; i < d[2] && k + 9 <= n; i++, k += 9) gotInput(d[1], r32(d + k), r32(d + k + 4), d[k + 8]);
+            announce(d[1], from, len);
             break;
         }
         case UDP_SEND_KEY_INFO: {
             if (n < 11 || d[1] >= 4 || !fromPlayer(from, d[1])) return;
             addPeer(from, len);
             gotInput(d[1], r32(d + 2), r32(d + 6), d[10]);
+            announce(d[1], from, len);
             break;
         }
         case UDP_REQUEST_KEY_INFO: {
@@ -618,8 +655,8 @@ struct Room {
                 if (after != inputs[p].end() && now - askedAt > std::chrono::seconds(1)) {
                     auto before = inputs[p].lower_bound(count);
                     Input copy = before != inputs[p].begin() ? std::prev(before)->second : Input{0, reg[p].plugin};
-                    std::string s;
-                    for (auto& [f, o] : sched[p]) s += " " + std::to_string(f) + ":" + std::to_string(o);
+                    std::string s = " base " + std::to_string(base[p]);
+                    for (auto& [f, o] : plan[p]) s += " " + std::to_string(f) + ":" + std::to_string(o);
                     NLOGE("netplay server: player %d slot %u had no input for 1 s (next slot %u, newest input %u, delay from:%s), filled",
                           p + 1, count, after->first, hi[p], s.c_str());
                     put(p, count, copy);

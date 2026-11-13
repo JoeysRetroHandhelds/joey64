@@ -1,6 +1,6 @@
 {
   "about": "Joey64 per-game database: what each game needs, what is wrong with it and where, and what was fixed. Seed for the M3 profile DB. Rules: gamedb/README.md. Update this file in the same commit as any change to a game's status (new problem found, fixed, regressed, setting added or dropped).",
-  "updated": "2026-11-12",
+  "updated": "2026-11-13",
   "games": [
     {
       "id": "NPF", "title": "Pokemon Snap",
@@ -436,6 +436,48 @@
       "id": "CMD", "crc": "0000000000000000", "title": "Nintendo 64 Modem (Japan) (Add-on) (the 64DD Randnet modem cartridge, not a game)",
       "fixed": [
         {"what": "\"Compile at bogus memory address: 80800000\" then the recompiler's exit(1) closed the whole app 16-17 s in", "fix": "core rel2 ab1304b + main 8bf1958; Flip bg1-flip 2026-11-12: the game screen closes, the app stays up"}
+      ]
+    },
+    {
+      "id": "", "crc": "12323D9F37AEDDF7", "md5": "273c65c52f38ce8ef3b9092350806fc7", "title": "Tic Tac Toe 64 (homebrew, libdragon)",
+      "fixed": [
+        {"what": "black for ever: libdragon turns VI interrupts off (V_INTR 0x3ff) and waits for VI_CURRENT line 2, which the core never counted without the VI's field event", "fix": "core rel3 1c4d93b (field event whenever V_SYNC is set; VI_CURRENT counts lines before V_SYNC is set); title screen, 150 new frames per 300", "evidence": "Odin 2 Portal 2026-11-13, default settings, scratchpad blk7/seven.sh (seven/*.png); 82-game A/B blk82-<dev> on the Duo, Odin 3, Odin 2 Portal and Flip: 82/82 on both builds"}
+      ]
+    },
+    {
+      "id": "", "crc": "0000000000000000", "md5": "3f348189bfebc8cd94dc15b8e35c5c42", "title": "Turok - Dinosaur Hunter (USA) (Demo) (Kiosk, E3 1997)",
+      "fixed": [
+        {"what": "hung before its first frame: the dump is 10,019,568 bytes and the game reads past its end, where CPU reads were open bus", "fix": "core rel3 f6ce435 (a dump that is no whole number of MB reads as zeros up to the next power of two, as PI DMA already did); title screen 'Press Start'", "evidence": "Odin 2 Portal 2026-11-13, default settings, scratchpad blk7/seven.sh (seven/*.png); 82-game A/B blk82-<dev> on the Duo, Odin 3, Odin 2 Portal and Flip: 82/82 on both builds"}
+      ],
+      "notes": [
+        "header has no name, game code or CRC; early dev boot code (no checksum, 1 MB copied from 0x1000), so the core logs 'Unknown CIC type' and uses 6102"
+      ]
+    },
+    {
+      "id": "NDM", "crc": "0000000000000000", "md5": "31a8efffe1be68bb1186efa89d9c8896", "title": "Doom 64 (USA) (Beta) (1996-12-10)",
+      "fixed": [
+        {"what": "hung before its first frame (full run 2026-11-11, f0227): its header CRCs are 0, so IPL3's checksum loop never ended", "fix": "core rel2 c994aa7 (boot checksum written into the loaded header when it differs); 'Evaluation version / Alpha version' menu, 150 new frames per 300", "evidence": "Odin 2 Portal 2026-11-13, default settings, scratchpad blk7/seven.sh (seven/*.png); 82-game A/B blk82-<dev> on the Duo, Odin 3, Odin 2 Portal and Flip: 82/82 on both builds (rel3 already)"}
+      ]
+    },
+    {
+      "id": "", "crc": "0000000000000000", "md5": "5389958dfd395531ce2381f4ab39e798", "title": "Riqa (Europe) (Proto) (2000-02-14)",
+      "issues": [
+        {"status": "parked", "devices": "all", "what": "nothing drawn, the VI is never set up; also with the ROM padded and with a retail 6102 boot code", "evidence": "blk7/pcrun4.sh, pcrun5.sh 2026-11-13; the Internet Archive mirror of the Riqa builds says this build does not run on Project64 3.0.1 or a flashcart either: treated as a bad build"}
+      ]
+    },
+    {
+      "id": "NED", "crc": "3C9CEB20CC5094E9", "md5": "36c572325088fbf5661dfc7befb70f4e", "title": "Thornmarked (World) (Demo) (N64brew Game Jam 2020) (NTSC); the PAL copy md5 6469c36b80804639e1853b9c4ffdbcce",
+      "issues": [
+        {"status": "parked", "devices": "all", "what": "nothing drawn: the first RSP task DMAs RDRAM 0x308 (boot info) over and over, so its task data in DMEM was wrong at start; later the RSP is left mid-task (pc 0x04c) and the CPU waits for the DP; HLE and cxd4 the same", "evidence": "joey64-notes queue.md 19 broken entries, 2026-11-13; dev counters on core branch blk-pclog-dev"}
+      ],
+      "fixed": [
+        {"what": "the emulation thread hung before the first frame: its microcode re-reads the same RDRAM by DMA and never halts", "fix": "core rel3 0e912c5 (parallel-RSP yields after 256 DMAs that bring nothing new); 61 fps, still nothing drawn"}
+      ]
+    },
+    {
+      "id": "", "crc": "AEC6E579EA9885B0", "md5": "1dea2e7699a150237f65565ac6317eca", "title": "ZZ Gunner (World) (N64brew Game Jam 2021) (homebrew, libdragon + ugfx)",
+      "issues": [
+        {"status": "parked", "devices": "all", "what": "nothing drawn: waits at 80025ab0 for its DP interrupt; the ugfx RSP task ends (SP broke) without writing any DP register, on HLE, parallel and cxd4", "evidence": "joey64-notes queue.md 19 broken entries, 2026-11-13; dev counters on core branch blk-pclog-dev"}
       ]
     }
   ]

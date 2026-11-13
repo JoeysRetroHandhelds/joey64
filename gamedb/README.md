@@ -12,6 +12,8 @@ the app does not read it yet (the settings it lists are hard-coded in `libretro_
 - `crc`: the header CRC1+CRC2 (0x10-0x17, 16 hex digits), only where one ID covers several games.
   Hacks keep their base game's ID (SM64 hacks are all `NSM`, OoT hacks `CZL`), so a hack's entry
   needs its crc.
+- `md5`: the ROM file's MD5 (big-endian .z64), for a dump whose header has neither a game code nor a
+  CRC to tell it by (early protos, kiosk demos, homebrew) (2026-11-13).
 - `disk`: a 64DD disk, which has no cartridge header: its No-Intro file name without the extension, until
   the disk's own ID is read (2026-11-07).
 

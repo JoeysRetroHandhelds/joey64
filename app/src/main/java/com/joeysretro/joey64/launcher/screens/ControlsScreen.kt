@@ -236,6 +236,21 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
     val touchNow = remember(target, touchVer) { touchStore.forGame(target) }
     val touchBase = remember(target, touchVer) { if (target == null) com.joeysretro.joey64.touch.TouchSettings() else touchStore.all() }
     fun setTouch(t: com.joeysretro.joey64.touch.TouchSettings) { touchStore.save(target, t); touchVer++ }
+    // Renames and deletes made while the layout editor is open, for the layout it saves at Done.
+    var macroRenames by remember { mutableStateOf(mapOf<String, String>()) }
+    var macroRemoved by remember { mutableStateOf(setOf<String>()) }
+    /** A player's macros changed; player 1's Macro buttons follow a rename or delete (code audit 4, D-M3). */
+    fun setMacros(p: Int, setup: com.joeysretro.joey64.controls.PlayerSetup, m: List<com.joeysretro.joey64.controls.Macro>) {
+        val old = setup.macros.map { it.name }
+        edit { editor.set(p, setup.copy(macros = m)) }
+        if (p != 0) return
+        val new = m.map { it.name }
+        if (old.size == new.size) old.zip(new).filter { (a, b) -> a != b }.forEach { (a, b) ->
+            macroRenames = macroRenames.mapValues { (_, v) -> if (v == a) b else v } + (a to b) }
+        macroRemoved = macroRemoved + ((old.toSet() - new.toSet()) - macroRenames.keys)
+        touchStore.macrosChanged(old, new) { save -> store.forGame(save).players[0].macros.map { it.name } }
+        touchVer++
+    }
     var popup by remember { mutableStateOf<Popup?>(null) }
     var focused by remember { mutableStateOf("Controller") }
     var open by remember { mutableStateOf(setOf<String>()) }
@@ -588,7 +603,7 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
         Popup.Tap -> TapToHoldPopup(player, setup.latch, { l -> edit { editor.set(player, setup.copy(latch = l)) } }, close)
         Popup.Turbo -> TurboPopup(player, setup.turbo, setup.turboSpeed, setup.latch,
             { t, s -> edit { editor.set(player, setup.copy(turbo = t, turboSpeed = s)) } }, close)
-        Popup.Macros -> MacrosPopup(player, setup.macros, editor.hotkeys, { m -> edit { editor.set(player, setup.copy(macros = m)) } }, close)
+        Popup.Macros -> MacrosPopup(player, setup.macros, editor.hotkeys, { m -> setMacros(player, setup, m) }, close)
         Popup.Profiles -> ProfilesPopup(player, deviceName(setup.device), targetTitle ?: target, editor, version,
             onChanged = { version++ }, onLoaded = { name -> loaded = name; close() }, onDismiss = close)
         is Popup.TouchChoice -> when (p.row) {
@@ -643,8 +658,12 @@ private fun ControlsContent(game: String?, gameTitle: String?, inGame: Boolean, 
         val p1 = editor.shown.players[0]
         TouchEditor(portrait, touchNow.layout(portrait), touchBase.layout(portrait), touchNow.opacity, p1.macros, inGame,
             macrosPopup = { onClose -> MacrosPopup(0, editor.shown.players[0].macros, editor.hotkeys,
-                { m -> edit { editor.set(0, editor.shown.players[0].copy(macros = m)) } }, onClose) }) { list ->
+                { m -> setMacros(0, editor.shown.players[0], m) }, onClose) }) { edited ->
             touchEdit = null
+            // The editor's own list still has the names from when it opened.
+            val seen = editor.shown.players[0].macros.map { it.name }.toSet()
+            val list = com.joeysretro.joey64.touch.TouchSettings(landscape = edited).withMacros(macroRenames, macroRemoved, seen).landscape ?: edited
+            macroRenames = emptyMap(); macroRemoved = emptySet()
             // Back to the starting layout on All games: kept as "the approved one", so a later default change reaches it.
             val keep = if (target == null && list == com.joeysretro.joey64.touch.TouchSettings().layout(portrait)) null else list
             setTouch(touchNow.withLayout(portrait, keep))

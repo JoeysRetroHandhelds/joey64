@@ -208,6 +208,23 @@ data class TouchSettings(
 
     fun withLayout(portrait: Boolean, list: List<TouchControl>?) = if (portrait) copy(portrait = list) else copy(landscape = list)
 
+    /**
+     * Macro buttons whose macro isn't in [seen]: renamed by [renames] when the new name is there, dropped when their
+     * macro is in [removed]; others stay as they are (TouchStore.macrosChanged).
+     */
+    fun withMacros(renames: Map<String, String>, removed: Set<String>, seen: Set<String>): TouchSettings {
+        fun fix(list: List<TouchControl>?) = list?.mapNotNull { c ->
+            val m = c.macro
+            when {
+                c.kind != TouchKind.Macro || m == null || m in seen -> c
+                renames[m]?.let { it in seen } == true -> c.copy(macro = renames[m])
+                m in removed -> null
+                else -> c
+            }
+        }
+        return copy(landscape = fix(landscape), portrait = fix(portrait))
+    }
+
     fun toJson(): JSONObject = JSONObject().put("version", 1).put("show", show.name).put("opacity", opacity).put("haptics", haptics)
         .put("hideAfter", hideAfter).put("stick", stick.name).put("sensitivity", sensitivity).put("deadZone", deadZone)
         .put("fullAt", fullAt).put("slide", slide)

@@ -201,4 +201,21 @@ class TouchTest {
         m.reset("Mario")
         assertTrue(m.summary("Mario").changes.isEmpty())
     }
+
+    /** Code audit 4, D-M3: Macro buttons follow a rename and go with a delete, in every file that reads those macros. */
+    @Test fun macroButtonsFollowRenamesAndDeletes() {
+        val store = TouchStore(tmp.newFolder("touch"))
+        fun mac(name: String) = TouchControl(TouchKind.Macro, 10f, 10f, 40f, 20f, macro = name)
+        val a = TouchControl(TouchKind.A, 300f, 100f, 40f, 40f)
+        store.saveAll(TouchSettings(landscape = listOf(a, mac("Jump"), mac("Spin"))))
+        // A game with its own macros that still has "Jump" keeps its button.
+        store.saveGame("Mario", TouchSettings(landscape = listOf(mac("Jump"))))
+        store.macrosChanged(listOf("Jump", "Spin"), listOf("Hop", "Spin"), macrosFor = { s -> if (s == null) listOf("Hop", "Spin") else listOf("Jump") })
+        assertEquals(listOf(null, "Hop", "Spin"), store.all().landscape!!.map { it.macro })
+        assertEquals(listOf("Jump"), store.game("Mario")!!.landscape!!.map { it.macro })
+        store.macrosChanged(listOf("Hop", "Spin"), listOf("Hop"), macrosFor = { s -> if (s == null) listOf("Hop") else listOf("Jump") })
+        assertEquals(listOf(null, "Hop"), store.all().landscape!!.map { it.macro })
+        // The default layout (no file of its own) is left alone.
+        assertNull(TouchSettings().withMacros(mapOf("Hop" to "X"), setOf("Spin"), emptySet()).landscape)
+    }
 }

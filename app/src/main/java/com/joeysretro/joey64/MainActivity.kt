@@ -2511,8 +2511,10 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // Unpacking the new ROM (up to 64 MB, or a zip / 7z) runs on gameIo, as prepareGame does for the first game: on
         // the main thread it risked an ANR, and a missing file or a full disk crashed the app (code audit 3, H2).
         gameIo.execute {
-            closing?.let { GameStates.Recovery.clear(this, it) }
             val got = try { resolveRom() } catch (e: Exception) { JLog.e(TAG, "can't get the new game ready: $e"); null }
+            // Only once the new game is there (code audit 4, A-M1): a file that won't open keeps the closed game's
+            // recovery state, so its play isn't lost with it.
+            if (got != null) closing?.let { GameStates.Recovery.clear(this, it) }
             // Its MD5 here too, so the next process's onCreate doesn't hash it (code audit 3, M18).
             val md5 = got?.let { knownMd5() ?: romMd5(it.first) }
             runOnUiThread {

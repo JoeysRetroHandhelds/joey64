@@ -180,7 +180,7 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
         "fps" -> fpsTitle to extraText(ExtraKind.Fps, hardcore, target != null && extras?.fps?.isEmpty() == true)
         else -> describe(focused, v)
     }
-    val help = if (changed) "Changed for this game. ${allGamesNote(focused, VideoSettings.resolve(all, null))}" else text
+    val help = if (changed) "Changed for this game. ${allGamesNote(focused, VideoSettings.resolve(all, null), gameCode)}" else text
     val choiceKey = mapOf("res" to VideoKey.Resolution, "asp" to VideoKey.Aspect, "int" to VideoKey.Integer, "ori" to VideoKey.Orientation,
         "cut" to VideoKey.Cutout, "bfi" to VideoKey.Bfi)[focused]
     val info = when {
@@ -211,7 +211,7 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
         focused == "adv" -> com.joeysretro.joey64.launcher.components.PanelInfo(title, help, lines = listOf(
             "Renderer" to VideoChoices.label(VideoKey.Renderer, v[VideoKey.Renderer]), "Driver" to VideoChoices.label(VideoKey.Driver, v[VideoKey.Driver]),
             "Frame pacing" to VideoChoices.label(VideoKey.Pacing, v[VideoKey.Pacing])))
-        focused == "crop" -> com.joeysretro.joey64.launcher.components.PanelInfo(title, help, lines = listOf("Crop edges" to VideoChoices.label(VideoKey.Crop, v[VideoKey.Crop])))
+        focused == "crop" -> com.joeysretro.joey64.launcher.components.PanelInfo(title, help, lines = listOf("Crop edges" to com.joeysretro.joey64.video.GameCrop.label(gameCode, v)))
         else -> com.joeysretro.joey64.launcher.components.PanelInfo(title, help)
     }
 
@@ -345,12 +345,13 @@ private fun describe(row: String, v: VideoSettings): Pair<String, String> = when
     else -> "Renderer, driver, pacing" to "For when something looks or runs wrong. Auto is right for most people."
 }
 
-private fun allGamesNote(row: String, all: VideoSettings): String = when (row) {
+private fun allGamesNote(row: String, all: VideoSettings, gameCode: String? = null): String = when (row) {
     "res" -> "All games uses ${VideoChoices.label(VideoKey.Resolution, all[VideoKey.Resolution])}."
     "ws" -> "All games uses ${VideoChoices.label(VideoKey.Widescreen, all[VideoKey.Widescreen])}."
     "fps" -> "All games uses ${VideoChoices.label(VideoKey.Fps, all[VideoKey.Fps])}."
     "asp" -> "All games uses ${VideoChoices.label(VideoKey.Aspect, all[VideoKey.Aspect])}."
-    "crop" -> "All games uses ${VideoChoices.label(VideoKey.Crop, all[VideoKey.Crop])}."
+    // A game with its own default (GameCrop) gets that while All games leaves Crop edges unset (code audit 4, D-M1).
+    "crop" -> "All games uses ${com.joeysretro.joey64.video.GameCrop.label(gameCode, all)}."
     "int" -> "All games uses ${VideoChoices.label(VideoKey.Integer, all[VideoKey.Integer])}."
     "ori" -> "All games uses ${VideoChoices.label(VideoKey.Orientation, all[VideoKey.Orientation])}."
     "cut" -> "All games uses ${VideoChoices.label(VideoKey.Cutout, all[VideoKey.Cutout])}."

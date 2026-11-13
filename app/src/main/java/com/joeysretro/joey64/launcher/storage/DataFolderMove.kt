@@ -92,7 +92,11 @@ object DataFolderMove {
             // The settings' copy follows (Joey 2026-11-07: "Move settings too").
             com.joeysretro.joey64.saves.SettingsMirror.moved(context, old)
             // A folder that couldn't be read keeps its permission: its files are still there.
-            if (oldReadable && old != null && old != tree) RomFolders.releaseIfUnused(context, old)
+            // One with files left in it (a clash, or one that failed to copy) keeps it too, so they can still be reached
+            // and moved again (code audit 4, B-M2).
+            val leftBehind = res != null && (res.conflicts.isNotEmpty() || res.failed.isNotEmpty())
+            if (oldReadable && old != null && old != tree && !leftBehind) RomFolders.releaseIfUnused(context, old)
+            else if (leftBehind) JLog.i(TAG, "data folder: the old folder keeps its permission, files were left there")
             if (res == null) {
                 JLog.e(TAG, "data folder: switched without moving, the old folder can't be read")
                 Outcome.OldUnreadable

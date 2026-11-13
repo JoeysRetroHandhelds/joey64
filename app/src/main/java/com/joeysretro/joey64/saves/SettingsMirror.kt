@@ -72,7 +72,34 @@ object SettingsMirror {
             old.delete(PATH)
             if (old.list(listOf(DIR)).isEmpty()) old.delete(listOf(DIR))
         } catch (e: Exception) { JLog.e(TAG, "can't remove the old folder's copy: $e") }
+        keepAside(context)
         push(context)
+    }
+
+    /**
+     * A whole copy the new folder already has (another device's, or one from before a reinstall) that isn't
+     * this device's goes beside it as "Joey64 settings (kept <date>).zip" before this device's is written
+     * (code audit 4, B-M3: the move wrote over it, on a first run with the defaults). Restore a backup reads it.
+     */
+    private suspend fun keepAside(context: Context) {
+        val folder = DataFolders.current(context)
+        if (folder.isInternal) return
+        try {
+            val bytes = folder.space.openRead(PATH)?.use { it.readBytes() } ?: return
+            val out = ByteArrayOutputStream()
+            AppBackup.write(context, folder.space, setOf(BackupPart.Settings), out, withCheats = false, madeAt = FIXED_TIME)
+            if (sha(bytes) == sha(out.toByteArray())) return
+            if (!AppBackup.readsWhole(bytes)) { JLog.e(TAG, "the new folder's settings copy is damaged, replaced"); return }
+            val stamp = java.text.SimpleDateFormat("yyyy-MM-dd HHmm", java.util.Locale.US).format(java.util.Date())
+            var name = "Joey64 settings (kept $stamp).zip"
+            var n = 2
+            while (folder.space.exists(listOf(DIR, name))) name = "Joey64 settings (kept $stamp, ${n++}).zip"
+            if (!com.joeysretro.joey64.launcher.storage.FileCopy.writeChecked(bytes.inputStream(), folder.space, listOf(DIR, name)))
+                throw java.io.IOException("can't write $name")
+            JLog.i(TAG, "the new folder had its own settings copy: kept as $name")
+        } catch (e: Exception) {
+            JLog.e(TAG, "can't keep the new folder's settings copy aside: $e")
+        }
     }
 
     private suspend fun pull(context: Context): Boolean {

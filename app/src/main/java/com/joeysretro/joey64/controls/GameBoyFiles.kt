@@ -194,17 +194,29 @@ object GameBoyFiles {
         val t = tag(saveName, player)
         val source = File(dir, "$t.source")
         val from = save ?: "new"
-        if (source.takeIf { it.exists() }?.readText() != from) {
+        val was = source.takeIf { it.exists() }?.readText()
+        if (was != from) {
+            // Each pick keeps the copy played with it (code audit 4, D-M2: switching away and back read the picked file
+            // again, and the progress made since was lost): <t>.kept/<key>.sav, with the time it was last played.
+            val kept = File(dir, "$t.kept").apply { mkdirs() }
+            val back = File(kept, keyOf(from) + ".sav")
+            // That copy comes back unless the picked file changed after it (played in another emulator meanwhile).
+            val useKept = back.exists() && (save == null || back.lastModified() >= modified(context, save))
             // The picked save is read whole first, so one that can't be read changes nothing.
             val tmp = File(dir, "$t.sav.tmp")
-            if (save != null) {
+            if (useKept) back.copyTo(tmp, true).setLastModified(back.lastModified())
+            else if (save != null) {
                 val input = context.contentResolver.openInputStream(Uri.parse(save)) ?: throw java.io.IOException("no stream")
                 input.use { s -> tmp.outputStream().use { s.copyTo(it) } }
             }
-            // The copy played until now isn't lost: it stays as <saveName>.prev.sav (one back).
-            if (copy.exists()) copy.copyTo(File(dir, "$t.prev.sav"), true)
-            if (save == null) copy.delete()
+            // The copy played until now isn't lost: it stays as <saveName>.prev.sav (one back), and as its pick's kept copy.
+            if (copy.exists()) {
+                copy.copyTo(File(dir, "$t.prev.sav"), true)
+                if (was != null) copy.copyTo(File(kept, keyOf(was) + ".sav"), true).setLastModified(copy.lastModified())
+            }
+            if (!useKept && save == null) { copy.delete(); tmp.delete() }
             else if (!tmp.renameTo(copy)) { tmp.copyTo(copy, true); tmp.delete() }
+            if (useKept) JLog.i(TAG, "Game Boy save: back to the copy played with this pick")
             source.writeText(from)
         }
         copy
@@ -213,6 +225,17 @@ object GameBoyFiles {
         File(File(context.filesDir, "transferpak"), "${tag(saveName, player)}.sav.tmp").delete()
         null
     }
+
+    /** A file name for a pick ("new" or a document URI). */
+    private fun keyOf(from: String) =
+        java.security.MessageDigest.getInstance("SHA-1").digest(from.toByteArray()).take(8).joinToString("") { "%02x".format(it) }
+
+    /** The picked document's last change (ms), 0 when the provider doesn't say. */
+    private fun modified(context: Context, uri: String): Long = try {
+        context.contentResolver.query(Uri.parse(uri), arrayOf(Document.COLUMN_LAST_MODIFIED), null, null, null)?.use { c ->
+            if (c.moveToFirst() && !c.isNull(0)) c.getLong(0) else 0L
+        } ?: 0L
+    } catch (e: Exception) { 0L }
 
     /** "Takes effect when the game next starts": a note for the log. */
     fun describe(game: String?, save: String?) = "Game Boy game ${game ?: "none"}, save ${save ?: "new"}"

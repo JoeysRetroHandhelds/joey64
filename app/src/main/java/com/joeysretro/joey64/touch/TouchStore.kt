@@ -18,6 +18,22 @@ class TouchStore(private val dir: File) {
     private val games = File(dir, "games")
 
     fun all(): TouchSettings = read(allFile)?.let { TouchSettings.fromJson(it) } ?: TouchSettings()
+
+    /**
+     * Player 1's macros went from [old] to [new] (code audit 4, D-M3: Macro buttons find theirs by name, so a rename or
+     * delete left a button that did nothing). In every touch file, a Macro button whose macro that file's game no longer
+     * has ([macrosFor]: the names it sees, null = All games) follows a rename, or goes when its macro was deleted.
+     */
+    fun macrosChanged(old: List<String>, new: List<String>, macrosFor: (String?) -> List<String>) {
+        val renames = if (old.size == new.size) old.zip(new).filter { (a, b) -> a != b }.toMap() else emptyMap()
+        val removed = (old.toSet() - new.toSet()) - renames.keys
+        if (renames.isEmpty() && removed.isEmpty()) return
+        for (save in listOf<String?>(null) + gamesWithOwn()) {
+            val t = (if (save == null) read(allFile) else read(gameFile(save)))?.let { TouchSettings.fromJson(it) } ?: continue
+            val fixed = t.withMacros(renames, removed, macrosFor(save).toSet())
+            if (fixed != t) { save(save, fixed); JLog.i(TAG, "touch controls: macro buttons follow a macro change (${save ?: "All games"})") }
+        }
+    }
     fun saveAll(t: TouchSettings) = write(allFile, t.toJson())
 
     fun game(saveName: String): TouchSettings? = read(gameFile(saveName))?.let { TouchSettings.fromJson(it) }

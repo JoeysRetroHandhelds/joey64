@@ -46,12 +46,17 @@ object SrmSync {
     interface Stamps {
         fun get(key: String): Long
         fun put(key: String, at: Long)
+        /** A name kept with the stamps (the backup a never-pulled working copy is kept in), or null. */
+        fun text(key: String): String?
+        fun putText(key: String, value: String?)
     }
 
     private fun stamps(context: Context) = object : Stamps {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         override fun get(key: String) = p.getLong(key, -1L)
         override fun put(key: String, at: Long) { p.edit().putLong(key, at).commit() }
+        override fun text(key: String): String? = p.getString(key, null)
+        override fun putText(key: String, value: String?) { p.edit().putString(key, value).commit() }
     }
     private fun workDir(context: Context) = File(context.filesDir, DataKind.Saves.dir)
 
@@ -96,7 +101,8 @@ object SrmSync {
     /** [name]'s working copy went (the Saves page restored or deleted it): nothing about it is in step any more. */
     fun forgetFile(context: Context, name: String) {
         val k = key(name)
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(k).remove("$k|size").remove("$k|mod").commit()
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(k).remove("$k|size").remove("$k|mod")
+            .remove("$k|held").remove("$k|heldIn").commit()
     }
 
     /** The folder changed: nothing is in step with the new one yet. */
@@ -143,6 +149,8 @@ object SrmSync {
     fun pullFile(space: FileSpace, work: File, name: String, st: Stamps) {
         val f = File(work, name)
         val rec = st.get(key(name))
+        // A new start keeps aside its own backup: only this start's pushes replace it, never what an earlier start kept.
+        st.putText("${key(name)}|heldIn", null)
         try {
             if (f.isFile && rec >= 0 && f.lastModified() != rec) { JLog.i(TAG, "$name: the working copy is newer, pushing it first"); pushFile(space, work, name, st); return }
             if (f.isFile && rec >= 0) {
@@ -165,6 +173,7 @@ object SrmSync {
             if (!part.renameTo(f)) { f.delete(); if (!part.renameTo(f)) throw IOException("can't put $name in place") }
             st.put(key(name), f.lastModified())
             st.put("${key(name)}|held", -1L)
+            st.putText("${key(name)}|heldIn", null)
             noteFolder(space, name, st)
             JLog.i(TAG, "$name: pulled $size bytes from the data folder")
         } catch (e: Exception) {
@@ -187,9 +196,14 @@ object SrmSync {
             try {
                 if (sameBytes(space, name, f)) { st.put(key(name), at); noteFolder(space, name, st); return }
                 if (st.get("${key(name)}|held") == at) return
-                if (com.joeysretro.joey64.saves.SaveBackups.keepAside(space, name, from = f)) {
+                // One backup for the whole stretch: each later push (every 30 s while the game saves) takes the place of
+                // the one kept before, so a long play leaves one backup with its newest copy, not one per push.
+                val before = st.text("${key(name)}|heldIn")
+                val now = com.joeysretro.joey64.saves.SaveBackups.keepAsideReplacing(space, name, from = f, replace = before)
+                if (now != null) {
                     st.put("${key(name)}|held", at)
-                    JLog.w(TAG, "$name: never pulled from the data folder (it couldn't be read at the start); kept aside, the folder's copy left as it was")
+                    if (now.isNotEmpty()) st.putText("${key(name)}|heldIn", now)
+                    JLog.w(TAG, "$name: never pulled from the data folder (it couldn't be read at the start); kept aside as $now, the folder's copy left as it was")
                 }
             } catch (e: Exception) {
                 JLog.e(TAG, "$name: can't compare with the data folder's copy: $e")

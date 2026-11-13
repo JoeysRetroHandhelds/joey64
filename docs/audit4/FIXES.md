@@ -5,7 +5,7 @@ App side (this branch). Host side: audit4/host (H1, M1), merged after.
 | Item | Fix | Checked |
 |---|---|---|
 | A-H1 | A start with no ROM while a game runs is ignored (`MainActivity`, `owner != null`) | Thor: a bare `am start` during SM64 logged "ignored", the game ran on at 60 fps |
-| B-H1 | SrmSync: a never-pulled working copy never replaces a different folder copy; it goes to `backups/` and nothing is pushed until a pull works | SrmSyncTest (2 new) |
+| B-H1 | SrmSync: a never-pulled working copy never replaces a different folder copy; it goes to `backups/` and nothing is pushed until a pull works; one backup per start, which each later push replaces with the newest copy (the peer's review: every 30 s push added one, never pruned) | SrmSyncTest (2 new; the pile-up and the per-start backup checked) |
 | D-H1 | Crop edges: an Exact amount no longer crashes (`firstOrNull`) | Thor: Exact 10 saved, the row and the popup show it |
 | D-L2 | Turbo with every button in Tap to hold no longer crashes; focus lands on Speed | Thor: all nine latched, popup opens on Speed, Right steps it |
 | E1-L3 | Own cheats with the same name no longer crash the Cheats page (`distinctBy`) | Thor: two own "Same" cheats, one row shown |

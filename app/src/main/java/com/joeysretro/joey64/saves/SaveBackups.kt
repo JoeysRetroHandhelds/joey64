@@ -69,17 +69,34 @@ object SaveBackups {
      * Nothing older is removed. True when it's kept (or its newest backup is the same), false when it couldn't be.
      */
     fun keepAside(space: FileSpace, file: String, now: Long = System.currentTimeMillis(), from: java.io.File? = null): Boolean = try {
+        aside(space, file, now, from); true
+    } catch (e: Exception) {
+        JLog.e(TAG, "can't keep $file aside: $e"); false
+    }
+
+    /**
+     * A never-pulled working copy [from] kept in [space]'s backups, taking the place of [replace] (the backup it was kept
+     * in before, written first and then removed), so a play that pushes every 30 s leaves one backup with its newest copy
+     * (code audit 4, B-H1). The backup that holds it now: the new one, [replace] when nothing new was needed (the bytes
+     * are the newest backup's), "" when that newest one isn't [replace]; null when it can't be written.
+     */
+    fun keepAsideReplacing(space: FileSpace, file: String, from: java.io.File, replace: String?, now: Long = System.currentTimeMillis()): String? = try {
+        val written = aside(space, file, now, from)
+        if (written != null && replace != null && replace != written) space.delete(listOf(DataKind.Backups.dir, replace))
+        written ?: replace ?: ""
+    } catch (e: Exception) {
+        JLog.e(TAG, "can't keep $file aside: $e"); null
+    }
+
+    /** [file]'s save (or [from], a working copy in files/saves) as a new backup; its name, or null when the newest is the same. */
+    private fun aside(space: FileSpace, file: String, now: Long, from: java.io.File?): String? {
         val ending = SAVE_ENDINGS.first { file.endsWith(it) }
         val saveName = file.removeSuffix(ending)
-        // [from]: a working copy in files/saves kept in [space]'s backups instead of the folder's own copy (code audit 4, B-H1).
         val read: () -> InputStream? = if (from != null) ({ from.takeIf { it.isFile }?.inputStream() }) else ({ space.openRead(listOf(DataKind.Saves.dir, file)) })
-        when (ending) {
+        return when (ending) {
             ".srm", ".gb.sav" -> backUpPlain(space, saveName, file, ending, BackupWhen.OnStart, Int.MAX_VALUE, now, read)
             else -> backUpDisk(space, saveName, file, BackupWhen.OnStart, Int.MAX_VALUE, now, read)
         }
-        true
-    } catch (e: Exception) {
-        JLog.e(TAG, "can't keep $file aside: $e"); false
     }
 
     /** [file] ("<save name>.srm", or a Transfer Pak copy) copied as it is to "<save name> <stamp>[ext]". Throws when it can't be. */

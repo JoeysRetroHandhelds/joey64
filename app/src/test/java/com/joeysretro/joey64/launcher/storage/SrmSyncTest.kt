@@ -18,6 +18,15 @@ class SrmSyncTest {
         val m = HashMap<String, Long>()
         override fun get(key: String) = m[key] ?: -1L
         override fun put(key: String, at: Long) { m[key] = at }
+        val texts = HashMap<String, String?>()
+        override fun text(key: String) = texts[key]
+        override fun putText(key: String, value: String?) { texts[key] = value }
+    }
+
+    /** A folder whose reads can be turned off, as a picked folder Android can't read at a start. */
+    private class Blinkable(val d: DirSpace) : FileSpace by d {
+        var unreadable = false
+        override fun openRead(path: List<String>) = if (unreadable) null else d.openRead(path)
     }
 
     private val name = "SimCity 64 (Japan).ndd.disk_save"
@@ -111,6 +120,21 @@ class SrmSyncTest {
         // Pushed again unchanged: no second copy.
         SrmSync.pushFile(space, work, "Game.srm", st)
         assertEquals(1, File(space.root, "backups").listFiles { f -> f.name.endsWith(".srm") }.orEmpty().size)
+        // The game saves on (every push sees a new copy): still one backup, holding the newest (the peer's review of B-H1).
+        for (i in 1..3) {
+            blank.writeBytes(byteArrayOf(0, 0, 0, i.toByte())); blank.setLastModified(blank.lastModified() + 2000L * i)
+            SrmSync.pushFile(space, work, "Game.srm", st)
+        }
+        val one = File(space.root, "backups").listFiles { f -> f.name.endsWith(".srm") }.orEmpty()
+        assertEquals(1, one.size)
+        assertArrayEquals(byteArrayOf(0, 0, 0, 3), one[0].readBytes())
+        assertArrayEquals(real, File(space.root, "saves/Game.srm").readBytes())
+        // A start whose pull finds nothing to read keeps its own backup: the one before stays.
+        val blind = Blinkable(space).apply { unreadable = true }
+        SrmSync.pullFile(blind, work, "Game.srm", st)
+        blank.writeBytes(byteArrayOf(0, 0, 9, 9)); blank.setLastModified(blank.lastModified() + 10_000L)
+        SrmSync.pushFile(space, work, "Game.srm", st)
+        assertEquals(2, File(space.root, "backups").listFiles { f -> f.name.endsWith(".srm") }.orEmpty().size)
         // The next start brings the real save back, and then it's in step.
         SrmSync.pullFile(space, work, "Game.srm", st)
         assertArrayEquals(real, blank.readBytes())

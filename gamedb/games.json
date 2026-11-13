@@ -322,9 +322,9 @@
       ]
     },
     {
-      "disk": "Mario Artist - Paint Studio (Japan) (Beta) (1999-02-11)", "title": "Mario Artist: Paint Studio beta (64DD)",
+      "disk": "Mario Artist - Paint Studio (Japan) (Beta) (1999-02-11)", "title": "Mario Artist: Paint Studio (64DD, 1999 beta)",
       "issues": [
-        {"status": "parked", "devices": "Duo", "what": "with IPL_DEV (Tool IPL beta, md5 aad37b) it boots (CIC 8401) and draws one frame, then nothing; with IPL_JPN the missing-BIOS path closes it, as it should", "evidence": "README Full-run fixes (g)(2), ddall-duo and dddev-duo 2026-11-12; no report of this beta found"}
+        {"status": "not our bug", "devices": "all", "what": "the dump itself shows no picture after its first frames (black, no sound) with IPL_DEV; with the community fix (Zoinkity, LuigiBlood's Translate repo DMPJ990211_Patch.asm: 0x9DB83 = 0x12 Disable Print Output, 0x9F0F3 = 0x03 Fix Framebuffer Swapping) it reaches the title at 59.9 fps with sound. Joey64 doesn't patch it; a patched disk or the 64dd.org Fix dump runs. With IPL_JPN alone the missing-BIOS path closes it, as it should", "evidence": "Duo 2026-11-12, launcher/phase0 89b4513 + core rel3, IPL_DEV: the original (bytes 0x09, 0x3F) 0.0 presented, all dupes; a patched copy 59.9 presented, title screen. Earlier: results/duo-ddbeta1-3 (the drive finishes its last read, so not the 64DD side), ddall-duo and dddev-duo"}
       ]
     },
     {
@@ -402,12 +402,6 @@
       ],
       "notes": [
         "Thor (2026-11-07, app 9263f30 + core dd ddf3103, before the VI event fix in core dd 7a8c4ba, IPL_JPN = Japan v1.2, 30-60 s from the start): from the library with F-Zero X (Japan) passed, 60 fps in its attract race; alone the disk shows its own \"insert the F-Zero X cartridge\" screen"
-      ]
-    },
-    {
-      "disk": "Mario Artist - Paint Studio (Japan) (Beta) (1999-02-11)", "title": "Mario Artist: Paint Studio (64DD, 1999 beta)",
-      "issues": [
-        {"status": "open", "devices": "all", "what": "with only IPL_JPN.n64 the core shuts down (the game did not start); with the USA and development IPLs in bios/ too it runs 61 emu fps but draws nothing (black at 60 s)", "evidence": "Thor (2026-11-07, app 9263f30 + core dd ddf3103, before the VI event fix in core dd 7a8c4ba, IPL_JPN = Japan v1.2, 30-60 s from the start); Duo 2026-11-09 on app-spfix3 (results/duo-ddbeta1): an SDK-format development disk, so it needs IPL_DEV (with IPL_JPN alone the game screen closes as it should); with IPL_DEV it draws 53 frames, parks the disk motor and then nothing (no sound): the core waits on something 64DD-side, not drawing"}
       ]
     },
     {

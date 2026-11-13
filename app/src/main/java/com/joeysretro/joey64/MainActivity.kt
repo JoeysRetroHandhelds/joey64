@@ -1339,7 +1339,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
 
     /** On [gameIo]: everything before loadGame that reads or writes files. Null: no ROM. */
     private fun prepareGame(): Prepared? {
-        val (rom, saveName) = resolveRom() ?: run { JLog.e(TAG, "No ROM. Push one to ${getExternalFilesDir(null)}/test.z64"); return null }
+        var (rom, saveName) = resolveRom() ?: run { JLog.e(TAG, "No ROM. Push one to ${getExternalFilesDir(null)}/test.z64"); return null }
         val disk = RomFiles.isDiskName(rom)
         // A 64DD disk: the IPL BIOS comes from the data folder's bios/ (the core reads its copy in files/system).
         if (disk) com.joeysretro.joey64.launcher.storage.BiosSync.refresh(this)
@@ -1356,8 +1356,22 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         com.joeysretro.joey64.launcher.storage.SrmSync.pull(this, saveName)
         com.joeysretro.joey64.saves.SaveBackups.maybeBackUp(com.joeysretro.joey64.launcher.storage.DataFolders.current(this).space,
             saveName, opts.backups, opts.backupsKeep)
+        // A disk whose dump doesn't run as dumped gets its per-game bytes (DiskFixes): the unpacked copy and the core's
+        // disk save, after SrmSync brought the folder's save in. The disk's MD5 stays the dump's.
+        // Only ever a copy in the cache: a disk read straight from a file (dev `--es rom` from files/roms) is copied there
+        // first, so the user's own file is never written.
+        var diskMd5: String? = null
+        if (disk) try {
+            val f = File(rom)
+            DiskFixes.fixFor(f, knownMd5())?.let { (m, fix) ->
+                diskMd5 = m
+                val work = if (f.canonicalPath.startsWith(cacheDir.canonicalPath + File.separator)) f
+                    else File(File(cacheDir, "dd").apply { mkdirs(); listFiles()?.forEach { it.delete() } }, f.name).also { f.copyTo(it, true); rom = it.absolutePath }
+                JLog.i(TAG, DiskFixes.apply(fix, work, File(File(filesDir, "saves"), "${f.name}.disk_save")))
+            }
+        } catch (e: Exception) { JLog.e(TAG, "64DD: disk fix failed: $e") }
         // The ROM's MD5 once, here off the main thread, for Auto pak, Controls, reports and the next restart (code audit 3, M18).
-        val md5 = knownMd5() ?: romMd5(rom)
+        val md5 = knownMd5() ?: diskMd5 ?: romMd5(rom)
         // The cheats left on, here too: a picked data folder's file is a provider query and read (code audit 3, M19).
         val cheats = if (saveName.isEmpty()) emptyList() else try { com.joeysretro.joey64.cheats.GameCheats(this, saveName).read().codeLines() }
             catch (e: Exception) { JLog.e(TAG, "cheats: can't read this game's: $e"); emptyList() }

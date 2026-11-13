@@ -323,8 +323,11 @@
     },
     {
       "disk": "Mario Artist - Paint Studio (Japan) (Beta) (1999-02-11)", "title": "Mario Artist: Paint Studio (64DD, 1999 beta)",
+      "settings": [
+        {"what": "disk fix: 0x9F0F3 3F -> 03 (Fix Framebuffer Swapping) and 0x9DB83 09 -> 12 (Disable Print Output), Zoinkity's community fix (LuigiBlood's Translate repo DMPJ990211_Patch.asm, as 64dd.org's Fix dump), for the dump's MD5 a76b619e...", "where": "app DiskFixes.kt (MainActivity.prepareGame): the unpacked copy in cache/dd and the core's disk save when it still has the dump's bytes; the user's file is never written", "why": "as dumped it shows no picture after its first frames (black, no sound) with IPL_DEV"}
+      ],
       "issues": [
-        {"status": "not our bug", "devices": "all", "what": "the dump itself shows no picture after its first frames (black, no sound) with IPL_DEV; with the community fix (Zoinkity, LuigiBlood's Translate repo DMPJ990211_Patch.asm: 0x9DB83 = 0x12 Disable Print Output, 0x9F0F3 = 0x03 Fix Framebuffer Swapping) it reaches the title at 59.9 fps with sound. Joey64 doesn't patch it; a patched disk or the 64dd.org Fix dump runs. With IPL_JPN alone the missing-BIOS path closes it, as it should", "evidence": "Duo 2026-11-12, launcher/phase0 89b4513 + core rel3, IPL_DEV: the original (bytes 0x09, 0x3F) 0.0 presented, all dupes; a patched copy 59.9 presented, title screen. Earlier: results/duo-ddbeta1-3 (the drive finishes its last read, so not the 64DD side), ddall-duo and dddev-duo"}
+        {"status": "fixed", "devices": "Duo", "what": "with the disk fix it reaches the title screen at 59.9 fps with sound; IPL_DEV needed (with IPL_JPN alone the missing-BIOS path closes it, as it should)", "evidence": "Duo 2026-11-12 (launcher/phase0 + core rel3, IPL_DEV): unfixed dump 0.0 presented, all dupes; with DiskFixes 59.9 presented, title screen, with no disk save, with an old unfixed one (fixed too) and with one already fixed; the dump file's MD5 unchanged after. Earlier: results/duo-ddbeta1-3 (the drive finishes its last read, so not the 64DD side)"}
       ]
     },
     {

@@ -5,8 +5,8 @@ controller-first app: a box-art library, settings for every game, and an in-game
 with a gamepad (touch and TV remotes work too).
 
 **AI disclosure:** AI was used for the entire app. The code (the app and our core changes) is written with
-Anthropic's Claude through Claude Code, which also runs most of the device testing. Joey decides what goes in,
-designs the screens and plays it on real handhelds.
+Anthropic's Claude through Claude Code, which also runs most of the device testing. I decide what goes in,
+design the screens and play it on real handhelds.
 
 **Status:** early. Releases are on this repo's Releases page as an APK to install by hand; the app tells you
 when a new one is out.

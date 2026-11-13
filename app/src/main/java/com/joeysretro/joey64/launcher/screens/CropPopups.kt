@@ -62,6 +62,27 @@ import com.joeysretro.joey64.video.VideoStore
 
 private val HINTS = listOf(Hint("A", "Pick"), Hint("◀▶", "Change"), Hint("B", "Close"))
 
+/** The trim row's line under the popup (TRIM_FOCUS). */
+private const val TRIM_FOCUS = -1
+private val TRIM_TEXT = "Trim the game's border" to
+    "Cuts off the black border some games leave around their own picture (Banjo-Kazooie), so the picture fills the screen. None of the game's picture is lost."
+
+/**
+ * Trim the game's border (Joey 2026-11-12: "Have this trim as a setting option as well", on by default): A or ◀ ▶
+ * turns it on and off. The core reports the black outside the part of the screen a game draws in (display_opts.h cutOf).
+ */
+@Composable
+private fun TrimRow(on: Boolean, short: Boolean, focusFirst: Boolean, onFocus: () -> Unit, onSet: (Boolean) -> Unit) {
+    JoeyRow("Trim the game's border", Modifier.initialFocus(focusFirst).onPreviewKeyEvent { e ->
+        val k = e.nativeKeyEvent
+        if (k.keyCode != KeyEvent.KEYCODE_DPAD_LEFT && k.keyCode != KeyEvent.KEYCODE_DPAD_RIGHT) return@onPreviewKeyEvent false
+        if (k.action == KeyEvent.ACTION_DOWN) onSet(!on)
+        true
+    }, detail = if (short) null else "The black some games leave round their picture", value = if (on) "On" else "Off",
+        sideways = true, onFocused = { if (it) onFocus() }) { onSet(!on) }
+    PopupDivider()
+}
+
 /** The line under the popup: for the focused choice, or Exact ([n] null). */
 private fun cropText(n: Int?): Pair<String, String> = when (n) {
     null -> "Exact" to "Any amount from 0 to 32 lines of 240, in steps of 2, for a game that needs something in between."
@@ -139,25 +160,26 @@ private fun CropPreviews(img: ImageBitmap?, lines: Int, width: Dp, modifier: Mod
 
 /** Settings › Video's Crop edges popup (mockup screen 2): the choices, the two pictures following the focus. */
 @Composable
-internal fun CropPopup(current: Int, who: String, onDismiss: () -> Unit, onPick: (Int) -> Unit) {
+internal fun CropPopup(current: Int, who: String, trim: Boolean, onTrim: (Boolean) -> Unit, onDismiss: () -> Unit, onPick: (Int) -> Unit) {
     val context = LocalContext.current
     val source by producePictureSource(context)
     val img = remember(source) { source?.bitmap() }
     // The focused choice's amount, or null on Exact (which shows the amount in use).
     var focus by remember { mutableStateOf<Int?>(current) }
-    val shown = focus ?: current
+    val shown = (focus ?: current).takeIf { it >= 0 } ?: current
     JoeyDialog(onDismiss = onDismiss, hints = HINTS, width = 640.dp) {
         Column {
             PopupTitle("Crop edges", com.joeysretro.joey64.launcher.components.gameName(who))
             // What's left of the card, so the description line shows on a short screen too (as Shader's popup).
             Row(Modifier.weight(1f, fill = false), verticalAlignment = Alignment.Top) {
                 Column(Modifier.weight(1f).heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+                    TrimRow(trim, short = false, focusFirst = false, onFocus = { focus = TRIM_FOCUS }, onSet = onTrim)
                     CropRows(current, short = false, onFocus = { focus = it }, onPick = onPick)
                 }
                 CropPreviews(img, shown, 190.dp, Modifier.padding(start = 12.dp, end = 8.dp))
             }
             Spacer(Modifier.height(6.dp))
-            val (t, text) = cropText(focus)
+            val (t, text) = if (focus == TRIM_FOCUS) TRIM_TEXT else cropText(focus)
             DescriptionLine(t, text)
         }
     }
@@ -185,6 +207,16 @@ internal fun CropPanel(saveName: String, onDone: () -> Unit) {
     fun show(n: Int) {
         try { com.joeysretro.joey64.NativeBridge.setCrop(n); com.joeysretro.joey64.NativeBridge.showAgain() } catch (e: LinkageError) {}
     }
+    val trim = v.on(VideoKey.Trim)
+    fun showTrim(on: Boolean) {
+        try { com.joeysretro.joey64.NativeBridge.setTrim(on); com.joeysretro.joey64.NativeBridge.showAgain() } catch (e: LinkageError) {}
+    }
+    fun saveTrim(on: Boolean) {
+        val change = mapOf(VideoKey.Trim to if (on) "on" else "off")
+        if (allGames) store.saveAll(store.all() + change) else store.saveGame(saveName, (store.game(saveName) ?: emptyMap()) + change)
+        version++
+        showTrim(on)
+    }
     fun save(n: Int) {
         val change = mapOf(VideoKey.Crop to n.toString())
         if (allGames) store.saveAll(store.all() + change) else store.saveGame(saveName, (store.game(saveName) ?: emptyMap()) + change)
@@ -193,7 +225,11 @@ internal fun CropPanel(saveName: String, onDone: () -> Unit) {
     }
     // What the game plays with: its own amount, or All games'. Declared before the panel's effect,
     // which Compose disposes first, so the picture is full size again when this one shows it.
-    DisposableEffect(Unit) { onDispose { show(com.joeysretro.joey64.video.GameCrop.of(gameCode, store.forGame(saveName))) } }
+    DisposableEffect(Unit) { onDispose {
+        val kept = store.forGame(saveName)
+        showTrim(kept.on(VideoKey.Trim))
+        show(com.joeysretro.joey64.video.GameCrop.of(gameCode, kept))
+    } }
     // The whole picture in the space left of the panel while it's up (Joey 2026-11-12: "Yes, shrink it"), so every
     // edge the crop takes off shows; full size again when it closes.
     val density = androidx.compose.ui.platform.LocalDensity.current
@@ -213,6 +249,7 @@ internal fun CropPanel(saveName: String, onDone: () -> Unit) {
                 Spacer(Modifier.width(6.dp))
                 com.joeysretro.joey64.launcher.components.PageChip("All games", null, on = allGames) { allGames = true }
             }
+            TrimRow(trim, short = true, focusFirst = false, onFocus = { show(current) }, onSet = { saveTrim(it) })
             CropRows(current, short = true, onFocus = { show(it ?: current) }, onPick = { save(it) })
         }
     }

@@ -35,6 +35,8 @@ struct Opts {
     // A panel down the right over the paused game (the in-game Crop edges panel, Joey 2026-11-12: "Yes, shrink it"):
     // per mille of the window's width it covers; the whole picture fits the space left of it (0 = none).
     std::atomic<int> panelRight{0};
+    // Crop edges › Trim the game's border (Joey 2026-11-12: a setting, on by default): off shows the game's border.
+    std::atomic<bool> trim{true};
     // Crop edges (approved mockup 2026-11-09): lines of the N64's 240 cut off every edge, the same share of the
     // width and the height, so the picture keeps its shape (0 = off).
     std::atomic<int> crop{0};     // touch controls in portrait: the picture's top, per mille of the height (-1: centred)
@@ -65,8 +67,10 @@ inline bool cutOf(int w, int h, Cut& c) {
     if (w <= 0 || h <= 0) return false;
     std::atomic<int>* v = viTrim();
     // To the nearest pixel: the core's ten thousandths round down (13 of 240 lines comes as 541, 12.98 lines).
-    c.l = (int)std::lround(w * (v[0] / 10000.0)); c.r = (int)std::lround(w * (v[2] / 10000.0));
-    c.t = (int)std::lround(h * (v[1] / 10000.0)); c.b = (int)std::lround(h * (v[3] / 10000.0));
+    if (opts().trim) {
+        c.l = (int)std::lround(w * (v[0] / 10000.0)); c.r = (int)std::lround(w * (v[2] / 10000.0));
+        c.t = (int)std::lround(h * (v[1] / 10000.0)); c.b = (int)std::lround(h * (v[3] / 10000.0));
+    }
     int n = opts().crop;
     if (n > 0) {
         int kw = w - c.l - c.r, kh = h - c.t - c.b;
@@ -81,6 +85,7 @@ inline bool cutOf(int w, int h, Cut& c) {
 // border is wider than it is tall is shown a little narrower than 4:3 (Crop edges keeps the shape on its own).
 inline double cutShape(int w, int h, const Cut& c) {
     std::atomic<int>* v = viTrim();
+    if (!opts().trim) return 1.0;
     double kw = 1.0 - (v[0] + v[2]) / 10000.0, kh = 1.0 - (v[1] + v[3]) / 10000.0;
     if (w <= 0 || h <= 0 || (c.l + c.r) * 2 >= w || kw <= 0.5 || kh <= 0.5) return 1.0;
     return kw / kh;

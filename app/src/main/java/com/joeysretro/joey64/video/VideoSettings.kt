@@ -16,6 +16,8 @@ enum class VideoKey(val key: String, val default: String) {
     Aspect("aspect", "auto"),
     /** Crop edges (approved mockup 2026-11-09): lines of the N64's 240 off every edge, "0" off (display_opts.h cropOf). */
     Crop("crop", "0"),
+    /** Crop edges › Trim the game's border (Joey 2026-11-12, on by default): the black a game leaves round its picture (display_opts.h cutOf). */
+    Trim("trim_border", "on"),
     Integer("integer", "off"),
     Orientation("orientation", "landscape"),
     Cutout("cutout", "off"),

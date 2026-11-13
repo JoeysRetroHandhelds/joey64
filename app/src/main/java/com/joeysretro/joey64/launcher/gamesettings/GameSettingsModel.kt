@@ -95,6 +95,7 @@ class GameSettingsModel(private val video: VideoStore, private val emu: EmuStore
         one(VideoKey.Resolution, "Resolution", "res")
         one(VideoKey.Aspect, "Aspect ratio", "asp")
         one(VideoKey.Crop, "Crop edges", "crop")
+        one(VideoKey.Trim, "Trim the game's border", "crop")
         one(VideoKey.Widescreen, "Widescreen", "ws")
         one(VideoKey.Fps, "60 fps", "fps")
         one(VideoKey.Integer, "Integer scaling", "int")

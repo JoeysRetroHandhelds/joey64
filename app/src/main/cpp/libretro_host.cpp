@@ -1944,6 +1944,11 @@ JNIEXPORT void JNICALL JNI(setCrop)(JNIEnv*, jobject, jint lines) {
     Display::opts().crop = std::max(0, std::min(64, (int)lines));
 }
 
+// Crop edges › Trim the game's border: off shows the border the game leaves around its picture (display_opts.h cutOf).
+JNIEXPORT void JNICALL JNI(setTrim)(JNIEnv*, jobject, jboolean on) {
+    Display::opts().trim = on == JNI_TRUE;
+}
+
 // A panel down the right over the paused game: per mille of the window's width it covers, 0 none (display_opts.h fit).
 JNIEXPORT void JNICALL JNI(setPanelRight)(JNIEnv*, jobject, jint perMille) {
     Display::opts().panelRight = std::max(0, std::min(800, (int)perMille));

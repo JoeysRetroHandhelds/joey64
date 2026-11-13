@@ -62,6 +62,9 @@ object NativeBridge {
     /** Settings › Video › Crop edges: lines of the N64's 240 off every edge (0 off); the next present shows it. */
     external fun setCrop(lines: Int)
 
+    /** Crop edges › Trim the game's border: on cuts off the black a game leaves around its own picture; the next present shows it. */
+    external fun setTrim(on: Boolean)
+
     /** Settings › Video › Colour: brightness, contrast, saturation in percent (-50..50), gamma in tenths (5..20). Any time. */
     external fun setColour(brightness: Int, contrast: Int, saturation: Int, gamma: Int)
 

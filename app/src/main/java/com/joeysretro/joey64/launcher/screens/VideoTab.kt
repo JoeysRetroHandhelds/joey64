@@ -159,7 +159,7 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
     }
 
     val rowKeys: Map<String, List<VideoKey>> = mapOf(
-        "res" to listOf(VideoKey.Resolution), "asp" to listOf(VideoKey.Aspect), "crop" to listOf(VideoKey.Crop), "int" to listOf(VideoKey.Integer),
+        "res" to listOf(VideoKey.Resolution), "asp" to listOf(VideoKey.Aspect), "crop" to listOf(VideoKey.Crop, VideoKey.Trim), "int" to listOf(VideoKey.Integer),
         "ori" to listOf(VideoKey.Orientation), "cut" to listOf(VideoKey.Cutout), "col" to COLOUR_ROW_KEYS,
         "sh" to SHADER_KEYS, "sd" to SIDES_KEYS, "ov" to OVERLAY_KEYS,
         "ws" to listOf(VideoKey.Widescreen), "fps" to listOf(VideoKey.Fps),
@@ -211,7 +211,8 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
         focused == "adv" -> com.joeysretro.joey64.launcher.components.PanelInfo(title, help, lines = listOf(
             "Renderer" to VideoChoices.label(VideoKey.Renderer, v[VideoKey.Renderer]), "Driver" to VideoChoices.label(VideoKey.Driver, v[VideoKey.Driver]),
             "Frame pacing" to VideoChoices.label(VideoKey.Pacing, v[VideoKey.Pacing])))
-        focused == "crop" -> com.joeysretro.joey64.launcher.components.PanelInfo(title, help, lines = listOf("Crop edges" to com.joeysretro.joey64.video.GameCrop.label(gameCode, v)))
+        focused == "crop" -> com.joeysretro.joey64.launcher.components.PanelInfo(title, help, lines = listOf("Trim the game's border" to VideoChoices.label(VideoKey.Trim, v[VideoKey.Trim]),
+            "Crop edges" to com.joeysretro.joey64.video.GameCrop.label(gameCode, v)))
         else -> com.joeysretro.joey64.launcher.components.PanelInfo(title, help)
     }
 
@@ -225,7 +226,7 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
             row("res", "Resolution", VideoKey.Resolution)
             row("asp", "Aspect ratio", VideoKey.Aspect)
             JoeyRow("Crop edges", Modifier.initialFocus(startRow == "crop"), value = com.joeysretro.joey64.video.GameCrop.label(gameCode, v), sideways = true,
-                dot = dot(VideoKey.Crop), onFocused = { if (it) focused = "crop" }) {
+                dot = dot(VideoKey.Crop, VideoKey.Trim), onFocused = { if (it) focused = "crop" }) {
                 if (onPicturePanel != null) onPicturePanel("crop") else popup = VPopup.Crop
             }
             for ((id, k) in listOf("ws" to ExtraKind.Widescreen, "fps" to ExtraKind.Fps)) {
@@ -274,7 +275,8 @@ fun VideoTab(target: String?, onHints: (List<Hint>) -> Unit, onControl: (((Contr
         null -> {}
         is VPopup.Choice -> ChoicePopup(p.key, v[p.key], sub = p.row?.let { describe(it, v).second },
             onDismiss = { popup = p.back }) { set(p.key, it); popup = p.back }
-        VPopup.Crop -> CropPopup(com.joeysretro.joey64.video.GameCrop.of(gameCode, v), target ?: "All games", onDismiss = { popup = null }) { set(VideoKey.Crop, it.toString()) }
+        VPopup.Crop -> CropPopup(com.joeysretro.joey64.video.GameCrop.of(gameCode, v), target ?: "All games",
+            trim = v.on(VideoKey.Trim), onTrim = { set(VideoKey.Trim, if (it) "on" else "off") }, onDismiss = { popup = null }) { set(VideoKey.Crop, it.toString()) }
         VPopup.Colour -> ColourPopup(context, v, onDismiss = { popup = null }, onSet = { k, n -> set(k, n) },
             onReset = { set(COLOUR_ROW_KEYS.associateWith { it.default }) })
         is VPopup.Picture -> PicturePopups(p.page, picCtx) { next -> popup = next?.let { VPopup.Picture(it) } }
@@ -331,7 +333,7 @@ internal fun sharpenValue(v: VideoSettings) = if (v[VideoKey.Sharpen] == "off") 
 private fun describe(row: String, v: VideoSettings): Pair<String, String> = when (row) {
     "res" -> "Resolution" to "Native draws the game at the N64's own size, the most accurate and the fastest. Higher is sharper but slower. Applies when the game next starts."
     "asp" -> "Aspect ratio" to "The shape of the picture. Auto is 4:3, and 16:9 when Widescreen is on."
-    "crop" -> "Crop edges" to "Cuts off the black border many games draw around the picture. The picture keeps its shape and grows to fill the space."
+    "crop" -> "Crop edges" to "Trims the black border a game leaves around its picture, and can cut off more. The picture keeps its shape and grows to fill the space."
     "int" -> "Integer scaling" to "Scales by whole numbers only, so every pixel is the same size. Leaves a border."
     "ori" -> "Screen orientation" to "Which way the game is shown. Landscape on handhelds."
     "cut" -> "Fill the camera cutout" to "Draws the picture behind the camera hole, for Stretch to the screen."
@@ -351,7 +353,7 @@ private fun allGamesNote(row: String, all: VideoSettings, gameCode: String? = nu
     "fps" -> "All games uses ${VideoChoices.label(VideoKey.Fps, all[VideoKey.Fps])}."
     "asp" -> "All games uses ${VideoChoices.label(VideoKey.Aspect, all[VideoKey.Aspect])}."
     // A game with its own default (GameCrop) gets that while All games leaves Crop edges unset (code audit 4, D-M1).
-    "crop" -> "All games uses ${com.joeysretro.joey64.video.GameCrop.label(gameCode, all)}."
+    "crop" -> "All games uses ${com.joeysretro.joey64.video.GameCrop.label(gameCode, all)}, trim ${VideoChoices.label(VideoKey.Trim, all[VideoKey.Trim]).lowercase()}."
     "int" -> "All games uses ${VideoChoices.label(VideoKey.Integer, all[VideoKey.Integer])}."
     "ori" -> "All games uses ${VideoChoices.label(VideoKey.Orientation, all[VideoKey.Orientation])}."
     "cut" -> "All games uses ${VideoChoices.label(VideoKey.Cutout, all[VideoKey.Cutout])}."

@@ -15,6 +15,15 @@ class PlayerInput(setup: PlayerSetup) {
     var setup: PlayerSetup = setup
         set(v) { field = v; keyBits = keyBitsFor(v); cKeys = cKeysFor(v); latchMask = maskOf(v.latch); latchedOn = latchedOn and latchMask }
 
+    /**
+     * The Swap D-pad hotkey (Joey 2026-11-13): while true, a D-pad that moves the stick ([StickSource.usesDPad]) is the
+     * N64 D-pad again, and Left stick and D-pad is the left stick alone. For this play only; MainActivity sets it.
+     */
+    var dpadSwapped = false
+
+    /** Whether the D-pad moves the stick now: the setup's choice, unless Swap D-pad has it on the N64 D-pad. */
+    private val stickOnDPad get() = setup.stick.usesDPad && !dpadSwapped
+
     private val held = HashSet<Int>()
     private val axes = FloatArray(4) // X, Y, Z, RZ
     private var hatKeys = 0          // bits: up, down, left, right
@@ -44,7 +53,7 @@ class PlayerInput(setup: PlayerSetup) {
 
     /** Whether this player uses [keyCode] for an N64 button (or, with the stick on the D-pad, for the stick; or to hold for the C buttons). */
     fun uses(keyCode: Int): Boolean = keyCode in keyBits ||
-        (setup.stick.usesDPad && keyCode in DPAD_CODES) || keyCode == setup.cHold?.code
+        (stickOnDPad && keyCode in DPAD_CODES) || keyCode == setup.cHold?.code
 
     fun key(keyCode: Int, down: Boolean) { if (down) held.add(keyCode) else held.remove(keyCode) }
 
@@ -99,7 +108,7 @@ class PlayerInput(setup: PlayerSetup) {
 
     private fun rawButtons(): Int {
         var mask = touchBits
-        val dpadOnStick = setup.stick.usesDPad
+        val dpadOnStick = stickOnDPad
         // Hold for C buttons (approved stickless mockup 2026-11-13): the C buttons press only while it's held, and their
         // keys press nothing else then.
         val hold = setup.cHold
@@ -124,8 +133,8 @@ class PlayerInput(setup: PlayerSetup) {
     fun stick(): Pair<Float, Float> = touchStick ?: when (setup.stick) {
         StickSource.LeftStick -> setup.feel.apply(axes[0], axes[1], setup.deadZone)
         StickSource.RightStick -> setup.feel.apply(axes[2], axes[3], setup.deadZone)
-        StickSource.DPad -> dpad()
-        StickSource.LeftStickDPad -> dpad().takeIf { it.first != 0f || it.second != 0f } ?: setup.feel.apply(axes[0], axes[1], setup.deadZone)
+        StickSource.DPad -> if (dpadSwapped) 0f to 0f else dpad()
+        StickSource.LeftStickDPad -> dpad().takeIf { !dpadSwapped && (it.first != 0f || it.second != 0f) } ?: setup.feel.apply(axes[0], axes[1], setup.deadZone)
     }
 
     private fun dpad(): Pair<Float, Float> {

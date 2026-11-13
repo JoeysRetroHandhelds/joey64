@@ -2035,6 +2035,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
             HotkeyAction.UndoLoad -> hotkeyUndoLoad()
             HotkeyAction.UndoSave -> hotkeyUndoSave()
             HotkeyAction.Turbo -> toggleTurbo()
+            HotkeyAction.DPadSwap -> swapDPad()
             HotkeyAction.NextShader -> nextShader()
             HotkeyAction.ShaderToggle -> toggleShader()
         }
@@ -2286,6 +2287,26 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (turboOn) pop("turbo", InGamePopup.Kind.Turbo, "", "Turbo on", com.joeysretro.joey64.controls.turboNames(all))
         else pop("turbo", InGamePopup.Kind.TurboOff, "", "Turbo off",
             com.joeysretro.joey64.controls.turboNames(all, and = true) + if (all.size == 1) " presses normally" else " press normally")
+    }
+
+    // ---- Swap D-pad (Joey 2026-11-13: "add it as a hotkey option") ----
+
+    /** The Swap D-pad hotkey's switch, for this play only: the next game starts with the D-pad as set in Controls. */
+    private var dpadSwapped = false
+
+    private fun applyDPadSwap() { for (i in 0..3) players[i].dpadSwapped = dpadSwapped }
+
+    private fun swapDPad() {
+        val who = (0..3).filter { controls.players[it].device != DeviceChoice.None && players[it].setup.stick.usesDPad }
+        if (who.isEmpty()) { pop("dpadswap", InGamePopup.Kind.DPadSwap, "", "The D-pad is the N64 D-pad", "No player's stick is on the D-pad · Controls › Stick"); return }
+        dpadSwapped = !dpadSwapped
+        // Let go first, so a direction held across the swap doesn't stay pressed on the other side.
+        for (i in who) players[i].release()
+        applyDPadSwap()
+        for (i in who) push(i)
+        JLog.i(TAG, "swap D-pad: " + if (dpadSwapped) "N64 D-pad" else "stick")
+        if (dpadSwapped) pop("dpadswap", InGamePopup.Kind.DPadSwap, "", "D-pad: N64 D-pad", "Swap D-pad again for the stick")
+        else pop("dpadswap", InGamePopup.Kind.DPadSwap, "", "D-pad: moves the stick", "Swap D-pad again for the N64 D-pad")
     }
 
     private fun stepSlot(by: Int) {
@@ -2761,6 +2782,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         for (i in 0..3) players[i].setup = controls.players[i]
         turboOn = true
         applyTurbo()
+        dpadSwapped = false
+        applyDPadSwap()
         playerOfDevice.clear()
         portsPresent = 1
         for (i in 1..3) if (controls.players[i].device != DeviceChoice.None) portsPresent = portsPresent or (1 shl i)

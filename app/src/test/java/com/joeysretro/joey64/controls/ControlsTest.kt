@@ -379,6 +379,24 @@ class ControlsTest {
         assertEquals(0, i.buttons() and bit(N64Button.DRight))
     }
 
+    @Test fun swapDPadMakesTheDPadTheN64DPadUntilSwappedBack() {
+        val i = PlayerInput(AutoMap.stickless(DeviceChoice.BuiltIn, AutoMap.FaceCodes.POSITION))
+        i.key(KeyEvent.KEYCODE_DPAD_UP, true)
+        assertTrue(i.stick().second != 0f)
+        assertEquals(0, i.buttons() and bit(N64Button.DUp))
+        i.dpadSwapped = true
+        assertEquals(0f to 0f, i.stick())
+        assertEquals(bit(N64Button.DUp), i.buttons())
+        assertTrue(i.uses(KeyEvent.KEYCODE_DPAD_UP))
+        i.dpadSwapped = false
+        assertEquals(0, i.buttons() and bit(N64Button.DUp))
+        // Left stick and D-pad: swapped, the D-pad no longer moves the stick.
+        val both = PlayerInput(AutoMap.byPosition(DeviceChoice.BuiltIn, AutoMap.FaceCodes.POSITION).copy(stick = StickSource.LeftStickDPad))
+        both.key(KeyEvent.KEYCODE_DPAD_RIGHT, true); both.dpadSwapped = true
+        assertEquals(0f to 0f, both.stick())
+        assertEquals(bit(N64Button.DRight), both.buttons())
+    }
+
     @Test fun holdForCIsSavedAndRead() {
         val p = AutoMap.stickless(DeviceChoice.BuiltIn, AutoMap.FaceCodes.POSITION)
         val back = PlayerSetup.fromJson(JSONObject(p.toJson().toString()), ControlsSet.defaults().players[0])

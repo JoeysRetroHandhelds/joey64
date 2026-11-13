@@ -940,7 +940,7 @@ private fun HotkeysPage(editor: ControlsEditor, version: Int, focused: String, h
             SectionLabel("Picture")
             for (a in listOf(HotkeyAction.UpscaleUp, HotkeyAction.UpscaleDown, HotkeyAction.NextShader, HotkeyAction.ShaderToggle)) row(a)
             SectionLabel("Game")
-            for (a in listOf(HotkeyAction.PauseMenu, HotkeyAction.Pause, HotkeyAction.FrameAdvance, HotkeyAction.FastForward, HotkeyAction.SlowMotion, HotkeyAction.Rewind, HotkeyAction.Turbo, HotkeyAction.Screenshot, HotkeyAction.Stats,
+            for (a in listOf(HotkeyAction.PauseMenu, HotkeyAction.Pause, HotkeyAction.FrameAdvance, HotkeyAction.FastForward, HotkeyAction.SlowMotion, HotkeyAction.Rewind, HotkeyAction.Turbo, HotkeyAction.DPadSwap, HotkeyAction.Screenshot, HotkeyAction.Stats,
                 HotkeyAction.Achievements, HotkeyAction.GameShark, HotkeyAction.Reset, HotkeyAction.Quit)) row(a)
     }
     }
@@ -973,6 +973,7 @@ private fun hotkeyDescription(a: HotkeyAction): String? = when (a) {
     HotkeyAction.UndoLoad -> "Goes back to where you were just before the last load state, if it was the wrong slot."
     HotkeyAction.UndoSave -> "Puts back the slot the last save state wrote over, with its picture and date."
     HotkeyAction.Turbo -> "Turns turbo off for this play, and on again. Which buttons repeat is set in Controls › Turbo."
+    HotkeyAction.DPadSwap -> "When the D-pad moves the stick, makes it the N64 D-pad for this play, and back again. Controls › Stick keeps its own."
     HotkeyAction.NextShader -> "Steps through the shaders and your presets for this play. Settings › Video keeps its own."
     HotkeyAction.ShaderToggle -> "Turns the shader off for this play, and on again. Settings › Video keeps its own."
     else -> null
@@ -1000,6 +1001,7 @@ private fun hotkeyPopupLine(a: HotkeyAction): String = when (a) {
     HotkeyAction.UndoLoad -> "Back to just before the last load state."
     HotkeyAction.UndoSave -> "Puts back the slot the last save wrote over."
     HotkeyAction.Turbo -> "Turbo off for this play, and on again."
+    HotkeyAction.DPadSwap -> "The D-pad as the N64 D-pad, and back to the stick, for this play only."
     HotkeyAction.NextShader -> "The next shader, for this play only."
     HotkeyAction.ShaderToggle -> "The shader off, and on again, for this play only."
     HotkeyAction.FastForward, HotkeyAction.SlowMotion, HotkeyAction.Rewind, HotkeyAction.Quit -> ""

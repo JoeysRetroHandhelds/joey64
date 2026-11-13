@@ -276,6 +276,11 @@ enum class HotkeyAction(val label: String, /** null: not set until the user pick
     UndoLoad("Undo load state", null),
     UndoSave("Undo save state", null),
     Turbo("Turbo", null),
+    /**
+     * Joey 2026-11-13 ("add it as a hotkey option", no mockup): for players whose stick is on the D-pad, the D-pad
+     * works as the N64 D-pad until pressed again, for this play only. Not set by default.
+     */
+    DPadSwap("Swap D-pad", null),
     /** Held for as long as the buttons are (approved 2026-11-07). Not set by default (Joey 2026-11-13; was hotkey button + L3). */
     GameShark("GameShark button", null),
     /** Not set by default (Joey 2026-11-07). */

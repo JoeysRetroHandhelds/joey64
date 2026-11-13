@@ -72,7 +72,9 @@ data class InGamePopup(
         /** Play's popup set Continue on Play (approved E4 2026-11-11, screens 5-6). */
         PlayNote,
         /** The first game on a device with no sticks (approved stickless mockup 2026-11-13, screen 7). */
-        NoSticks }
+        NoSticks,
+        /** The Swap D-pad hotkey (Joey 2026-11-13). */
+        DPadSwap }
 }
 
 /**
@@ -151,6 +153,7 @@ fun InGamePopupCard(p: InGamePopup) {
         InGamePopup.Kind.NetBlocked -> R.drawable.ic_x
         InGamePopup.Kind.PlayNote -> R.drawable.ic_history
         InGamePopup.Kind.NoSticks -> R.drawable.ic_rail_controls
+        InGamePopup.Kind.DPadSwap -> R.drawable.ic_rail_controls
     }
     JoeyToast(icon, p.label, p.name, p.line, iconTint = when (p.kind) {
         InGamePopup.Kind.Problem, InGamePopup.Kind.ChallengeFailed -> JoeyTheme.colors.error

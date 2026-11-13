@@ -25,6 +25,12 @@ export const MAX_TOTAL_BYTES = 8 * (1 << 30);
 export const WANTED_URL = "https://raw.githubusercontent.com/JoeysRetroHandhelds/joey64-data/release/wanted/wanted.json";
 
 const RZIP = [..."#RZIPv\x01#"].map((c) => c.charCodeAt(0));
+/** RZIP's header: the magic, a u32 chunk size and the u64 size of the whole unpacked file; then each chunk's u32 size. */
+const RZIP_HEADER = 20;
+/** A first chunk bigger than this isn't one the app wrote (it packs 128 KB chunks, which deflate never grows past ~131 KB). */
+const MAX_FIRST_CHUNK = 256 << 10;
+/** The core's state holds RDRAM (4 MB, or 8 with the Expansion Pak) and more: the app's are 16.8 MB unpacked. */
+export const MIN_UNPACKED = 4 << 20;
 const GZIP = [0x1f, 0x8b];
 let cache = { at: 0, list: null };
 
@@ -42,6 +48,31 @@ function index(w) {
   const m = new Map();
   for (const g of (w && w.games) || []) if (/^[0-9a-f]{32}$/.test(g.md5)) m.set(g.md5, g);
   return m;
+}
+
+const ascii = (b, at, s) => [...s].every((c, i) => b[at + i] === c.charCodeAt(0));
+
+/**
+ * Whether [state] (an RZIP Blob) is a Joey64 state of the ROM [md5] (audit 4 M1: before, any file that began with
+ * the RZIP magic counted, so junk could fill a game's places for good). Only the first chunk is unpacked: it must
+ * start with RetroArch's RASTATE and a MEM block holding the core's "M64+SAVE", a version and the ROM's MD5 (upper-case
+ * hex, as the core's rom.c writes it, over the .z64-order bytes, the same as the launcher's md5).
+ */
+export async function isStateOf(state, md5) {
+  if (state.size < RZIP_HEADER + 4) return false;
+  const head = new DataView(await state.slice(0, RZIP_HEADER + 4).arrayBuffer());
+  const unpacked = Number(head.getBigUint64(12, true));
+  const first = head.getUint32(RZIP_HEADER, true);
+  if (unpacked < MIN_UNPACKED || first < 2 || first > MAX_FIRST_CHUNK || RZIP_HEADER + 4 + first > state.size) return false;
+  let out;
+  try {
+    const stream = state.slice(RZIP_HEADER + 4, RZIP_HEADER + 4 + first).stream().pipeThrough(new DecompressionStream("deflate"));
+    out = new Uint8Array(await new Response(stream).arrayBuffer());
+  } catch { return false; }
+  // RASTATE + version 1, "MEM " + its u32 size, then "M64+SAVE", a u32 version and the 32-character MD5.
+  if (out.length < 60 || !ascii(out, 0, "RASTATE") || out[7] !== 1 || !ascii(out, 8, "MEM ")) return false;
+  if (!ascii(out, 16, "M64+SAVE")) return false;
+  return ascii(out, 28, md5.toUpperCase());
 }
 
 function secondsToMidnight() {
@@ -87,6 +118,7 @@ export async function handleState(request, env, text) {
   const game = list.get(md5);
   if (!game) return text(404, "not wanted");
   if ((game.kind || "gameplay") !== kind) return text(400, "wrong kind");
+  if (!(await isStateOf(state, md5))) return text(400, "not a state of this game");
 
   const enough = Number.isInteger(game.enough) && game.enough > 0 ? game.enough : DEFAULT_ENOUGH;
   const have = await env.DB.prepare("SELECT count(*) AS n FROM states WHERE md5 = ?").bind(md5).first("n");

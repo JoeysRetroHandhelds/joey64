@@ -998,6 +998,11 @@ std::vector<uint8_t> g_lastSave;
 // The size of the save RAM the last write couldn't put on disk, 0 once one is written (MainActivity polls it: Not enough
 // space to save, approved problem screens 2026-11-08). A failed write is tried again at the next check, as before.
 std::atomic<int64_t> g_saveFailedBytes{0};
+// A netplay joiner plays on the room's save (audit 4 H1): the core's open_*_file calls netplay_read_storage, which on
+// every player but player 1 fills save RAM with the save player 1 sends. Writing that back would replace this
+// device's own save with player 1's, so while a joiner is in a room its save RAM is never written; its own .srm
+// stays as it was before the room. Player 1 (the device whose save the room plays on) saves as usual.
+static std::atomic<bool> g_npRoomSave{false};
 
 void loadSave() {
     auto* mem = static_cast<uint8_t*>(core.get_memory_data(RETRO_MEMORY_SAVE_RAM));
@@ -1021,6 +1026,11 @@ void flushSave() {
     size_t size = core.get_memory_size(RETRO_MEMORY_SAVE_RAM);
     if (!mem || !size || g_savePath.empty()) return;
     if (g_lastSave.size() == size && !memcmp(g_lastSave.data(), mem, size)) return;
+    if (g_npRoomSave) {
+        static bool said = false;
+        if (!said) { said = true; LOGI("save: the room's save (player 1's) is in use: this device's own save is left as it was"); }
+        return;
+    }
     std::string tmp = g_savePath + ".tmp";
     FILE* f = fopen(tmp.c_str(), "wb");
     if (!f) { LOGE("save: cannot write %s", tmp.c_str()); g_saveFailedBytes = (int64_t)size; return; }
@@ -1777,6 +1787,7 @@ void runLoop() {
     npPauseStop();
     NetplayServer::stop();
     g_netplay = false;
+    g_npRoomSave = false;
     core.deinit();
     g_coreInited = false;
     g_audio.close();
@@ -2179,7 +2190,9 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
             setenv("N64_NETPLAY", v, 1);
         }
     }
-    { const char* np = getenv("N64_NETPLAY"); g_netplay = np && *np; }
+    { const char* np = getenv("N64_NETPLAY"); g_netplay = np && *np;
+      const char* last = g_netplay ? strrchr(np, ':') : nullptr;
+      g_npRoomSave = g_netplay && !(last && atoi(last + 1) == 1); }
     // The room's address stays out of the session log (code audit 3, p1 L4): its port and this player's number.
     if (g_netplay) { const char* np = getenv("N64_NETPLAY"); const char* tail = strchr(np, ':');
         LOGI("netplay: on (port and player %s): state loads, Reset, rewind, fast-forward, slow motion, frame advance and cheat changes are off",
@@ -2192,6 +2205,7 @@ JNIEXPORT jboolean JNICALL JNI(loadGame)(JNIEnv* env, jobject, jstring rom, jstr
         npPauseStop();
         NetplayServer::stop();
         g_netplay = false;
+        g_npRoomSave = false;
         if (!g_vulkan) g_egl.destroy();
         return JNI_FALSE;
     };

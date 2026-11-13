@@ -7,7 +7,7 @@ package com.joeysretro.joey64
  */
 object LogMask {
     // Not part of a longer dotted number (a version "1.2.3.4.5"); a full stop after one is the sentence's.
-    private val IPV4 = Regex("""(?<!\d|\d\.)(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?!\d|\.\d)""")
+    private val IPV4 = Regex("""(?<!\w|\d\.)(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})(?!\d|\.\d)""")
 
     /** [text] with every public IPv4 address as "<public address>". */
     fun addresses(text: String): String = IPV4.replace(text) { m ->

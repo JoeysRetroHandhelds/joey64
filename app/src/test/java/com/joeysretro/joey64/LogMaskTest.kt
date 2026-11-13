@@ -16,6 +16,10 @@ class LogMaskTest {
             LogMask.addresses("failed to connect to /81.2.69.160 (port 45000) from /192.168.1.5 (port 41234)"))
         // Not an address: left alone.
         assertEquals("version 1.2.3.4.5 and 300.1.1.1", LogMask.addresses("version 1.2.3.4.5 and 300.1.1.1"))
+        // versions, not addresses (2026-11-12: the Adreno driver line lost its compiler version)
+        assertEquals("Compiler Version: E031.41.03.44 v8.1.2.3", LogMask.addresses("Compiler Version: E031.41.03.44 v8.1.2.3"))
+        assertEquals("build 031.41.03.44 and <public address>", LogMask.addresses("build 031.41.03.44 and 8.8.8.8"))
+        assertEquals("from=<public address>", LogMask.addresses("from=81.2.69.160"))
     }
 
     @Test fun urisKeepOnlyTheLastName() {

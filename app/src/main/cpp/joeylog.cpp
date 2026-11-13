@@ -30,6 +30,7 @@ char prioChar(int prio) {
     }
 }
 bool isDigit(char c) { return c >= '0' && c <= '9'; }
+bool isWord(char c) { return isDigit(c) || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; }
 
 bool notPublic(const int b[4]) {
     return b[0] == 0 || b[0] == 10 || b[0] == 127 || (b[0] == 172 && b[1] >= 16 && b[1] <= 31) ||
@@ -42,13 +43,15 @@ bool notPublic(const int b[4]) {
 void maskAddresses(const char* in, char* out, size_t cap) {
     size_t o = 0;
     for (size_t i = 0; in[i] && o + 1 < cap;) {
-        bool start = isDigit(in[i]) && !(i > 0 && isDigit(in[i - 1])) && !(i > 1 && in[i - 1] == '.' && isDigit(in[i - 2]));
+        // not right after a letter, digit or _ (a version such as the Adreno compiler's "E031.41.03.44"), and no octet
+        // with a leading zero (addresses are never written that way)
+        bool start = isDigit(in[i]) && !(i > 0 && (isWord(in[i - 1]))) && !(i > 1 && in[i - 1] == '.' && isDigit(in[i - 2]));
         if (start) {
             int b[4]; size_t j = i; bool ok = true;
             for (int k = 0; k < 4 && ok; ++k) {
                 int n = 0, d = 0;
                 while (isDigit(in[j]) && d < 4) { n = n * 10 + (in[j] - '0'); ++j; ++d; }
-                if (d == 0 || d > 3 || n > 255) ok = false;
+                if (d == 0 || d > 3 || n > 255 || (d > 1 && in[j - d] == '0')) ok = false;
                 b[k] = n;
                 if (ok && k < 3) { if (in[j] == '.') ++j; else ok = false; }
             }

@@ -287,7 +287,11 @@ class GameStates(
             val infoPart = File(recoveryDir, "$RECOVERY_INFO.part")
             infoPart.outputStream().use { info.store(it, null) }
             if (!infoPart.renameTo(File(recoveryDir, RECOVERY_INFO))) throw IOException("can't rename ${infoPart.name}")
-            JLog.i(TAG, "recovery state written (${file.length()} bytes)")
+            // Its picture, shown while the game starts again from it (MainActivity's held picture): none is no loss.
+            val png = FramePicture.capturePng(maxWidth = PICTURE_MAX_WIDTH)
+            val picPart = File(recoveryDir, "$RECOVERY_PICTURE.part")
+            if (png != null) { picPart.writeBytes(png); if (!picPart.renameTo(File(recoveryDir, RECOVERY_PICTURE))) picPart.delete() }
+            JLog.i(TAG, "recovery state written (${file.length()} bytes, picture ${png?.size ?: 0})")
             true
         } catch (e: IOException) {
             JLog.e(TAG, "can't write the recovery state" + "\n" + Log.getStackTraceString(e)); false
@@ -299,6 +303,15 @@ class GameStates(
         val bytes = try { f.readBytes() } catch (e: IOException) { return false.also { JLog.e(TAG, "no recovery state") } }
         return loadBytes("recovery state", bytes)
     }
+
+    /**
+     * The picture of the state a start loads (MainActivity.EXTRA_LOAD_STATE): the quit save's or a slot's [slot], or
+     * the recovery state's ([slot] null). Null when there's none (a recovery state from before pictures were kept).
+     */
+    fun startPicture(slot: Int?): ByteArray? = try {
+        if (slot == null) File(recoveryDir, RECOVERY_PICTURE).takeIf { it.exists() }?.readBytes()
+        else space.openRead(path(StateSlots.thumbnailName(saveName, slot)))?.use { it.readBytes() }
+    } catch (e: IOException) { null }
 
     /** The game was quit cleanly: nothing to recover. */
     fun clearRecovery() = Recovery.clear(recoveryDir)
@@ -354,6 +367,7 @@ class GameStates(
             internal fun clear(dir: File) {
                 File(dir, RECOVERY_STATE).delete()
                 File(dir, RECOVERY_INFO).delete()
+                File(dir, RECOVERY_PICTURE).delete()
                 dir.delete()
             }
 
@@ -399,6 +413,7 @@ class GameStates(
         private const val RECOVERY_DIR = "recovery"
         private const val RECOVERY_STATE = "state"
         private const val RECOVERY_INFO = "info.properties"
+        private const val RECOVERY_PICTURE = "picture.png"
         private const val GAMES_DIR = "games"
         /** A new quit save's files wait under their names plus this until the kept ones have moved down ([saveQuit]). */
         private const val ASIDE = ".new"

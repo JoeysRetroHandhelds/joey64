@@ -1322,6 +1322,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         if (started) { NativeBridge.showAgain(); return }
         prepared?.let { launchGame(it); return }
         if (preparing) return
+        showHeldPicture()
         // The file work before a game loads (unpacking the ROM, the 64DD BIOS, a picked data folder's saves, the
         // save backups: a 64DD disk save is 64.9 MB) runs off the main thread (code audit 2, finding 1).
         preparing = true
@@ -1334,6 +1335,32 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
                 if (p == null) { reportGameState(loading = false); notStarted(cart = cartFailed, why = com.joeysretro.joey64.launcher.GameStartFailed.Why.Unreadable); return@runOnUiThread }
                 prepared = p
                 if (surfaceUp) launchGame(p)
+            }
+        }
+    }
+
+    /** The state's picture held over a start from a state ([HeldPicture]); null when this start has none. */
+    private var held: HeldPicture? = null
+
+    /**
+     * A start from a state (Continue, carry on after a crash or Android ending the process, a slot): its picture goes
+     * up at once, read on [gameIo] ahead of [prepareGame], and stays until the game's frames from that state are drawn.
+     */
+    private fun showHeldPicture() {
+        val which = launcherString(EXTRA_LOAD_STATE) ?: return
+        val name = earlySaveName()?.takeIf { it.isNotEmpty() } ?: return
+        val slot: Int? = when {
+            which == STATE_AUTO -> StateSlots.AUTO
+            which == STATE_RECOVERY -> null
+            which.startsWith(STATE_SLOT) -> which.removePrefix(STATE_SLOT).toIntOrNull() ?: return
+            else -> return
+        }
+        gameIo.execute {
+            val bmp = try {
+                GameStates(this, name).startPicture(slot)?.let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) }
+            } catch (e: Exception) { JLog.w(TAG, "held picture: can't read it: $e"); null }
+            if (bmp != null) runOnUiThread {
+                if (!destroyed && !started && held == null) held = HeldPicture(this, bmp).takeIf { it.show() }
             }
         }
     }
@@ -1412,6 +1439,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // Back (or Leave the room) while the game was getting ready: nothing loads, and Auto's GPU trial isn't started
         // for a start that never ran (code audit 3, p1 L7).
         if (isFinishing) { JLog.i(TAG, "closed while the game was getting ready: not loaded"); reportGameState(loading = false); return }
+        // The state's picture first, on screen before loadGame holds the main thread.
+        held?.let { h -> if (!h.ready) { h.whenDrawn { if (destroyed) return@whenDrawn; if (surfaceUp) launchGame(p) else prepared = p }; return } }
         val rom = p.rom; val saveName = p.saveName; val ddCart = p.ddCart
         gameMd5 = p.md5
         startRom = rom; startSave = saveName
@@ -1433,7 +1462,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
         // A 60 fps code makes the game's CPU work harder: the CPU runs at counter factor 1 (the smoother timing's
         // CountPerOp=1), unless Overclock is set or --es opts sets it.
         if (p.extras.fps && !eApply.overclockSet && !devOpts.contains("mupen64plus-CountPerOp=")) NativeBridge.setOption("mupen64plus-CountPerOp", "1")
-        if (p.extras.shape != null) applyVideoDisplay()
+        if (p.extras.shape != null) { applyVideoDisplay(); held?.place() }
         JLog.i(TAG, "widescreen / 60 fps: ${p.extras.log}")
         // RetroAchievements: signs in with the kept account first, so the game is identified as it loads.
         com.joeysretro.joey64.achievements.RaBridge.init(this)
@@ -1481,6 +1510,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     /** The game couldn't start (no ROM, a cartridge that didn't unpack, the core refused it): back to what started it, not a black screen. */
     private fun notStarted(cart: Boolean, why: com.joeysretro.joey64.launcher.GameStartFailed.Why) {
         JLog.e(TAG, "the game didn't start (${why.name}), closing the game screen")
+        held?.hide()
         if (cart) intent?.let { com.joeysretro.joey64.launcher.GameStartFailed.diskNeedsCart(it) }
         // Started from the library (it passes the MD5): it says "<game> won't start" (approved problem screens 2026-11-08).
         else intent?.takeIf { launcherString(EXTRA_MD5) != null }?.let { com.joeysretro.joey64.launcher.GameStartFailed.romFailed(it, why) }
@@ -1599,6 +1629,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
                 ?.let { n -> stateHandler.post { startLoadFailed = !st.load(n) } }
                 ?: JLog.e(TAG, "states: unknown state to load: $which")
         }
+        // The held picture goes once the loaded state's own frames are drawn (after the load on the same thread), or
+        // at once if the load failed.
+        held?.let { h -> stateHandler.post { val ok = !startLoadFailed; runOnUiThread { if (ok) h.hideAfterFrames() else h.hide() } } }
         // A picked data folder gets the save RAM the core wrote, every 30 s when it changed (and on exit).
         stateHandler.postDelayed(srmTick, SRM_PUSH_MS)
         // Settings › Saves › Recovery state Off: none is written, so none is offered after a crash.
@@ -3161,6 +3194,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
      */
     override fun onStop() {
         super.onStop()
+        held?.hide()
         if (!mine || isFinishing || quitting || !started) return
         val st = states ?: return
         if (recoveryEveryMs > 0 && !startLoadFailed) stateHandler.post {
@@ -3197,6 +3231,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback2 {
     }
 
     override fun onDestroy() {
+        held?.hide(); held = null
         if (isFinishing) { fpsHandler.removeCallbacks(sessionTick); session?.finish(); session = null }
         fpsHandler.removeCallbacks(saveRamWatch)
         getSystemService(android.hardware.input.InputManager::class.java)?.unregisterInputDeviceListener(padListener)

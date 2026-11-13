@@ -45,6 +45,7 @@ class SharedElementsTest {
         "touch/TouchDraw.kt" to "the touch controls",
         "touch/TouchLayer.kt" to "the touch controls' window",
         "video/PictureImages.kt" to "draws the Joey64 frame picture, not UI",
+        "HeldPicture.kt" to "the game's own picture held over a start from a state, not UI (its onDraw is a draw listener)",
     )
 
     @Test fun overlaysOutsideTheLauncherAreDeliberate() {

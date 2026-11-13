@@ -2426,6 +2426,17 @@ JNIEXPORT void JNICALL JNI(showAgain)(JNIEnv*, jobject) {
     g_pauseCv.notify_all();
 }
 
+// Where a picture of imgW x imgH goes in a winW x winH window with the display settings as they are now (Display::fit,
+// as both presents place the game): x, y, w, h. For the state's picture held over a start (MainActivity.HeldPicture).
+JNIEXPORT jintArray JNICALL JNI(pictureRect)(JNIEnv* env, jobject, jint winW, jint winH, jint imgW, jint imgH) {
+    int x = 0, y = 0, w = winW, h = winH;
+    if (winW > 0 && winH > 0 && imgW > 0 && imgH > 0) Display::fit(winW, winH, imgW, imgH, x, y, w, h);
+    jint r[4] = {x, y, w, h};
+    jintArray out = env->NewIntArray(4);
+    if (out) env->SetIntArrayRegion(out, 0, 4, r);
+    return out;
+}
+
 // Frame advance: while paused, the game runs one more frame and stays paused. Does nothing if not paused.
 JNIEXPORT void JNICALL JNI(stepFrame)(JNIEnv*, jobject) {
     if (!g_paused || g_netplay) return;

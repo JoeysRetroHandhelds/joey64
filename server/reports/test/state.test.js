@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import worker from "../src/index.js";
+import { deflateSync } from "node:zlib";
 import { BLOCK_DAY_STATES, DEFAULT_ENOUGH, MAX_SAVE } from "../src/state.js";
 
 const MD5 = "9feee5da895fb2e115bb15d1c4a9f906";
@@ -45,7 +46,29 @@ function fakeR2() {
   };
 }
 
-const rz = (n = 4096) => { const b = new Uint8Array(n); b.set([..."#RZIPv\x01#"].map((c) => c.charCodeAt(0))); return b; };
+/**
+ * A state as the app sends it: RZIP around RASTATE, whose MEM block starts with the core's M64+SAVE header (version,
+ * then the ROM's MD5 in upper case). The first chunk is real zlib, padded to [pad] bytes of data; the header's
+ * unpacked size says 16.8 MB, as a real one does. [mem] replaces the MEM block's start.
+ */
+function rz({ md5 = MD5, pad = 4096, mem = null, unpacked = 16_800_000 } = {}) {
+  const enc = (s) => [...s].map((c) => c.charCodeAt(0));
+  const core = mem || new Uint8Array([...enc("M64+SAVE"), 0, 1, 1, 0, ...enc(md5.toUpperCase())]);
+  const plain = new Uint8Array(16 + core.length + pad);
+  plain.set(enc("RASTATE"), 0); plain[7] = 1; plain.set(enc("MEM "), 8);
+  new DataView(plain.buffer).setUint32(12, core.length + pad, true);
+  plain.set(core, 16);
+  for (let i = 16 + core.length, x = 7; i < plain.length; i++) { x = (x * 1103515245 + 12345) >>> 0; plain[i] = x >>> 24; } // packs poorly, as RDRAM does
+  const chunk = deflateSync(plain);
+  const out = new Uint8Array(24 + chunk.length);
+  const v = new DataView(out.buffer);
+  out.set(enc("#RZIPv\x01#"), 0);
+  v.setUint32(8, 131072, true); v.setBigUint64(12, BigInt(unpacked), true); v.setUint32(20, chunk.length, true);
+  out.set(chunk, 24);
+  return out;
+}
+const STATE = rz();
+const OTHER_STATE = rz({ md5: OTHER });
 const gz = (n = 300) => { const b = new Uint8Array(n); b.set([0x1f, 0x8b]); return b; };
 
 function post(fields, ip = "1.2.3.4") {
@@ -53,7 +76,7 @@ function post(fields, ip = "1.2.3.4") {
   for (const [k, v] of Object.entries(fields)) { if (v instanceof Uint8Array) f.append(k, new Blob([v]), k); else f.append(k, v); }
   return new Request("https://x/v1/state", { method: "POST", body: f, headers: { "cf-connecting-ip": ip } });
 }
-const good = (extra = {}) => ({ md5: MD5, kind: "gameplay", app: "0.2.0.1", state: rz(), ...extra });
+const good = (extra = {}) => ({ md5: MD5, kind: "gameplay", app: "0.2.0.1", state: STATE, ...extra });
 const env = (o = {}) => ({ DB: fakeDb(), STATES: fakeR2(), WANTED, ...o });
 
 test("a wanted game's state is stored privately with its save, and a row counts it", async () => {
@@ -65,7 +88,7 @@ test("a wanted game's state is stored privately with its save, and a row counts 
   assert.equal(keys.length, 2);
   assert.match(keys[0], new RegExp(`^states/${MD5}/\\d{4}-\\d\\d-\\d\\d-[0-9a-f-]{36}\\.state$`));
   assert.ok(keys[1].endsWith(".srm.gz"));
-  assert.equal(e.STATES.files.get(keys[0]).length, 4096);
+  assert.deepEqual(e.STATES.files.get(keys[0]), STATE);
   assert.equal(JSON.stringify(e.DB.t).includes("1.2.3.4"), false, "the IP address is never stored");
 });
 
@@ -74,7 +97,7 @@ test("bad fields are refused and store nothing", async () => {
   const codes = [];
   for (const f of [
     good({ md5: "zz" }), good({ kind: "other" }), good({ app: "x y" }), good({ state: "text" }),
-    good({ state: new Uint8Array(4096) }), good({ state: rz(100) }), good({ save: new Uint8Array(MAX_SAVE + 1) }),
+    good({ state: new Uint8Array(4096) }), good({ state: STATE.slice(0, 100) }), good({ save: new Uint8Array(MAX_SAVE + 1) }),
     good({ kind: "problem" }), good({ save: new Uint8Array(300) }),
   ]) codes.push((await worker.fetch(post(f), e)).status);
   assert.deepEqual(codes, [400, 400, 400, 400, 400, 400, 413, 400, 400]);
@@ -83,6 +106,27 @@ test("bad fields are refused and store nothing", async () => {
   assert.equal((await worker.fetch(json, e)).status, 400);
   assert.equal(e.DB.t.states.length, 0);
   assert.equal(e.STATES.files.size, 0);
+});
+
+test("only a real state of that game's ROM is taken: RZIP-looking junk gets 400 (audit 4 M1)", async () => {
+  const e = env();
+  const junk = STATE.slice(); junk.fill(0x55, 24); // the magic and header, garbage where the zlib chunk is
+  const big = STATE.slice(); new DataView(big.buffer).setUint32(20, 1 << 20, true); // a first chunk past the file
+  const cases = [
+    ["junk after the magic", junk],
+    ["another game's state", rz({ md5: OTHER })],
+    ["no M64+SAVE in MEM", rz({ mem: new Uint8Array(44) })],
+    ["unpacked size too small", rz({ unpacked: 1024 })],
+    ["first chunk past the end", big],
+  ];
+  for (const [what, state] of cases) {
+    const res = await worker.fetch(post(good({ state })), e);
+    assert.equal(res.status, 400, what);
+    assert.equal(await res.text(), "not a state of this game", what);
+  }
+  assert.equal(e.DB.t.states.length, 0);
+  assert.equal(e.STATES.files.size, 0);
+  assert.equal((await worker.fetch(post(good({ state: rz({ md5: MD5.toUpperCase() }) })), e)).status, 204, "the MD5 in either case");
 });
 
 test("a game not on the wanted list gets 404, a game with enough 410", async () => {
@@ -107,11 +151,11 @@ test("the rate limit and the per-address day limit answer 429 with Retry-After",
   assert.equal(r.headers.get("retry-after"), "60");
 
   const e = env({ WANTED: { games: [{ md5: OTHER, kind: "problem", enough: 100 }] } });
-  for (let i = 0; i < BLOCK_DAY_STATES; i++) assert.equal((await worker.fetch(post(good({ md5: OTHER, kind: "problem" }), "5.6.7." + i), e)).status, 204);
-  const over = await worker.fetch(post(good({ md5: OTHER, kind: "problem" }), "5.6.7.200"), e);
+  for (let i = 0; i < BLOCK_DAY_STATES; i++) assert.equal((await worker.fetch(post(good({ md5: OTHER, kind: "problem", state: OTHER_STATE }), "5.6.7." + i), e)).status, 204);
+  const over = await worker.fetch(post(good({ md5: OTHER, kind: "problem", state: OTHER_STATE }), "5.6.7.200"), e);
   assert.equal(over.status, 429);
   assert.ok(Number(over.headers.get("retry-after")) >= 60);
-  assert.equal((await worker.fetch(post(good({ md5: OTHER, kind: "problem" }), "8.8.8.8"), e)).status, 204, "another block still can");
+  assert.equal((await worker.fetch(post(good({ md5: OTHER, kind: "problem", state: OTHER_STATE }), "8.8.8.8"), e)).status, 204, "another block still can");
 });
 
 test("an unreachable wanted list answers 503, not a store", async () => {

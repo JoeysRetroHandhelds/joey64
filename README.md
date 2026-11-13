@@ -141,6 +141,12 @@ Joey64 may install and run on other Android devices, but nothing has been checke
 per-device choices (driver, renderer, tuning) have only been measured on these. Reports from other devices
 help: Settings › About › Send reports, or Share logs with an issue here.
 
+## Game compatibility
+
+**[Game compatibility list](https://joeysretrohandhelds.github.io/joey64-data/compat/)**: how each game runs in
+Joey64 (Runs, Starts, Broken or Not checked yet), from our test runs on the devices above. It's updated after each
+full run of the library. A game that runs wrong for you: open an issue with the "Game doesn't run right" form.
+
 ## Building
 
 Android Studio's JDK and the NDK (27.3); from the repo root:

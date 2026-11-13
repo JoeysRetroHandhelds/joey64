@@ -96,7 +96,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "0.2.0.2"
+        versionName = "0.2.1"
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild { cmake { cppFlags += "-std=c++17" } }
         buildConfigField("String", "GIT_COMMIT", "\"$gitCommit\"")

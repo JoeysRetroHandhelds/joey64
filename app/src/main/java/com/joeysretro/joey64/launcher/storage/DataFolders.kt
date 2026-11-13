@@ -102,7 +102,7 @@ object SrmSync {
     fun forgetFile(context: Context, name: String) {
         val k = key(name)
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(k).remove("$k|size").remove("$k|mod")
-            .remove("$k|held").remove("$k|heldIn").commit()
+            .remove("$k|held").remove("$k|heldIn").remove("$k|sha").commit()
     }
 
     /** The folder changed: nothing is in step with the new one yet. */
@@ -135,10 +135,34 @@ object SrmSync {
         space.list(listOf(DataKind.Saves.dir)).firstOrNull { it.name == name && !it.isDir }?.takeIf { it.modified > 0 }?.let { it.size to it.modified }
 
     /** Remembers the folder's copy as it is now in step with the working copy, so an unchanged one isn't pulled again. */
-    private fun noteFolder(space: FileSpace, name: String, st: Stamps) {
+    private fun noteFolder(space: FileSpace, name: String, st: Stamps, inStep: File? = null) {
         val k = key(name)
         val fs = folderStamp(space, name)
         st.put("$k|size", fs?.first ?: -1L); st.put("$k|mod", fs?.second ?: -1L)
+        // The bytes in step, for saves up to 2 MB (a 64DD disk save goes by size and time alone): a folder copy whose
+        // time changed but whose bytes didn't (a sync app writing it again) isn't taken for another device's save.
+        st.putText("$k|sha", inStep?.takeIf { it.isFile && it.length() <= HASHED_MAX }?.let { sha(it.readBytes()) })
+    }
+
+    private const val HASHED_MAX = 2L shl 20
+    private fun sha(b: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }
+
+    /**
+     * Whether the folder's copy of [name] changed since this device was last in step with it (another device saved
+     * there meanwhile): its size or time differ from the ones noted, and its bytes are neither [f]'s nor the ones in step.
+     */
+    private fun folderMovedOn(space: FileSpace, name: String, f: File, st: Stamps): Boolean {
+        val k = key(name)
+        val fs = folderStamp(space, name)
+        if (fs == null) return false
+        if (fs.first == st.get("$k|size") && fs.second == st.get("$k|mod")) return false
+        if (sameBytes(space, name, f)) return false
+        // No bytes noted (stamps from before this check): size and time alone have been wrong after a SAF write, so
+        // trust them as before.
+        val was = st.text("$k|sha") ?: return false
+        if (fs.first > HASHED_MAX) return true
+        val now = space.openRead(listOf(DataKind.Saves.dir, name))?.use { sha(it.readBytes()) } ?: return false
+        return now != was
     }
 
     /**
@@ -152,8 +176,12 @@ object SrmSync {
         // A new start keeps aside its own backup: only this start's pushes replace it, never what an earlier start kept.
         st.putText("${key(name)}|heldIn", null)
         try {
-            if (f.isFile && rec >= 0 && f.lastModified() != rec) { JLog.i(TAG, "$name: the working copy is newer, pushing it first"); pushFile(space, work, name, st); return }
-            if (f.isFile && rec >= 0) {
+            if (f.isFile && rec >= 0 && f.lastModified() != rec) {
+                JLog.i(TAG, "$name: the working copy is newer, pushing it first"); pushFile(space, work, name, st)
+                // Kept aside because the folder moved on: the folder's copy comes in below.
+                if (st.get(key(name)) >= 0) return
+            }
+            if (f.isFile && st.get(key(name)) >= 0) {
                 val fs = folderStamp(space, name)
                 if (fs != null && fs.first == st.get("${key(name)}|size") && fs.second == st.get("${key(name)}|mod")) {
                     JLog.i(TAG, "$name: in step with the data folder, not copied"); return
@@ -174,7 +202,7 @@ object SrmSync {
             st.put(key(name), f.lastModified())
             st.put("${key(name)}|held", -1L)
             st.putText("${key(name)}|heldIn", null)
-            noteFolder(space, name, st)
+            noteFolder(space, name, st, f)
             JLog.i(TAG, "$name: pulled $size bytes from the data folder")
         } catch (e: Exception) {
             JLog.e(TAG, "$name: can't pull: $e")
@@ -188,13 +216,26 @@ object SrmSync {
         val at = f.lastModified()
         if (st.get(key(name)) == at) return
         val size = f.length()
+        // In step once, but another device saved to the folder since (this one started while the folder couldn't be
+        // read, so it played its old working copy): treated as never pulled, so the branch below keeps this copy
+        // aside and the next start pulls the folder's (code audit 4, the stale push).
+        if (st.get(key(name)) >= 0) {
+            try {
+                if (folderMovedOn(space, name, f, st)) {
+                    JLog.w(TAG, "$name: the data folder's copy changed since they were last in step; not written over")
+                    st.put(key(name), -1L)
+                }
+            } catch (e: Exception) {
+                JLog.e(TAG, "$name: can't compare with the data folder's copy: $e"); return
+            }
+        }
         // Never in step with the folder, and the folder has its own copy: the game started while the folder couldn't
         // be read, so this working copy began blank or old. It never goes over the folder's copy: when they differ it's
         // kept in the folder's backups (Restore a backup lists it), and the next start pulls the folder's copy back
         // (code audit 4, B-H1).
         if (st.get(key(name)) < 0 && folderStamp(space, name) != null) {
             try {
-                if (sameBytes(space, name, f)) { st.put(key(name), at); noteFolder(space, name, st); return }
+                if (sameBytes(space, name, f)) { st.put(key(name), at); noteFolder(space, name, st, f); return }
                 if (st.get("${key(name)}|held") == at) return
                 // One backup for the whole stretch: each later push (every 30 s while the game saves) takes the place of
                 // the one kept before, so a long play leaves one backup with its newest copy, not one per push.
@@ -221,7 +262,7 @@ object SrmSync {
                 throw IOException("can't write $name")
             }
             st.put(key(name), at)
-            noteFolder(space, name, st)
+            noteFolder(space, name, st, f)
             JLog.i(TAG, "$name: pushed ${f.length()} bytes to the data folder")
         } catch (e: Exception) {
             JLog.e(TAG, "$name: can't push: $e")

@@ -152,6 +152,56 @@ class SrmSyncTest {
         assertFalse(File(space.root, "backups").exists())
     }
 
+    /** The stale push: in step once, then another device saved to the folder while this one played its old copy. */
+    @Test fun folderThatMovedOnIsNotWrittenOver() {
+        val space = DirSpace(tmp.newFolder("picked"))
+        val work = tmp.newFolder("work")
+        val st = MapStamps()
+        val f = File(work, "Game.srm").apply { writeBytes(byteArrayOf(1, 1)) }
+        SrmSync.pushFile(space, work, "Game.srm", st)
+        // Another device saves there; this one starts while the folder can't be read and plays its old copy.
+        val theirs = byteArrayOf(2, 2, 2)
+        File(space.root, "saves/Game.srm").apply { writeBytes(theirs); setLastModified(lastModified() + 5000) }
+        SrmSync.pullFile(Blinkable(space).apply { unreadable = true }, work, "Game.srm", st)
+        f.writeBytes(byteArrayOf(1, 1, 7)); f.setLastModified(f.lastModified() + 9000)
+        SrmSync.pushFile(space, work, "Game.srm", st)
+        assertArrayEquals(theirs, File(space.root, "saves/Game.srm").readBytes())
+        val kept = File(space.root, "backups").listFiles { x -> x.name.endsWith(".srm") }.orEmpty()
+        assertEquals(1, kept.size)
+        assertArrayEquals(byteArrayOf(1, 1, 7), kept[0].readBytes())
+        // The next start brings the other device's save in.
+        SrmSync.pullFile(space, work, "Game.srm", st)
+        assertArrayEquals(theirs, f.readBytes())
+    }
+
+    /** A sync app writing the same bytes again gives the folder's copy a new time: that's no other device's save. */
+    @Test fun folderRewrittenWithTheSameBytesIsStillPushedOver() {
+        val space = DirSpace(tmp.newFolder("picked"))
+        val work = tmp.newFolder("work")
+        val st = MapStamps()
+        val f = File(work, "Game.srm").apply { writeBytes(byteArrayOf(1, 1)) }
+        SrmSync.pushFile(space, work, "Game.srm", st)
+        File(space.root, "saves/Game.srm").apply { setLastModified(lastModified() + 5000) }
+        f.writeBytes(byteArrayOf(3, 3)); f.setLastModified(f.lastModified() + 9000)
+        SrmSync.pushFile(space, work, "Game.srm", st)
+        assertArrayEquals(byteArrayOf(3, 3), File(space.root, "saves/Game.srm").readBytes())
+        assertFalse(File(space.root, "backups").exists())
+    }
+
+    /** The working copy is newer and the folder moved on too: the newer copy is kept aside and the folder's comes in. */
+    @Test fun newerWorkingCopyAndMovedFolderAtStart() {
+        val space = DirSpace(tmp.newFolder("picked"))
+        val work = tmp.newFolder("work")
+        val st = MapStamps()
+        val f = File(work, "Game.srm").apply { writeBytes(byteArrayOf(1, 1)) }
+        SrmSync.pushFile(space, work, "Game.srm", st)
+        File(space.root, "saves/Game.srm").apply { writeBytes(byteArrayOf(2, 2, 2)); setLastModified(lastModified() + 5000) }
+        f.writeBytes(byteArrayOf(1, 1, 7)); f.setLastModified(f.lastModified() + 9000)
+        SrmSync.pullFile(space, work, "Game.srm", st)
+        assertArrayEquals(byteArrayOf(2, 2, 2), f.readBytes())
+        assertArrayEquals(byteArrayOf(1, 1, 7), File(space.root, "backups").listFiles { x -> x.name.endsWith(".srm") }!!.single().readBytes())
+    }
+
     @Test fun saveRamKeepsItsOldKey() {
         val space = DirSpace(tmp.newFolder("picked"))
         val work = tmp.newFolder("work")
